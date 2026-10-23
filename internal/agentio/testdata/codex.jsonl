@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"t1"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"type":"command_execution","command":"echo hi\nmore"}}
+{"type":"item.completed","item":{"type":"agent_message","text":"first"}}
+{"type":"item.completed","item":{"type":"agent_message","text":"{\"status\":\"done\",\"handoff\":[\"a\"]}"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":7}}

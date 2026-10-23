@@ -1,0 +1,31 @@
+# Allow list for tools/audit-public.sh: one `path:pattern` line per
+# allowance, `pattern` is the id the audit prints. Every line is
+# reviewed by a human before a publication.
+
+# Pattern tables of the audit script and of this allow list: the pattern
+# names appear there as literals.
+tools/audit-public.sh:home
+tools/audit-public.sh:begin
+tools/audit-public.sh:token
+tools/audit-public.sh:gitflic
+tools/audit-public.allow:gitflic
+
+# Author e-mail in the license file: allowed by the plan.
+LICENSE:email
+
+# Test and parity fixtures: RFC 2606 example addresses, no real mailbox.
+cmd/docflow/lifecycle_test.go:email
+cmd/docflow/main_test.go:email
+internal/agents/agents_test.go:email
+internal/cycle/commit_test.go:email
+internal/cycle/cycle_test.go:email
+internal/cycle/verify_test.go:email
+internal/runner/run_test.go:email
+tools/parity/driver.sh:email
+tools/parity/e2e.sh:email
+tools/parity/run.sh:email
+tools/parity/scenarios/commit_nested_repo.sh:email
+tools/parity/scenarios/test_accept_p020__CheckoutAcceptanceTest__test_claude_new_user_path.sh:email
+tools/parity/scenarios/test_accept_p020__CheckoutAcceptanceTest__test_codex_new_user_path.sh:email
+tools/parity/scenarios/verify_done_cross_binary.sh:email
+tools/smoke-run.sh:email

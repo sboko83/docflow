@@ -1,0 +1,4 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"docflow prompt"}}],"usage":{"input_tokens":1,"cache_read_input_tokens":10,"cache_creation_input_tokens":100}}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"# P001.1.2 Second\n\nbody"}]}]}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cd . && docflow finish P001.1.2"}}],"usage":{"input_tokens":6,"cache_read_input_tokens":60,"cache_creation_input_tokens":600}}}
+{"type":"assistant","message":{"id":"m3","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":7,"cache_read_input_tokens":70,"cache_creation_input_tokens":700}}}

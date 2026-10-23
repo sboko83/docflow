@@ -1,0 +1,6 @@
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"docflow prompt P001.1.1"}}],"usage":{"input_tokens":100}}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":150}}}
+{"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"docflow finish P001.1.1"}}],"usage":{"input_tokens":200}}}
+{"type":"assistant","message":{"id":"m4","content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"docflow prompt P001.1.2"}}],"usage":{"input_tokens":200}}}
+{"type":"assistant","message":{"id":"m5","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":300}}}
+{"type":"assistant","message":{"id":"m6","content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"docflow finish P001.1.2"}}],"usage":{"input_tokens":400}}}

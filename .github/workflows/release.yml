@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check tag matches version
+        run: bash tools/check-release-tag.sh "$GITHUB_REF_NAME"
+      - name: Extract release notes
+        run: bash tools/release-notes.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
+      - run: go test ./...
+      - run: bash tools/release.sh "${GITHUB_REF_NAME#v}" dist
+      - name: Create GitHub release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$TAG" --title "$TAG"
+          --notes-file "$RUNNER_TEMP/notes.md"
+          dist/download/"$TAG"/*

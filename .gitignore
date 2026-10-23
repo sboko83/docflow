@@ -1,0 +1,5 @@
+.DS_Store
+/dist/
+/work/
+/bin/docflow
+/bin/docflow-go
