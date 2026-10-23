@@ -303,23 +303,29 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 		}
 	}
 	names := []string{}
+	add := func(name string) {
+		if profile(config, name)["quota"] == nil {
+			return
+		}
+		for _, n := range names {
+			if n == name {
+				return
+			}
+		}
+		names = append(names, name)
+	}
 	for _, unit := range units {
 		route, err := agents.RunRoute(config, plan, unit, args.RunArgs)
 		if err != nil {
 			return err
 		}
-		agent := profile(config, route.Agent)
-		if agent["quota"] == nil {
-			continue
-		}
-		found := false
-		for _, n := range names {
-			if n == route.Agent {
-				found = true
-			}
-		}
-		if !found {
-			names = append(names, route.Agent)
+		add(route.Agent)
+	}
+	// The replan agent runs only after a block, but its quota still matters
+	// for the run; a bad replan route is reported when replan starts.
+	if len(units) > 0 && plan.Meta["replan"] != "" && args.Replans >= 1 {
+		if name, _, _, err := lint.ParseExecutor(plan.Meta["replan"]); err == nil {
+			add(name)
 		}
 	}
 	if len(names) == 0 {

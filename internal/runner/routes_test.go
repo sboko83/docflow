@@ -147,7 +147,7 @@ func executorRunFixture(t *testing.T) *runFixture {
 }
 
 func TestRunExecutor(t *testing.T) {
-	for _, mode := range []string{"dry", "override", "haiku", "flags", "bad-assignment", "retry", "full-no", "full-yes", "zero"} {
+	for _, mode := range []string{"dry", "override", "haiku", "flags", "bad-assignment", "retry", "full-no", "full-yes", "zero", "replan-quota", "replan-off"} {
 		t.Run(mode, func(t *testing.T) {
 			f := executorRunFixture(t)
 			args := []string{"run", "--no-wait", "--dry-run"}
@@ -186,6 +186,14 @@ func TestRunExecutor(t *testing.T) {
 					code, text = 0, ", permissions full"
 					f.steps(writeReply("a.txt"))
 				}
+			case "replan-quota", "replan-off":
+				f.replace(planFile, "executor: claude | claude-opus-5-5 | high", "executor: claude | claude-opus-5-5 | high\nreplan: codex | gpt-5.5 | -")
+				f.steps(writeReply("a.txt"))
+				args = []string{"run", "--no-wait", "--max-units", "1"}
+				if mode == "replan-off" {
+					args = append(args, "--replans", "0")
+				}
+				text = "done:"
 			case "zero":
 				args = []string{"run", "--max-units", "0", "--attempts", "2"}
 				code, text = 1, "nothing to do"
@@ -207,6 +215,12 @@ func TestRunExecutor(t *testing.T) {
 				}
 				b, _ := os.ReadFile(filepath.Join(f.tmp, "probes"))
 				if string(b) != "claude -p /usage\n" {
+					t.Fatal(string(b))
+				}
+			}
+			if mode == "replan-quota" || mode == "replan-off" {
+				b, _ := os.ReadFile(filepath.Join(f.tmp, "probes"))
+				if got := strings.Contains(string(b), "codex app-server"); got != (mode == "replan-quota") || !strings.Contains(string(b), "claude -p /usage") {
 					t.Fatal(string(b))
 				}
 			}
