@@ -9,9 +9,9 @@ start_budget: 4000
 ## Frozen
 
 ## Backlog
-- Публикация 0.7.0: orphan-коммит в `sboko83/docflow` как `main`, тег
-  `v0.7.0`; проверить прогон `ci.yml` и `release.yml`, `curl … | sh` с
-  raw.githubusercontent.com и `docflow update` против github.com
+- Релиз после 0.7.0: проверить `docflow update` с реальным переходом на
+  новую версию и откатом через `versions/` (на 0.7.0 проверен только
+  `--check`), живой `curl … | sh` на Linux (проверен на macOS arm64)
   ([P030](archive/P030-public-release.md)).
 - `docflow run --close`: закрытие готового плана через агента
   (`/bsv-docflow-close`).
