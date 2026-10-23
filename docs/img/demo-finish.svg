@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="879" height="584" viewBox="0 0 879 584">
+<svg xmlns="http://www.w3.org/2000/svg" width="879" height="566" viewBox="0 0 879 566">
 <style>text{font-family:'SF Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace;font-size:14px;white-space:pre}.b{font-weight:700}.d{opacity:.55}</style>
 <rect width="100%" height="100%" rx="10" fill="#16191d"/>
-<rect x="0.5" y="0.5" width="878" height="583" rx="10" fill="none" stroke="#2c3036"/>
+<rect x="0.5" y="0.5" width="878" height="565" rx="10" fill="none" stroke="#2c3036"/>
 <circle cx="22" cy="20" r="6" fill="#ff5f57"/>
 <circle cx="42" cy="20" r="6" fill="#febc2e"/>
 <circle cx="62" cy="20" r="6" fill="#28c840"/>
@@ -14,71 +14,69 @@
 <text x="110.7" y="75" fill="#d4d7dc" textLength="185.5" lengthAdjust="spacingAndGlyphs"> │ claude-haiku-5-5 │ </text>
 <text x="296.2" y="75" fill="#6b717c" textLength="25.3" lengthAdjust="spacingAndGlyphs">low</text>
 <text x="18.0" y="93" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="93" fill="#4fc66b" textLength="286.6" lengthAdjust="spacingAndGlyphs">✓ Done: 91c6885 (1 attempt, $0.01)</text>
+<text x="43.3" y="93" fill="#4fc66b" textLength="286.6" lengthAdjust="spacingAndGlyphs">✓ Done: 6a52384 (1 attempt, $0.01)</text>
 <text x="18.0" y="111" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
 <text x="43.3" y="111" fill="#d6b84a" textLength="109.6" lengthAdjust="spacingAndGlyphs">! Unverified:</text>
 <text x="18.0" y="129" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="129" fill="#d4d7dc" textLength="767.1" lengthAdjust="spacingAndGlyphs">The `go install ...@latest` command was not executed: the module path example.com/slug is a</text>
+<text x="60.1" y="129" fill="#d4d7dc" textLength="750.3" lengthAdjust="spacingAndGlyphs">go install example.com/slug/cmd/slug@latest was not run: module path example.com does not</text>
 <text x="18.0" y="147" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="147" fill="#d4d7dc" textLength="767.1" lengthAdjust="spacingAndGlyphs">placeholder and is not published, so the install line is unchecked against a real published</text>
-<text x="18.0" y="165" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="165" fill="#d4d7dc" textLength="59.0" lengthAdjust="spacingAndGlyphs">module.</text>
-<text x="18.0" y="183" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="183" fill="#d6b84a" textLength="109.6" lengthAdjust="spacingAndGlyphs">! Unverified:</text>
-<text x="18.0" y="201" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="201" fill="#d4d7dc" textLength="547.9" lengthAdjust="spacingAndGlyphs">The gate command was skipped (--no-gate); the runner will run it.</text>
-<text x="18.0" y="219" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 33s</text>
-<rect x="152.9" y="224" width="67.4" height="18" fill="#c15f3c"/>
-<text x="18.0" y="237" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
-<text x="152.9" y="237" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
-<text x="18.0" y="255" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
-<text x="77.0" y="255" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">█████▎</text>
-<text x="127.6" y="255" fill="#d4d7dc" class="d" textLength="33.7" lengthAdjust="spacingAndGlyphs">░░░░</text>
-<text x="169.7" y="255" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 52%</text>
-<text x="203.5" y="255" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
-<text x="279.3" y="255" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
-<text x="313.1" y="255" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
-<text x="355.2" y="255" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
-<text x="405.8" y="255" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 47%</text>
-<text x="439.5" y="255" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
-<text x="18.0" y="273" fill="#d4d7dc" textLength="168.6" lengthAdjust="spacingAndGlyphs">P001: ready to close</text>
-<text x="18.0" y="309" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">╭─ </text>
-<text x="43.3" y="309" fill="#d4d7dc" class="b" textLength="101.2" lengthAdjust="spacingAndGlyphs">run: summary</text>
-<text x="18.0" y="327" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="327" fill="#d4d7dc" textLength="547.9" lengthAdjust="spacingAndGlyphs">5 units, 15:47:18–15:54:40 (7m22s), $0.55, 5 unverified, 1 replan</text>
-<text x="18.0" y="345" fill="#d4d7dc" class="d" textLength="8.4" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="18.0" y="363" fill="#d4d7dc" class="d" textLength="193.9" lengthAdjust="spacingAndGlyphs">│  Quota · used · Δ run</text>
-<rect x="43.3" y="368" width="59.0" height="18" fill="#2457a6"/>
-<text x="18.0" y="381" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="381" fill="#ffffff" class="b" textLength="59.0" lengthAdjust="spacingAndGlyphs"> Codex </text>
-<text x="18.0" y="399" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">│    5h</text>
-<text x="93.9" y="399" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▋</text>
-<text x="102.3" y="399" fill="#d4d7dc" class="d" textLength="75.9" lengthAdjust="spacingAndGlyphs">░░░░░░░░░</text>
-<text x="186.6" y="399" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  6%</text>
-<text x="220.3" y="399" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+2)</text>
-<text x="296.2" y="399" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
-<text x="329.9" y="399" fill="#4fc66b" textLength="25.3" lengthAdjust="spacingAndGlyphs">██▉</text>
-<text x="355.2" y="399" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">░░░░░░░</text>
-<text x="422.6" y="399" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 29%</text>
-<text x="456.4" y="399" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
-<rect x="43.3" y="404" width="67.4" height="18" fill="#c15f3c"/>
-<text x="18.0" y="417" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="417" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
-<text x="18.0" y="435" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">│    5h</text>
-<text x="93.9" y="435" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">█████▎</text>
-<text x="144.4" y="435" fill="#d4d7dc" class="d" textLength="33.7" lengthAdjust="spacingAndGlyphs">░░░░</text>
-<text x="186.6" y="435" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 52%</text>
-<text x="220.3" y="435" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+3)</text>
-<text x="296.2" y="435" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
-<text x="329.9" y="435" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
-<text x="372.1" y="435" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
-<text x="422.6" y="435" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 47%</text>
-<text x="456.4" y="435" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (-1)</text>
-<text x="18.0" y="453" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">╰─</text>
-<text x="18.0" y="489" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">$</text>
-<text x="26.4" y="489" fill="#d4d7dc" textLength="126.4" lengthAdjust="spacingAndGlyphs"> docflow status</text>
-<text x="18.0" y="507" fill="#d4d7dc" textLength="345.6" lengthAdjust="spacingAndGlyphs">P001 Slug CLI [active] 5/5 ready to close</text>
-<text x="18.0" y="525" fill="#d4d7dc" textLength="109.6" lengthAdjust="spacingAndGlyphs">current: none</text>
-<text x="18.0" y="543" fill="#d4d7dc" textLength="134.9" lengthAdjust="spacingAndGlyphs">start: README.md</text>
-<text x="18.0" y="561" fill="#d4d7dc" textLength="67.4" lengthAdjust="spacingAndGlyphs">lint: ok</text>
+<text x="60.1" y="147" fill="#d4d7dc" textLength="573.2" lengthAdjust="spacingAndGlyphs">resolve from the network, so the install command itself is untested.</text>
+<text x="18.0" y="165" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="165" fill="#d6b84a" textLength="109.6" lengthAdjust="spacingAndGlyphs">! Unverified:</text>
+<text x="18.0" y="183" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
+<text x="60.1" y="183" fill="#d4d7dc" textLength="699.7" lengthAdjust="spacingAndGlyphs">Gate command from the plan was not run (verify ran with --no-gate); runner runs it.</text>
+<text x="18.0" y="201" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 30s</text>
+<rect x="152.9" y="206" width="67.4" height="18" fill="#c15f3c"/>
+<text x="18.0" y="219" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
+<text x="152.9" y="219" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
+<text x="18.0" y="237" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
+<text x="77.0" y="237" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">██████</text>
+<text x="127.6" y="237" fill="#d4d7dc" class="d" textLength="33.7" lengthAdjust="spacingAndGlyphs">░░░░</text>
+<text x="169.7" y="237" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 60%</text>
+<text x="203.5" y="237" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+1)</text>
+<text x="279.3" y="237" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
+<text x="313.1" y="237" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
+<text x="355.2" y="237" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
+<text x="405.8" y="237" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 48%</text>
+<text x="439.5" y="237" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
+<text x="18.0" y="255" fill="#d4d7dc" textLength="168.6" lengthAdjust="spacingAndGlyphs">P001: ready to close</text>
+<text x="18.0" y="291" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">╭─ </text>
+<text x="43.3" y="291" fill="#d4d7dc" class="b" textLength="101.2" lengthAdjust="spacingAndGlyphs">run: summary</text>
+<text x="18.0" y="309" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="309" fill="#d4d7dc" textLength="547.9" lengthAdjust="spacingAndGlyphs">5 units, 16:02:46–16:09:25 (6m39s), $0.52, 4 unverified, 1 replan</text>
+<text x="18.0" y="327" fill="#d4d7dc" class="d" textLength="8.4" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="18.0" y="345" fill="#d4d7dc" class="d" textLength="193.9" lengthAdjust="spacingAndGlyphs">│  Quota · used · Δ run</text>
+<rect x="43.3" y="350" width="59.0" height="18" fill="#2457a6"/>
+<text x="18.0" y="363" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="363" fill="#ffffff" class="b" textLength="59.0" lengthAdjust="spacingAndGlyphs"> Codex </text>
+<text x="18.0" y="381" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">│    5h</text>
+<text x="93.9" y="381" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▊</text>
+<text x="102.3" y="381" fill="#d4d7dc" class="d" textLength="75.9" lengthAdjust="spacingAndGlyphs">░░░░░░░░░</text>
+<text x="186.6" y="381" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  8%</text>
+<text x="220.3" y="381" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+2)</text>
+<text x="296.2" y="381" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
+<text x="329.9" y="381" fill="#4fc66b" textLength="25.3" lengthAdjust="spacingAndGlyphs">██▉</text>
+<text x="355.2" y="381" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">░░░░░░░</text>
+<text x="422.6" y="381" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 29%</text>
+<text x="456.4" y="381" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
+<rect x="43.3" y="386" width="67.4" height="18" fill="#c15f3c"/>
+<text x="18.0" y="399" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="399" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
+<text x="18.0" y="417" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">│    5h</text>
+<text x="93.9" y="417" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">██████</text>
+<text x="144.4" y="417" fill="#d4d7dc" class="d" textLength="33.7" lengthAdjust="spacingAndGlyphs">░░░░</text>
+<text x="186.6" y="417" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 60%</text>
+<text x="220.3" y="417" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+5)</text>
+<text x="296.2" y="417" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
+<text x="329.9" y="417" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
+<text x="372.1" y="417" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
+<text x="422.6" y="417" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 48%</text>
+<text x="456.4" y="417" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
+<text x="18.0" y="435" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">╰─</text>
+<text x="18.0" y="471" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">$</text>
+<text x="26.4" y="471" fill="#d4d7dc" textLength="126.4" lengthAdjust="spacingAndGlyphs"> docflow status</text>
+<text x="18.0" y="489" fill="#d4d7dc" textLength="345.6" lengthAdjust="spacingAndGlyphs">P001 Slug CLI [active] 5/5 ready to close</text>
+<text x="18.0" y="507" fill="#d4d7dc" textLength="109.6" lengthAdjust="spacingAndGlyphs">current: none</text>
+<text x="18.0" y="525" fill="#d4d7dc" textLength="134.9" lengthAdjust="spacingAndGlyphs">start: README.md</text>
+<text x="18.0" y="543" fill="#d4d7dc" textLength="67.4" lengthAdjust="spacingAndGlyphs">lint: ok</text>
 </svg>

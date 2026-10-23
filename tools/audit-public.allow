@@ -28,4 +28,5 @@ tools/parity/scenarios/commit_nested_repo.sh:email
 tools/parity/scenarios/test_accept_p020__CheckoutAcceptanceTest__test_claude_new_user_path.sh:email
 tools/parity/scenarios/test_accept_p020__CheckoutAcceptanceTest__test_codex_new_user_path.sh:email
 tools/parity/scenarios/verify_done_cross_binary.sh:email
+tools/demo-run.sh:email
 tools/smoke-run.sh:email

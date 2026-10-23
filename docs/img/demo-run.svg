@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="879" height="746" viewBox="0 0 879 746">
+<svg xmlns="http://www.w3.org/2000/svg" width="879" height="692" viewBox="0 0 879 692">
 <style>text{font-family:'SF Mono',Menlo,Consolas,'DejaVu Sans Mono','Liberation Mono',monospace;font-size:14px;white-space:pre}.b{font-weight:700}.d{opacity:.55}</style>
 <rect width="100%" height="100%" rx="10" fill="#16191d"/>
-<rect x="0.5" y="0.5" width="878" height="745" rx="10" fill="none" stroke="#2c3036"/>
+<rect x="0.5" y="0.5" width="878" height="691" rx="10" fill="none" stroke="#2c3036"/>
 <circle cx="22" cy="20" r="6" fill="#ff5f57"/>
 <circle cx="42" cy="20" r="6" fill="#febc2e"/>
 <circle cx="62" cy="20" r="6" fill="#28c840"/>
@@ -12,15 +12,15 @@
 <text x="43.3" y="75" fill="#d4d7dc" class="b" textLength="75.9" lengthAdjust="spacingAndGlyphs">run: P001</text>
 <text x="18.0" y="93" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
 <text x="43.3" y="93" fill="#d4d7dc" textLength="67.4" lengthAdjust="spacingAndGlyphs">Slug CLI</text>
-<text x="18.0" y="111" fill="#d4d7dc" class="d" textLength="143.3" lengthAdjust="spacingAndGlyphs">│  start 15:47:18</text>
+<text x="18.0" y="111" fill="#d4d7dc" class="d" textLength="143.3" lengthAdjust="spacingAndGlyphs">│  start 16:02:46</text>
 <text x="18.0" y="129" fill="#d4d7dc" class="d" textLength="126.4" lengthAdjust="spacingAndGlyphs">│  Quota · used</text>
 <rect x="43.3" y="134" width="59.0" height="18" fill="#2457a6"/>
 <text x="18.0" y="147" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
 <text x="43.3" y="147" fill="#ffffff" class="b" textLength="59.0" lengthAdjust="spacingAndGlyphs"> Codex </text>
 <text x="18.0" y="165" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">│    5h</text>
-<text x="93.9" y="165" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▍</text>
+<text x="93.9" y="165" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▋</text>
 <text x="102.3" y="165" fill="#d4d7dc" class="d" textLength="75.9" lengthAdjust="spacingAndGlyphs">░░░░░░░░░</text>
-<text x="186.6" y="165" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  4%</text>
+<text x="186.6" y="165" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  6%</text>
 <text x="254.0" y="165" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
 <text x="287.8" y="165" fill="#4fc66b" textLength="25.3" lengthAdjust="spacingAndGlyphs">██▉</text>
 <text x="313.1" y="165" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">░░░░░░░</text>
@@ -29,9 +29,9 @@
 <text x="18.0" y="183" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
 <text x="43.3" y="183" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
 <text x="18.0" y="201" fill="#d4d7dc" class="d" textLength="59.0" lengthAdjust="spacingAndGlyphs">│    5h</text>
-<text x="93.9" y="201" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▉</text>
-<text x="136.0" y="201" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
-<text x="186.6" y="201" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 49%</text>
+<text x="93.9" y="201" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">█████▌</text>
+<text x="144.4" y="201" fill="#d4d7dc" class="d" textLength="33.7" lengthAdjust="spacingAndGlyphs">░░░░</text>
+<text x="186.6" y="201" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 55%</text>
 <text x="254.0" y="201" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
 <text x="287.8" y="201" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
 <text x="329.9" y="201" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
@@ -45,15 +45,15 @@
 <text x="102.3" y="273" fill="#d4d7dc" textLength="143.3" lengthAdjust="spacingAndGlyphs"> │ gpt-6.1-sol │ </text>
 <text x="245.6" y="273" fill="#5a8ff0" class="b" textLength="50.6" lengthAdjust="spacingAndGlyphs">medium</text>
 <text x="18.0" y="291" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="291" fill="#4fc66b" textLength="227.6" lengthAdjust="spacingAndGlyphs">✓ Done: c9244ec (1 attempt)</text>
-<text x="18.0" y="309" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 55s</text>
+<text x="43.3" y="291" fill="#4fc66b" textLength="227.6" lengthAdjust="spacingAndGlyphs">✓ Done: 71d6e11 (1 attempt)</text>
+<text x="18.0" y="309" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 44s</text>
 <rect x="152.9" y="314" width="59.0" height="18" fill="#2457a6"/>
 <text x="18.0" y="327" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
 <text x="152.9" y="327" fill="#ffffff" class="b" textLength="59.0" lengthAdjust="spacingAndGlyphs"> Codex </text>
 <text x="18.0" y="345" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
-<text x="77.0" y="345" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▌</text>
+<text x="77.0" y="345" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▊</text>
 <text x="85.4" y="345" fill="#d4d7dc" class="d" textLength="75.9" lengthAdjust="spacingAndGlyphs">░░░░░░░░░</text>
-<text x="169.7" y="345" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  5%</text>
+<text x="169.7" y="345" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  7%</text>
 <text x="203.5" y="345" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+1)</text>
 <text x="279.3" y="345" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
 <text x="313.1" y="345" fill="#4fc66b" textLength="25.3" lengthAdjust="spacingAndGlyphs">██▉</text>
@@ -68,46 +68,40 @@
 <text x="77.0" y="399" fill="#d4d7dc" textLength="143.3" lengthAdjust="spacingAndGlyphs"> │ zai/glm-5.3 │ </text>
 <text x="220.3" y="399" fill="#c678dd" class="b" textLength="33.7" lengthAdjust="spacingAndGlyphs">high</text>
 <text x="18.0" y="417" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="417" fill="#4fc66b" textLength="286.6" lengthAdjust="spacingAndGlyphs">✓ Done: 2c17ee8 (1 attempt, $0.13)</text>
-<text x="18.0" y="435" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="435" fill="#d6b84a" textLength="109.6" lengthAdjust="spacingAndGlyphs">! Unverified:</text>
-<text x="18.0" y="453" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="453" fill="#d4d7dc" textLength="750.3" lengthAdjust="spacingAndGlyphs">Rare table entries (ŋ, ĳ, ſ, ŉ, ĸ, …) have no per-letter behavior fixtures — only the a–z</text>
-<text x="18.0" y="471" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="471" fill="#d4d7dc" textLength="607.0" lengthAdjust="spacingAndGlyphs">integrity invariant and the tested letters (é è û ß ø ł ó ź) are checked</text>
-<text x="18.0" y="489" fill="#d4d7dc" class="d" textLength="118.0" lengthAdjust="spacingAndGlyphs">│  Time: 3m22s</text>
-<text x="18.0" y="507" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">└─</text>
-<text x="18.0" y="543" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">┌─ </text>
-<text x="43.3" y="543" fill="#d4d7dc" class="b" textLength="236.0" lengthAdjust="spacingAndGlyphs">P001.2.1: Command under cmd/</text>
-<rect x="43.3" y="548" width="67.4" height="18" fill="#c15f3c"/>
-<text x="18.0" y="561" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="561" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
-<text x="110.7" y="561" fill="#d4d7dc" textLength="193.9" lengthAdjust="spacingAndGlyphs"> │ claude-sonnet-5-5 │ </text>
-<text x="304.6" y="561" fill="#5a8ff0" class="b" textLength="50.6" lengthAdjust="spacingAndGlyphs">medium</text>
-<text x="18.0" y="579" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="579" fill="#4fc66b" textLength="286.6" lengthAdjust="spacingAndGlyphs">✓ Done: da29579 (1 attempt, $0.13)</text>
+<text x="43.3" y="417" fill="#4fc66b" textLength="286.6" lengthAdjust="spacingAndGlyphs">✓ Done: 0b612ea (1 attempt, $0.09)</text>
+<text x="18.0" y="435" fill="#d4d7dc" class="d" textLength="118.0" lengthAdjust="spacingAndGlyphs">│  Time: 2m50s</text>
+<text x="18.0" y="453" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">└─</text>
+<text x="18.0" y="489" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">┌─ </text>
+<text x="43.3" y="489" fill="#d4d7dc" class="b" textLength="236.0" lengthAdjust="spacingAndGlyphs">P001.2.1: Command under cmd/</text>
+<rect x="43.3" y="494" width="67.4" height="18" fill="#c15f3c"/>
+<text x="18.0" y="507" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="507" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
+<text x="110.7" y="507" fill="#d4d7dc" textLength="193.9" lengthAdjust="spacingAndGlyphs"> │ claude-sonnet-5-5 │ </text>
+<text x="304.6" y="507" fill="#5a8ff0" class="b" textLength="50.6" lengthAdjust="spacingAndGlyphs">medium</text>
+<text x="18.0" y="525" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="525" fill="#4fc66b" textLength="286.6" lengthAdjust="spacingAndGlyphs">✓ Done: 7ba7fcd (1 attempt, $0.13)</text>
+<text x="18.0" y="543" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="543" fill="#d6b84a" textLength="109.6" lengthAdjust="spacingAndGlyphs">! Unverified:</text>
+<text x="18.0" y="561" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
+<text x="60.1" y="561" fill="#d4d7dc" textLength="792.4" lengthAdjust="spacingAndGlyphs">No unit test for cmd/slug (go test reports no test files); only the CRLF one-liner from Verify</text>
+<text x="18.0" y="579" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
+<text x="60.1" y="579" fill="#d4d7dc" textLength="59.0" lengthAdjust="spacingAndGlyphs">was run</text>
 <text x="18.0" y="597" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
 <text x="43.3" y="597" fill="#d6b84a" textLength="109.6" lengthAdjust="spacingAndGlyphs">! Unverified:</text>
 <text x="18.0" y="615" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="615" fill="#d4d7dc" textLength="564.8" lengthAdjust="spacingAndGlyphs">Lines longer than 1 MiB and the exit-code-1 error path have no test</text>
-<text x="18.0" y="633" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="633" fill="#d6b84a" textLength="109.6" lengthAdjust="spacingAndGlyphs">! Unverified:</text>
-<text x="18.0" y="651" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="651" fill="#d4d7dc" textLength="767.1" lengthAdjust="spacingAndGlyphs">The command has no automated test; only the Verify one-liner and a manual run with CRLF, an</text>
-<text x="18.0" y="669" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">│    </text>
-<text x="60.1" y="669" fill="#d4d7dc" textLength="362.5" lengthAdjust="spacingAndGlyphs">empty line and non-ASCII input were checked</text>
-<text x="18.0" y="687" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 37s</text>
-<rect x="152.9" y="692" width="67.4" height="18" fill="#c15f3c"/>
-<text x="18.0" y="705" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
-<text x="152.9" y="705" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
-<text x="18.0" y="723" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
-<text x="77.0" y="723" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">█████</text>
-<text x="119.2" y="723" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
-<text x="169.7" y="723" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 50%</text>
-<text x="203.5" y="723" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+1)</text>
-<text x="279.3" y="723" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
-<text x="313.1" y="723" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
-<text x="355.2" y="723" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
-<text x="405.8" y="723" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 47%</text>
-<text x="439.5" y="723" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (-1)</text>
+<text x="60.1" y="615" fill="#d4d7dc" textLength="522.7" lengthAdjust="spacingAndGlyphs">Lines longer than 1 MiB and invalid UTF-8 input were not tried</text>
+<text x="18.0" y="633" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 27s</text>
+<rect x="152.9" y="638" width="67.4" height="18" fill="#c15f3c"/>
+<text x="18.0" y="651" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
+<text x="152.9" y="651" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
+<text x="18.0" y="669" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
+<text x="77.0" y="669" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">█████▊</text>
+<text x="127.6" y="669" fill="#d4d7dc" class="d" textLength="33.7" lengthAdjust="spacingAndGlyphs">░░░░</text>
+<text x="169.7" y="669" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 57%</text>
+<text x="203.5" y="669" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+2)</text>
+<text x="279.3" y="669" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
+<text x="313.1" y="669" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
+<text x="355.2" y="669" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
+<text x="405.8" y="669" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 48%</text>
+<text x="439.5" y="669" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
 </svg>

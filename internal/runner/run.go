@@ -439,7 +439,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	} else {
 		result := cycle.Self(root, "prompt", uid)
 		if result.Code != 0 {
-			_, _ = io.WriteString(p.err, result.Stderr)
+			p.output(result.Stderr)
 			trigger := ""
 			if result.Code == 2 {
 				p.line(uid+": the plan no longer matches the tree; replan the unit, then run again", true, "")
@@ -876,7 +876,7 @@ func firstWord(s string) string {
 	}
 	return "?"
 }
-func writeFailure(p *Progress, r cycle.Result) { _, _ = io.WriteString(p.err, r.Stdout+r.Stderr) }
+func writeFailure(p *Progress, r cycle.Result) { p.output(r.Stdout + r.Stderr) }
 func oneLine(s string) string                  { return strings.Join(strings.FieldsFunc(s, unicode.IsSpace), " ") }
 func addInt(a, b *int) *int {
 	if b == nil {

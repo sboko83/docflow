@@ -13,7 +13,8 @@
 <text x="43.3" y="75" fill="#ffffff" class="b" textLength="59.0" lengthAdjust="spacingAndGlyphs"> Codex </text>
 <text x="102.3" y="75" fill="#d4d7dc" textLength="143.3" lengthAdjust="spacingAndGlyphs"> │ gpt-6.1-sol │ </text>
 <text x="245.6" y="75" fill="#5a8ff0" class="b" textLength="50.6" lengthAdjust="spacingAndGlyphs">medium</text>
-<text x="18.0" y="93" fill="#d4d7dc" textLength="522.7" lengthAdjust="spacingAndGlyphs">docs/plans/P001-slug-cli.md:78: error: main.go: file not found</text>
+<text x="18.0" y="93" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
+<text x="43.3" y="93" fill="#d4d7dc" textLength="522.7" lengthAdjust="spacingAndGlyphs">docs/plans/P001-slug-cli.md:80: error: main.go: file not found</text>
 <text x="18.0" y="111" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
 <text x="43.3" y="111" fill="#f2686a" textLength="590.1" lengthAdjust="spacingAndGlyphs">! the plan no longer matches the tree; replan the unit, then run again</text>
 <text x="18.0" y="129" fill="#d4d7dc" class="d" textLength="92.7" lengthAdjust="spacingAndGlyphs">│  Time: 0s</text>
@@ -21,9 +22,9 @@
 <text x="18.0" y="147" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
 <text x="152.9" y="147" fill="#ffffff" class="b" textLength="59.0" lengthAdjust="spacingAndGlyphs"> Codex </text>
 <text x="18.0" y="165" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
-<text x="77.0" y="165" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▌</text>
+<text x="77.0" y="165" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▊</text>
 <text x="85.4" y="165" fill="#d4d7dc" class="d" textLength="75.9" lengthAdjust="spacingAndGlyphs">░░░░░░░░░</text>
-<text x="169.7" y="165" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  5%</text>
+<text x="169.7" y="165" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  7%</text>
 <text x="203.5" y="165" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
 <text x="279.3" y="165" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
 <text x="313.1" y="165" fill="#4fc66b" textLength="25.3" lengthAdjust="spacingAndGlyphs">██▉</text>
@@ -38,20 +39,20 @@
 <text x="110.7" y="219" fill="#d4d7dc" textLength="177.0" lengthAdjust="spacingAndGlyphs"> │ claude-opus-5-5 │ </text>
 <text x="287.8" y="219" fill="#c678dd" class="b" textLength="33.7" lengthAdjust="spacingAndGlyphs">high</text>
 <text x="18.0" y="237" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="237" fill="#4ab7c8" textLength="261.3" lengthAdjust="spacingAndGlyphs">↻ Replanned: b7910fc (+0 units)</text>
-<text x="18.0" y="255" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 28s</text>
+<text x="43.3" y="237" fill="#4ab7c8" textLength="261.3" lengthAdjust="spacingAndGlyphs">↻ Replanned: 54f3c63 (+0 units)</text>
+<text x="18.0" y="255" fill="#d4d7dc" class="d" textLength="101.2" lengthAdjust="spacingAndGlyphs">│  Time: 27s</text>
 <rect x="152.9" y="260" width="67.4" height="18" fill="#c15f3c"/>
 <text x="18.0" y="273" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
 <text x="152.9" y="273" fill="#ffffff" class="b" textLength="67.4" lengthAdjust="spacingAndGlyphs"> Claude </text>
 <text x="18.0" y="291" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
-<text x="77.0" y="291" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">█████▎</text>
+<text x="77.0" y="291" fill="#4fc66b" textLength="50.6" lengthAdjust="spacingAndGlyphs">█████▉</text>
 <text x="127.6" y="291" fill="#d4d7dc" class="d" textLength="33.7" lengthAdjust="spacingAndGlyphs">░░░░</text>
-<text x="169.7" y="291" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 52%</text>
+<text x="169.7" y="291" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 59%</text>
 <text x="203.5" y="291" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+2)</text>
 <text x="279.3" y="291" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
 <text x="313.1" y="291" fill="#4fc66b" textLength="42.1" lengthAdjust="spacingAndGlyphs">████▊</text>
 <text x="355.2" y="291" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">░░░░░</text>
-<text x="405.8" y="291" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 47%</text>
+<text x="405.8" y="291" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs"> 48%</text>
 <text x="439.5" y="291" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+0)</text>
 <text x="18.0" y="327" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">┌─ </text>
 <text x="43.3" y="327" fill="#d4d7dc" class="b" textLength="126.4" lengthAdjust="spacingAndGlyphs">P001.2.2: Flags</text>
@@ -61,15 +62,15 @@
 <text x="102.3" y="345" fill="#d4d7dc" textLength="143.3" lengthAdjust="spacingAndGlyphs"> │ gpt-6.1-sol │ </text>
 <text x="245.6" y="345" fill="#5a8ff0" class="b" textLength="50.6" lengthAdjust="spacingAndGlyphs">medium</text>
 <text x="18.0" y="363" fill="#d4d7dc" class="d" textLength="25.3" lengthAdjust="spacingAndGlyphs">│  </text>
-<text x="43.3" y="363" fill="#4fc66b" textLength="227.6" lengthAdjust="spacingAndGlyphs">✓ Done: 0f7916d (1 attempt)</text>
-<text x="18.0" y="381" fill="#d4d7dc" class="d" textLength="118.0" lengthAdjust="spacingAndGlyphs">│  Time: 1m22s</text>
+<text x="43.3" y="363" fill="#4fc66b" textLength="227.6" lengthAdjust="spacingAndGlyphs">✓ Done: 3d82fa8 (1 attempt)</text>
+<text x="18.0" y="381" fill="#d4d7dc" class="d" textLength="118.0" lengthAdjust="spacingAndGlyphs">│  Time: 1m37s</text>
 <rect x="152.9" y="386" width="59.0" height="18" fill="#2457a6"/>
 <text x="18.0" y="399" fill="#d4d7dc" class="d" textLength="134.9" lengthAdjust="spacingAndGlyphs">└─ Quota · used </text>
 <text x="152.9" y="399" fill="#ffffff" class="b" textLength="59.0" lengthAdjust="spacingAndGlyphs"> Codex </text>
 <text x="18.0" y="417" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs">   5h</text>
-<text x="77.0" y="417" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▋</text>
+<text x="77.0" y="417" fill="#4fc66b" textLength="8.4" lengthAdjust="spacingAndGlyphs">▊</text>
 <text x="85.4" y="417" fill="#d4d7dc" class="d" textLength="75.9" lengthAdjust="spacingAndGlyphs">░░░░░░░░░</text>
-<text x="169.7" y="417" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  6%</text>
+<text x="169.7" y="417" fill="#4fc66b" textLength="33.7" lengthAdjust="spacingAndGlyphs">  8%</text>
 <text x="203.5" y="417" fill="#d4d7dc" class="d" textLength="42.1" lengthAdjust="spacingAndGlyphs"> (+1)</text>
 <text x="279.3" y="417" fill="#d4d7dc" class="d" textLength="16.9" lengthAdjust="spacingAndGlyphs">7d</text>
 <text x="313.1" y="417" fill="#4fc66b" textLength="25.3" lengthAdjust="spacingAndGlyphs">██▉</text>

@@ -365,3 +365,22 @@ func TestWrapParagraphMatchesTextwrap(t *testing.T) {
 		}
 	}
 }
+
+func TestSubcommandOutputStaysInsideUnitBlock(t *testing.T) {
+	stderr := "docs/plans/P001-x.md:78: error: main.go: file not found\n"
+	p, out := newTTYProgress(t)
+	p.unit("P001.2.2", "Flags", agents.Route{Agent: "codex"})
+	p.output(stderr)
+	p.line("P001.2.2: the plan no longer matches the tree; replan the unit, then run again", true, "")
+	text := plainTTY(out.String())
+	if !strings.Contains(text, "\n│  docs/plans/P001-x.md:78: error: main.go: file not found\n│  ! the plan no longer matches") {
+		t.Fatalf("subcommand output left the frame:\n%s", text)
+	}
+
+	var plain bytes.Buffer
+	p = newProgress(&plain, &plain, false)
+	p.output(stderr)
+	if plain.String() != stderr {
+		t.Fatalf("plain output changed: %q", plain.String())
+	}
+}

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `docflow run` in a terminal keeps the output of a failed `prompt`,
+  `verify` or `commit`, such as a stale `Read:` link, inside the unit's
+  frame instead of printing it flush left.
+
 ## [0.7.0] - 2026-10-23
 
 First public release.

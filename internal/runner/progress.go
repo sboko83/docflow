@@ -634,6 +634,23 @@ func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]a
 	p.closeLocked()
 }
 
+// output prints the captured output of a docflow subcommand to stderr. Inside a
+// TTY unit block it keeps the frame and wraps to the terminal width; elsewhere
+// it is written verbatim.
+func (p *Progress) output(text string) {
+	if text == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clearLocked()
+	if p.fancy && p.block && isTerminal(p.err) {
+		p.wrappedLocked(strings.TrimRight(text, "\n"), "│  ", "", p.err, "")
+		return
+	}
+	_, _ = io.WriteString(p.err, text)
+}
+
 func (p *Progress) detail(text string) {
 	if p.verbose {
 		p.line("  "+text, false, "dim")
