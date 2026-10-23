@@ -41,6 +41,32 @@ state in the repository instead of the agent's memory.
   working plan is deleted. Docs keep decisions and link to the archive
   instead of retelling it.
 
+## How it works
+
+A plan is a Markdown file made of fixed blocks. The agent writes what goes
+inside them; the `docflow` CLI owns their state and moves them through the
+cycle.
+
+```
+docs/docflow.md             Queue · Backlog
+docs/plans/P007-cache.md    Goal · Context · Traps · Decisions
+  ## Phase 1
+  ### [x] P007.1.1          Read · Do · Verify · Commit · Handoff
+  ### [~] P007.1.2          ← in progress
+  ### [ ] P007.2.1          Depends: P007.1.2
+        │  close: every unit is [x]
+        ▼
+docs/archive/P007-cache.md  Outcome · Decisions · Gotchas · Follow-ups
+```
+
+`prompt` builds a unit's prompt from its block, the plan's Decisions, and
+the Handoff of its dependencies, and marks it `[~]`. `verify` runs the
+unit's `Verify:` command and fingerprints the tree, `done` marks it `[x]`
+and writes Handoff, `commit` commits that exact tree under the `Commit:`
+subject. A unit that cannot proceed because its plan went stale is marked
+`[!]` by `block` and goes to replanning. `lint` checks the structure and the `Read:` budget;
+`docflow run` drives the same commands unit after unit.
+
 ## See it run
 
 A real `docflow run` of a small demo plan: a Go `slug` command built in
