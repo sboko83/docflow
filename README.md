@@ -41,6 +41,32 @@ state in the repository instead of the agent's memory.
   working plan is deleted. Docs keep decisions and link to the archive
   instead of retelling it.
 
+## See it run
+
+A real `docflow run` of a small demo plan: a Go `slug` command built in
+three phases by Codex, pi, and Claude. `bash tools/demo-run.sh`
+reproduces it in a throwaway repository and spends agent quota.
+
+![docflow run: start and the first units](docs/img/demo-run.svg)
+
+Each unit goes to the agent, model, and reasoning effort the plan routes
+it to. The runner verifies and commits the unit itself; whatever the agent
+could not check is reported as `Unverified` instead of being passed off as
+done. Quota bars show how much of each subscription window a unit used.
+
+![docflow run: a stale unit and an automatic replan](docs/img/demo-replan.svg)
+
+Unit 2.1 moved `main.go` under `cmd/slug/`, so unit 2.2 still read a file
+that no longer exists. `prompt` refuses a unit whose plan no longer
+matches the tree; the agent from the plan's `replan:` key repairs the plan
+and commits it, and the unit runs again in the same run.
+
+![docflow run: the last unit, the summary, and docflow status](docs/img/demo-finish.svg)
+
+The summary counts units, time, cost, unverified notes, and replans.
+`docflow status` reports the plan ready to close: closing turns it into an
+archive entry with its decisions.
+
 ## Skills
 
 - [bsv-docs](skills/bsv-docs/SKILL.md) — project documentation.
@@ -107,6 +133,10 @@ such a build; update by checking out a newer tag and rerunning the script.
 - [Skill boundaries and installation](docs/design/skills.md) (in Russian)
 - [Task queue](docs/docflow.md) (in Russian)
 - [Changelog](CHANGELOG.md)
+
+## Acknowledgements
+
+bsv-docflow was written with the assistance of Claude Code, Codex, ZCode, and pi.
 
 ## License
 
