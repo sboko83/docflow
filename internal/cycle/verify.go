@@ -102,9 +102,18 @@ func Verify(root, unitID string, skip *string, noGate bool, projectRepos func(st
 	if gate != "" && !noGate {
 		checks = append(checks, verifyCheck{kind: "gate", command: gate})
 	}
+	logPath, logRel, err := verifyLogLocation(root, unit.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	var fullLog bytes.Buffer
 	for _, check := range checks {
 		output, code := runVerifyCommand(root, check.command)
+		appendVerifyLog(&fullLog, check, output, code)
 		if code != 0 {
+			if err := writeVerifyLog(logPath, fullLog.Bytes()); err != nil {
+				return Result{}, err
+			}
 			if err := clearVerified(root, unit.ID); err != nil {
 				return Result{}, err
 			}
@@ -118,8 +127,12 @@ func Verify(root, unitID string, skip *string, noGate bool, projectRepos func(st
 				text.WriteByte('\n')
 			}
 			fmt.Fprintf(&text, "%s: %s failed (exit %d): %s\n", unit.ID, check.kind, code, check.command)
+			fmt.Fprintf(&text, "log: %s\n", logRel)
 			return Result{Code: clierrors.EXIT_VERIFY, Stdout: text.String()}, nil
 		}
+	}
+	if err := writeVerifyLog(logPath, fullLog.Bytes()); err != nil {
+		return Result{}, err
 	}
 	if gate != "" && noGate {
 		if err := clearVerified(root, unit.ID); err != nil {
@@ -145,6 +158,34 @@ func Verify(root, unitID string, skip *string, noGate bool, projectRepos func(st
 type verifyCheck struct {
 	kind    string
 	command string
+}
+
+func verifyLogLocation(root, unitID string) (string, string, error) {
+	state, err := stateDir(root)
+	if err != nil {
+		return "", "", err
+	}
+	path := filepath.Join(filepath.Dir(state), "run", unitID+".verify.log")
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", "", err
+	}
+	return path, filepath.ToSlash(rel), nil
+}
+
+func appendVerifyLog(log *bytes.Buffer, check verifyCheck, output string, code int) {
+	fmt.Fprintf(log, "== %s (exit %d): %s ==\n", check.kind, code, check.command)
+	log.WriteString(output)
+	if output == "" || !strings.HasSuffix(output, "\n") {
+		log.WriteByte('\n')
+	}
+}
+
+func writeVerifyLog(path string, output []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, output, 0o644)
 }
 
 func runVerifyCommand(root, command string) (string, int) {
@@ -310,6 +351,33 @@ func savedFingerprint(root, unitID string) (string, bool, error) {
 		return "", false, err
 	}
 	return strings.TrimSpace(text), true, nil
+}
+
+// VerifiedCurrent reports whether a full verify recorded the current tree.
+// Optional projectRepos keeps the fingerprint aligned with configured nested
+// repositories without making cycle depend on the lint package.
+func VerifiedCurrent(root, unitID string, projectRepos ...func(string) ([]string, error)) (bool, error) {
+	plan, _, err := findUnit(root, unitID)
+	if err != nil {
+		return false, err
+	}
+	saved, found, err := savedFingerprint(root, unitID)
+	if err != nil || !found {
+		return false, err
+	}
+	reason, err := skipReason(root, unitID)
+	if err != nil || reason != nil {
+		return false, err
+	}
+	var repos func(string) ([]string, error)
+	if len(projectRepos) > 0 {
+		repos = projectRepos[0]
+	}
+	digest, err := fingerprint(root, plan.Path, repos)
+	if err != nil {
+		return false, err
+	}
+	return saved == digest, nil
 }
 
 func skipReason(root, unitID string) (*string, error) {

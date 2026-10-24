@@ -119,6 +119,7 @@ assistant; pi сам повторил запрос 3 раза, `auto_retry_end` 
   остановка прогона из-за лимита исполнителя replan.
 - Kill ждёт завершения снимка дерева и только затем возвращает управление — агент может завершиться раньше detached-потомка — отвергнут немедленный возврат по `cmd.Wait`.
 - Номер лога берётся после наибольшего существующего номера этого юнита и типа вызова — локальные счётчики сбрасываются при новом Run — отвергнут локальный счётчик.
+- VerifiedCurrent принимает resolver вложенных репозиториев — runner должен сравнивать тот же fingerprint, что и verify, не создавая зависимости cycle от lint — отклонён fingerprint только корневого репозитория
 
 ## Phase 1: Прогон без лишних часов
 
@@ -157,7 +158,7 @@ Handoff:
 - На macOS `docflow verify P032.1.1` и его gate `go test ./...` прошли.
 - Установленный Pi 1.4.0 запускает shell в `dist/core/tools/bash.js` с `detached: true` на не-Windows системах; гипотеза о новой группе процессов подтверждена.
 
-### [ ] P032.1.2 Verify: один прогон на дерево, полный лог провала
+### [x] P032.1.2 Verify: один прогон на дерево, полный лог провала
 Read:
 - internal/agents/agents.go:L137-175
 - internal/cycle/verify.go:L33-140
@@ -192,6 +193,9 @@ Do:
 Verify: `go test ./internal/cycle/ ./internal/runner/ -run 'TestRunReusesAgentVerify|TestRunIgnoresSkipRecord|VerifyLog' -count=1`
 Traps: `DOCFLOW_RUNNER_UNIT` запрещает агенту `finish`/`done`/`commit`/`block`, но не `verify` — так и остаётся. Запись `verify --skip` агента не должна обходить verify раннера.
 Commit: P032.1.2: reuse agent verify, keep verify log
+Handoff:
+- `docflow` в PATH — установленная сборка от 23.10.2026; для проверки текущего исходника используй `go run ./cmd/docflow` или пересобери `bin/docflow`.
+- Sandbox запрещает `/bin/ps` и часть Unix process-group проверок; полный gate прошёл в разрешённом запуске.
 
 ## Phase 2: Классы отказов
 

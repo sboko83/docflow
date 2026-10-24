@@ -141,7 +141,11 @@ func TestVerifyFailureTailAndCleanup(t *testing.T) {
 		t.Fatalf("Verify() = %#v, %v", result, err)
 	}
 	lines := strings.Split(strings.TrimSuffix(result.Stdout, "\n"), "\n")
-	if len(lines) != verifyTail+1 || lines[0] != "line61" || lines[verifyTail-1] != "line100" || !strings.Contains(lines[verifyTail], "verify failed (exit 3)") {
+	_, logRel, err := verifyLogLocation(root, "P001.1.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != verifyTail+2 || lines[0] != "line61" || lines[verifyTail-1] != "line100" || !strings.Contains(lines[verifyTail], "verify failed (exit 3)") || lines[verifyTail+1] != "log: "+logRel {
 		t.Fatalf("failure output tail = %d lines, first=%q last=%q", len(lines), lines[0], lines[len(lines)-1])
 	}
 	if saved, found, err := savedFingerprint(root, "P001.1.2"); err != nil || found || saved != "" {
@@ -149,6 +153,52 @@ func TestVerifyFailureTailAndCleanup(t *testing.T) {
 	}
 	if reason, err := skipReason(root, "P001.1.2"); err != nil || reason != nil {
 		t.Fatalf("skip reason after failure = %v, %v", reason, err)
+	}
+}
+
+func TestVerifyLog(t *testing.T) {
+	first := `printf 'first stdout\n'; printf 'first stderr\n' >&2; exit 3`
+	plan := strings.Replace(verifyPlan(), "Verify: `test -f a.py && echo checked`", "Verify: `"+first+"`", 1)
+	root := makeVerifyProject(t, cycleDocflow("P001"), plan, map[string]string{"a.py": "print(1)\n"})
+	result, err := runVerify(root, "P001.1.1", nil, false)
+	if err != nil || result.Code != 4 {
+		t.Fatalf("first Verify() = %#v, %v", result, err)
+	}
+	logPath, logRel, err := verifyLogLocation(root, "P001.1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "first stdout\n") || !strings.Contains(string(log), "first stderr\n") {
+		t.Fatalf("verify log omitted command output: %s", log)
+	}
+	lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
+	if got := lines[len(lines)-1]; got != "log: "+logRel {
+		t.Fatalf("last verify output line = %q", got)
+	}
+
+	second := `printf 'second stdout\n'; printf 'second stderr\n' >&2; exit 3`
+	planPath := filepath.Join(root, "docs", "plans", "P001-plan.md")
+	planBytes, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(planPath, []byte(strings.Replace(string(planBytes), first, second, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err = runVerify(root, "P001.1.1", nil, false)
+	if err != nil || result.Code != 4 {
+		t.Fatalf("second Verify() = %#v, %v", result, err)
+	}
+	log, err = os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(log), "first stdout") || !strings.Contains(string(log), "second stdout\n") || !strings.Contains(string(log), "second stderr\n") {
+		t.Fatalf("verify log was not overwritten with the latest output: %s", log)
 	}
 }
 

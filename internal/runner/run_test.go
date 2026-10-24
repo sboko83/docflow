@@ -299,6 +299,33 @@ func TestRunLoopTwoUnits(t *testing.T) {
 	}
 }
 
+func TestRunReusesAgentVerify(t *testing.T) {
+	f := newRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\ngate: printf x >> .git/verify-count")
+	step := "printf a > a.txt\n" + shellQuote(f.binary) + " verify P001.1.1 >/dev/null\n" + doneReply()
+	r := f.run([]string{step}, "--max-units", "1")
+	f.check(r, 0, "P001.1.1: verify reused (tree unchanged since the agent's verify)")
+	count, err := os.ReadFile(filepath.Join(f.root, ".git", "verify-count"))
+	if err != nil || string(count) != "x" {
+		t.Fatalf("gate count = %q, %v; want one run", count, err)
+	}
+}
+
+func TestRunIgnoresSkipRecord(t *testing.T) {
+	f := newRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\ngate: printf x >> .git/verify-count")
+	step := "printf a > a.txt\n" + shellQuote(f.binary) + " verify P001.1.1 --skip 'agent cannot verify' >/dev/null\n" + doneReply()
+	r := f.run([]string{step}, "--max-units", "1")
+	f.check(r, 0)
+	if strings.Contains(r.out+r.err, "verify reused") {
+		t.Fatal("runner reused a skipped verification")
+	}
+	count, err := os.ReadFile(filepath.Join(f.root, ".git", "verify-count"))
+	if err != nil || string(count) != "x" {
+		t.Fatalf("gate count = %q, %v; want runner's full verify", count, err)
+	}
+}
+
 func TestRunLoopRetries(t *testing.T) {
 	for _, mode := range []string{"verify", "preflight", "gate", "hook", "no-session", "invalid-unverified"} {
 		t.Run(mode, func(t *testing.T) {
@@ -331,6 +358,9 @@ func TestRunLoopRetries(t *testing.T) {
 			calls := f.calls()
 			if len(calls) != 2 || !strings.Contains(calls[1].Stdin, needle) {
 				t.Fatal(calls)
+			}
+			if mode == "verify" && !strings.Contains(calls[1].Stdin, "log: .git/docflow/run/P001.1.1.verify.log") {
+				t.Fatalf("verify retry omitted the complete log path: %s", calls[1].Stdin)
 			}
 			if mode != "no-session" && strings.Join(calls[1].Argv, " ") != "--resume s1" {
 				t.Fatal(calls)

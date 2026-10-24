@@ -43,6 +43,12 @@ flowchart TD
 2. Result JSON `blocked` → `docflow block --needs <класс> --reason`, код 3
    (`blocker: plan` — триггер авто-replan, см. ниже). `done` →
    `verify`; зелёный → `done` с handoff и decisions из JSON → `commit`.
+   Для итераций агент запускает `Verify:` юнита или `docflow verify <id>
+   --no-gate`; перед ответом выполняет один полный `docflow verify <id>`.
+   Длинные проверки не нужно обрезать через `tail`/`grep`: полный stdout и
+   stderr сохраняются в `<git-dir>/docflow/run/<id>.verify.log`, путь `log:`
+   печатается последней строкой ошибки. Если дерево не изменилось после
+   полного verify агента, раннер переиспользует запись; `--skip` не подходит.
 3. `preflight`, `Verify`, `gate` или commit-hook упал, либо result JSON невалиден → та же сессия
    (`resume_args`) получает хвост вывода или причину; сессии нет — полный
    промпт и раздел `## Previous attempt`. Не больше `--attempts` (3)

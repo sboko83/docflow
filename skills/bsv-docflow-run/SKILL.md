@@ -32,9 +32,13 @@ This skill covers only running a docflow unit.
    `Constraints`, and `## Decisions` from the prompt. The
    `## Archive gotchas` section holds traps from the archive — treat them
    as `Traps`.
-4. `docflow verify <id>` — for intermediate runs, until green; on success
-   it prints one line. When the plan has `gate:`, `verify` runs it too;
-   `--no-gate` speeds up iteration but produces no fingerprint for `done`.
+4. For iterations, run the unit's `Verify:` command or
+   `docflow verify <id> --no-gate`. Before replying, run one full
+   `docflow verify <id>`; it runs `preflight:` and the plan's `gate:` when
+   configured. Do not pipe long checks through `tail` or `grep`. On failure,
+   inspect the complete stdout and stderr at the path printed as `log:`.
+   The runner reuses a successful full verify while the tree is unchanged;
+   a `--skip` record is never reused.
 5. `docflow finish <id> --handoff "…"` — `verify`, `done`, and `commit` in
    one call; one `--handoff` per item, a decision made along the way —
    `--decision "…"`. Check the printed file list against `Do:`.

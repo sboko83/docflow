@@ -672,24 +672,33 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 			return 3, trigger, nil
 		}
-		p.spin(uid+" verify", nil)
-		res := cycle.Self(root, "verify", uid)
-		p.stop()
-		if res.Code == 4 {
-			last, problem = "verify", "docflow verify failed:\n"+strings.TrimSpace(res.Stdout)
-			kind := "verify"
-			for _, k := range []string{"preflight", "gate"} {
-				if strings.Contains(res.Stdout, ": "+k+" failed (exit") {
-					kind = k
-					break
-				}
-			}
-			p.line(fmt.Sprintf("%s: attempt %d: %s failed", uid, attempt, kind), true, "")
-			continue
+		var res cycle.Result
+		verified, err := cycle.VerifiedCurrent(root, uid, lint.ProjectRepos)
+		if err != nil {
+			return 2, "", err
 		}
-		if res.Code != 0 {
-			writeFailure(p, res)
-			return res.Code, "", nil
+		if verified {
+			p.line(uid+": verify reused (tree unchanged since the agent's verify)", false, "")
+		} else {
+			p.spin(uid+" verify", nil)
+			res = cycle.Self(root, "verify", uid)
+			p.stop()
+			if res.Code == 4 {
+				last, problem = "verify", "docflow verify failed:\n"+strings.TrimSpace(res.Stdout)
+				kind := "verify"
+				for _, k := range []string{"preflight", "gate"} {
+					if strings.Contains(res.Stdout, ": "+k+" failed (exit") {
+						kind = k
+						break
+					}
+				}
+				p.line(fmt.Sprintf("%s: attempt %d: %s failed", uid, attempt, kind), true, "")
+				continue
+			}
+			if res.Code != 0 {
+				writeFailure(p, res)
+				return res.Code, "", nil
+			}
 		}
 		step := []string{"done", uid}
 		unverified := []string{}
