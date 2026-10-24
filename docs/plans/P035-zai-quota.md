@@ -106,6 +106,10 @@ https://api.z.ai/api/monitor/usage/quota/limit`, заголовок `Authorizati
 - Зонд z.ai держит один бюджет `timeout` на ключ и HTTP — Constraints
   называют таймаут зонда, а не этапа — отвергнуто узаконить 2× таймаут
 - Неположительный timeout даёт пустую квоту без запуска pi — без бюджета нельзя гарантировать ограниченное время зонда — отвергнута трактовка нуля как отсутствия таймаута.
+- Недостающий тест ветки «окна не исчерпаны, reset в будущем» из
+  P035.2.3 — отдельный юнит P035.2.5, повторное ревью — новый юнит
+  P035.2.6 (P035.2.4 снят) — дефект только в тестах, код раннера верен — отвергнуто
+  править P035.2.3 (`[x]`, история) и закрыть ревью без теста.
 
 ## Phase 1: Зонд и раннер
 
@@ -299,7 +303,7 @@ Handoff:
 - Сообщение replan учитывает существующий запас +60 секунд к reset сервера.
 - Unverified: Live z.ai key и endpoint не проверялись; использованы локальные фикстуры.
 
-### [ ] P035.2.4 Повторное ревью фазы 1
+### [-] P035.2.4 Повторное ревью фазы 1
 Read:
 - internal/agentio/zai.go
 - internal/runner/chain.go:L90-190
@@ -319,6 +323,57 @@ Verify: `go test ./... && go vet ./...`
 Depends: P035.2.2, P035.2.3
 Executor: codex | gpt-6.1-sol | high
 Commit: P035.2.4: re-review z.ai quota phase
+Handoff:
+- Blocked (plan): internal/runner/zai_test.go:255: отсутствует требуемый P035.2.3 тест свежей квоты без исчерпанных окон, но с будущими reset. Текущий тест подаёт окна 100% без reset и проверяет другую ветку. Нужен тест с percentage < 100 и будущими reset, подтверждающий Reset == nil и ожидание по limit_wait.
+
+### [ ] P035.2.5 Тест limit_wait при свежей квоте z.ai
+Read:
+- internal/runner/zai_test.go:L1-30
+- internal/runner/zai_test.go:L169-186
+- internal/runner/zai_test.go:L249-297
+- internal/runner/chain.go:L236-264
+Do:
+- В `internal/runner/zai_test.go` добавить тест рядом с
+  `TestRunZaiLimitWithoutResetUsesProfileWait`: отказ `limit` на z.ai без
+  времени в тексте, третье тело очереди (зонд отказа) —
+  `zaiQuotaBody(28, 30, <сброс через 2 ч>, <сброс через 3 ч>)`: окна
+  не исчерпаны, но с будущими `nextResetTime`. Ожидание —
+  `assertZaiWaitClock(..., 30*time.Minute)` (`limit_wait` профиля), не
+  время сброса окна; `server.count() == 3`.
+- Существующий `TestRunZaiLimitWithoutResetUsesProfileWait` (окна 100%
+  без reset) оставить: он покрывает другую ветку
+  `quotaExhaustedUntil` — исчерпано, но сброса нет.
+- Сбросы окон (2 ч, 3 ч) далеко от 30 минут: без пропуска `Used < 1` в
+  `quotaExhaustedUntil` тест упал бы на часах ожидания.
+Verify: `go test ./internal/runner/`
+Traps: код раннера не править — ветка `Used < 1` в `chain.go` уже есть,
+дефект только в отсутствии теста. Ожидание проверять с `--no-wait`, без
+настоящего сна. Фича не выпущена: запись `CHANGELOG.md` не нужна.
+Depends: P035.2.3
+Executor: codex | gpt-6-luna | max
+Commit: P035.2.5: test z.ai limit wait on fresh quota
+
+### [ ] P035.2.6 Повторное ревью фазы 1 после P035.2.5
+Read:
+- internal/agentio/zai.go
+- internal/runner/chain.go:L90-190
+- docs/design/runner.md:L314-368
+Do:
+- Получить дифф: `git diff "$(git log --format=%H --grep='^P035\.1\.' | tail -1)^" HEAD -- . ':!docs/plans'`.
+- Проверить, что закрыт каждый из пяти дефектов Handoff P035.2.1 и
+  дефект Handoff P035.2.4 —
+  поведение и тест, который до правки падал бы.
+- Повторить сверку P035.2.1: `## Goal`, `## Constraints`,
+  `## Decisions`, каждый пункт `Do:` юнитов P035.1.1, P035.1.2, P035.2.2,
+  P035.2.3, P035.2.5; утечка ключа; имя `zai` везде, где раньше был `route.Agent`.
+- Прогнать `go test ./...` и `go vet ./...`.
+- Код не править. Дефект — `blocked`, `blocker: "plan"`, в `reason`
+  каждый дефект с `file:line`. Замечания без дефекта — в Handoff
+  `Unverified:`.
+Verify: `go test ./... && go vet ./...`
+Depends: P035.2.2, P035.2.3, P035.2.5
+Executor: codex | gpt-6.1-sol | high
+Commit: P035.2.6: re-review z.ai quota phase
 
 ## Phase 3: Приёмка
 
@@ -347,10 +402,10 @@ Do:
 - Сценарий 6: ключ фейкового `pi` не встречается ни в stdout/stderr, ни в
   логах вызовов `<git-dir>/docflow/run/`.
 - Закрыть тестом каждый `Unverified:` из Handoff P035.1.1, P035.1.2,
-  P035.2.2–P035.2.4 или оставить его в своём Handoff.
+  P035.2.2–P035.2.6 или оставить его в своём Handoff.
 Verify: `go test ./...`
 Traps: упавший сценарий чинится в этом юните, если правка мала; иначе
 `blocked` с причиной.
-Depends: P035.1.1, P035.1.2, P035.2.4
+Depends: P035.1.1, P035.1.2, P035.2.6
 Executor: claude | claude-opus-5-5 | high
 Commit: P035.3.1: accept z.ai quota in run
