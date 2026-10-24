@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func fallbackExecutorRunFixture(t *testing.T) *runFixture {
@@ -93,5 +94,103 @@ func TestRunAllExhaustedNoWait(t *testing.T) {
 	}
 	if len(f.calls()) != 2 {
 		t.Fatalf("calls = %d, want both executors", len(f.calls()))
+	}
+}
+
+func TestRunQuotaSkip(t *testing.T) {
+	for _, mode := range []string{"probe", "fallback-probe", "stream"} {
+		t.Run(mode, func(t *testing.T) {
+			var f *runFixture
+			if mode == "fallback-probe" {
+				f = fallbackExecutorRunFixture(t)
+				f.replace(planFile, "fallback: codex | gpt-5.5 | -", "fallback: claude | claude-opus-5-5 | high; codex | gpt-5.5 | -")
+			} else {
+				f = executorRunFixture(t)
+				f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -")
+			}
+			args := []string{"--no-wait", "--attempts", "1"}
+			var steps []string
+			wantCalls := 1
+			if mode == "probe" || mode == "fallback-probe" {
+				future := time.Now().Add(2 * time.Hour).UTC().Format("Jan 2 at 3:04pm")
+				usage := "Current session: 100% used · resets " + future + " (UTC)"
+				fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+				if err != nil {
+					t.Fatal(err)
+				}
+				claude := filepath.Join(f.tmp, "bin", "claude")
+				f.write(claude, "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
+				if err := os.Chmod(claude, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if mode == "fallback-probe" {
+					piRefusal := strings.Replace(piLimitStep(t), "printf partial > partial.txt\n", "", 1)
+					steps = []string{piRefusal, codexFallbackSuccessStep(f)}
+					wantCalls = 2
+				} else {
+					steps = []string{codexFallbackSuccessStep(f)}
+				}
+				args = append(args, "--max-units", "1")
+			} else {
+				f.replace(planFile, "Executor: codex | gpt-5.5 | -\n", "")
+				reset := int(time.Now().Add(2 * time.Hour).Unix())
+				steps = []string{
+					quotaEvent(1, .4, reset) + writeReply("a.txt"),
+					strings.ReplaceAll(codexStep(f, 2, 20, 30, true), "u2.txt", "b.txt"),
+				}
+				args = append(args, "--max-units", "2")
+				wantCalls = 2
+			}
+			f.steps(steps...)
+			r := f.cli(append([]string{"run"}, args...)...)
+			f.check(r, 0, "claude: quota exhausted until", "via codex gpt-5.5", "switch")
+			calls := f.calls()
+			if len(calls) != wantCalls {
+				t.Fatalf("calls = %d, want %d\n%s", len(calls), wantCalls, r.out)
+			}
+			for i, call := range calls {
+				if !strings.Contains(strings.Join(call.Argv, " "), "gpt-5.5") && (mode == "probe" || i == 1) {
+					t.Fatalf("call %d did not use the fallback route: %+v", i, call.Argv)
+				}
+			}
+			if mode == "stream" {
+				probes, err := os.ReadFile(filepath.Join(f.tmp, "probes"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := strings.Count(strings.TrimSpace(string(probes)), "\n") + 1; got != 2 {
+					t.Fatalf("quota was probed %d times, want one start probe per agent:\n%s", got, probes)
+				}
+			}
+		})
+	}
+}
+
+func TestReplanFallback(t *testing.T) {
+	f := executorRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max")
+	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pi := filepath.Join(f.tmp, "bin", "pi")
+	f.write(pi, "#!/bin/sh\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
+	if err := os.Chmod(pi, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	piRefusal := strings.Replace(piLimitStep(t), "printf partial > partial.txt\n", "", 1)
+	codexReplan := editPlan("### [!] P001.1.1", "### [~] P001.1.1") + codexStep(f, 3, 20, 30, false)
+	f.steps(blockReply(), piRefusal, codexReplan, writeReply("a.txt"))
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "replan", "switching to codex gpt-5.5", "1 replan, 1 switch", "run: 1 unit,")
+	calls := f.calls()
+	if len(calls) != 4 {
+		t.Fatalf("calls = %d, want unit block, pi refusal, codex replan, and unit retry\n%s", len(calls), r.out)
+	}
+	if !strings.Contains(strings.Join(calls[1].Argv, " "), "zai/glm-5.3") || !strings.Contains(strings.Join(calls[2].Argv, " "), "gpt-5.5") || !strings.Contains(strings.Join(calls[3].Argv, " "), "claude-opus-5-5") {
+		t.Fatalf("replan chain routes are wrong: %+v", calls)
+	}
+	if strings.Contains(strings.Join(calls[2].Argv, " "), "pi-session") || !strings.Contains(calls[2].Stdin, "# Replan P001.1.1") || !strings.Contains(calls[2].Stdin, "## Previous attempt") {
+		t.Fatalf("fallback did not receive a fresh complete replan prompt: %+v", calls[2])
 	}
 }

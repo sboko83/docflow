@@ -432,7 +432,7 @@ func TestReplanTimeout(t *testing.T) {
 	p := newProgress(&out, &errOut, false)
 	defer p.stop()
 	totals := &runTotals{quota: map[string]agentio.Quota{}, quotaStart: map[string]agentio.Quota{}}
-	code, err := replanUnit(context.Background(), f.root, Args{Attempts: 1}, config, "P001.1.1", "stale", p, totals)
+	code, err := replanUnit(context.Background(), f.root, Args{Attempts: 1}, config, "P001.1.1", "stale", p, totals, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func TestReplanPlanTimeout(t *testing.T) {
 	p := newProgress(&out, &errOut, false)
 	defer p.stop()
 	totals := &runTotals{quota: map[string]agentio.Quota{}, quotaStart: map[string]agentio.Quota{}}
-	code, err := replanUnit(context.Background(), f.root, Args{Attempts: 1}, config, "P001.1.1", "stale", p, totals)
+	code, err := replanUnit(context.Background(), f.root, Args{Attempts: 1}, config, "P001.1.1", "stale", p, totals, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

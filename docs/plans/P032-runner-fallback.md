@@ -122,6 +122,7 @@ assistant; pi сам повторил запрос 3 раза, `auto_retry_end` 
 - VerifiedCurrent принимает resolver вложенных репозиториев — runner должен сравнивать тот же fingerprint, что и verify, не создавая зависимости cycle от lint — отклонён fingerprint только корневого репозитория
 - Коды z.ai: 1302 → throttle, 1305 → outage — [официальная таблица](https://docs.z.ai/api-reference/api-code) относит их к лимиту запросов и временной перегрузке соответственно — отклонено стороннее соответствие 1305 частотному лимиту.
 - Сигналы встроенных исполнителей проверяются до regex профиля — так сохраняется классификация throttle и outage, а regex остаётся для legacy-конфига — отклонён порядок с regex первым.
+- Keep replan refusal handling separate — it must restore the saved plan on failure — a shared runUnit loop would couple unit retries to replan recovery.
 
 ## Phase 1: Прогон без лишних часов
 
@@ -332,7 +333,7 @@ Commit: P032.3.2: switch to fallback executors on refusal
 Handoff:
 - `go test ./...` and `docflow verify P032.3.2` passed. P032.3.3 still needs fallback quota prechecks and fallback switching for replan; this unit covers regular unit execution only.
 
-### [ ] P032.3.3 Квота до юнита и replan по цепочке
+### [x] P032.3.3 Квота до юнита и replan по цепочке
 Read:
 - internal/runner/run.go:L286-354
 - internal/runner/replan.go:L130-320
@@ -355,6 +356,9 @@ Do:
   запись в `CHANGELOG.md` → `Added`.
 Verify: `go test ./internal/runner/ -run 'TestRunQuotaSkip|TestReplanFallback' -count=1`
 Commit: P032.3.3: quota precheck and fallback for replan
+Handoff:
+- The replan and runUnit refusal loops remain separate; keep limit, outage, throttle, and quota behavior aligned when changing either path. Replan restores its saved plan when it stops.
+- Unverified: Live Claude, Codex, and pi quota refusals were not exercised against provider accounts; tests use PATH stubs and a recorded pi response.
 
 ## Phase 4: Приёмка
 

@@ -127,7 +127,7 @@ func restorePlan(path, text string) error {
 	return os.WriteFile(path, []byte(text), 0o644)
 }
 
-func runReplan(ctx context.Context, root string, args Args, config map[string]any, plan *format.Plan, uid, trigger string, p *Progress, totals *runTotals, replans map[string]int) (*int, error) {
+func runReplan(ctx context.Context, root string, args Args, config map[string]any, plan *format.Plan, uid, trigger string, p *Progress, totals *runTotals, replans map[string]int, unavailable map[string]time.Time) (*int, error) {
 	if trigger == "" || plan.Meta["replan"] == "" || args.Replans < 1 {
 		return nil, nil
 	}
@@ -140,11 +140,11 @@ func runReplan(ctx context.Context, root string, args Args, config map[string]an
 		return nil, nil
 	}
 	replans[uid]++
-	code, err := replanUnit(ctx, root, args, config, uid, trigger, p, totals)
+	code, err := replanUnit(ctx, root, args, config, uid, trigger, p, totals, unavailable)
 	return &code, err
 }
 
-func replanUnit(ctx context.Context, root string, args Args, config map[string]any, uid, trigger string, p *Progress, totals *runTotals) (int, error) {
+func replanUnit(ctx context.Context, root string, args Args, config map[string]any, uid, trigger string, p *Progress, totals *runTotals, unavailable map[string]time.Time) (int, error) {
 	plan, _, err := cycle.FindUnit(root, uid)
 	if err != nil {
 		return 2, err
@@ -160,6 +160,50 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		effort = *parsedEffort
 	}
 	agent := profile(config, name)
+	if agent == nil {
+		totals.stop = fmt.Sprintf("%s: replan: no agent profile '%s'", uid, name)
+		p.line(totals.stop, true, "")
+		return 2, nil
+	}
+	primary := agents.Route{Agent: name, Model: model, Effort: effort}
+	chain, err := routeExecutorChain(config, plan, primary, args.RunArgs, unavailable)
+	if err != nil {
+		totals.stop = fmt.Sprintf("%s: replan: %s", uid, err)
+		p.line(totals.stop, true, "")
+		return 2, nil
+	}
+	if chain.enabled {
+		for _, skipped := range markQuotaRoutes(chain.routes, totals.quota, unavailable, time.Now()) {
+			p.line(fmt.Sprintf("%s: quota exhausted until %s, skipped", skipped.agent, skipped.until.Local().Format("15:04")), false, "")
+		}
+	}
+	route, available := chain.pick(time.Now())
+	for !available {
+		earliest, found := chain.earliest()
+		if !found {
+			totals.stop = uid + ": replan executor chain has no available route or reset time"
+			p.line(totals.stop+"; the plan is unchanged", true, "")
+			return 7, nil
+		}
+		line := fmt.Sprintf("%s: replan executors unavailable until %s", uid, earliest.Local().Format("15:04"))
+		if args.NoWait {
+			totals.stop = line
+			p.line(line+"; the plan is unchanged", true, "")
+			return 7, nil
+		}
+		if err := waitForExecutorChain(ctx, p, line, earliest); err != nil {
+			return 7, err
+		}
+		route, available = chain.pick(time.Now())
+	}
+	if chain.enabled {
+		first, _ := chain.firstRoute()
+		if routeIdentity(route) != routeIdentity(first) {
+			totals.switches++
+		}
+	}
+	name, model, effort = route.Agent, route.Model, route.Effort
+	agent = profile(config, name)
 	if agent == nil {
 		totals.stop = fmt.Sprintf("%s: replan: no agent profile '%s'", uid, name)
 		p.line(totals.stop, true, "")
@@ -192,12 +236,15 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 	if err := os.WriteFile(schema, append(data, '\n'), 0o644); err != nil {
 		return 2, err
 	}
-	p.unit(uid, "replan", agents.Route{Agent: name, Model: model, Effort: effort})
+	p.unit(uid, "replan", route)
 	start := time.Now()
-	beforeQuota := append(agentio.Quota(nil), totals.quota[name]...)
+	beforeQuota := make(map[string]agentio.Quota)
+	for _, routeAgent := range chain.routeAgents() {
+		beforeQuota[routeAgent] = append(agentio.Quota(nil), totals.quota[routeAgent]...)
+	}
 	defer func() {
 		p.elapsed(uid, time.Since(start).Seconds())
-		unitQuota(p, totals, name, beforeQuota)
+		unitQuotas(p, totals, chain.agentsUsed(), beforeQuota)
 	}()
 	planPath := filepath.Join(root, plan.Path)
 	before, err := os.ReadFile(planPath)
@@ -271,6 +318,81 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			refusal := agentio.Classify(agent, run, time.Now())
 			if refusal == nil {
 				break
+			}
+			if chain.enabled && (refusal.Kind == agentio.RefusalLimit || refusal.Kind == agentio.RefusalOutage) {
+				now := time.Now()
+				until, err := chain.mark(route, refusal, now)
+				if err != nil {
+					return 2, err
+				}
+				if len(chain.routes) > 1 {
+					next, available := chain.pick(now)
+					if available && routeIdentity(next) != routeIdentity(route) {
+						previous := route
+						p.line(fmt.Sprintf("%s: replan %s: %s until %s; switching to %s", uid, routeName(route), refusal.Kind, until.Local().Format("15:04"), routeName(next)), false, "")
+						p.executor(next)
+						route = next
+						name, model, effort = route.Agent, route.Model, route.Effort
+						agent = profile(config, name)
+						if agent == nil {
+							return stop(2, uid+": replan: no agent profile '"+name+"'", uid+": replan: no agent profile '"+name+"'; the plan is restored", "")
+						}
+						timeout = agentCallTimeout(plan, agent)
+						prompt, err = replanPrompt(plan, uid, trigger, dirty)
+						if err != nil {
+							return 2, err
+						}
+						prompt += previousExecutorAttempt(previous, refusal)
+						session = ""
+						text, resume = prompt, ""
+						totals.switches++
+						continue
+					}
+					if !available {
+						for !available {
+							earliest, found := chain.earliest()
+							if !found {
+								return stop(2, uid+": replan executor chain is exhausted without a reset time", uid+": replan executor chain is exhausted without a reset time; the plan is restored", "")
+							}
+							line := fmt.Sprintf("%s: all replan executors unavailable until %s", uid, earliest.Local().Format("15:04"))
+							if args.NoWait || limits+1 >= agentio.LimitTries {
+								why := line
+								if !args.NoWait {
+									why += fmt.Sprintf(" (%d in a row)", limits+1)
+								}
+								return stop(7, why, why+"; the plan is restored", "")
+							}
+							limits++
+							if err := waitForExecutorChain(ctx, p, line, earliest); err != nil {
+								return 7, err
+							}
+							next, available = chain.pick(time.Now())
+						}
+						if routeIdentity(next) != routeIdentity(route) {
+							previous := route
+							p.line(uid+": replan switching to "+routeName(next)+" after the provider refusal wait", false, "")
+							p.executor(next)
+							route = next
+							name, model, effort = route.Agent, route.Model, route.Effort
+							agent = profile(config, name)
+							if agent == nil {
+								return stop(2, uid+": replan: no agent profile '"+name+"'", uid+": replan: no agent profile '"+name+"'; the plan is restored", "")
+							}
+							timeout = agentCallTimeout(plan, agent)
+							prompt, err = replanPrompt(plan, uid, trigger, dirty)
+							if err != nil {
+								return 2, err
+							}
+							prompt += previousExecutorAttempt(previous, refusal)
+							session = ""
+							text, resume = prompt, ""
+							totals.switches++
+						} else if session != "" {
+							text, resume = agentio.RefusalPrompt, session
+						}
+						continue
+					}
+				}
 			}
 			limits++
 			refusal.Kind, throttles = retryRefusalKind(refusal.Kind, throttles)

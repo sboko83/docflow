@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docflow run` switches to the next `fallback:` executor on provider limits or
   outages, and waits only when every route is unavailable; plans can also set
   a `timeout:` override for agent calls.
+- `docflow run` skips fallback and replan routes whose quota window is full
+  until reset, and sends replan through the same fallback chain.
 
 ### Changed
 - `docflow verify` keeps the complete output of each check in a per-unit log

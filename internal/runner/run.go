@@ -45,6 +45,7 @@ type runTotals struct {
 	rows                       []unitRow
 	planID, stop, notification string
 	unverified, replans        int
+	switches                   int
 	mu                         sync.Mutex
 	unit, activity             string
 	quota, quotaStart          map[string]agentio.Quota
@@ -240,7 +241,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 			planID = sel.Plan.Meta["id"]
 			totals.planID = planID
 			p.start(planID, sel.Plan.Meta["title"], totals.wall, format.PlanPermissions(sel.Plan) == "full")
-			if err := startQuota(config, sel.Plan, args, p, totals); err != nil {
+			if err := startQuota(config, sel.Plan, args, p, totals, unavailable); err != nil {
 				return 2, err
 			}
 			p.close()
@@ -252,6 +253,11 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 		if err != nil {
 			return 2, err
 		}
+		if chain.enabled {
+			for _, skipped := range markQuotaRoutes(chain.routes, totals.quota, unavailable, time.Now()) {
+				p.line(fmt.Sprintf("%s: quota exhausted until %s, skipped", skipped.agent, skipped.until.Local().Format("15:04")), false, "")
+			}
+		}
 		before := make(map[string]agentio.Quota)
 		for _, name := range chain.routeAgents() {
 			before[name] = append(agentio.Quota(nil), totals.quota[name]...)
@@ -262,7 +268,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 			return code, err
 		}
 		if code != 0 {
-			fixed, err := runReplan(ctx, root, args, config, sel.Plan, sel.Unit.ID, trigger, p, totals, replans)
+			fixed, err := runReplan(ctx, root, args, config, sel.Plan, sel.Unit.ID, trigger, p, totals, replans, unavailable)
 			if err != nil {
 				return *fixed, err
 			}
@@ -287,7 +293,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 	}
 }
 
-func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress, totals *runTotals) error {
+func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress, totals *runTotals, unavailable map[string]time.Time) error {
 	units := make([]*format.Unit, 0)
 	for _, u := range plan.Units {
 		if !doneStatus(u.Status) {
@@ -307,6 +313,7 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 		}
 	}
 	names := []string{}
+	routes := []agents.Route{}
 	add := func(name string) {
 		if profile(config, name)["quota"] == nil {
 			return
@@ -319,17 +326,23 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 		names = append(names, name)
 	}
 	for _, unit := range units {
-		route, err := agents.RunRoute(config, plan, unit, args.RunArgs)
+		chain, err := unitExecutorChain(config, plan, unit, args.RunArgs, unavailable)
 		if err != nil {
 			return err
 		}
-		add(route.Agent)
+		routes = append(routes, chain.routes...)
+		for _, route := range chain.routes {
+			add(route.Agent)
+		}
 	}
 	// The replan agent runs only after a block, but its quota still matters
 	// for the run; a bad replan route is reported when replan starts.
 	if len(units) > 0 && plan.Meta["replan"] != "" && args.Replans >= 1 {
-		if name, _, _, err := lint.ParseExecutor(plan.Meta["replan"]); err == nil {
-			add(name)
+		if chain, err := replanExecutorChain(config, plan, args.RunArgs, unavailable); err == nil {
+			routes = append(routes, chain.routes...)
+			for _, route := range chain.routes {
+				add(route.Agent)
+			}
 		}
 	}
 	if len(names) == 0 {
@@ -348,11 +361,18 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 	wait.Wait()
 	p.stop()
 	shown := []NamedQuota{}
+	quotaByAgent := make(map[string]agentio.Quota, len(names))
 	for i, name := range names {
 		totals.mergeQuota(name, quotas[i])
+		quotaByAgent[name] = quotas[i]
 		shown = append(shown, NamedQuota{name, quotas[i]})
 	}
 	p.quotas(shown, nil, "", false)
+	if args.Executors {
+		for _, skipped := range markQuotaRoutes(routes, quotaByAgent, unavailable, time.Now()) {
+			p.line(fmt.Sprintf("%s: quota exhausted until %s, skipped", skipped.agent, skipped.until.Local().Format("15:04")), false, "")
+		}
+	}
 	return nil
 }
 
@@ -404,6 +424,13 @@ func runSummary(p *Progress, totals *runTotals) {
 	if totals.replans > 0 {
 		text += fmt.Sprintf(", %d replan%s", totals.replans, plural(totals.replans))
 	}
+	if totals.switches > 0 || totals.replans > 0 {
+		word := "switches"
+		if totals.switches == 1 {
+			word = "switch"
+		}
+		text += fmt.Sprintf(", %d %s", totals.switches, word)
+	}
 	p.summary(text, totals.namedQuotas(), totals.quotaStart)
 }
 
@@ -439,6 +466,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		route, ok = chain.pick(time.Now())
 	}
 	initialRoute, _ := chain.firstRoute()
+	if chain.enabled && routeIdentity(route) != routeIdentity(initialRoute) {
+		totals.switches++
+	}
 	name := route.Agent
 	agent := profile(config, name)
 	p.unit(uid, unit.Title, route)
@@ -638,6 +668,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					p.line(fmt.Sprintf("%s: %s: %s until %s; switching to %s", uid, routeName(route), refusal.Kind, until.Local().Format("15:04"), routeName(next)), false, "")
 					p.executor(next)
 					route = next
+					totals.switches++
 					name, agent = route.Agent, profile(config, route.Agent)
 					timeout = agentCallTimeout(plan, agent)
 					prompt = runnerPrompt(root, plan, unit, agent, mode) + previousExecutorAttempt(previousRoute, refusal)
@@ -671,6 +702,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 						p.line(uid+": switching to "+routeName(next)+" after the provider refusal wait", false, "")
 						p.executor(next)
 						route = next
+						totals.switches++
 						name, agent = route.Agent, profile(config, route.Agent)
 						timeout = agentCallTimeout(plan, agent)
 						prompt = runnerPrompt(root, plan, unit, agent, mode) + previousExecutorAttempt(previousRoute, refusal)

@@ -24,21 +24,50 @@ func unitExecutorChain(config map[string]any, plan *format.Plan, unit *format.Un
 	if err != nil {
 		return nil, err
 	}
+	return routeExecutorChain(config, plan, primary, args, unavailable)
+}
+
+func replanExecutorChain(config map[string]any, plan *format.Plan, args agents.RunArgs, unavailable map[string]time.Time) (*executorChain, error) {
+	name, model, effort, err := lint.ParseExecutor(plan.Meta["replan"])
+	if err != nil {
+		return nil, err
+	}
+	primary := agents.Route{Agent: name, Model: model}
+	if effort != nil {
+		primary.Effort = *effort
+	}
+	return routeExecutorChain(config, plan, primary, args, unavailable)
+}
+
+func routeExecutorChain(config map[string]any, plan *format.Plan, primary agents.Route, args agents.RunArgs, unavailable map[string]time.Time) (*executorChain, error) {
 	routes := []agents.Route{primary}
-	if args.Executors && plan.Meta["fallback"] != "" {
-		for _, raw := range strings.Split(plan.Meta["fallback"], ";") {
-			name, model, effort, err := lint.ParseExecutor(strings.TrimSpace(raw))
-			if err != nil {
-				return nil, err
-			}
-			route := agents.Route{Agent: name, Model: model}
-			if effort != nil {
-				route.Effort = *effort
-			}
-			routes = append(routes, route)
+	if args.Executors {
+		fallback, err := fallbackRoutes(plan)
+		if err != nil {
+			return nil, err
 		}
+		routes = append(routes, fallback...)
 	}
 	return newExecutorChain(routes, config, unavailable, args.Executors), nil
+}
+
+func fallbackRoutes(plan *format.Plan) ([]agents.Route, error) {
+	var routes []agents.Route
+	for _, raw := range strings.Split(plan.Meta["fallback"], ";") {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		name, model, effort, err := lint.ParseExecutor(strings.TrimSpace(raw))
+		if err != nil {
+			return nil, err
+		}
+		route := agents.Route{Agent: name, Model: model}
+		if effort != nil {
+			route.Effort = *effort
+		}
+		routes = append(routes, route)
+	}
+	return routes, nil
 }
 
 func newExecutorChain(routes []agents.Route, config map[string]any, unavailable map[string]time.Time, enabled bool) *executorChain {
@@ -87,12 +116,16 @@ func (c *executorChain) mark(route agents.Route, refusal *agentio.Refusal, now t
 	if err != nil {
 		return time.Time{}, err
 	}
+	return c.markUntil(route, until), nil
+}
+
+func (c *executorChain) markUntil(route agents.Route, until time.Time) time.Time {
 	key := availabilityKey(route)
 	if current := c.unavailable[key]; current.After(until) {
 		until = current
 	}
 	c.unavailable[key] = until
-	return until, nil
+	return until
 }
 
 func (c *executorChain) earliest() (time.Time, bool) {
@@ -136,6 +169,67 @@ func (c *executorChain) routeAgents() []string {
 
 func availabilityKey(route agents.Route) string {
 	return route.Agent + "|" + route.Model
+}
+
+type quotaSkip struct {
+	agent string
+	until time.Time
+}
+
+func markQuotaRoutes(routes []agents.Route, quotas map[string]agentio.Quota, unavailable map[string]time.Time, now time.Time) []quotaSkip {
+	if unavailable == nil {
+		unavailable = make(map[string]time.Time)
+	}
+	seenRoutes := make(map[string]bool)
+	order := []string{}
+	byAgent := make(map[string]time.Time)
+	for _, route := range routes {
+		key := availabilityKey(route)
+		if seenRoutes[key] {
+			continue
+		}
+		seenRoutes[key] = true
+		until, exhausted := quotaExhaustedUntil(quotas[route.Agent], now)
+		if !exhausted {
+			continue
+		}
+		current := unavailable[key]
+		if current.After(until) {
+			until = current
+		}
+		if !current.After(now) || until.After(current) {
+			unavailable[key] = until
+			if _, found := byAgent[route.Agent]; !found {
+				order = append(order, route.Agent)
+			}
+			if until.After(byAgent[route.Agent]) {
+				byAgent[route.Agent] = until
+			}
+		}
+	}
+	result := make([]quotaSkip, 0, len(order))
+	for _, agent := range order {
+		result = append(result, quotaSkip{agent: agent, until: byAgent[agent]})
+	}
+	return result
+}
+
+func quotaExhaustedUntil(quota agentio.Quota, now time.Time) (time.Time, bool) {
+	var until time.Time
+	for _, window := range quota {
+		if window.Used < 1 {
+			continue
+		}
+		reset := agentio.Epoch(window.Reset)
+		if reset == nil {
+			continue
+		}
+		at := time.Unix(int64(*reset), 0)
+		if at.After(now) && at.After(until) {
+			until = at
+		}
+	}
+	return until, !until.IsZero()
 }
 
 func routeIdentity(route agents.Route) string {
