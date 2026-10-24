@@ -99,6 +99,12 @@ https://api.z.ai/api/monitor/usage/quota/limit`, заголовок `Authorizati
 - P035.1.2 переназначен на `codex | gpt-6-luna | max` — z.ai исчерпал окно
   5h до 2026-10-25 05:37, а Codex на маршруте `fallback:` блокирует юнит по
   несовпадению с `Executor: pi` — отвергнуто ждать сброса квоты z.ai
+- Дефекты ревью P035.2.1 закрываются двумя юнитами по пакетам
+  (P035.2.2 `agentio`, P035.2.3 `runner`) и повторным ревью P035.2.4 —
+  правки независимы и проверяются своим `go test` — отвергнут один юнит на
+  все пять дефектов и снятие блока с P035.2.1 без ревью исправлений
+- Зонд z.ai держит один бюджет `timeout` на ключ и HTTP — Constraints
+  называют таймаут зонда, а не этапа — отвергнуто узаконить 2× таймаут
 
 ## Phase 1: Зонд и раннер
 
@@ -196,7 +202,7 @@ Handoff:
 
 ## Phase 2: Ревью
 
-### [ ] P035.2.1 Ревью фазы 1
+### [-] P035.2.1 Ревью фазы 1
 Read:
 - internal/agentio/zai.go
 - docs/design/runner.md:L314-368
@@ -216,6 +222,94 @@ Verify: `go test ./... && go vet ./...`
 Depends: P035.1.2
 Executor: codex | gpt-6.1-sol | high
 Commit: P035.2.1: review z.ai quota phase
+Handoff:
+- Blocked (plan): 1. internal/agentio/zai.go:89,93: этапы получения ключа и HTTP используют полный timeout каждый вместо общего бюджета. Воспроизведение: квота возвращена через 2,69 с при timeout=2 с. internal/agentio/zai_test.go:109 допускает 3 с при timeout=200 мс и нарушение не выявляет. 2. internal/runner/chain.go:98,150: использованные маршруты по-прежнему учитываются через route.Agent. При цепочке pi другого провайдера → pi zai/ и вызове только первого agentsUsed() возвращает [pi zai], ошибочно включая квоту z.ai в строку юнита. Воспроизведено. 3. internal/runner/zai_test.go:95,172: ответы до и после вызова одинаковые; проверяется только (+0). Нет тестов изменения квоты, ненулевой дельты и пропуска z.ai перед следующим юнитом после исчерпания посреди прогона — требований P035.1.2. 4. internal/runner/replan.go:327 и internal/runner/chain.go:259: отсутствуют тесты получения Reset при limit в replan и сохранения nil при отсутствии исчерпанных окон. Имеющийся тест internal/runner/zai_test.go:140 покрывает только обычный юнит с исчерпанными окнами. 5. internal/agentio/zai_test.go:56: фейковый pi всегда успешно возвращает ключ. Не проверены требования P035.1.1: пустой/пробельный ключ, ненулевой код при непустом stdout и таймаут команды получения ключа.
+
+### [ ] P035.2.2 Общий таймаут зонда z.ai и тесты ключа
+Read:
+- internal/agentio/zai.go:L80-140
+- internal/agentio/zai_test.go
+- internal/agentio/process.go:L25-35
+Do:
+- `ProbeZaiQuota` (`internal/agentio/zai.go:L88-99`): один бюджет
+  `timeout` на оба этапа — срок `time.Now().Add(timeout)`, команда ключа
+  получает `timeout`, HTTP-запрос — остаток до срока; остаток ≤ 0 —
+  пустая `Quota` без запроса.
+- Тест общего бюджета: фейковый `pi` спит ~0,6 таймаута и печатает ключ,
+  `httptest`-сервер отвечает валидным телом формы из `## Context` через
+  ~0,6 таймаута — результат пустая `Quota`, время не больше таймаута плюс
+  запас. До правки этот тест возвращает квоту.
+- `TestProbeZaiQuotaHangingServer` (`zai_test.go:L98-112`): граница
+  времени — таймаут плюс небольшой запас, а не 3 с при таймауте 200 мс.
+- `fakeZaiPi` параметризовать скриптом; тесты: ключ из пробелов и
+  переводов строк — пустая `Quota`, сервер не получил запроса; код 1 при
+  непустом stdout — пустая `Quota`, запроса нет; `pi` дольше таймаута —
+  пустая `Quota` не позже таймаута плюс запас, запроса нет; ключ с
+  пробелами вокруг — заголовок `Authorization` равен ключу без пробелов.
+Verify: `go test ./internal/agentio/`
+Traps: ключ не включать в текст ошибок и в `t.Log`/`t.Fatal`. Тесты с
+фейковым `pi` скипаются на Windows, как `fakeZaiPi`. Handoff P035.1.1 и
+P035.1.2 про «до двух таймаутов» после юнита неверен — не переносить его
+в docs. Фича не выпущена: запись `CHANGELOG.md` не нужна.
+Depends: P035.1.2
+Executor: codex | gpt-6-luna | max
+Commit: P035.2.2: bound z.ai probe by one timeout
+
+### [ ] P035.2.3 Учёт маршрутов z.ai и тесты раннера
+Read:
+- internal/runner/chain.go:L90-190
+- internal/runner/chain.go:L236-265
+- internal/runner/zai_test.go
+- internal/runner/run.go:L600-680
+- internal/runner/replan.go:L300-335
+- internal/runner/fallback_test.go:L100-160
+Do:
+- `executorChain.used` (`chain.go:L98`, `L150`) ключевать
+  `quotaName(route)`, а не `route.Agent`: цепочка `pi <не zai>` →
+  `pi zai/…`, вызван только первый — `agentsUsed()` равно `[pi]`, без
+  `zai`; обратный случай — `[zai]`. Тест на обе цепочки.
+- Тест дельты: сервер отдаёт 28/30 на старте и 40/30 после вызова —
+  строка юнита `quota: zai 5h 40% (+12) · 7d 30% (+0)`.
+- Тест исчерпания посреди прогона: два юнита на `pi | zai/…`, зонд после
+  первого юнита — 5h 100% со сбросом в будущем; второй юнит —
+  `zai: quota exhausted until HH:MM, skipped` и выполнен маршрутом
+  `fallback:`. Не проходит — довести пометку исчерпания перед следующим
+  юнитом в `run.go`.
+- Тест replan: маршрут `replan:` на `pi | zai/…`, отказ `limit` без
+  времени в тексте, `--no-wait` — время в сообщении совпадает со сбросом
+  из ответа сервера (`replan.go:L327`).
+- Тест `nil`: отказ `limit` на z.ai без времени в тексте, свежий зонд без
+  окон с `Used >= 1` — ожидание по `limit_wait` профиля, не по сбросу
+  окна (`chain.go:L258`).
+Verify: `go test ./...`
+Traps: тела сервера в `zai_test.go` — очередь `server.bodies` по
+запросам; число зондов (старт + после каждого вызова z.ai) задаёт длину
+очереди. Ожидание проверять с `--no-wait`, без настоящего сна. Фича не
+выпущена: запись `CHANGELOG.md` не нужна.
+Depends: P035.1.2
+Executor: codex | gpt-6-luna | max
+Commit: P035.2.3: fix z.ai route usage and tests
+
+### [ ] P035.2.4 Повторное ревью фазы 1
+Read:
+- internal/agentio/zai.go
+- internal/runner/chain.go:L90-190
+- docs/design/runner.md:L314-368
+Do:
+- Получить дифф: `git diff "$(git log --format=%H --grep='^P035\.1\.' | tail -1)^" HEAD -- . ':!docs/plans'`.
+- Проверить, что закрыт каждый из пяти дефектов Handoff P035.2.1 —
+  поведение и тест, который до правки падал бы.
+- Повторить сверку P035.2.1: `## Goal`, `## Constraints`,
+  `## Decisions`, каждый пункт `Do:` юнитов P035.1.1, P035.1.2, P035.2.2,
+  P035.2.3; утечка ключа; имя `zai` везде, где раньше был `route.Agent`.
+- Прогнать `go test ./...` и `go vet ./...`.
+- Код не править. Дефект — `blocked`, `blocker: "plan"`, в `reason`
+  каждый дефект с `file:line`. Замечания без дефекта — в Handoff
+  `Unverified:`.
+Verify: `go test ./... && go vet ./...`
+Depends: P035.2.2, P035.2.3
+Executor: codex | gpt-6.1-sol | high
+Commit: P035.2.4: re-review z.ai quota phase
 
 ## Phase 3: Приёмка
 
@@ -244,10 +338,10 @@ Do:
 - Сценарий 6: ключ фейкового `pi` не встречается ни в stdout/stderr, ни в
   логах вызовов `<git-dir>/docflow/run/`.
 - Закрыть тестом каждый `Unverified:` из Handoff P035.1.1, P035.1.2,
-  P035.2.1 или оставить его в своём Handoff.
+  P035.2.2–P035.2.4 или оставить его в своём Handoff.
 Verify: `go test ./...`
 Traps: упавший сценарий чинится в этом юните, если правка мала; иначе
 `blocked` с причиной.
-Depends: P035.1.1, P035.1.2, P035.2.1
+Depends: P035.1.1, P035.1.2, P035.2.4
 Executor: claude | claude-opus-5-5 | high
 Commit: P035.3.1: accept z.ai quota in run
