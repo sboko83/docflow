@@ -362,7 +362,7 @@ Handoff:
 
 ## Phase 4: Приёмка
 
-### [ ] P032.4.1 Приёмка прогона на агентах-заглушках
+### [x] P032.4.1 Приёмка прогона на агентах-заглушках
 Read:
 - internal/runner/routes_test.go:L120-200
 - internal/agentio/testdata/pi-limit-zai.jsonl
@@ -393,3 +393,11 @@ Traps: провалившийся сценарий с небольшой пра�
 Depends: P032.1.1, P032.1.2, P032.2.1, P032.3.1, P032.3.2, P032.3.3
 Executor: claude | claude-opus-5-5 | high
 Commit: P032.4.1: accept fallback run end to end
+Handoff:
+- internal/runner/acceptance_fallback_test.go drives the built docflow binary in executor mode (pi primary, fallback codex then claude, PATH stubs); the timeout scenario takes ~61 s because lint's minimum plan timeout is 60.
+- The timeout scenario needs perl (setsid for the grandchild) and ps; it skips without perl. In a sandbox that forbids ps the procgroup snapshot loses descendants and the test fails.
+- A detached descendant that keeps the agent's stdout pipe blocks cmd.Wait until it exits, so the runner waits for it even after the tree kill; the acceptance grandchild redirects stdio to /dev/null to make survival observable.
+- P032.3.1's Unverified item (runtime fallback switching) is now covered by TestAcceptanceZaiLimitFallsBackToCodex; the live-provider items are carried below.
+- Unverified: Real Claude and Codex limit refusals are not checked against live provider accounts; the classifier and acceptance tests use synthetic responses (carried from P032.2.1 and P032.3.3).
+- Unverified: Live pi/z.ai quota refusals beyond the recorded sample, and the return to the primary executor after its reset on a live run, are not checked; there are no subscriptions on this machine.
+- Unverified: The acceptance tests ran only on macOS; the Linux CI runner (perl, ps, setsid behavior) was not run locally.
