@@ -20,6 +20,12 @@ func zaiQuotaBody(five, seven float64, fiveReset, sevenReset int64) string {
 		fmt.Sprintf(`{"type":"CREDIT_LIMIT","unit":6,"number":1,"percentage":%g,"nextResetTime":%d}]}}`, seven, sevenReset*1000)
 }
 
+func zaiQuotaBodyWithoutResets(five, seven float64) string {
+	return `{"code":200,"msg":"ok","success":true,"data":{"level":"pro","limits":[` +
+		fmt.Sprintf(`{"type":"CREDIT_LIMIT","unit":3,"number":5,"percentage":%g},`, five) +
+		fmt.Sprintf(`{"type":"CREDIT_LIMIT","unit":6,"number":1,"percentage":%g}]}}`, seven)
+}
+
 func zaiMinuteFloor(at time.Time) int64 { return at.Unix() / 60 * 60 }
 
 // zaiQuotaServer serves the queued bodies in order (the last one repeats)
@@ -92,16 +98,39 @@ func piSuccessStep() string {
 func TestRunZaiQuotaStartLineAndDelta(t *testing.T) {
 	f, server := zaiRunFixture(t)
 	reset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
-	server.bodies = []string{zaiQuotaBody(28, 30, reset, reset+86400)}
+	server.bodies = []string{
+		zaiQuotaBody(28, 30, reset, reset+86400),
+		zaiQuotaBody(40, 30, reset, reset+86400),
+	}
 	f.steps(piSuccessStep())
 	r := f.cli("run", "--no-wait", "--max-units", "1")
-	f.check(r, 0, "quota: zai 5h 28% · 7d 30%", "quota: zai 5h 28% (+0) · 7d 30% (+0)", "P001.1.1 done:")
+	f.check(r, 0, "quota: zai 5h 28% · 7d 30%", "quota: zai 5h 40% (+12) · 7d 30% (+0)", "P001.1.1 done:")
 	// One start probe plus one re-probe after the pi call, no more.
 	if got := server.count(); got != 2 {
 		t.Fatalf("zai quota probed %d times, want 2 (start + after call)", got)
 	}
 	if !server.authorized() {
 		t.Fatal("probe sent no key")
+	}
+}
+
+func TestRunZaiQuotaExhaustedAfterFirstUnitSkipsNextRoute(t *testing.T) {
+	f, server := zaiRunFixture(t)
+	reset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
+	server.bodies = []string{
+		zaiQuotaBody(28, 30, reset, reset+86400),
+		zaiQuotaBody(100, 30, reset, reset+86400),
+	}
+	f.steps(piSuccessStep(), strings.ReplaceAll(codexStep(f, 2, 20, 30, true), "u2.txt", "b.txt"))
+	r := f.cli("run", "--no-wait", "--max-units", "2")
+	want := "zai: quota exhausted until " + time.Unix(reset, 0).Local().Format("15:04") + ", skipped"
+	f.check(r, 0, want, "P001.1.2 done:", "via codex gpt-5.5")
+	calls := f.calls()
+	if len(calls) != 2 || !strings.Contains(strings.Join(calls[0].Argv, " "), "zai/glm-5.3") || !strings.Contains(strings.Join(calls[1].Argv, " "), "gpt-5.5") {
+		t.Fatalf("calls = %v, want pi zai then codex fallback", calls)
+	}
+	if got := server.count(); got != 2 {
+		t.Fatalf("zai quota probed %d times, want 2 (start + after first unit)", got)
 	}
 }
 
@@ -181,4 +210,88 @@ func TestReplanZaiQuotaProbesAfterCall(t *testing.T) {
 	if len(calls) != 3 || !strings.Contains(strings.Join(calls[1].Argv, " "), "zai/glm-5.3") {
 		t.Fatalf("calls = %v, want Claude block, pi replan, Claude retry", calls)
 	}
+}
+
+func TestReplanZaiLimitWithoutResetUsesServerQuotaReset(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fake pi requires Unix")
+	}
+	f := executorRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max")
+	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFakePi(t, f, fake)
+	server := newZaiQuotaServer(t)
+	fiveReset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
+	sevenReset := zaiMinuteFloor(time.Now().Add(3 * time.Hour))
+	server.bodies = []string{
+		zaiQuotaBody(28, 30, fiveReset, sevenReset),
+		zaiQuotaBody(28, 30, fiveReset, sevenReset),
+		zaiQuotaBody(100, 100, fiveReset, sevenReset),
+	}
+	piRefusal := piFailureStep(`429: {"code":"1310","message":"Credit Limit Exhausted"}`)
+	codexReplan := editPlan("### [!] P001.1.1", "### [~] P001.1.1") + codexStep(f, 1, 20, 30, false)
+	f.steps(blockReply(), piRefusal, codexReplan, writeReply("a.txt"))
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	want := "P001.1.1: replan pi zai/glm-5.3: limit until " + time.Unix(sevenReset+60, 0).Local().Format("15:04") + "; switching to codex gpt-5.5"
+	f.check(r, 0, want, "P001.1.1 done:")
+	if got := server.count(); got != 3 {
+		t.Fatalf("zai quota probed %d times, want 3 (start, after call, refusal)", got)
+	}
+	calls := f.calls()
+	if len(calls) != 4 || !strings.Contains(strings.Join(calls[1].Argv, " "), "zai/glm-5.3") || !strings.Contains(strings.Join(calls[2].Argv, " "), "gpt-5.5") {
+		t.Fatalf("calls = %v, want Claude block, pi refusal, codex replan, Claude retry", calls)
+	}
+}
+
+func TestRunZaiLimitWithoutResetUsesProfileWait(t *testing.T) {
+	f, server := zaiRunFixture(t)
+	reset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
+	server.bodies = []string{
+		zaiQuotaBody(28, 30, reset, reset+86400),
+		zaiQuotaBody(28, 30, reset, reset+86400),
+		zaiQuotaBodyWithoutResets(100, 100),
+	}
+	f.steps(piFailureStep(`429: {"code":"1310","message":"Credit Limit Exhausted"}`), codexFallbackSuccessStep(f))
+	started := time.Now()
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "switching to codex gpt-5.5", "via codex gpt-5.5")
+	assertZaiWaitClock(t, r.out, started, 30*time.Minute)
+	if got := server.count(); got != 3 {
+		t.Fatalf("zai quota probed %d times, want 3 (start, after call, refusal)", got)
+	}
+}
+
+func assertZaiWaitClock(t *testing.T, output string, started time.Time, wait time.Duration) {
+	t.Helper()
+	const marker = "limit until "
+	index := strings.Index(output, marker)
+	if index < 0 || len(output) < index+len(marker)+5 {
+		t.Fatalf("missing limit wait time in output:\n%s", output)
+	}
+	clock := output[index+len(marker) : index+len(marker)+5]
+	parsed, err := time.ParseInLocation("15:04", clock, time.Local)
+	if err != nil {
+		t.Fatalf("invalid limit wait time %q: %v", clock, err)
+	}
+	expected := started.Add(wait)
+	base := time.Date(expected.Year(), expected.Month(), expected.Day(), parsed.Hour(), parsed.Minute(), 0, 0, expected.Location())
+	best := base
+	for _, candidate := range []time.Time{base.Add(-24 * time.Hour), base.Add(24 * time.Hour)} {
+		if absDuration(candidate.Sub(expected)) < absDuration(best.Sub(expected)) {
+			best = candidate
+		}
+	}
+	if delta := absDuration(best.Sub(expected)); delta > 2*time.Minute {
+		t.Fatalf("limit until %s is %s from start, want about %s:\n%s", clock, best.Sub(started).Round(time.Minute), wait, output)
+	}
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }

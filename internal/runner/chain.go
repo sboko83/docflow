@@ -95,7 +95,7 @@ func (c *executorChain) pick(now time.Time) (agents.Route, bool) {
 		if blocked && now.Before(until) {
 			continue
 		}
-		c.used[route.Agent] = true
+		c.used[quotaName(route)] = true
 		return route, true
 	}
 	return agents.Route{}, false
@@ -147,10 +147,10 @@ func (c *executorChain) agentsUsed() []string {
 	result := make([]string, 0, len(c.used))
 	seen := make(map[string]bool, len(c.used))
 	for _, route := range c.routes {
-		if !c.used[route.Agent] {
+		name := quotaName(route)
+		if !c.used[name] {
 			continue
 		}
-		name := quotaName(route)
 		if !seen[name] {
 			seen[name] = true
 			result = append(result, name)

@@ -73,3 +73,39 @@ func TestExecutorChainThrottleDoesNotMarkRoute(t *testing.T) {
 		t.Fatalf("route after throttle = %v, %v", got, ok)
 	}
 }
+
+func TestExecutorChainAgentsUsedByQuotaName(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		routes []agents.Route
+		want   string
+	}{
+		{
+			name: "pi non-zai first",
+			routes: []agents.Route{
+				{Agent: "pi", Model: "glm-5.3"},
+				{Agent: "pi", Model: "zai/glm-5.3"},
+			},
+			want: "pi",
+		},
+		{
+			name: "pi zai first",
+			routes: []agents.Route{
+				{Agent: "pi", Model: "zai/glm-5.3"},
+				{Agent: "pi", Model: "glm-5.3"},
+			},
+			want: "zai",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			chain := newExecutorChain(tc.routes, nil, nil, true)
+			if _, ok := chain.pick(time.Now()); !ok {
+				t.Fatal("pick returned no route")
+			}
+			got := chain.agentsUsed()
+			if len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("agentsUsed() = %v, want [%s]", got, tc.want)
+			}
+		})
+	}
+}

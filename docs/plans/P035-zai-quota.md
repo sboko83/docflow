@@ -260,7 +260,7 @@ Handoff:
 - Полный verify прошёл; шаги done и commit оставлены runner'у.
 - Unverified: Интеграция с реальными pi auth и endpoint z.ai не запускалась; проверены пакетные тесты и проектный gate.
 
-### [ ] P035.2.3 Учёт маршрутов z.ai и тесты раннера
+### [x] P035.2.3 Учёт маршрутов z.ai и тесты раннера
 Read:
 - internal/runner/chain.go:L90-190
 - internal/runner/chain.go:L236-265
@@ -294,6 +294,10 @@ Traps: тела сервера в `zai_test.go` — очередь `server.bodie
 Depends: P035.1.2
 Executor: codex | gpt-6-luna | max
 Commit: P035.2.3: fix z.ai route usage and tests
+Handoff:
+- Для P035.2.4: live z.ai key и endpoint не проверялись; тесты используют фиктивный ключ и локальный HTTP-сервер.
+- Сообщение replan учитывает существующий запас +60 секунд к reset сервера.
+- Unverified: Live z.ai key и endpoint не проверялись; использованы локальные фикстуры.
 
 ### [ ] P035.2.4 Повторное ревью фазы 1
 Read:
