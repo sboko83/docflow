@@ -155,6 +155,16 @@ trusted = true
   уже однажды остались после P035.
 - Dry-run берёт первый маршрут `Role:` и показывает источник `role`, чтобы превью совпадало с маршрутом запуска; наследование `executor:` для такого юнита исключено.
 - Исправлена также устаревшая строка раздела авто-replan («replan идёт по цепочке replan: затем fallback:») за пределами названного в Do: раздела резервных маршрутов — она прямо противоречила поведению формата 3, которое описывал этот юнит — отвергнуто оставить как есть: два раздела описывали бы одно поведение по-разному
+- Режим исполнителей для `Role:` и ключей ролей — как в формате 2: любое
+  назначение, `executor:` в шапке или `Executor:` в юните; так уже
+  записано в `docs/design/format.md` — юнит с `Role:` шапку не наследует,
+  требование `executor:` в шапке не меняло бы ни одного маршрута —
+  отвергнуто требовать `executor:` (скобка в `Do:` P036.1.1, дефект 2
+  ревью P036.1.3).
+- Предупреждение о навыках (`PlanAgents`) охватывает агентов всех
+  маршрутов цепочек юнитов и `replan:`, а не только первых — резервный
+  маршрут без навыка падает в момент отказа основного — отвергнута
+  правка только разбора `replan:`.
 
 ## Phase 1: Формат 3
 
@@ -246,7 +256,7 @@ Handoff:
 - Unverified: Вывод односессионного dry-run «from: role <name>» (run.go, печать RouteSource) — проверен только путь --all; отдельной проверки single-unit dry-run нет
 - Unverified: Чужое изменение progress.go (Z.ai) гонялось в моих прогонах go test ./..., но отдельного теста на него нет и писалось оно не этим юнитом
 
-### [ ] P036.1.3 Ревью фазы 1
+### [-] P036.1.3 Ревью фазы 1
 Read:
 - docs/design/format.md:L107-252
 - docs/design/runner.md:L218-240
@@ -264,6 +274,56 @@ Do:
 Verify: `go test ./... && go vet ./...`
 Executor: codex | gpt-6.1-sol | high
 Commit: P036.1.3: review format 3 phase
+Handoff:
+- Blocked (plan): 1. internal/agents/agents.go:638 — PlanAgents разбирает replan: как одиночную тройку; цепочка исключает replan-агентов из SkillsWarnings. Воспроизведено: отсутствует pi. 2. internal/lint/lint.go:579 — проверка использует executorMode, допускающий Executor: другого юнита. Поэтому Role: и ключ роли принимаются без executor: в шапке вопреки P036.1.1. Воспроизведено: lint без ошибок. 3. internal/agents/agents_test.go:457 — нет теста PlanAgents с Role:. internal/cycle/cycle_test.go:706 — миграционные тесты не проверяют сохранность архива и плана с replan: без fallback:. Требуемое покрытие Do: неполное.
+
+### [ ] P036.1.4 Агенты цепочек и покрытие тестами
+Read:
+- internal/agents/agents.go:L625-648
+- internal/agents/agents_test.go:L430-460
+- internal/runner/chain.go:L22-130
+- internal/cycle/lifecycle.go:L674-730
+- internal/cycle/cycle_test.go:L706-760
+Do:
+- `agents.PlanAgents`: агенты всех маршрутов цепочки каждого открытого
+  юнита (`Role:` — цепочка ключа роли; `Executor:` и наследование —
+  маршрут и `fallback:`) и всех маршрутов `replan:`. Разбор цепочки —
+  один на `agents` и `runner`: перенести `chainRoutes`/`unitRoleRoutes`
+  из `internal/runner/chain.go` в `internal/agents` (экспортировать),
+  `runner` вызывает их; поведение раннера не меняется.
+- Тест `internal/agents`: `PlanAgents` на плане с `Role:` и `replan:` из
+  двух маршрутов разных агентов возвращает агентов всех цепочек,
+  включая второй маршрут `replan:`.
+- Тесты `internal/cycle` миграции 2 → 3: план в `docs/archive/` с
+  `replan:` и `fallback:` не меняется; план в `docs/plans/` с `replan:`
+  без `fallback:` не меняется и не попадает в вывод.
+- `CHANGELOG.md` `[Unreleased]`: предупреждение о навыках охватывает
+  агентов резервных маршрутов и цепочки `replan:`.
+Verify: `go test ./internal/agents/ ./internal/runner/ ./internal/cycle/`
+Traps: `internal/agents` не может импортировать `internal/runner`
+(обратная зависимость уже есть) — общий разбор живёт в `agents`. Правило
+lint «`Role:` вне режима исполнителей» не менять (см. `## Decisions`).
+Executor: pi | zai/glm-5.3 | max
+Commit: P036.1.4: cover chain agents and migration
+
+### [ ] P036.1.5 Повторное ревью фазы 1
+Read:
+- docs/design/format.md:L107-260
+- docs/design/runner.md:L218-240
+Do:
+- Получить дифф фазы: `git diff "$(git log --format=%H --grep='^P036\.1\.' | tail -1)^" HEAD -- . ':!docs/plans'`.
+- Сверить с `## Goal`, `## Constraints`, `## Decisions` и каждым пунктом
+  `Do:` P036.1.1, P036.1.2 и P036.1.4; дефекты Handoff P036.1.3 закрыты
+  или сняты решением в `## Decisions`.
+- Прогнать `go test ./...` и `go vet ./...`.
+- Код не править. Дефект — расхождение с Goal/Constraints/Decisions, нет
+  теста на пункт `Do:` — ответ `blocked`, `blocker: "plan"`, в `reason`
+  каждый дефект с `file:line`. Замечания без дефекта — Handoff
+  `Unverified:`.
+Verify: `go test ./... && go vet ./...`
+Depends: P036.1.4
+Executor: codex | gpt-6.1-sol | high
+Commit: P036.1.5: re-review format 3 phase
 
 ## Phase 2: Ростер
 
@@ -298,17 +358,17 @@ Do:
   «Ростер» после «Конфиг агентов»: формат, подбор, профили.
 - `CHANGELOG.md` `[Unreleased]`: `docflow roster show`.
 Verify: `go test ./internal/roster/ ./cmd/docflow/`
-Depends: P036.1.3
+Depends: P036.1.5
 Commit: P036.2.1: add roster and roster show
 
 ### [ ] P036.2.2 docflow roster apply
 Read:
-- internal/roster/roster.go
 - internal/format/doc.go:L70-80
 - internal/format/doc.go:L138-160
 - internal/cycle/lifecycle.go:L470-505
 - internal/runner/helpers.go:L130-160
 Do:
+- Прочитать `internal/roster/roster.go` (создаёт P036.2.1).
 - `docflow roster apply <id> [--profile NAME] [--roster PATH]`: план из
   `docs/plans/` со статусом `draft`, `active` или `frozen`, иначе код 2.
 - Пишет в шапку `executor:`, `fallback:` (нет хвоста — ключ удалить),
@@ -405,8 +465,8 @@ Read:
 - internal/runner/fallback_test.go:L1-60
 - internal/runner/fallback_test.go:L100-160
 - cmd/docflow/lifecycle_test.go:L1-60
-- internal/roster/roster.go
 Do:
+- Прочитать `internal/roster/roster.go` (создаёт P036.2.1).
 - Создать `cmd/docflow/roster_acceptance_test.go` и
   `internal/runner/role_acceptance_test.go`: настоящий CLI на
   временном проекте `docflow: 3` и ростере из `## Context` во временном
@@ -437,6 +497,6 @@ Do:
 Verify: `go test ./...`
 Traps: упавший сценарий чинится в этом юните, если правка мала; иначе
 `blocked` с причиной.
-Depends: P036.1.1, P036.1.2, P036.1.3, P036.2.1, P036.2.2, P036.2.3, P036.3.1, P036.3.2
+Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.3.1, P036.3.2
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.4.1: accept roster and format 3
