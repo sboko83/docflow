@@ -230,6 +230,7 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("DOCFLOW_RELEASE_URL", server.URL)
+	t.Chdir(t.TempDir()) // Outside any docflow project.
 	stdout, _ = runRelease(t, 0, "update", "--check")
 	if stdout != "update available: 1.0.0 -> 1.1.0\n" || len(requests) != 1 {
 		t.Fatalf("check stdout=%q requests=%v", stdout, requests)
@@ -238,8 +239,13 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	for _, next := range []string{"1.1.0", "1.2.0"} {
 		latest = next
 		stdout, _ = runRelease(t, 0, "update")
-		if !strings.Contains(stdout, "updated: "+version+" -> "+latest) || !strings.Contains(stdout, "docflow install-skills --project") {
+		if !strings.Contains(stdout, "updated: "+version+" -> "+latest) || strings.Contains(stdout, "already linked") || strings.Contains(stdout, "install-skills --project") {
 			t.Fatalf("update stdout=%q", stdout)
+		}
+		for _, target := range targets {
+			if !strings.Contains(stdout, "  "+displayPath(target)+": 1 linked\n") {
+				t.Fatalf("update stdout misses target %s: %q", target, stdout)
+			}
 		}
 		releaseLink(t, filepath.Join(f.home, "current"), "versions/"+latest)
 		for _, target := range targets {
@@ -263,6 +269,38 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 			}
 		}
 	}
+	// A manual rollback switches current to the retained previous version; the
+	// next update reinstalls the newer release over its leftover directory.
+	link := filepath.Join(f.home, "current")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("versions/1.1.0", link); err != nil {
+		t.Fatal(err)
+	}
+	version = "1.1.0"
+	latest = "1.2.0"
+	stdout, _ = runRelease(t, 0, "update")
+	if !strings.Contains(stdout, "updated: 1.1.0 -> 1.2.0") {
+		t.Fatalf("update after rollback stdout=%q", stdout)
+	}
+	releaseLink(t, link, "versions/1.2.0")
+	version = "1.2.0"
+	entries, err = os.ReadDir(filepath.Join(f.home, "versions"))
+	if err != nil || len(entries) != 2 || entries[0].Name() != "1.1.0" || entries[1].Name() != "1.2.0" {
+		t.Fatalf("versions after rollback = %v, %v", entries, err)
+	}
+	// Stale project copies in the current project get a hint.
+	project := t.TempDir()
+	writeReleaseFile(t, filepath.Join(project, "docs", "docflow.md"), "---\ndocflow: 2\n---\n", 0644)
+	writeReleaseFile(t, filepath.Join(project, ".claude", "skills", "sample", "SKILL.md"), "---\nname: sample\n---\nold\n", 0644)
+	t.Chdir(project)
+	latest = "1.3.0"
+	stdout, _ = runRelease(t, 0, "update")
+	if !strings.Contains(stdout, "update project copies: docflow install-skills --project\n") || strings.Contains(stdout, "--agent codex") {
+		t.Fatalf("project hint stdout=%q", stdout)
+	}
+	version = "1.3.0"
 	// Uninstall removes own links, including relative and dangling ones, while
 	// preserving foreign symlinks, directories, project copies and profiles.
 	foreign := filepath.Join(f.homeDir, ".docflow-other", "skill")

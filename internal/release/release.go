@@ -411,10 +411,8 @@ func Activate(home, srcDir, version string) error {
 		return err
 	}
 	final := filepath.Join(versions, version)
-	if _, err := os.Lstat(final); err == nil {
-		return fmt.Errorf("release %s already exists", version)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+	if version == previous {
+		return fmt.Errorf("release %s is already current", version)
 	}
 	stage, err := os.MkdirTemp(versions, ".install-")
 	if err != nil {
@@ -424,13 +422,35 @@ func Activate(home, srcDir, version string) error {
 	if err := copyTree(srcDir, stage); err != nil {
 		return err
 	}
+	// A directory of this version left after a manual rollback is replaced by
+	// the fresh copy and restored if activation fails.
+	replaced := ""
+	if _, err := os.Lstat(final); err == nil {
+		aside, err := os.MkdirTemp(versions, ".replaced-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(aside)
+		replaced = filepath.Join(aside, version)
+		if err := os.Rename(final, replaced); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.Rename(stage, final); err != nil {
+		if replaced != "" {
+			_ = os.Rename(replaced, final)
+		}
 		return err
 	}
 	activated := false
 	defer func() {
 		if !activated {
 			os.RemoveAll(final)
+			if replaced != "" {
+				_ = os.Rename(replaced, final)
+			}
 		}
 	}()
 	if err := makeDirectory(filepath.Join(home, "bin")); err != nil {

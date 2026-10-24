@@ -42,6 +42,9 @@ type Result struct {
 	Code   int
 	Stdout string
 	Stderr string
+	// Kept and Added count personal skill links by InstallSkills: links that
+	// already pointed at the source and links created by this call.
+	Kept, Added int
 }
 
 type InstallOptions struct {
@@ -439,10 +442,12 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 	var stdout, stderr strings.Builder
 	var plan []string
 	var conflicts []string
+	kept := 0
 	for _, source := range sources {
 		destination := filepath.Join(target, filepath.Base(source))
 		if info, err := os.Lstat(destination); err == nil {
 			if info.Mode()&os.ModeSymlink != 0 && sameResolvedPath(destination, source) {
+				kept++
 				fmt.Fprintf(&stdout, "%s: already linked\n", filepath.Base(source))
 			} else {
 				conflicts = append(conflicts, destination)
@@ -457,7 +462,7 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 		for _, destination := range conflicts {
 			fmt.Fprintf(&stderr, "%s: exists and is not a link to %s\n", destination, sourceDir)
 		}
-		return Result{Code: clierrors.EXIT_FORMAT, Stdout: stdout.String(), Stderr: stderr.String()}, nil
+		return Result{Code: clierrors.EXIT_FORMAT, Stdout: stdout.String(), Stderr: stderr.String(), Kept: kept}, nil
 	}
 	if err := os.MkdirAll(target, 0o777); err != nil {
 		return Result{}, err
@@ -469,7 +474,7 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 		}
 		fmt.Fprintf(&stdout, "%s: linked %s -> %s\n", filepath.Base(source), destination, source)
 	}
-	return Result{Code: clierrors.EXIT_OK, Stdout: stdout.String()}, nil
+	return Result{Code: clierrors.EXIT_OK, Stdout: stdout.String(), Kept: kept, Added: len(plan)}, nil
 }
 
 func staleHint(agent string, target *string) string {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"bsv-docflow/internal/clierrors"
+	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/release"
 	docskills "bsv-docflow/internal/skills"
 )
@@ -69,14 +70,12 @@ func activateRelease(home, source, next string) error {
 	if target, err := os.Readlink(filepath.Join(home, "current")); err == nil && target == "versions/"+next {
 		return validateReleaseSource(filepath.Join(home, "current"))
 	}
-	if _, err := os.Lstat(filepath.Join(home, "versions", next)); err == nil {
-		return fmt.Errorf("release %s already exists and is not current", next)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
 	return release.Activate(home, source, next)
 }
 
+// installReleaseSkills links the release skills for every agent found and
+// prints one line per target: the links point into current, so they follow
+// the active version and an update only adds skills new in the release.
 func installReleaseSkills(home string) (docskills.Result, error) {
 	var combined docskills.Result
 	var options []docskills.InstallOptions
@@ -92,18 +91,80 @@ func installReleaseSkills(home string) (docskills.Result, error) {
 	if info, err := os.Stat(filepath.Join(homeDir, ".zcode")); err == nil && info.IsDir() {
 		options = append(options, docskills.InstallOptions{Target: filepath.Join(homeDir, ".zcode", "skills")})
 	}
+	if len(options) == 0 {
+		return combined, nil
+	}
+	source := filepath.Join(home, "current", "skills")
+	var stdout strings.Builder
+	fmt.Fprintf(&stdout, "skills: links follow the active version (%s)\n", displayPath(source))
 	for _, option := range options {
-		result, err := docskills.InstallSkills(filepath.Join(home, "current", "skills"), "", option)
+		target := option.Target
+		if target == "" {
+			if target, err = docskills.AgentSkillsDir(option.Agent, ""); err != nil {
+				return combined, err
+			}
+		}
+		result, err := docskills.InstallSkills(source, "", option)
 		if err != nil {
 			return combined, err
 		}
-		combined.Stdout += result.Stdout
+		line := fmt.Sprintf("  %s: %d linked", displayPath(target), result.Kept+result.Added)
+		if result.Added > 0 {
+			line += fmt.Sprintf(" (%d new)", result.Added)
+		}
+		fmt.Fprintln(&stdout, line)
 		combined.Stderr += result.Stderr
 		if result.Code != 0 {
 			combined.Code = result.Code
 		}
 	}
+	combined.Stdout = stdout.String()
 	return combined, nil
+}
+
+// projectCopyHints returns update hints for stale docflow skill copies in the
+// project containing the working directory; the update cannot see other
+// projects.
+func projectCopyHints(home string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	root, err := format.FindRoot(cwd)
+	if err != nil {
+		return ""
+	}
+	source := filepath.Join(home, "current", "skills")
+	var hints strings.Builder
+	for _, agent := range []string{"claude", "codex", "pi"} {
+		dir, err := docskills.AgentSkillsDir(agent, root)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			continue
+		}
+		var discard strings.Builder
+		if stale, err := docskills.CheckSkillsDir(source, dir, false, &discard); err == nil && stale {
+			fmt.Fprintln(&hints, docskills.ProjectStaleHintFor(agent))
+		}
+	}
+	return hints.String()
+}
+
+// displayPath shortens a path under the home directory to ~/...
+func displayPath(path string) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return path
+	}
+	if rel, err := filepath.Rel(homeDir, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if rel == "." {
+			return "~"
+		}
+		return filepath.Join("~", rel)
+	}
+	return path
 }
 
 func handleInstall(_ *parsedArgs) error {
@@ -190,7 +251,7 @@ func handleUpdate(parsed *parsedArgs) error {
 	if err != nil {
 		return err
 	}
-	return commandResult{code: result.Code, stdout: fmt.Sprintf("updated: %s -> %s\n", version, latest) + result.Stdout + docskills.ProjectStaleHint + "\n", stderr: result.Stderr}
+	return commandResult{code: result.Code, stdout: fmt.Sprintf("updated: %s -> %s\n", version, latest) + result.Stdout + projectCopyHints(home), stderr: result.Stderr}
 }
 
 func handleUninstall(_ *parsedArgs) error {

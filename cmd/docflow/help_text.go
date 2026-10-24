@@ -18,7 +18,12 @@ download and activate the latest release
 
 Only standalone installations can update. For a development checkout use:
 git pull && bash tools/install-dev.sh
-Project skill copies can be updated with docflow install-skills --project.
+Personal skill links point into ~/.docflow/current and follow the active
+version. Stale project skill copies in the current project are reported with
+their install-skills --project command.
+The previous release stays in ~/.docflow/versions; roll back with
+ln -sfn versions/<previous> ~/.docflow/current; the next update reinstalls
+the latest release.
 DOCFLOW_RELEASE_URL overrides the GitHub Releases base URL.
 Daily terminal checks can be disabled with DOCFLOW_NO_UPDATE_CHECK=1.
 

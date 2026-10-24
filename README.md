@@ -133,7 +133,7 @@ into a project, use `docflow init --skills`, or `docflow install-skills
 --project` in an already connected project.
 
 `docflow update` downloads and activates the latest release, keeping the
-previous one; `docflow update --check` only reports it. A daily terminal
+previous one for a manual rollback; `docflow update --check` only reports it. A daily terminal
 check announces new releases (`DOCFLOW_NO_UPDATE_CHECK=1` turns it off).
 `docflow uninstall` removes the installation. Details: [installation,
 updates, and usage](docs/usage.md) (in Russian).

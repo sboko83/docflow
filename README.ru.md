@@ -130,7 +130,7 @@ docflow init --agent codex
 docflow install-skills --project.
 
 `docflow update` скачивает и активирует последний релиз, сохраняя
-предыдущий; `docflow update --check` только сообщает о нём. Раз в сутки
+предыдущий для ручного отката; `docflow update --check` только сообщает о нём. Раз в сутки
 при терминальном запуске docflow сообщает о новом релизе
 (`DOCFLOW_NO_UPDATE_CHECK=1` отключает). `docflow uninstall` убирает
 установку. Подробно: [установка, обновление и использование](docs/usage.md).

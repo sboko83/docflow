@@ -30,7 +30,7 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | `note <slug>` | архивная запись без плана |
 | `migrate` | формат предыдущих версий → текущая |
 | `install` | укладывает распакованный релиз (рядом с бинарником `skills/` и `LICENSE`) в `~/.docflow/versions/<X.Y.Z>`, переключает симлинк `current`, создаёт `bin/docflow`, настраивает PATH и ставит личные симлинки скиллов |
-| `update [--check]` | скачивает и активирует последний релиз (в `versions` остаются текущая и предыдущая версии); `--check` — только проверить; в dev-checkout отказ |
+| `update [--check]` | скачивает и активирует последний релиз (в `versions` остаются текущая и предыдущая версии; откат — ручное переключение `current`, следующий update ставит релиз поверх оставшегося каталога версии); `--check` — только проверить; в dev-checkout отказ |
 | `uninstall` | убирает `~/.docflow`, свой блок PATH из профилей оболочки и личные симлинки скиллов; в dev-checkout отказ |
 | `install-skills [--agent {claude,codex,pi}] [--target DIR]` | личные симлинки `skills/*` в `~/.claude/skills/` для Claude Code или `~/.agents/skills/` для Codex CLI или `~/.pi/agent/skills/` для pi; default `claude`, `--target` явно заменяет личный каталог |
 | `install-skills --project [--agent {claude,codex,pi}]` | копии `skills/*` в `<project>/.claude/skills/` или `<project>/.agents/skills/` или `<project>/.pi/skills/`; повтор обновляет свои копии; `--target` вместе с `--project` — ошибка |
