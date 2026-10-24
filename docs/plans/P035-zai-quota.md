@@ -2,7 +2,7 @@
 id: P035
 title: z.ai quota
 type: feature
-status: draft
+status: active
 created: 2026-10-24
 gate: go test ./...
 executor: pi | zai/glm-5.3-flash | max
@@ -94,10 +94,12 @@ https://api.z.ai/api/monitor/usage/quota/limit`, заголовок `Authorizati
   исчерпание посреди прогона не видно до отказа.
 - Окна по `unit`/`number` — поле `type` уже менялось — отвергнут разбор
   по `type`.
+- Reset хранит сырые миллисекунды float64 — agentio.Epoch и numericEpoch уже нормализуют ms, а number() не читает *float64 — отвергнуто хранение результата Epoch (указателя)
+- Команда ключа переиспользует CallAgent с пустым log — тот же механизм таймаута/kill, что у зонда Claude, и ничего не пишет на диск — отвергнут голый exec.Command
 
 ## Phase 1: Зонд и раннер
 
-### [ ] P035.1.1 Зонд квоты z.ai
+### [x] P035.1.1 Зонд квоты z.ai
 Read:
 - internal/agentio/quota.go:L60-90
 - internal/agentio/quota.go:L225-245
@@ -127,6 +129,11 @@ Verify: `go test ./internal/agentio/`
 Traps: ключ не включать в текст ошибок и в `t.Log`/`t.Fatal` тестов.
 Depends: -
 Commit: P035.1.1: add z.ai quota probe
+Handoff:
+- ProbeZaiQuota идёт в два этапа последовательно (pi-ключ, затем HTTP GET), каждому передаётся полный timeout — худшее стенное время 2×QuotaProbeTimeout; учесть для стартовой строки квоты в раннере
+- QuotaWindow.Reset хранит сырые миллисекунды nextResetTime как float64 (nil, если поля нет): agentio.Epoch и numericEpoch раннера сами делят ms; нельзя класть указатель *float64 от Epoch — number() указатели не читает
+- Окно без числового percentage пропускается целиком (не показывать 0%); метки ровно 5h/7d — дельты и sameReset сравнивают по метке
+- Тесты зонда zai скипаются на Windows, как остальные PATH-зависимые тесты зондов
 
 ### [ ] P035.1.2 Квота z.ai в docflow run
 Read:
