@@ -97,9 +97,13 @@ the user has already stated is recorded mechanically and not asked again.
   section between `## Constraints` and `## Traps`. When the machine can
   check it, the item carries a command after a colon, in backticks — the
   runner runs the commands at the start of the run, before quota and
-  agents, a failure stops with code 2. An item without a command is shown
-  in the same start confirmation. A scenario needing what only a human
-  provides is a prerequisite, never a `Do:` step.
+  agents, a failure stops with code 2. Add `(once)` at the end of a check
+  of code state that the plan itself temporarily changes; the runner checks
+  it before the first unit and skips it when resuming a started plan. Other
+  conditions, such as access, devices, and tools, are checked on every run.
+  An item without a command is shown in the same start confirmation. A
+  scenario needing what only a human provides is a prerequisite, never a
+  `Do:` step.
 
 ## Unit
 

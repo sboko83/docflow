@@ -734,6 +734,7 @@ func UnitDepends(plan *Plan, unit *Unit) ([]string, error) {
 type Prerequisite struct {
 	Text    string
 	Command *string
+	Once    bool
 }
 
 func PlanPermissions(plan *Plan) string {
@@ -741,6 +742,15 @@ func PlanPermissions(plan *Plan) string {
 		return "full"
 	}
 	return "auto"
+}
+
+func PlanStarted(plan *Plan) bool {
+	for _, unit := range plan.Units {
+		if unit.Status != " " && unit.Status != "-" {
+			return true
+		}
+	}
+	return false
 }
 
 func PlanPrerequisites(plan *Plan) []Prerequisite {
@@ -757,10 +767,14 @@ func PlanPrerequisites(plan *Plan) []Prerequisite {
 	out := make([]Prerequisite, 0, len(items))
 	for _, item := range items {
 		text := strings.TrimSpace(item.Text)
+		once := strings.HasSuffix(text, " (once)")
+		if once {
+			text = strings.TrimSuffix(text, " (once)")
+		}
 		if label, command, ok := prerequisiteParts(text); ok {
-			out = append(out, Prerequisite{Text: label, Command: &command})
+			out = append(out, Prerequisite{Text: label, Command: &command, Once: once})
 		} else {
-			out = append(out, Prerequisite{Text: text})
+			out = append(out, Prerequisite{Text: text, Once: once})
 		}
 	}
 	return out

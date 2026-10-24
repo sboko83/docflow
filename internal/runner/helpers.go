@@ -242,7 +242,12 @@ func runPrerequisites(root string, plan *format.Plan, progress *Progress) int {
 
 func runPrerequisitesWithTimeout(root string, plan *format.Plan, progress *Progress, timeout time.Duration) int {
 	failed := make([]string, 0)
+	planStarted := format.PlanStarted(plan)
 	for _, prerequisite := range format.PlanPrerequisites(plan) {
+		if prerequisite.Once && planStarted {
+			progress.line(fmt.Sprintf("prerequisite skipped (once, plan started): %s", prerequisite.Text), false, "yellow")
+			continue
+		}
 		if prerequisite.Command == nil || *prerequisite.Command == "" {
 			continue
 		}
@@ -300,8 +305,12 @@ func confirmRunStart(plan *format.Plan, yes bool, progress *Progress) int {
 
 func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, stdin io.Reader, stdout io.Writer) int {
 	mode := format.PlanPermissions(plan)
+	planStarted := format.PlanStarted(plan)
 	items := make([]string, 0)
 	for _, prerequisite := range format.PlanPrerequisites(plan) {
+		if prerequisite.Once && planStarted {
+			continue
+		}
 		if prerequisite.Command == nil {
 			items = append(items, prerequisite.Text)
 		}
@@ -373,11 +382,14 @@ func prerequisiteLines(plan *format.Plan) []string {
 	prerequisites := format.PlanPrerequisites(plan)
 	lines := make([]string, 0, len(prerequisites))
 	for _, prerequisite := range prerequisites {
+		line := prerequisite.Text
 		if prerequisite.Command != nil {
-			lines = append(lines, prerequisite.Text+": `"+*prerequisite.Command+"`")
-		} else {
-			lines = append(lines, prerequisite.Text)
+			line += ": `" + *prerequisite.Command + "`"
 		}
+		if prerequisite.Once {
+			line += " (once)"
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }

@@ -589,7 +589,7 @@ func TestRunStartPrerequisitesAndPermissions(t *testing.T) {
 				f.configure("[agents.fake.permissions]\nfull = [\"--no-sandbox\"]\n")
 			}
 			if strings.HasPrefix(mode, "manual") || mode == "dry" {
-				f.replace(planFile, "## Traps", "## Prerequisites\n- creds: `test -f docs/docflow.md`\n- вход в симулятор\n\n## Traps")
+				f.replace(planFile, "## Traps", "## Prerequisites\n- creds: `test -f docs/docflow.md` (once)\n- вход в симулятор\n\n## Traps")
 			}
 			if strings.HasSuffix(mode, "yes") {
 				args = append(args, "--yes")
@@ -617,11 +617,37 @@ func TestRunStartPrerequisitesAndPermissions(t *testing.T) {
 					t.Fatal(f.calls())
 				}
 			}
+			if mode == "dry" && !strings.Contains(r.out, "creds: `test -f docs/docflow.md` (once)") {
+				t.Fatalf("dry-run omitted once marker:\n%s", r.out)
+			}
 			if _, err := os.Stat(filepath.Join(f.tmp, "probed")); err == nil {
 				t.Fatal("quota ran before prerequisites")
 			}
 		})
 	}
+}
+
+func TestRunPrerequisiteOnce(t *testing.T) {
+	t.Run("started plan skips failing command and confirmation", func(t *testing.T) {
+		f := newRunFixture(t)
+		f.replace(planFile, "### [ ] P001.1.1", "### [x] P001.1.1")
+		f.replace(planFile, "## Traps", "## Prerequisites\n- code baseline: `echo no-baseline >&2; exit 3` (once)\n- code review baseline (once)\n\n## Traps")
+		r := f.run([]string{writeReply("b.txt")}, "--max-units", "1")
+		f.check(r, 0, "prerequisite skipped (once, plan started): code baseline", "prerequisite skipped (once, plan started): code review baseline", "run: 1 unit,")
+		if len(f.calls()) != 1 {
+			t.Fatalf("agent calls = %d, want 1", len(f.calls()))
+		}
+	})
+
+	t.Run("not-started plan fails the once command", func(t *testing.T) {
+		f := newRunFixture(t)
+		f.replace(planFile, "## Traps", "## Prerequisites\n- code baseline: `echo no-baseline >&2; exit 3` (once)\n\n## Traps")
+		r := f.run(nil, "--max-units", "1")
+		f.check(r, 2, "prerequisite failed: code baseline (echo no-baseline >&2; exit 3, exit 3): no-baseline")
+		if len(f.calls()) != 0 {
+			t.Fatalf("agent called despite failed prerequisite: %+v", f.calls())
+		}
+	})
 }
 
 func TestRunStopsAndLock(t *testing.T) {

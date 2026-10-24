@@ -2,7 +2,7 @@
 id: P033
 title: One-time prerequisites
 type: feature
-status: draft
+status: active
 created: 2026-10-24
 executor: codex | gpt-6-luna | max
 permissions: auto
@@ -53,7 +53,7 @@ permissions: auto
 
 ## Phase 1: Marker
 
-### [ ] P033.1.1 Add the (once) prerequisite marker
+### [x] P033.1.1 Add the (once) prerequisite marker
 Read:
 - internal/format/doc.go:L734-783
 - internal/format/doc_test.go:L306-320
@@ -93,6 +93,9 @@ Do:
 - `CHANGELOG.md`, `## [Unreleased]` → `### Added`: метка `(once)`.
 Verify: `go test ./...`
 Commit: P033.1.1: add one-time prerequisite marker
+Handoff:
+- Метка распознаётся только как суффикс ` (once)` в самом конце пункта; `PlanStarted` считает план начатым при любом юните не `[ ]`/`[-]`, включая `[!]`.
+- Блок юнита был из-за параллельного коммита релизного скрипта (3bd3aa7) в то же дерево; работа юнита не менялась.
 
 ## Phase 2: Acceptance
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Prerequisites can use `(once)` to run only before a plan starts.
+
 ## [0.8.1] - 2026-10-24
 
 ### Changed

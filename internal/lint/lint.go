@@ -45,7 +45,7 @@ var (
 	unitHeadingRE  = regexp.MustCompile(`^### \[(.)\] (P\p{Nd}+\.\p{Nd}+\.\p{Nd}+) (.+?)\s*$`)
 	itemRE         = regexp.MustCompile(`^- (.*?)\s*$`)
 	continuationRE = regexp.MustCompile(`^[ \t]+\S`)
-	prereqRE       = regexp.MustCompile("^(.*):\\s*`([^`]*)`$")
+	prereqRE       = regexp.MustCompile("^(.*):\\s*`([^`]*)`(?: \\(once\\))?$")
 )
 
 var unitFields = format.UnitFields

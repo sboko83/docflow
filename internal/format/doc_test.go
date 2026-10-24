@@ -311,6 +311,48 @@ func TestPrerequisites(t *testing.T) {
 	}
 }
 
+func TestPrerequisitesOnce(t *testing.T) {
+	text := strings.Replace(sampleText(), "- Тестовый аккаунт: `cat ~/logins/rmg.txt`", "- Тестовый аккаунт: `cat ~/logins/rmg.txt` (once)", 1)
+	text = strings.Replace(text, "  и разблокирован", "  и разблокирован (once)", 1)
+	plan, err := ParsePlan(text, "p.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := PlanPrerequisites(plan)
+	if len(got) != 2 || got[0].Text != "Тестовый аккаунт" || got[0].Command == nil || *got[0].Command != "cat ~/logins/rmg.txt" || !got[0].Once || got[1].Text != "Симулятор запущен и разблокирован" || got[1].Command != nil || !got[1].Once {
+		t.Fatalf("prerequisites = %#v", got)
+	}
+}
+
+func TestPlanStarted(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		want   bool
+	}{{" ", false}, {"-", false}, {"~", true}, {"!", true}, {"x", true}} {
+		t.Run(Statuses[tc.status], func(t *testing.T) {
+			plan := parseSample(t)
+			ids := make([]string, len(plan.Units))
+			for i, unit := range plan.Units {
+				ids[i] = unit.ID
+			}
+			for _, id := range ids {
+				if err := plan.SetStatus(id, " "); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(ids) == 0 {
+				t.Fatal("sample plan has no units")
+			}
+			if err := plan.SetStatus(ids[0], tc.status); err != nil {
+				t.Fatal(err)
+			}
+			if got := PlanStarted(plan); got != tc.want {
+				t.Fatalf("PlanStarted() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPrerequisitesAbsent(t *testing.T) {
 	text := strings.Replace(sampleText(), samplePrerequisites, "", 1)
 	plan, err := ParsePlan(text, "p.md")
