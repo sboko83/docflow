@@ -13,10 +13,9 @@ start_budget: 4000
   Codex по лимиту, проверить возврат к основному исполнителю после сброса
   на живом прогоне; приёмку таймаута с detached-внуком прогнать на Linux CI
   ([P032](archive/P032-runner-fallback.md)).
-- Релиз после 0.7.0: проверить `docflow update` с реальным переходом на
-  новую версию и откатом через `versions/` (на 0.7.0 проверен только
-  `--check`), живой `curl … | sh` на Linux (проверен на macOS arm64)
-  ([P030](archive/P030-public-release.md)).
+- Релиз: проверить откат через `versions/` (переход `docflow update`
+  0.7.0 → 0.8.0 проверен на macOS arm64) и живой `curl … | sh` на Linux
+  (проверен на macOS arm64) ([P030](archive/P030-public-release.md)).
 - `docflow run --close`: закрытие готового плана через агента
   (`/bsv-docflow-close`).
 - Независимое ревью фазы или плана: юнит ревью другим ассистентом
