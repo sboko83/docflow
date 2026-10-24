@@ -9,6 +9,8 @@ created: {date}
 
 ## Context
 
+<!-- Optional header keys: fallback: agent | model | effort; ... (executor mode), timeout: 60..86400 seconds. -->
+
 ## Constraints
 
 ## Traps

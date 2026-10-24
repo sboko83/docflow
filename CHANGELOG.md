@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `docflow run` distinguishes subscription limits, request throttles, and
   provider outages, and retries each class on its own delay.
+- Plans can define an ordered `fallback:` executor chain and a `timeout:`
+  override for agent calls.
 
 ### Changed
 - `docflow verify` keeps the complete output of each check in a per-unit log

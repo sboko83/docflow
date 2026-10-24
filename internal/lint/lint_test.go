@@ -319,6 +319,58 @@ func TestLintPermissionsReplanAndPrerequisites(t *testing.T) {
 	})
 }
 
+func TestLintFallback(t *testing.T) {
+	withMeta := func(plan, meta string) string {
+		return replaceOnce(t, plan, "created: 2026-10-12\n", "created: 2026-10-12\n"+meta)
+	}
+	execPlan := withMeta(testPlan, "executor: claude | claude-opus-5-5 | high\n")
+	t.Run("valid chain", func(t *testing.T) {
+		plan := withMeta(execPlan, "fallback: codex | gpt-5.5 | -; pi | zai/glm-5.3 | high\n")
+		report, _ := lintProject(t, projectOptions{plan: &plan})
+		assertClean(t, report)
+	})
+	t.Run("executor mode required", func(t *testing.T) {
+		plan := withMeta(testPlan, "fallback: codex | gpt-5.5 | -\n")
+		report, _ := lintProject(t, projectOptions{plan: &plan})
+		issue(t, report, "fallback needs executor mode", "error", 0)
+	})
+	t.Run("triple required", func(t *testing.T) {
+		plan := withMeta(execPlan, "fallback: codex | gpt-5.5\n")
+		report, _ := lintProject(t, projectOptions{plan: &plan})
+		issue(t, report, "fallback: expected \"agent | model | effort\"", "error", 0)
+	})
+	t.Run("primary cannot repeat", func(t *testing.T) {
+		plan := withMeta(execPlan, "fallback: claude | claude-opus-5-5 | high\n")
+		report, _ := lintProject(t, projectOptions{plan: &plan})
+		issue(t, report, "fallback: repeats the executor assignment", "error", 0)
+	})
+	t.Run("semicolon splits triples", func(t *testing.T) {
+		plan := withMeta(execPlan, "fallback: codex | model;version | -\n")
+		report, _ := lintProject(t, projectOptions{plan: &plan})
+		issue(t, report, "fallback: expected \"agent | model | effort\"", "error", 0)
+	})
+}
+
+func TestLintPlanTimeout(t *testing.T) {
+	for _, value := range []string{"60", "86400"} {
+		t.Run("valid-"+value, func(t *testing.T) {
+			plan := strings.Replace(testPlan, "created: 2026-10-12\n", "created: 2026-10-12\ntimeout: "+value+"\n", 1)
+			report, _ := lintProject(t, projectOptions{plan: &plan})
+			assertClean(t, report)
+		})
+	}
+	for _, value := range []string{"59", "86401", "60.5", "soon"} {
+		t.Run("invalid-"+value, func(t *testing.T) {
+			plan := strings.Replace(testPlan, "created: 2026-10-12\n", "created: 2026-10-12\ntimeout: "+value+"\n", 1)
+			report, _ := lintProject(t, projectOptions{plan: &plan})
+			issue(t, report, "timeout must be an integer from 60 to 86400 seconds", "error", 0)
+		})
+	}
+	execPlan := strings.Replace(testPlan, "created: 2026-10-12\n", "created: 2026-10-12\nexecutor: pi | zai/glm-5.3 | high\ntimeout: 60\n", 1)
+	report, _ := lintProject(t, projectOptions{plan: &execPlan})
+	assertClean(t, report)
+}
+
 func TestLintPhasesUnitsAndFields(t *testing.T) {
 	tests := []struct{ name, plan, finding string }{
 		{"bad phase heading", strings.Replace(testPlan, "## Phase 2: Second", "## Phase two", 1), "bad phase heading 'Phase two'"},

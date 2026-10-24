@@ -26,7 +26,7 @@ var (
 	docflowSections     = []string{"Queue", "Frozen", "Backlog"}
 	docflowOptionalSecs = []string{"Frozen"}
 	planKeys            = []string{"id", "title", "type", "status", "created"}
-	planOptionalKeys    = []string{"gate", "executor", "permissions", "replan"}
+	planOptionalKeys    = []string{"gate", "executor", "permissions", "replan", "fallback", "timeout"}
 	planTypes           = []string{"feature", "bugfix", "perf", "module", "refactor"}
 	planStatuses        = []string{"draft", "active", "frozen"}
 	planPermissions     = []string{"auto", "full"}
@@ -457,7 +457,7 @@ type executorIssue struct {
 }
 
 func executorIssues(plan *format.Plan) []executorIssue {
-	issues := make([]executorIssue, 0)
+	issues := fallbackIssues(plan)
 	if !executorMode(plan) {
 		return issues
 	}
@@ -495,6 +495,43 @@ func executorIssues(plan *format.Plan) []executorIssue {
 		}
 	}
 	return issues
+}
+
+func fallbackIssues(plan *format.Plan) []executorIssue {
+	value, present := plan.Meta["fallback"]
+	if !present {
+		return nil
+	}
+	issues := make([]executorIssue, 0)
+	line := plan.MetaLines["fallback"]
+	if !executorMode(plan) {
+		issues = append(issues, executorIssue{line, "fallback needs executor mode"})
+	}
+	primary := ""
+	if value, ok := plan.Meta["executor"]; ok {
+		if agent, model, effort, err := ParseExecutor(value); err == nil {
+			primary = executorKey(agent, model, effort)
+		}
+	}
+	for _, raw := range strings.Split(value, ";") {
+		agent, model, effort, err := ParseExecutor(strings.TrimSpace(raw))
+		if err != nil {
+			issues = append(issues, executorIssue{line, "fallback: " + err.Error()})
+			continue
+		}
+		if primary != "" && executorKey(agent, model, effort) == primary {
+			issues = append(issues, executorIssue{line, "fallback: repeats the executor assignment"})
+		}
+	}
+	return issues
+}
+
+func executorKey(agent, model string, effort *string) string {
+	effortValue := "-"
+	if effort != nil {
+		effortValue = *effort
+	}
+	return strings.Join([]string{agent, model, effortValue}, "\x00")
 }
 
 // ExecutorIssueStrings returns executor assignment findings in CLI form.
@@ -753,6 +790,12 @@ func lintPlan(rep *Report, plan *format.Plan) {
 	}
 	if value := plan.Meta["permissions"]; value != "" && !contains(planPermissions, value) {
 		rep.Error(path, plan.MetaLines["permissions"], fmt.Sprintf("permissions '%s' not in: %s", value, strings.Join(planPermissions, ", ")))
+	}
+	if value, present := plan.Meta["timeout"]; present {
+		seconds, err := strconv.Atoi(value)
+		if err != nil || seconds < 60 || seconds > 86400 {
+			rep.Error(path, plan.MetaLines["timeout"], "timeout must be an integer from 60 to 86400 seconds")
+		}
 	}
 	if value, present := plan.Meta["replan"]; present {
 		if !executorMode(plan) {

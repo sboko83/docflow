@@ -510,7 +510,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	session, last := "", "agent"
 	var cost *float64
 	var unitIn, unitOut *int
-	timeout, _ := numericEpoch(agent["timeout"])
+	timeout := agentCallTimeout(plan, agent)
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
 		text, resume := prompt, ""
 		if problem != "" {
@@ -533,7 +533,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("attempt %d, log %s", attempt, rel))
 			p.spin(func() string { return uid + " " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: time.Duration(timeout * float64(time.Second)), OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid)})
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid)})
 			p.stop()
 			if err != nil {
 				return 7, "", err
@@ -626,7 +626,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		var result map[string]any
 		switch {
 		case run.TimedOut:
-			problem = fmt.Sprintf("timed out after %v s", timeout)
+			problem = fmt.Sprintf("timed out after %v s", timeout.Seconds())
 		case run.Code != 0:
 			problem = fmt.Sprintf("the agent exited with code %d", run.Code)
 		case agentio.JSONPath(agentio.AgentOutput(agent, run.Stdout), stringValue(agent["error"])) == true:
@@ -847,6 +847,13 @@ func dryRunAll(args Args, config map[string]any, plan *format.Plan, stdout, stde
 		fmt.Fprintln(stderr, "nothing to do")
 		return 1, nil
 	}
+	if err := agents.CheckExecutors(plan); err != nil {
+		return 2, err
+	}
+	fallback, err := fallbackLine(plan)
+	if err != nil {
+		return 2, runError("run: " + err.Error())
+	}
 	fmt.Fprintf(stdout, "plan: %s %s\npermissions: %s\n", plan.Meta["id"], plan.Meta["title"], format.PlanPermissions(plan))
 	printPrerequisites(plan, stdout)
 	for _, unit := range units {
@@ -856,7 +863,33 @@ func dryRunAll(args Args, config map[string]any, plan *format.Plan, stdout, stde
 		}
 		fmt.Fprintf(stdout, "%s [%s] %s: %s (%s)\n", unit.ID, unit.Status, unit.Title, agents.RouteText(route), agents.RouteSource(plan, unit))
 	}
+	if fallback != "" {
+		fmt.Fprintln(stdout, fallback)
+	}
 	return 0, nil
+}
+
+func fallbackLine(plan *format.Plan) (string, error) {
+	value, present := plan.Meta["fallback"]
+	if !present {
+		return "", nil
+	}
+	if !lint.ExecutorMode(plan) {
+		return "", fmt.Errorf("fallback needs executor mode")
+	}
+	routes := make([]string, 0)
+	for _, raw := range strings.Split(value, ";") {
+		agent, model, effort, err := lint.ParseExecutor(strings.TrimSpace(raw))
+		if err != nil {
+			return "", fmt.Errorf("fallback: %s", err)
+		}
+		effortValue := "-"
+		if effort != nil {
+			effortValue = *effort
+		}
+		routes = append(routes, strings.Join([]string{agent, model, effortValue}, " "))
+	}
+	return "fallback: " + strings.Join(routes, "; "), nil
 }
 
 type limitProgress struct{ p *Progress }

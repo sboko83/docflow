@@ -441,3 +441,24 @@ func TestReplanTimeout(t *testing.T) {
 		t.Fatal("timeout did not restore plan")
 	}
 }
+
+func TestReplanPlanTimeout(t *testing.T) {
+	f := newReplanFixture(t)
+	f.replace(planFile, "created: 2026-10-20\n", "created: 2026-10-20\ntimeout: 60\n")
+	f.replace(planFile, "### [ ] P001.1.1", "### [!] P001.1.1")
+	f.steps("sleep 1.1\n" + liftReply("P001.1.1"))
+	config, err := agents.LoadAgents("", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile(config, "claude")["timeout"] = 1
+	var out, errOut bytes.Buffer
+	p := newProgress(&out, &errOut, false)
+	defer p.stop()
+	totals := &runTotals{quota: map[string]agentio.Quota{}, quotaStart: map[string]agentio.Quota{}}
+	code, err := replanUnit(context.Background(), f.root, Args{Attempts: 1}, config, "P001.1.1", "stale", p, totals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.check(runResult{code, out.String(), errOut.String()}, 0, "P001.1.1 replanned:")
+}

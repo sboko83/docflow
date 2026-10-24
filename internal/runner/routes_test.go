@@ -146,6 +146,23 @@ func executorRunFixture(t *testing.T) *runFixture {
 	return f
 }
 
+func TestDryRunFallback(t *testing.T) {
+	f := executorRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -; pi | zai/glm-5.3 | high")
+	r := f.cli("run", "--dry-run", "--all")
+	f.check(r, 0, "fallback: codex gpt-5.5 -; pi zai/glm-5.3 high")
+	fallbackAt := strings.Index(r.out, "fallback:")
+	lastRouteAt := strings.LastIndex(r.out, "P001.1.2 [ ] Second unit:")
+	if fallbackAt < 0 || lastRouteAt < 0 || fallbackAt < lastRouteAt {
+		t.Fatalf("fallback line is not after the unit routes:\n%s", r.out)
+	}
+
+	bad := executorRunFixture(t)
+	bad.replace(planFile, "status: active", "status: active\nfallback: codex")
+	failed := bad.cli("run", "--dry-run", "--all")
+	bad.check(failed, 2, "fallback: expected \"agent | model | effort\"")
+}
+
 func TestRunExecutor(t *testing.T) {
 	for _, mode := range []string{"dry", "override", "haiku", "flags", "bad-assignment", "retry", "full-no", "full-yes", "zero", "replan-quota", "replan-off"} {
 		t.Run(mode, func(t *testing.T) {

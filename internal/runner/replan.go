@@ -226,7 +226,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		return code, restorePlan(planPath, string(before))
 	}
 	session, problem := "", ""
-	timeout, _ := numericEpoch(agent["timeout"])
+	timeout := agentCallTimeout(plan, agent)
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
 		text, resume := prompt, ""
 		if problem != "" {
@@ -249,7 +249,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("replan attempt %d, log %s", attempt, rel))
 			p.spin(func() string { return uid + " replan " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: time.Duration(timeout * float64(time.Second)), OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid)})
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid)})
 			p.stop()
 			if err != nil {
 				return 7, err
@@ -295,7 +295,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		var result map[string]any
 		switch {
 		case run.TimedOut:
-			problem = fmt.Sprintf("timed out after %v s", timeout)
+			problem = fmt.Sprintf("timed out after %v s", timeout.Seconds())
 		case run.Code != 0:
 			problem = fmt.Sprintf("the agent exited with code %d", run.Code)
 		case agentio.JSONPath(agentio.AgentOutput(agent, run.Stdout), stringValue(agent["error"])) == true:

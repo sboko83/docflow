@@ -35,6 +35,18 @@ var stopNotify = map[int]string{
 	clierrors.EXIT_AGENT:   "the agent failed",
 }
 
+func agentCallTimeout(plan *format.Plan, agent map[string]any) time.Duration {
+	if plan != nil {
+		if value, ok := plan.Meta["timeout"]; ok {
+			if seconds, err := strconv.Atoi(value); err == nil {
+				return time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	seconds, _ := numericEpoch(agent["timeout"])
+	return time.Duration(seconds * float64(time.Second))
+}
+
 var currentPlatform = runtime.GOOS
 
 // runNotificationProcess is replaceable in tests so notification behavior can

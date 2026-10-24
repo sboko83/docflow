@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/format"
 )
 
 const loopDoc = "---\ndocflow: 2\nread_budget: 40000\n---\n## Queue\n- P001\n- P002\n\n## Backlog\n"
@@ -411,6 +413,26 @@ func TestZeroTimeoutNeverKills(t *testing.T) {
 				t.Fatalf("calls=%v\n%s", f.calls(), f.read(planFile))
 			}
 		})
+	}
+}
+
+func TestRunPlanTimeout(t *testing.T) {
+	profile := map[string]any{"timeout": 1}
+	plan := &format.Plan{Doc: format.Doc{Meta: map[string]string{"timeout": "60"}}}
+	if got := agentCallTimeout(plan, profile); got != 60*time.Second {
+		t.Fatalf("plan timeout = %s, want 1m", got)
+	}
+	if got := agentCallTimeout(&format.Plan{Doc: format.Doc{Meta: map[string]string{}}}, profile); got != time.Second {
+		t.Fatalf("profile timeout = %s, want 1s", got)
+	}
+
+	f := newRunFixture(t)
+	f.configure("timeout = 1\n")
+	f.replace(planFile, "created: 2026-10-12\n", "created: 2026-10-12\ntimeout: 60\n")
+	r := f.run([]string{"sleep 1.1\n" + writeReply("a.txt")}, "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "P001.1.1 done:")
+	if len(f.calls()) != 1 {
+		t.Fatalf("calls = %d, want one completed agent call", len(f.calls()))
 	}
 }
 

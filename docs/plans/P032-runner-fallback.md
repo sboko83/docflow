@@ -259,7 +259,7 @@ Handoff:
 
 ## Phase 3: Запасные исполнители
 
-### [ ] P032.3.1 Ключи `fallback:` и `timeout:` в шапке плана
+### [x] P032.3.1 Ключи `fallback:` и `timeout:` в шапке плана
 Read:
 - internal/lint/lint.go:L25-35
 - internal/lint/lint.go:L400-530
@@ -288,6 +288,9 @@ Do:
   → `Added`.
 Verify: `go test ./internal/lint/ ./internal/agents/ ./internal/runner/ -run 'TestLintFallback|TestLintPlanTimeout|TestDryRunFallback|TestRunPlanTimeout' -count=1`
 Commit: P032.3.1: add fallback and timeout plan keys
+Handoff:
+- `fallback:` is validated and shown after routes by `run --dry-run --all`; runtime switching for units and replan remains for a later P032 unit.
+- Unverified: Runtime fallback switching is not implemented or verified in this unit; the runner still invokes the primary route.
 
 ### [ ] P032.3.2 Цепочка исполнителей в прогоне юнита
 Read:
