@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-24
+
 ### Changed
 - `docflow install` and `docflow update` print one line per personal skill
   directory instead of a line per skill, and suggest updating project skill
   copies only when the current project has stale ones.
 
 ### Fixed
-- `docflow update` works again after a manual rollback to the previous
-  version instead of failing with `release X already exists`.
+- `docflow update` after a manual rollback to the previous version installs
+  the latest release instead of failing with `release X already exists`.
 
 ## [0.8.0] - 2026-10-24
 
@@ -70,6 +72,7 @@ First public release.
   Releases with sha256 verification; `docflow update` and
   `docflow uninstall`.
 
-[Unreleased]: https://github.com/sboko83/docflow/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/sboko83/docflow/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/sboko83/docflow/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/sboko83/docflow/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/sboko83/docflow/releases/tag/v0.7.0
