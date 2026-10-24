@@ -219,6 +219,8 @@ func TestResultExtraction(t *testing.T) {
 		{"{\"a\":1}\n", `null`}, {`{"status":"done"} and then more text`, `null`},
 		{`{"structured_output":{"a":1}}`, `{"a":1}`},
 		{`{"structured_output":"{\"a\":1}"}`, `{"a":1}`},
+		{`{"structured_output":{"status":"done","handoff":["a",""],"decisions":[" "],"unverified":["x",""]}}`, `{"status":"done","handoff":["a"],"decisions":[],"unverified":["x"]}`},
+		{`{"structured_output":{"handoff":["",1]}}`, `{"handoff":[1]}`},
 	} {
 		equal(t, ExtractResult(agent, c.out), obj(c.want))
 	}

@@ -336,6 +336,30 @@ func AgentText(agent map[string]any, data any, stdout string) string {
 }
 
 func ExtractResult(agent map[string]any, stdout string) map[string]any {
+	return dropBlankItems(extractResult(agent, stdout))
+}
+
+// dropBlankItems removes blank strings from the result's list fields: a
+// stray "" carries nothing and must not cost a retry.
+func dropBlankItems(result map[string]any) map[string]any {
+	for _, key := range []string{"handoff", "decisions", "unverified"} {
+		items, ok := result[key].([]any)
+		if !ok {
+			continue
+		}
+		kept := make([]any, 0, len(items))
+		for _, v := range items {
+			if s, isString := v.(string); isString && strings.TrimSpace(s) == "" {
+				continue
+			}
+			kept = append(kept, v)
+		}
+		result[key] = kept
+	}
+	return result
+}
+
+func extractResult(agent map[string]any, stdout string) map[string]any {
 	data := AgentOutput(agent, stdout)
 	value := JSONPath(data, str(agent["result"]))
 	if text, ok := value.(string); ok {

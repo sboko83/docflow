@@ -63,11 +63,17 @@ notifies.
 The runner assigns the executor before the call, from the plan's
 `executor:`/`Executor:` (the format is in `docs/design/format.md`). The
 current agent cannot switch itself by reading `Constraints`: "run on
-Codex" in text does not switch the process. When the actual agent, model,
-or effort is seen not to match the plan's requirement, do not continue as
-if it were met: block the unit with that reason (`block`; in runner mode
-— a `blocked` reply); fixing the assignment is a replan. Do not create an
-auxiliary config and do not edit the plan yourself.
+Codex" in text does not switch the process.
+
+In runner mode the runner has already launched the assigned agent, model,
+and effort: do not check them and do not block over them. A model's own
+idea of its name or version is unreliable.
+
+In a manual session check only the agent (Claude, Codex, pi), never the
+model or effort. When the agent does not match the unit's `Executor:`,
+block the unit with that reason (`block`); fixing the assignment is a
+replan. Do not create an auxiliary config and do not edit the plan
+yourself.
 
 ## Handoff
 

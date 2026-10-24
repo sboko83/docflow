@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   models, skips exhausted routes, and uses available reset times for limit
   refusals.
 
+### Fixed
+- `docflow run` ignores blank strings in the agent's `handoff`,
+  `decisions` and `unverified` lists instead of retrying the unit.
+- The run skill no longer blocks a unit because the agent misreports its
+  own model: in runner mode the assignment is trusted, and a manual
+  session checks only the agent, not the model or effort.
+
 ## [0.9.0] - 2026-10-24
 
 ### Added
