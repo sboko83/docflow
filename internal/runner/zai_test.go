@@ -264,6 +264,25 @@ func TestRunZaiLimitWithoutResetUsesProfileWait(t *testing.T) {
 	}
 }
 
+func TestRunZaiLimitWithFreshQuotaUsesProfileWait(t *testing.T) {
+	f, server := zaiRunFixture(t)
+	fiveReset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
+	sevenReset := zaiMinuteFloor(time.Now().Add(3 * time.Hour))
+	server.bodies = []string{
+		zaiQuotaBody(28, 30, fiveReset, sevenReset),
+		zaiQuotaBody(28, 30, fiveReset, sevenReset),
+		zaiQuotaBody(28, 30, fiveReset, sevenReset),
+	}
+	f.steps(piFailureStep(`429: {"code":"1310","message":"Credit Limit Exhausted"}`), codexFallbackSuccessStep(f))
+	started := time.Now()
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "switching to codex gpt-5.5", "via codex gpt-5.5")
+	assertZaiWaitClock(t, r.out, started, 30*time.Minute)
+	if got := server.count(); got != 3 {
+		t.Fatalf("zai quota probed %d times, want 3 (start, after call, refusal)", got)
+	}
+}
+
 func assertZaiWaitClock(t *testing.T, output string, started time.Time, wait time.Duration) {
 	t.Helper()
 	const marker = "limit until "

@@ -326,7 +326,7 @@ Commit: P035.2.4: re-review z.ai quota phase
 Handoff:
 - Blocked (plan): internal/runner/zai_test.go:255: отсутствует требуемый P035.2.3 тест свежей квоты без исчерпанных окон, но с будущими reset. Текущий тест подаёт окна 100% без reset и проверяет другую ветку. Нужен тест с percentage < 100 и будущими reset, подтверждающий Reset == nil и ожидание по limit_wait.
 
-### [ ] P035.2.5 Тест limit_wait при свежей квоте z.ai
+### [x] P035.2.5 Тест limit_wait при свежей квоте z.ai
 Read:
 - internal/runner/zai_test.go:L1-30
 - internal/runner/zai_test.go:L169-186
@@ -352,6 +352,9 @@ Traps: код раннера не править — ветка `Used < 1` в `c
 Depends: P035.2.3
 Executor: codex | gpt-6-luna | max
 Commit: P035.2.5: test z.ai limit wait on fresh quota
+Handoff:
+- Обычный sandbox не может записать лог в `.git/docflow/run`; полный `docflow verify` прошёл после одобренного запроса расширенного доступа.
+- Изменение плана — только `[ ]` → `[~]`, выполненное `docflow prompt`; план вручную не редактировал.
 
 ### [ ] P035.2.6 Повторное ревью фазы 1 после P035.2.5
 Read:
