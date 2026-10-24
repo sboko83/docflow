@@ -14,9 +14,6 @@ start_budget: 4000
   на живом прогоне — при случае на рабочем прогоне, подписку ради проверки
   не тратить; приёмку таймаута с detached-внуком прогнать на Linux CI
   ([P032](archive/P032-runner-fallback.md)).
-- Релиз: первый живой `tools/cut-release.sh publish` и job `smoke` в
-  `release.yml` (`curl … | sh` на linux amd64/arm64 и macOS) — на
-  следующем релизе ([P034](archive/P034-release-cut.md)).
 - `docflow run --close`: закрытие готового плана через агента
   (`/bsv-docflow-close`).
 - Независимое ревью фазы или плана: юнит ревью другим ассистентом
