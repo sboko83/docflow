@@ -2,13 +2,11 @@ package runner
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"bsv-docflow/internal/agentio"
 	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/format"
-	"bsv-docflow/internal/lint"
 )
 
 type executorChain struct {
@@ -26,7 +24,7 @@ func unitExecutorChain(config map[string]any, plan *format.Plan, unit *format.Un
 		if _, err := agents.RunRoute(config, plan, unit, args); err != nil {
 			return nil, err
 		}
-		routes, err := unitRoleRoutes(plan, unit)
+		routes, err := agents.UnitRoleRoutes(plan, unit)
 		if err != nil {
 			return nil, err
 		}
@@ -40,7 +38,7 @@ func unitExecutorChain(config map[string]any, plan *format.Plan, unit *format.Un
 }
 
 func replanExecutorChain(config map[string]any, plan *format.Plan, args agents.RunArgs, unavailable map[string]time.Time) (*executorChain, error) {
-	routes, err := chainRoutes(plan.Meta["replan"])
+	routes, err := agents.ChainRoutes(plan.Meta["replan"])
 	if err != nil {
 		return nil, err
 	}
@@ -53,79 +51,13 @@ func replanExecutorChain(config map[string]any, plan *format.Plan, args agents.R
 func routeExecutorChain(config map[string]any, plan *format.Plan, primary agents.Route, args agents.RunArgs, unavailable map[string]time.Time) (*executorChain, error) {
 	routes := []agents.Route{primary}
 	if args.Executors {
-		fallback, err := fallbackRoutes(plan)
+		fallback, err := agents.ChainRoutes(plan.Meta["fallback"])
 		if err != nil {
 			return nil, err
 		}
 		routes = append(routes, fallback...)
 	}
 	return newExecutorChain(routes, config, unavailable, args.Executors), nil
-}
-
-func fallbackRoutes(plan *format.Plan) ([]agents.Route, error) {
-	return chainRoutes(plan.Meta["fallback"])
-}
-
-// unitRoleRoutes resolves the ordered route chain of a unit: an explicit
-// Executor triple followed by the plan fallback, the chain of the unit's
-// role key, or the plan executor followed by fallback.
-func unitRoleRoutes(plan *format.Plan, unit *format.Unit) ([]agents.Route, error) {
-	if field := unit.Field("Role"); field != nil {
-		routes, err := chainRoutes(plan.Meta[field.Value])
-		if err != nil {
-			return nil, err
-		}
-		if len(routes) == 0 {
-			return nil, fmt.Errorf("role %s needs at least one route", field.Value)
-		}
-		return routes, nil
-	}
-	value := ""
-	if field := unit.Field("Executor"); field != nil {
-		value = field.Value
-	} else if head, ok := plan.Meta["executor"]; ok {
-		value = head
-	} else {
-		return nil, fmt.Errorf("no executor assignment")
-	}
-	primary, err := routeOf(value)
-	if err != nil {
-		return nil, err
-	}
-	fallback, err := fallbackRoutes(plan)
-	if err != nil {
-		return nil, err
-	}
-	return append([]agents.Route{primary}, fallback...), nil
-}
-
-func routeOf(value string) (agents.Route, error) {
-	name, model, effort, err := lint.ParseExecutor(value)
-	if err != nil {
-		return agents.Route{}, err
-	}
-	route := agents.Route{Agent: name, Model: model}
-	if effort != nil {
-		route.Effort = *effort
-	}
-	return route, nil
-}
-
-// chainRoutes parses a "agent | model | effort; ..." chain into routes;
-// empty segments are skipped.
-func chainRoutes(value string) ([]agents.Route, error) {
-	var routes []agents.Route
-	for _, raw := range strings.Split(value, ";") {
-		if strings.TrimSpace(raw) == "" {
-			continue
-		}
-		route, err := routeOf(strings.TrimSpace(raw))
-		if err != nil {
-			return nil, err
-		}
-		routes = append(routes, route)
-	}
-	return routes, nil
 }
 
 func newExecutorChain(routes []agents.Route, config map[string]any, unavailable map[string]time.Time, enabled bool) *executorChain {

@@ -72,21 +72,21 @@ func TestUnitRoleRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	role, err := unitRoleRoutes(plan, plan.Unit("P001.1.1"))
+	role, err := agents.UnitRoleRoutes(plan, plan.Unit("P001.1.1"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := routeIdentities(role); len(got) != 2 || got[0] != "pi|zai/glm-5.3|max" || got[1] != "codex|gpt-6.1-sol|high" {
 		t.Fatalf("role unit routes = %v", got)
 	}
-	explicit, err := unitRoleRoutes(plan, plan.Unit("P001.1.2"))
+	explicit, err := agents.UnitRoleRoutes(plan, plan.Unit("P001.1.2"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := routeIdentities(explicit); len(got) != 3 || got[0] != "claude|claude-opus-5-5|high" || got[1] != "codex|gpt-6-luna|max" {
 		t.Fatalf("explicit unit routes = %v", got)
 	}
-	inherited, err := unitRoleRoutes(plan, plan.Unit("P001.1.3"))
+	inherited, err := agents.UnitRoleRoutes(plan, plan.Unit("P001.1.3"))
 	if err != nil {
 		t.Fatal(err)
 	}

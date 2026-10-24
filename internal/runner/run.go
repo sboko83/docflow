@@ -1036,7 +1036,7 @@ func chainLine(plan *format.Plan, key string) (string, error) {
 	if !lint.ExecutorMode(plan) {
 		return "", fmt.Errorf("%s needs executor mode", key)
 	}
-	routes, err := chainRoutes(value)
+	routes, err := agents.ChainRoutes(value)
 	if err != nil {
 		return "", fmt.Errorf("%s: %s", key, err)
 	}

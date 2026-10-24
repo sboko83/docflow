@@ -740,6 +740,32 @@ func TestMigrateTwoFoldsFallbackIntoReplan(t *testing.T) {
 	}
 }
 
+func TestMigrateTwoSkipsArchiveAndPlansWithoutFallback(t *testing.T) {
+	noFallback := strings.Replace(migrationPlan, "fallback: codex | gpt-6-luna | max; claude | claude-opus-5-5 | low; pi | glm-5.3 | high\n", "", 1)
+	root := writeMigrationProject(t, "2", map[string]string{"P003-replan.md": noFallback})
+	if err := os.MkdirAll(filepath.Join(root, "docs", "archive"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "archive", "P000-old.md"), []byte(migrationPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Migrate(root)
+	if err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	if result.Code != clierrors.EXIT_OK || result.Stdout != "migrated 2 -> 3\n" || result.Stderr != "" {
+		t.Fatalf("Migrate() = (%d, %q, %q), want (%d, %q, \"\")", result.Code, result.Stdout, result.Stderr, clierrors.EXIT_OK, "migrated 2 -> 3\n")
+	}
+	plan, err := os.ReadFile(filepath.Join(root, "docs", "plans", "P003-replan.md"))
+	if err != nil || string(plan) != noFallback {
+		t.Fatalf("plan without fallback changed: %v", err)
+	}
+	archived, err := os.ReadFile(filepath.Join(root, "docs", "archive", "P000-old.md"))
+	if err != nil || string(archived) != migrationPlan {
+		t.Fatalf("archive plan changed: %v", err)
+	}
+}
+
 func TestMigrateOneRunsThroughThree(t *testing.T) {
 	root := writeMigrationProject(t, "1", map[string]string{"P001-plan.md": migrationPlan})
 	result, err := Migrate(root)

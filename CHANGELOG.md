@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as is, without appending `fallback:`. `run --dry-run --all` marks role
   units with `role <name>` and prints the `fallback:`, role, and `replan:`
   chains after the unit routes.
+- The missing-skill warning of `docflow run` covers the agents of every
+  route in a unit's chain, including fallback routes and the whole
+  `replan:` chain, not only the primary routes.
 
 ### Added
 - Format 3: role route chains in the plan header (`cheap:`, `heavy:`,

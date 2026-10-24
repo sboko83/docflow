@@ -165,6 +165,8 @@ trusted = true
   маршрутов цепочек юнитов и `replan:`, а не только первых — резервный
   маршрут без навыка падает в момент отказа основного — отвергнута
   правка только разбора `replan:`.
+- В PlanAgents при сбое UnitRoleRoutes остаётся основной маршрут, а не пусто — предупреждение о навыках best-effort, строгая валидация цепочек уже в lint — отвергнуто молчаливое исключение юнита
+- Агенты-маркеры в тесте: codex только вторым маршрутом heavy:, claude только вторым маршрутом replan: — ParseExecutor знает лишь claude/codex/pi, четыре разных агента невозможны, а такая раскладка роняет своего агента при обрыве каждой цепочки — отвергнуты уникальные агенты на маршрут
 
 ## Phase 1: Формат 3
 
@@ -277,7 +279,7 @@ Commit: P036.1.3: review format 3 phase
 Handoff:
 - Blocked (plan): 1. internal/agents/agents.go:638 — PlanAgents разбирает replan: как одиночную тройку; цепочка исключает replan-агентов из SkillsWarnings. Воспроизведено: отсутствует pi. 2. internal/lint/lint.go:579 — проверка использует executorMode, допускающий Executor: другого юнита. Поэтому Role: и ключ роли принимаются без executor: в шапке вопреки P036.1.1. Воспроизведено: lint без ошибок. 3. internal/agents/agents_test.go:457 — нет теста PlanAgents с Role:. internal/cycle/cycle_test.go:706 — миграционные тесты не проверяют сохранность архива и плана с replan: без fallback:. Требуемое покрытие Do: неполное.
 
-### [ ] P036.1.4 Агенты цепочек и покрытие тестами
+### [x] P036.1.4 Агенты цепочек и покрытие тестами
 Read:
 - internal/agents/agents.go:L625-648
 - internal/agents/agents_test.go:L430-460
@@ -305,6 +307,10 @@ Traps: `internal/agents` не может импортировать `internal/ru
 lint «`Role:` вне режима исполнителей» не менять (см. `## Decisions`).
 Executor: pi | zai/glm-5.3 | max
 Commit: P036.1.4: cover chain agents and migration
+Handoff:
+- ParseExecutor допускает только известных агентов (claude, codex, pi) — в фикстурах планов нельзя использовать других агентов-маркеров (gemini/mistral дают ошибку lint)
+- Разбор цепочек теперь экспортирован из internal/agents: ChainRoutes/UnitRoleRoutes; будущие части плана (roster) должны использовать их, а не плодить свой разбор
+- PlanAgents при ошибке разбора полной цепочки юнита оставляет только основной маршрут (RunRoute) — предупреждение best-effort, невалидную цепочку ловит lint до запуска
 
 ### [ ] P036.1.5 Повторное ревью фазы 1
 Read:

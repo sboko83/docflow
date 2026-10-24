@@ -623,20 +623,39 @@ func CheckExecutors(plan *format.Plan) error {
 	return agentsError(strings.Join(issues, "\n"))
 }
 
-// PlanAgents returns sorted names of profiles a run can invoke.
+// PlanAgents returns sorted names of profiles a run can invoke. Every
+// route of each open unit's chain is covered -- a role key chain or the
+// executor triple followed by the plan fallback -- plus every route of
+// the replan chain, so a missing skill surfaces before a fallback fires,
+// not when it does.
 func PlanAgents(config map[string]any, plan *format.Plan, args RunArgs) []string {
 	names := make(map[string]bool)
+	addRoutes := func(routes []Route) {
+		for _, route := range routes {
+			names[route.Agent] = true
+		}
+	}
 	for _, unit := range plan.Units {
 		if unit.Status == "x" || unit.Status == "-" {
 			continue
 		}
-		if route, err := RunRoute(config, plan, unit, args); err == nil {
-			names[route.Agent] = true
+		primary, err := RunRoute(config, plan, unit, args)
+		if err != nil {
+			continue
 		}
+		routes := []Route{primary}
+		if args.Executors {
+			// The unit runs its full chain: the chain of its role key, or
+			// the executor triple followed by fallback.
+			if chain, err := UnitRoleRoutes(plan, unit); err == nil {
+				routes = chain
+			}
+		}
+		addRoutes(routes)
 	}
 	if value := plan.Meta["replan"]; value != "" {
-		if name, _, _, err := lint.ParseExecutor(value); err == nil {
-			names[name] = true
+		if routes, err := ChainRoutes(value); err == nil {
+			addRoutes(routes)
 		}
 	}
 	result := make([]string, 0, len(names))
@@ -693,6 +712,69 @@ func RouteText(route Route) string {
 		effort = "-"
 	}
 	return fmt.Sprintf("%s | %s | %s", route.Agent, model, effort)
+}
+
+// routeOf parses a single "agent | model | effort" triple into a Route.
+func routeOf(value string) (Route, error) {
+	name, model, effort, err := lint.ParseExecutor(value)
+	if err != nil {
+		return Route{}, err
+	}
+	route := Route{Agent: name, Model: model}
+	if effort != nil {
+		route.Effort = *effort
+	}
+	return route, nil
+}
+
+// ChainRoutes parses a "agent | model | effort; ..." chain into routes;
+// empty segments are skipped.
+func ChainRoutes(value string) ([]Route, error) {
+	var routes []Route
+	for _, raw := range strings.Split(value, ";") {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		route, err := routeOf(strings.TrimSpace(raw))
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, route)
+	}
+	return routes, nil
+}
+
+// UnitRoleRoutes resolves the ordered route chain of a unit: an explicit
+// Executor triple followed by the plan fallback, the chain of the unit's
+// role key, or the plan executor followed by fallback.
+func UnitRoleRoutes(plan *format.Plan, unit *format.Unit) ([]Route, error) {
+	if field := unit.Field("Role"); field != nil {
+		routes, err := ChainRoutes(plan.Meta[field.Value])
+		if err != nil {
+			return nil, err
+		}
+		if len(routes) == 0 {
+			return nil, fmt.Errorf("role %s needs at least one route", field.Value)
+		}
+		return routes, nil
+	}
+	value := ""
+	if field := unit.Field("Executor"); field != nil {
+		value = field.Value
+	} else if head, ok := plan.Meta["executor"]; ok {
+		value = head
+	} else {
+		return nil, fmt.Errorf("no executor assignment")
+	}
+	primary, err := routeOf(value)
+	if err != nil {
+		return nil, err
+	}
+	fallback, err := ChainRoutes(plan.Meta["fallback"])
+	if err != nil {
+		return nil, err
+	}
+	return append([]Route{primary}, fallback...), nil
 }
 
 // BuildCommand constructs argv and returns nil stdin when {prompt} is used.

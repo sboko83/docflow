@@ -427,6 +427,59 @@ func parseRoutePlan(t *testing.T, text string) *format.Plan {
 	return plan
 }
 
+func TestPlanAgentsCoversChains(t *testing.T) {
+	plan := parseRoutePlan(t, `---
+id: P001
+title: Plan
+type: feature
+status: active
+created: 2026-10-24
+executor: pi | zai/glm-5.3 | max
+fallback: claude | claude-haiku-5-5 | low
+heavy: pi | glm-5.3 | high; codex | gpt-6.1-sol | high
+replan: pi | glm-5.3 | max; claude | claude-opus-5-5 | high
+---
+## Goal
+
+Goal.
+
+## Context
+
+## Constraints
+
+## Traps
+
+## Decisions
+
+## Phase 1: First
+
+### [ ] P001.1.1 Role unit
+Read:
+- a.txt
+Do:
+- work
+Verify: `+"`true`"+`
+Role: heavy
+Commit: P001.1.1: role unit
+
+### [x] P001.1.2 Closed unit
+Read:
+- a.txt
+Do:
+- work
+Verify: `+"`true`"+`
+Executor: pi | glm-5.3 | high
+Commit: P001.1.2: closed unit
+`)
+	// codex appears only as the second route of the heavy chain, and
+	// claude only as the second route of the replan chain (no open unit
+	// consumes fallback); a truncated chain drops its marker agent.
+	got := PlanAgents(nil, plan, RunArgs{Executors: true})
+	if want := []string{"claude", "codex", "pi"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("PlanAgents() = %#v, want %#v", got, want)
+	}
+}
+
 func TestRunRouteAndExecutorIntegration(t *testing.T) {
 	plan := parseRoutePlan(t, routePlanText)
 	args := RunArgs{Executors: true}
