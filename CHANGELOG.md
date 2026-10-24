@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `docflow run` displays the quota provider name as `Z.ai` in terminal output.
+- `docflow run` follows the role chain of a unit's `Role:` field on route
+  refusals instead of the shared `fallback:`, and uses the `replan:` chain
+  as is, without appending `fallback:`. `run --dry-run --all` marks role
+  units with `role <name>` and prints the `fallback:`, role, and `replan:`
+  chains after the unit routes.
+
 ### Added
 - Format 3: role route chains in the plan header (`cheap:`, `heavy:`,
   `review:`, `acceptance:`) and the unit field `Role:` that routes a unit

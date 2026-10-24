@@ -452,6 +452,9 @@ func executorMode(plan *format.Plan) bool {
 // ExecutorMode reports whether a plan uses explicit executor assignments.
 func ExecutorMode(plan *format.Plan) bool { return executorMode(plan) }
 
+// RoleKeys returns the unit role names in canonical header order.
+func RoleKeys() []string { return append([]string(nil), roleKeys...) }
+
 type executorIssue struct {
 	line int
 	text string

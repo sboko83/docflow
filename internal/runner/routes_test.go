@@ -163,6 +163,29 @@ func TestDryRunFallback(t *testing.T) {
 	bad.check(failed, 2, "fallback: expected \"agent | model | effort\"")
 }
 
+func TestDryRunRoleChains(t *testing.T) {
+	f := executorRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nheavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\nreplan: claude | claude-opus-5-5 | high; codex | gpt-6-luna | max")
+	f.replace(planFile, "Commit: P001.1.1: first unit", "Role: heavy\nCommit: P001.1.1: first unit")
+	r := f.cli("run", "--dry-run", "--all")
+	f.check(r, 0,
+		"P001.1.1 [ ] First unit: pi | zai/glm-5.3 | max (role heavy)",
+		"P001.1.2 [ ] Second unit: codex | gpt-5.5 | - (unit)",
+		"fallback: codex gpt-5.5 -",
+		"heavy: pi zai/glm-5.3 max; codex gpt-6.1-sol high",
+		"replan: claude claude-opus-5-5 high; codex gpt-6-luna max")
+	lastRouteAt := strings.LastIndex(r.out, "P001.1.2 [ ] Second unit:")
+	if lastRouteAt < 0 {
+		t.Fatalf("missing unit line:\n%s", r.out)
+	}
+	for _, key := range []string{"fallback:", "heavy:", "replan:"} {
+		at := strings.Index(r.out, key)
+		if at < 0 || at < lastRouteAt {
+			t.Fatalf("%s chain line is not after the unit routes:\n%s", key, r.out)
+		}
+	}
+}
+
 func TestRunExecutor(t *testing.T) {
 	for _, mode := range []string{"dry", "override", "haiku", "flags", "bad-assignment", "retry", "full-no", "full-yes", "zero", "replan-quota", "replan-off"} {
 		t.Run(mode, func(t *testing.T) {

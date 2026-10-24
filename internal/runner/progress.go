@@ -307,6 +307,8 @@ func agentName(name string) string {
 		return "Codex"
 	case "claude":
 		return "Claude"
+	case zaiQuota:
+		return "Z.ai"
 	default:
 		return name
 	}

@@ -992,7 +992,7 @@ func dryRunAll(args Args, config map[string]any, plan *format.Plan, stdout, stde
 	if err := agents.CheckExecutors(plan); err != nil {
 		return 2, err
 	}
-	fallback, err := fallbackLine(plan)
+	chains, err := chainLines(plan)
 	if err != nil {
 		return 2, runError("run: " + err.Error())
 	}
@@ -1005,33 +1005,56 @@ func dryRunAll(args Args, config map[string]any, plan *format.Plan, stdout, stde
 		}
 		fmt.Fprintf(stdout, "%s [%s] %s: %s (%s)\n", unit.ID, unit.Status, unit.Title, agents.RouteText(route), agents.RouteSource(plan, unit))
 	}
-	if fallback != "" {
-		fmt.Fprintln(stdout, fallback)
+	for _, line := range chains {
+		fmt.Fprintln(stdout, line)
 	}
 	return 0, nil
 }
 
-func fallbackLine(plan *format.Plan) (string, error) {
-	value, present := plan.Meta["fallback"]
+// chainLines renders the fallback, role, and replan chains of the header,
+// in that order, as dry-run lines; absent keys produce no line.
+func chainLines(plan *format.Plan) ([]string, error) {
+	keys := append([]string{"fallback"}, append(lint.RoleKeys(), "replan")...)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		line, err := chainLine(plan, key)
+		if err != nil {
+			return nil, err
+		}
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, nil
+}
+
+func chainLine(plan *format.Plan, key string) (string, error) {
+	value, present := plan.Meta[key]
 	if !present {
 		return "", nil
 	}
 	if !lint.ExecutorMode(plan) {
-		return "", fmt.Errorf("fallback needs executor mode")
+		return "", fmt.Errorf("%s needs executor mode", key)
 	}
-	routes := make([]string, 0)
-	for _, raw := range strings.Split(value, ";") {
-		agent, model, effort, err := lint.ParseExecutor(strings.TrimSpace(raw))
-		if err != nil {
-			return "", fmt.Errorf("fallback: %s", err)
-		}
-		effortValue := "-"
-		if effort != nil {
-			effortValue = *effort
-		}
-		routes = append(routes, strings.Join([]string{agent, model, effortValue}, " "))
+	routes, err := chainRoutes(value)
+	if err != nil {
+		return "", fmt.Errorf("%s: %s", key, err)
 	}
-	return "fallback: " + strings.Join(routes, "; "), nil
+	if len(routes) == 0 {
+		return "", nil
+	}
+	parts := make([]string, 0, len(routes))
+	for _, route := range routes {
+		model, effort := route.Model, route.Effort
+		if model == "" {
+			model = "-"
+		}
+		if effort == "" {
+			effort = "-"
+		}
+		parts = append(parts, strings.Join([]string{route.Agent, model, effort}, " "))
+	}
+	return key + ": " + strings.Join(parts, "; "), nil
 }
 
 type limitProgress struct{ p *Progress }

@@ -103,7 +103,7 @@ func TestUnitRoleRoutes(t *testing.T) {
 	if route, err := agents.RunRoute(nil, plan, plan.Unit("P001.1.1"), agents.RunArgs{Executors: true}); err != nil || route != (agents.Route{Agent: "pi", Model: "zai/glm-5.3", Effort: "max"}) {
 		t.Fatalf("RunRoute(role) = %#v, %v", route, err)
 	}
-	if source := agents.RouteSource(plan, plan.Unit("P001.1.1")); source != "role" {
+	if source := agents.RouteSource(plan, plan.Unit("P001.1.1")); source != "role heavy" {
 		t.Fatalf("RouteSource(role) = %q", source)
 	}
 	replan, err := replanExecutorChain(nil, plan, agents.RunArgs{Executors: true}, nil)

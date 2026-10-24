@@ -81,6 +81,41 @@ func TestRunFallbackOnLimit(t *testing.T) {
 	}
 }
 
+func TestRunRoleFallbackOnLimit(t *testing.T) {
+	f := fallbackExecutorRunFixture(t)
+	f.replace(planFile, "fallback: codex | gpt-5.5 | -", "fallback: codex | gpt-6-luna | max\nheavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high")
+	f.replace(planFile, "Commit: P001.1.1: first unit", "Role: heavy\nCommit: P001.1.1: first unit")
+	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "P001.1.1 done:", "switching to codex gpt-6.1-sol", "via codex gpt-6.1-sol")
+	calls := f.calls()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want the pi refusal then the second heavy route\n%s", len(calls), r.out)
+	}
+	if !strings.Contains(strings.Join(calls[0].Argv, " "), "zai/glm-5.3") || !strings.Contains(strings.Join(calls[1].Argv, " "), "gpt-6.1-sol") {
+		t.Fatalf("routes = %v", calls)
+	}
+	if strings.Contains(r.out+r.err, "gpt-6-luna") {
+		t.Fatalf("the role unit used the plan fallback:\n%s%s", r.out, r.err)
+	}
+}
+
+func TestRunExplicitExecutorKeepsFallback(t *testing.T) {
+	f := fallbackExecutorRunFixture(t)
+	f.replace(planFile, "fallback: codex | gpt-5.5 | -", "fallback: codex | gpt-6-luna | max\nheavy: claude | claude-haiku-5-5 | -; codex | gpt-6.1-sol | high")
+	f.replace(planFile, "Commit: P001.1.1: first unit", "Executor: pi | zai/glm-5.3 | max\nCommit: P001.1.1: first unit")
+	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "P001.1.1 done:", "switching to codex gpt-6-luna", "via codex gpt-6-luna")
+	calls := f.calls()
+	if len(calls) != 2 || !strings.Contains(strings.Join(calls[1].Argv, " "), "gpt-6-luna") {
+		t.Fatalf("calls = %+v\n%s", calls, r.out)
+	}
+	if strings.Contains(r.out+r.err, "gpt-6.1-sol") {
+		t.Fatalf("the explicit Executor unit used a role chain:\n%s%s", r.out, r.err)
+	}
+}
+
 func TestRunFallbackOnOutage(t *testing.T) {
 	f := fallbackExecutorRunFixture(t)
 	f.steps(piOutageStep(), codexFallbackSuccessStep(f))
@@ -102,6 +137,30 @@ func TestRunAllExhaustedNoWait(t *testing.T) {
 	}
 	if len(f.calls()) != 2 {
 		t.Fatalf("calls = %d, want both executors", len(f.calls()))
+	}
+}
+
+func TestRunQuotaSkipRoleChain(t *testing.T) {
+	f := executorRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nheavy: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high")
+	f.replace(planFile, "Commit: P001.1.1: first unit", "Role: heavy\nCommit: P001.1.1: first unit")
+	future := time.Now().Add(2 * time.Hour).UTC().Format("Jan 2 at 3:04pm")
+	usage := "Current session: 100% used · resets " + future + " (UTC)"
+	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := filepath.Join(f.tmp, "bin", "claude")
+	f.write(claude, "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
+	if err := os.Chmod(claude, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.steps(codexFallbackSuccessStep(f))
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "claude: quota exhausted until", "via codex gpt-6.1-sol")
+	calls := f.calls()
+	if len(calls) != 1 || !strings.Contains(strings.Join(calls[0].Argv, " "), "gpt-6.1-sol") {
+		t.Fatalf("calls = %+v\n%s", calls, r.out)
 	}
 }
 
@@ -176,7 +235,7 @@ func TestRunQuotaSkip(t *testing.T) {
 
 func TestReplanFallback(t *testing.T) {
 	f := executorRunFixture(t)
-	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-6-luna | max\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
 	if err != nil {
 		t.Fatal(err)
@@ -196,5 +255,32 @@ func TestReplanFallback(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(calls[2].Argv, " "), "pi-session") || !strings.Contains(calls[2].Stdin, "# Replan P001.1.1") || !strings.Contains(calls[2].Stdin, "## Previous attempt") {
 		t.Fatalf("fallback did not receive a fresh complete replan prompt: %+v", calls[2])
+	}
+	if strings.Contains(r.out+r.err, "gpt-6-luna") {
+		t.Fatalf("replan used the plan fallback:\n%s%s", r.out, r.err)
+	}
+}
+
+func TestReplanChainExhaustedSkipsFallback(t *testing.T) {
+	f := executorRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-6-luna | max\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
+	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFakePi(t, f, fake)
+	piRefusal := strings.Replace(piLimitStep(t), "printf partial > partial.txt\n", "", 1)
+	codexLimit := emit(map[string]any{"type": "thread.started", "thread_id": "t-lim"}) + emit(map[string]any{"type": "turn.failed", "error": map[string]any{"message": "usage limit reached"}})
+	f.steps(blockReply(), piRefusal, codexLimit)
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 7, "all replan executors unavailable until", "the plan is restored")
+	calls := f.calls()
+	if len(calls) != 3 {
+		t.Fatalf("calls = %d, want the unit block and two refused replan routes\n%s", len(calls), r.out)
+	}
+	for _, call := range calls {
+		if strings.Contains(strings.Join(call.Argv, " "), "gpt-6-luna") {
+			t.Fatalf("replan fell back to the plan fallback route: %+v", call.Argv)
+		}
 	}
 }
