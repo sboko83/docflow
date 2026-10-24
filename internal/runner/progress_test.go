@@ -347,6 +347,20 @@ func TestQuotaResetWindowsDoNotCrossMatch(t *testing.T) {
 	}
 }
 
+func TestQuotaDeltaFromIdleWindow(t *testing.T) {
+	window := agentio.QuotaWindow{Label: "5h", Used: .29, Reset: int64(1792421400)}
+	for _, reset := range []any{nil, int64(1792421400 - 18000)} {
+		before := agentio.Quota{{Label: "5h", Used: 0, Reset: reset}}
+		if _, _, extra := quotaWindow(window, before, false); extra != " (+29)" {
+			t.Fatalf("idle window with reset %v: delta %q, want \" (+29)\"", reset, extra)
+		}
+	}
+	before := agentio.Quota{{Label: "5h", Used: .4, Reset: int64(1792421400 - 18000)}}
+	if _, _, extra := quotaWindow(window, before, false); extra != "" {
+		t.Fatalf("rolled-over window contributed a delta: %q", extra)
+	}
+}
+
 // Expected rows come from Python textwrap.wrap(text, width,
 // break_on_hyphens=False), which the Python runner uses.
 func TestWrapParagraphMatchesTextwrap(t *testing.T) {

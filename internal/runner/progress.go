@@ -496,8 +496,14 @@ func quotaWindow(window agentio.QuotaWindow, before agentio.Quota, resets bool) 
 	}
 	extra := ""
 	for _, prior := range before {
-		if prior.Label == window.Label && sameReset(prior.Reset, window.Reset) {
-			delta := math.RoundToEven(window.Used*100) - math.RoundToEven(prior.Used*100)
+		if prior.Label != window.Label {
+			continue
+		}
+		priorPercent := math.RoundToEven(prior.Used * 100)
+		// An idle window at 0% has no running reset yet: the first use opens
+		// a window with a new reset, and the delta is still the whole value.
+		if priorPercent == 0 || sameReset(prior.Reset, window.Reset) {
+			delta := math.RoundToEven(window.Used*100) - priorPercent
 			extra += fmt.Sprintf(" (%+.0f)", delta)
 			break
 		}

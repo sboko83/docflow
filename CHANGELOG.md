@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `lint` warns about single-route chains (`no fallback for <role>`) and
   about role keys that no unit uses.
 
+### Fixed
+- `docflow run` shows the quota delta for a window that was at 0% before
+  the unit: the first use opens the window with a new reset time, which
+  used to hide the `(+N)`.
+
 ## [0.10.0] - 2026-10-24
 
 ### Added
