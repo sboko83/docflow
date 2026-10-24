@@ -96,6 +96,9 @@ https://api.z.ai/api/monitor/usage/quota/limit`, заголовок `Authorizati
   по `type`.
 - Reset хранит сырые миллисекунды float64 — agentio.Epoch и numericEpoch уже нормализуют ms, а number() не читает *float64 — отвергнуто хранение результата Epoch (указателя)
 - Команда ключа переиспользует CallAgent с пустым log — тот же механизм таймаута/kill, что у зонда Claude, и ничего не пишет на диск — отвергнут голый exec.Command
+- P035.1.2 переназначен на `codex | gpt-6-luna | max` — z.ai исчерпал окно
+  5h до 2026-10-25 05:37, а Codex на маршруте `fallback:` блокирует юнит по
+  несовпадению с `Executor: pi` — отвергнуто ждать сброса квоты z.ai
 
 ## Phase 1: Зонд и раннер
 
@@ -135,7 +138,7 @@ Handoff:
 - Окно без числового percentage пропускается целиком (не показывать 0%); метки ровно 5h/7d — дельты и sameReset сравнивают по метке
 - Тесты зонда zai скипаются на Windows, как остальные PATH-зависимые тесты зондов
 
-### [ ] P035.1.2 Квота z.ai в docflow run
+### [~] P035.1.2 Квота z.ai в docflow run
 Read:
 - internal/agentio/zai.go
 - internal/runner/run.go:L50-90
@@ -180,8 +183,12 @@ Verify: `go test ./...`
 Traps: `name` в `run.go` при `mergeQuota` из потока — имя агента для
 Claude/Codex; для z.ai поток квоту не несёт, не сливать пустое под
 `pi`. Статус-строка квоты печатает имена в порядке `totals.names` —
-`zai` встаёт туда при стартовом замере.
-Executor: pi | zai/glm-5.3 | max
+`zai` встаёт туда при стартовом замере. В дереве — незакоммиченная
+частичная реализация первой попытки (pi): `chain.go`, `run.go`,
+`replan.go`, `fallback_test.go`, `zai_test.go`; `go test ./...` по ней не
+запускался, `docs/design/runner.md`, `docs/usage.md` и `CHANGELOG.md` не
+тронуты. Продолжить на ней, сверив каждый пункт `Do:`.
+Executor: codex | gpt-6-luna | max
 Commit: P035.1.2: show and use z.ai quota in run
 
 ## Phase 2: Ревью
