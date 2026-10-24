@@ -58,7 +58,16 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
   собирает ассеты через
   `tools/release.sh` и публикует GitHub Release; заметки — секция версии
   из `CHANGELOG.md` (`tools/release-notes.sh`), без неё релиз не
-  собирается ([P030](../archive/P030-public-release.md)).
+  собирается ([P030](../archive/P030-public-release.md)). Затем job
+  `smoke` ставит опубликованный релиз через `install.sh` на linux
+  amd64/arm64 и macOS и запускает его.
+- Релиз режет `tools/cut-release.sh`: `prepare BUMP` локально (main
+  чистый и не отстаёт от `origin`, нет активного плана, гейты `go test`,
+  `test-install.sh`, `audit-public.sh`; перенос `[Unreleased]`, bump,
+  коммит `Release docflow X.Y.Z`, тег), `publish` — push main в `origin`,
+  тег только после зелёного CI, ожидание релиза и проверка ассетов.
+  Версию выбирает человек, push — только `publish`
+  ([P034](../archive/P034-release-cut.md)).
 - Основной репозиторий — GitHub `sboko83/docflow`, его история начата
   orphan-коммитом 0.7.0; прежняя история в него не входит
   ([P030](../archive/P030-public-release.md)).

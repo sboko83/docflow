@@ -35,9 +35,18 @@ explicitly instead.
 ## Release
 - The version is `var version` in `cmd/docflow/main.go`; the tag `vX.Y.Z`
   must match it (`tools/check-release-tag.sh`). Pushing the tag runs
-  `.github/workflows/release.yml`, which publishes the GitHub Release.
-- Before a push to GitHub run `bash tools/audit-public.sh`; every new
-  allowance in `tools/audit-public.allow` is reviewed by a human.
+  `.github/workflows/release.yml`, which publishes the GitHub Release and
+  smoke-tests the installed release.
+- Cut a release with `tools/cut-release.sh`, only on a human request:
+  `prepare patch|minor|major|X.Y.Z` runs the gates, bumps the version,
+  moves `[Unreleased]`, commits and tags locally (without an argument it
+  suggests a bump); the human picks the version. `publish` pushes main to
+  `origin` (GitHub; another remote holds the old private history), pushes
+  the tag after CI is green and checks the release — run it only on an
+  explicit request to publish.
+- Before a push to GitHub run `bash tools/audit-public.sh` (`prepare` runs
+  it); every new allowance in `tools/audit-public.allow` is reviewed by a
+  human.
 
 ## Skills
 - Sources live only in `skills/`. Never edit installed skill directories.

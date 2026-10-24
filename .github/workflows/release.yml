@@ -30,3 +30,29 @@ jobs:
           gh release create "$TAG" --title "$TAG"
           --notes-file "$RUNNER_TEMP/notes.md"
           dist/download/"$TAG"/*
+
+  # Install the published release the way users do and run it.
+  smoke:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install with curl | sh
+        run: >-
+          curl -fsSL
+          "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/install.sh"
+          | sh
+      - name: Check the installed release
+        run: |
+          set -eu
+          bin=$HOME/.docflow/bin/docflow
+          want=${GITHUB_REF_NAME#v}
+          "$bin" --version | grep -F "$want"
+          "$bin" update --check | grep -Fx "up to date: $want"
+          mkdir "$RUNNER_TEMP/project" && cd "$RUNNER_TEMP/project"
+          git init -q
+          "$bin" init
+          "$bin" status
