@@ -312,7 +312,7 @@ Handoff:
 - Разбор цепочек теперь экспортирован из internal/agents: ChainRoutes/UnitRoleRoutes; будущие части плана (roster) должны использовать их, а не плодить свой разбор
 - PlanAgents при ошибке разбора полной цепочки юнита оставляет только основной маршрут (RunRoute) — предупреждение best-effort, невалидную цепочку ловит lint до запуска
 
-### [ ] P036.1.5 Повторное ревью фазы 1
+### [x] P036.1.5 Повторное ревью фазы 1
 Read:
 - docs/design/format.md:L107-260
 - docs/design/runner.md:L218-240
@@ -330,6 +330,10 @@ Verify: `go test ./... && go vet ./...`
 Depends: P036.1.4
 Executor: codex | gpt-6.1-sol | high
 Commit: P036.1.5: re-review format 3 phase
+Handoff:
+- Повторное ревью фазы 1: новых дефектов не обнаружено; замечания P036.1.3 закрыты тестами либо решением плана.
+- На macOS arm64 полный docflow verify P036.1.5 прошёл: go test ./..., go vet ./... и gate. После ограничения ps в песочнице проверка выполнена с расширенными разрешениями. Код и план не изменялись.
+- Unverified: Отдельного теста single-unit run --dry-run для Role: нет; обязательный сценарий --all покрыт internal/runner/routes_test.go:166.
 
 ## Phase 2: Ростер
 
