@@ -14,6 +14,42 @@ type lineIndex struct {
 	lines map[string]int
 }
 
+// headerSegments splits a table header [a."b".c] into its segments:
+// the dot separates only outside quotes, and every segment drops its
+// quotes and surrounding spaces, so the index keys match the keys of
+// the agents.ParseTOML maps.
+func headerSegments(header string) []string {
+	var segments []string
+	var current strings.Builder
+	quoted := byte(0)
+	flush := func() {
+		segment := strings.Trim(strings.TrimSpace(current.String()), `"'`)
+		if segment != "" {
+			segments = append(segments, segment)
+		}
+		current.Reset()
+	}
+	for i := 0; i < len(header); i++ {
+		c := header[i]
+		switch {
+		case quoted != 0:
+			if c == quoted {
+				quoted = 0
+			}
+			current.WriteByte(c)
+		case c == '"' || c == '\'':
+			quoted = c
+			current.WriteByte(c)
+		case c == '.':
+			flush()
+		default:
+			current.WriteByte(c)
+		}
+	}
+	flush()
+	return segments
+}
+
 func scanLines(text string) *lineIndex {
 	index := &lineIndex{lines: make(map[string]int)}
 	table := ""
@@ -24,14 +60,14 @@ func scanLines(text string) *lineIndex {
 		}
 		if strings.HasPrefix(line, "[") {
 			if end := strings.Index(line, "]"); end > 0 {
-				table = strings.TrimSpace(line[1:end])
-				index.set(table, "", n+1)
-				// A dotted header [a.b.c] also answers lookups of each
-				// segment as a key of its parent table.
-				segments := strings.Split(table, ".")
-				for i := 1; i < len(segments); i++ {
-					index.set(strings.Join(segments[:i], "."), segments[i], n+1)
-				}
+			segments := headerSegments(line[1:end])
+			table = strings.Join(segments, ".")
+			index.set(table, "", n+1)
+			// A dotted header [a.b.c] also answers lookups of each
+			// segment as a key of its parent table.
+			for i := 1; i < len(segments); i++ {
+				index.set(strings.Join(segments[:i], "."), segments[i], n+1)
+			}
 			}
 			continue
 		}

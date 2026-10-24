@@ -220,7 +220,13 @@ func routeProvider(agent, model string) string {
 func parseProviders(path string, index *lineIndex, tablePath, label string, value any) (map[string]providerFlags, error) {
 	table, ok := value.(map[string]any)
 	if value != nil && !ok {
-		return nil, failAt(path, index, tablePath, "", "%s must be a table of [%s.<name>] sections", label, label)
+		// Locate the key that carries the wrong type — the provider key
+		// of the enclosing table — not the head of the file.
+		parent, key := "", tablePath
+		if dot := strings.LastIndex(tablePath, "."); dot >= 0 {
+			parent, key = tablePath[:dot], tablePath[dot+1:]
+		}
+		return nil, failAt(path, index, parent, key, "%s must be a table of [%s.<name>] sections", label, label)
 	}
 	providers := make(map[string]providerFlags, len(table))
 	for _, name := range index.keysByLine(tablePath, table) {
@@ -307,8 +313,10 @@ func applyProfile(r *Roster, index *lineIndex, root map[string]any, name string)
 		}
 		r.Spend = spend
 	}
-	if overrides, ok := section["provider"].(map[string]any); ok {
-		flags, err := parseProviders(r.Path, index, tablePath+".provider", "profile "+name+".provider", overrides)
+	if _, ok := section["provider"]; ok {
+		// Any type goes to parseProviders: a non-table value must fail
+		// with the key's line, not pass silently as a missing override.
+		flags, err := parseProviders(r.Path, index, tablePath+".provider", "profile "+name+".provider", section["provider"])
 		if err != nil {
 			return err
 		}
@@ -352,11 +360,20 @@ func (r *Roster) pickChains(index *lineIndex) (map[string][]agents.Route, error)
 	return chains, nil
 }
 
+// selectChain picks the routes of one role. Providers with the check
+// flag never review — whatever the role requires, trusted included: the
+// point of check is that another provider judges this provider's units,
+// and the tier of the requirement does not change that.
 func (r *Roster) selectChain(role string) []agents.Route {
+	reviews := role == "review"
 	if r.RoleTiers[role] == "trusted" {
 		var chain []agents.Route
 		for _, name := range r.Spend {
-			if !r.Providers[name].trusted {
+			flags := r.Providers[name]
+			if reviews && flags.check {
+				continue
+			}
+			if !flags.trusted {
 				continue
 			}
 			if rt := r.pickRoute(name, tierIndex("strong"), role); rt != nil {
@@ -377,7 +394,7 @@ func (r *Roster) selectChain(role string) []agents.Route {
 	minimum := tierIndex(r.RoleTiers[role])
 	var chain []agents.Route
 	for _, name := range r.Spend {
-		if role == "review" && r.Providers[name].check {
+		if reviews && r.Providers[name].check {
 			continue
 		}
 		if rt := r.pickRoute(name, minimum, role); rt != nil {

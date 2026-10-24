@@ -104,6 +104,18 @@ func applyProject(t *testing.T, plan string) string {
 	return makeApplyProject(t, "", plan)
 }
 
+// applyRoster writes the draft roster into a temp dir and returns its
+// path: the apply tests pass an explicit rosterPath and never read the
+// personal roster behind an empty path.
+func applyRoster(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "roster.toml")
+	if err := os.WriteFile(path, []byte(draft), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func gitDir(t *testing.T, root string) string {
 	t.Helper()
 	output, err := exec.Command("git", "-C", root, "rev-parse", "--git-dir").Output()
@@ -135,7 +147,7 @@ func wantApplyError(t *testing.T, err error, code int, text string) {
 
 func TestApplyWritesAndRemovesKeys(t *testing.T) {
 	root := applyProject(t, applyPlan("active"))
-	result, err := Apply(root, "P040", "", "")
+	result, err := Apply(root, "P040", "", applyRoster(t))
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
@@ -214,7 +226,7 @@ Commit: P040.1.2: second
 
 func TestApplyIdempotent(t *testing.T) {
 	root := applyProject(t, applyPlan("active"))
-	if _, err := Apply(root, "P040", "", ""); err != nil {
+	if _, err := Apply(root, "P040", "", applyRoster(t)); err != nil {
 		t.Fatalf("first Apply() error = %v", err)
 	}
 	path := filepath.Join(root, "docs", "plans", "P040-roster.md")
@@ -222,7 +234,7 @@ func TestApplyIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := Apply(root, "P040", "", "")
+	result, err := Apply(root, "P040", "", applyRoster(t))
 	if err != nil {
 		t.Fatalf("second Apply() error = %v", err)
 	}
@@ -272,7 +284,7 @@ func TestApplyStatusAndArchive(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = Apply(root, "P040", "", "")
+		_, err = Apply(root, "P040", "", applyRoster(t))
 		wantApplyError(t, err, clierrors.EXIT_FORMAT, "plan is done")
 		after, err := os.ReadFile(path)
 		if err != nil {
@@ -284,7 +296,7 @@ func TestApplyStatusAndArchive(t *testing.T) {
 	})
 	t.Run("archived plan", func(t *testing.T) {
 		root := makeApplyProject(t, "docs/archive/P040-roster.md", applyPlan("done"))
-		_, err := Apply(root, "P040", "", "")
+		_, err := Apply(root, "P040", "", applyRoster(t))
 		wantApplyError(t, err, clierrors.EXIT_FORMAT, "no plan in docs/plans/")
 	})
 }
@@ -303,7 +315,7 @@ func TestApplyRunLock(t *testing.T) {
 	if err := os.WriteFile(lock, []byte("123\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Apply(root, "P040", "", "")
+	_, err = Apply(root, "P040", "", applyRoster(t))
 	wantApplyError(t, err, clierrors.EXIT_ORDER, "a run is in progress")
 	after, err := os.ReadFile(path)
 	if err != nil {
@@ -325,7 +337,7 @@ func TestApplyRestoresOnLintError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := Apply(root, "P040", "", "")
+	result, err := Apply(root, "P040", "", applyRoster(t))
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}

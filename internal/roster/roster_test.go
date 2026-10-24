@@ -155,6 +155,74 @@ func TestMinimalValid(t *testing.T) {
 	}
 }
 
+// reviewTrustedRoster gives claude both trusted and check: under the
+// trusted requirement review must drop it, while acceptance and replan
+// keep the trusted provider — check excludes a provider from review
+// only.
+const reviewTrustedRoster = `spend = ["zai", "codex", "claude"]
+[provider.claude]
+trusted = true
+check = true
+[role]
+cheap = "cheap"
+executor = "standard"
+heavy = "strong"
+review = "trusted"
+acceptance = "trusted"
+replan = "trusted"
+[route.z1]
+run = "pi | zai/m | high"
+tier = "cheap"
+[route.zs]
+run = "pi | zai/m2 | high"
+tier = "strong"
+[route.c1]
+run = "codex | c | high"
+tier = "cheap"
+[route.cs]
+run = "codex | c2 | high"
+tier = "strong"
+[route.ls]
+run = "claude | l2 | high"
+tier = "strong"
+`
+
+func TestReviewExcludesCheckUnderAnyRequirement(t *testing.T) {
+	r, err := loadText(t, reviewTrustedRoster, "")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	// review requires trusted, but the only trusted provider carries
+	// check: the chain is the strong reserve of the other providers.
+	if got, want := chainOf(r, "review"), "pi | zai/m2 | high; codex | c2 | high"; got != want {
+		t.Errorf("review chain = %q, want %q", got, want)
+	}
+	// check removes a provider from review only: acceptance and replan
+	// still open with the trusted provider.
+	if got, want := chainOf(r, "acceptance"), "claude | l2 | high; pi | zai/m2 | high; codex | c2 | high"; got != want {
+		t.Errorf("acceptance chain = %q, want %q", got, want)
+	}
+	if got, want := chainOf(r, "replan"), "claude | l2 | high; pi | zai/m2 | high; codex | c2 | high"; got != want {
+		t.Errorf("replan chain = %q, want %q", got, want)
+	}
+
+	// The only trusted provider carries check: the review chain drops
+	// below two routes and the roster refuses to load with code 2.
+	short := strings.Replace(minimal, `review = "strong"`, `review = "trusted"`, 1)
+	short = strings.Replace(short, "[route.z1]", "[provider.zai]\ntrusted = true\ncheck = true\n\n[route.z1]", 1)
+	_, err = loadText(t, short, "")
+	if err == nil {
+		t.Fatal("Load() = nil error, want the short review chain error")
+	}
+	if !strings.Contains(err.Error(), "role review: chain has 1 route(s), need at least two providers") {
+		t.Fatalf("Load() error = %q, want the short review chain error", err.Error())
+	}
+	coded, ok := err.(interface{ ExitCode() int })
+	if !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
+		t.Errorf("exit code of %v is not %d", err, clierrors.EXIT_FORMAT)
+	}
+}
+
 func TestTieBreaksOnFileOrder(t *testing.T) {
 	first := strings.Replace(minimal, `run = "pi | zai/m | high"`, `run = "pi | zai/first | high"`, 1)
 	both := strings.Replace(first, `[route.zs]`, "[route.z1b]\nrun = \"pi | zai/second | high\"\ntier = \"cheap\"\n[route.zs]", 1)
@@ -180,6 +248,39 @@ tier = "cheap"
 	}
 	if got := r.Chains["cheap"][0].Model; got != "zai/first" {
 		t.Errorf("cheap chain first model = %q, want zai/first (still the earlier table)", got)
+	}
+}
+
+func TestQuotedRouteNames(t *testing.T) {
+	// Two same-tier routes of one provider under quoted names: the chain
+	// takes the first in file order, not the alphabetical order the
+	// index falls back to without the header lines.
+	text := strings.Replace(minimal, "[route.z1]", "[route.\"z-first\"]", 1)
+	text = strings.Replace(text, "tier = \"cheap\"\n[route.zs]", "tier = \"cheap\"\n\n[route.\"a-second\"]\nrun = \"pi | zai/a2 | high\"\ntier = \"cheap\"\n[route.zs]", 1)
+	r, err := loadText(t, text, "")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if r.Routes[0].name != "z-first" || r.Routes[1].name != "a-second" {
+		t.Fatalf("route order = %s, %s, want z-first then a-second (file order)", r.Routes[0].name, r.Routes[1].name)
+	}
+	if got, want := chainOf(r, "cheap"), "pi | zai/m | high; codex | c | high"; got != want {
+		t.Errorf("cheap chain = %q, want %q (first route in file)", got, want)
+	}
+
+	// An error inside a quoted section names the section's line.
+	broken := strings.Replace(minimal, "[route.z1]", "[route.\"z-first\"]", 1)
+	broken = strings.Replace(broken, `tier = "cheap"`, `tier = "fast"`, 1)
+	_, err = loadText(t, broken, "")
+	formatErr, ok := err.(clierrors.FormatError)
+	if !ok {
+		t.Fatalf("Load() error = %T, want clierrors.FormatError", err)
+	}
+	if !strings.Contains(err.Error(), "route z-first: tier must be cheap, standard or strong") {
+		t.Fatalf("Load() error = %q, want it to name route z-first", err.Error())
+	}
+	if formatErr.Line != 11 {
+		t.Errorf("Line = %d, want 11 (the tier key of [route.\"z-first\"])", formatErr.Line)
 	}
 }
 
@@ -290,6 +391,30 @@ func TestProfileReplacesSpendAndFlags(t *testing.T) {
 	}
 	if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
 		t.Errorf("unknown profile exit code = %v, want %d", err, clierrors.EXIT_FORMAT)
+	}
+}
+
+func TestProfileProviderOfAnyType(t *testing.T) {
+	// A profile provider of a non-table type fails with the line of the
+	// provider key instead of passing as a missing override.
+	text := minimal + "\n[profile.x]\nprovider = \"typo\"\n"
+	_, err := loadText(t, text, "x")
+	if err == nil {
+		t.Fatal("Load() = nil error, want the provider type error")
+	}
+	if !strings.Contains(err.Error(), "profile x.provider must be a table of [profile x.provider.<name>] sections") {
+		t.Fatalf("Load() error = %q, want the profile provider type error", err.Error())
+	}
+	formatErr, ok := err.(clierrors.FormatError)
+	if !ok {
+		t.Fatalf("Load() error = %T, want clierrors.FormatError", err)
+	}
+	if formatErr.Line != 23 {
+		t.Errorf("Line = %d, want 23 (the provider key of [profile.x])", formatErr.Line)
+	}
+	coded, ok := err.(interface{ ExitCode() int })
+	if !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
+		t.Errorf("exit code of %v is not %d", err, clierrors.EXIT_FORMAT)
 	}
 }
 
