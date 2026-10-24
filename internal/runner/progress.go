@@ -317,6 +317,23 @@ func (p *Progress) unit(uid, title string, route agents.Route) {
 		p.line(uid+" "+title+" -> "+routeText(route), false, "")
 		return
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.openLocked(uid+": "+title, false)
+	p.unitID = uid
+	p.executorLocked(route)
+}
+
+func (p *Progress) executor(route agents.Route) {
+	if !p.fancy {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.executorLocked(route)
+}
+
+func (p *Progress) executorLocked(route agents.Route) {
 	level := "dim"
 	switch route.Effort {
 	case "low":
@@ -330,10 +347,6 @@ func (p *Progress) unit(uid, title string, route agents.Route) {
 	case "ultra":
 		level = "ultra"
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.openLocked(uid+": "+title, false)
-	p.unitID = uid
 	model, effort := route.Model, route.Effort
 	if model == "" {
 		model = "-"
@@ -583,9 +596,14 @@ func (p *Progress) quotasLocked(quotas []NamedQuota, before map[string]agentio.Q
 	p.clearLocked()
 	if finish {
 		if len(known) > 0 {
-			item := known[0]
-			p.emitLocked(p.paint("└─ Quota · used ", "dim", p.out)+p.badge(item.Name), p.out)
-			p.quotaRowsLocked(item.Quota, before[item.Name], "   ")
+			for i, item := range known {
+				prefix := "   "
+				if i == 0 {
+					prefix = "└─ Quota · used "
+				}
+				p.emitLocked(p.paint(prefix, "dim", p.out)+p.badge(item.Name), p.out)
+				p.quotaRowsLocked(item.Quota, before[item.Name], "   ")
+			}
 			p.block = false
 			p.unitID = ""
 		}

@@ -198,6 +198,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 func runLoop(ctx context.Context, root string, args Args, config map[string]any, p *Progress, totals *runTotals) (int, error) {
 	planID, done := "", 0
 	replans := map[string]int{}
+	unavailable := make(map[string]time.Time)
 	for {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -247,13 +248,16 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 		totals.mu.Lock()
 		totals.unit = sel.Unit.ID
 		totals.mu.Unlock()
-		route, err := agents.RunRoute(config, sel.Plan, sel.Unit, args.RunArgs)
+		chain, err := unitExecutorChain(config, sel.Plan, sel.Unit, args.RunArgs, unavailable)
 		if err != nil {
 			return 2, err
 		}
-		before := append(agentio.Quota(nil), totals.quota[route.Agent]...)
-		code, trigger, err := runUnit(ctx, root, args, config, route, sel.Unit.ID, p, totals)
-		unitQuota(p, totals, route.Agent, before)
+		before := make(map[string]agentio.Quota)
+		for _, name := range chain.routeAgents() {
+			before[name] = append(agentio.Quota(nil), totals.quota[name]...)
+		}
+		code, trigger, err := runUnit(ctx, root, args, config, chain, sel.Unit.ID, p, totals)
+		unitQuotas(p, totals, chain.agentsUsed(), before)
 		if err != nil {
 			return code, err
 		}
@@ -407,15 +411,37 @@ func feedback(problem string) string {
 	return "Runner: " + problem + "\nFix it and finish with the result JSON.\nFix source issues; do not disable hooks, signing or checks, or change Git configuration to bypass a failure.\n"
 }
 
-func runUnit(ctx context.Context, root string, args Args, config map[string]any, route agents.Route, uid string, p *Progress, totals *runTotals) (int, string, error) {
-	name := route.Agent
-	agent := profile(config, name)
+func previousExecutorAttempt(route agents.Route, refusal *agentio.Refusal) string {
+	return fmt.Sprintf("\n## Previous attempt\n\nThe previous executor %s stopped after a provider %s refusal. The working tree may contain uncommitted work; continue it.\n", routeName(route), refusal.Kind)
+}
+
+func runUnit(ctx context.Context, root string, args Args, config map[string]any, chain *executorChain, uid string, p *Progress, totals *runTotals) (int, string, error) {
 	plan, unit, err := cycle.FindUnit(root, uid)
 	if err != nil {
 		return 2, "", err
 	}
-	p.unit(uid, unit.Title, route)
 	start := time.Now()
+	route, ok := chain.pick(time.Now())
+	for !ok {
+		until, found := chain.earliest()
+		if !found {
+			return 2, "", fmt.Errorf("%s: executor chain has no available route or reset time", uid)
+		}
+		line := fmt.Sprintf("%s: all executors unavailable until %s", uid, until.Local().Format("15:04"))
+		if args.NoWait {
+			totals.stop = line
+			p.line(line+"; the unit stays [~]", true, "")
+			return 7, "", nil
+		}
+		if err := waitForExecutorChain(ctx, p, line, until); err != nil {
+			return 7, "", err
+		}
+		route, ok = chain.pick(time.Now())
+	}
+	initialRoute, _ := chain.firstRoute()
+	name := route.Agent
+	agent := profile(config, name)
+	p.unit(uid, unit.Title, route)
 	defer func() { p.elapsed(uid, time.Since(start).Seconds()) }()
 	committing, err := cycle.CommitPending(root, plan, unit)
 	if err != nil {
@@ -600,6 +626,62 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			if refusal == nil {
 				break
 			}
+			if chain.enabled && (refusal.Kind == agentio.RefusalLimit || refusal.Kind == agentio.RefusalOutage) {
+				now := time.Now()
+				until, err := chain.mark(route, refusal, now)
+				if err != nil {
+					return 2, "", err
+				}
+				next, available := chain.pick(now)
+				if available && routeIdentity(next) != routeIdentity(route) {
+					previousRoute := route
+					p.line(fmt.Sprintf("%s: %s: %s until %s; switching to %s", uid, routeName(route), refusal.Kind, until.Local().Format("15:04"), routeName(next)), false, "")
+					p.executor(next)
+					route = next
+					name, agent = route.Agent, profile(config, route.Agent)
+					timeout = agentCallTimeout(plan, agent)
+					prompt = runnerPrompt(root, plan, unit, agent, mode) + previousExecutorAttempt(previousRoute, refusal)
+					session = ""
+					text, resume = prompt, ""
+					continue
+				}
+				if !available {
+					for !available {
+						earliest, found := chain.earliest()
+						if !found {
+							return 2, "", fmt.Errorf("%s: executor chain is exhausted without a reset time", uid)
+						}
+						line := fmt.Sprintf("%s: all executors unavailable until %s", uid, earliest.Local().Format("15:04"))
+						if args.NoWait || limits+1 >= agentio.LimitTries {
+							totals.stop = line
+							if !args.NoWait {
+								totals.stop += fmt.Sprintf(" (%d in a row)", limits+1)
+							}
+							p.line(totals.stop+"; the unit stays [~]", true, "")
+							return 7, "", nil
+						}
+						limits++
+						if err := waitForExecutorChain(ctx, p, line, earliest); err != nil {
+							return 7, "", err
+						}
+						next, available = chain.pick(time.Now())
+					}
+					if routeIdentity(next) != routeIdentity(route) {
+						previousRoute := route
+						p.line(uid+": switching to "+routeName(next)+" after the provider refusal wait", false, "")
+						p.executor(next)
+						route = next
+						name, agent = route.Agent, profile(config, route.Agent)
+						timeout = agentCallTimeout(plan, agent)
+						prompt = runnerPrompt(root, plan, unit, agent, mode) + previousExecutorAttempt(previousRoute, refusal)
+						session = ""
+						text, resume = prompt, ""
+					} else if session != "" {
+						text, resume = agentio.RefusalPrompt, session
+					}
+					continue
+				}
+			}
 			limits++
 			refusal.Kind, throttles = retryRefusalKind(refusal.Kind, throttles)
 			if args.NoWait || limits >= agentio.LimitTries {
@@ -742,6 +824,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		} else if cost != nil {
 			summary += fmt.Sprintf(", $%.2f", *cost)
 		}
+		if routeIdentity(route) != routeIdentity(initialRoute) {
+			summary += " via " + routeName(route)
+		}
 		p.result(uid, "done", fmt.Sprintf("%s (%s)", firstWord(res.Stdout), summary))
 		for _, u := range unverified {
 			p.unverified(u)
@@ -767,8 +852,19 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	return 7, "", nil
 }
 
+func unitQuotas(p *Progress, totals *runTotals, names []string, before map[string]agentio.Quota) {
+	if len(names) == 0 {
+		return
+	}
+	quotas := make([]NamedQuota, 0, len(names))
+	for _, name := range names {
+		quotas = append(quotas, NamedQuota{Name: name, Quota: totals.quota[name]})
+	}
+	p.quotas(quotas, before, "", true)
+}
+
 func unitQuota(p *Progress, totals *runTotals, name string, before agentio.Quota) {
-	p.quotas([]NamedQuota{{name, totals.quota[name]}}, map[string]agentio.Quota{name: before}, "", true)
+	unitQuotas(p, totals, []string{name}, map[string]agentio.Quota{name: before})
 }
 
 func unitDetail(root string, p *Progress, totals *runTotals) error {

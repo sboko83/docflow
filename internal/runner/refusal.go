@@ -69,3 +69,17 @@ func waitRefusal(ctx context.Context, agent map[string]any, refusal *agentio.Ref
 		return ctx.Err()
 	}
 }
+
+func waitForExecutorChain(ctx context.Context, p *Progress, message string, until time.Time) error {
+	p.line(message, false, "")
+	p.spin(message, nil)
+	defer p.stop()
+	timer := time.NewTimer(time.Until(until))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

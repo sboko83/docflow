@@ -103,6 +103,19 @@ func TestTerminalLayoutReplanAndUnknownAgent(t *testing.T) {
 	}
 }
 
+func TestTerminalFallbackRouteIsShownInUnitBlock(t *testing.T) {
+	p, out := newTTYProgress(t)
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "pi", Model: "zai/glm-5.3", Effort: "max"})
+	p.line("P001.1.1: pi zai/glm-5.3: limit until 12:30; switching to codex gpt-5.5", false, "")
+	p.executor(agents.Route{Agent: "codex", Model: "gpt-5.5"})
+	p.result("P001.1.1", "done", "abc123 (1 attempt via codex gpt-5.5)")
+	p.quotas(nil, nil, "", true)
+	text := plainTTY(out.String())
+	if !strings.Contains(text, " pi  │ zai/glm-5.3 │ max") || !strings.Contains(text, " Codex  │ gpt-5.5 │ -") || !strings.Contains(text, "via codex gpt-5.5") {
+		t.Fatalf("fallback route is missing from the unit block:\n%s", text)
+	}
+}
+
 func TestTerminalBlockedSeparatesWhiteReasonAndElapsed(t *testing.T) {
 	for _, status := range []string{"blocked", "replan blocked"} {
 		t.Run(status, func(t *testing.T) {

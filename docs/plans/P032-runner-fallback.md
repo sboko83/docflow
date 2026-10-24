@@ -292,7 +292,7 @@ Handoff:
 - `fallback:` is validated and shown after routes by `run --dry-run --all`; runtime switching for units and replan remains for a later P032 unit.
 - Unverified: Runtime fallback switching is not implemented or verified in this unit; the runner still invokes the primary route.
 
-### [ ] P032.3.2 Цепочка исполнителей в прогоне юнита
+### [x] P032.3.2 Цепочка исполнителей в прогоне юнита
 Read:
 - internal/runner/run.go:L198-285
 - internal/runner/run.go:L410-760
@@ -329,6 +329,8 @@ Do:
 Verify: `go test ./internal/runner/ -run 'Chain|TestRunFallbackOnLimit|TestRunFallbackOnOutage|TestRunAllExhaustedNoWait' -count=1`
 Traps: после смены исполнителя проверки HEAD и статуса юнита, `DOCFLOW_RUNNER_UNIT` и учёт квоты идут по имени нового агента. План без `fallback:` — цепочка из одного маршрута, поведение P032.2.1.
 Commit: P032.3.2: switch to fallback executors on refusal
+Handoff:
+- `go test ./...` and `docflow verify P032.3.2` passed. P032.3.3 still needs fallback quota prechecks and fallback switching for replan; this unit covers regular unit execution only.
 
 ### [ ] P032.3.3 Квота до юнита и replan по цепочке
 Read:
