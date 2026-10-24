@@ -19,7 +19,11 @@ import (
 )
 
 const (
-	KillGrace         = 10 * time.Second
+	KillGrace = 10 * time.Second
+	// PipeGrace bounds how long a call waits for the agent's stdout and stderr
+	// to close after the agent exits: a descendant that escaped the kill (a
+	// daemon reparented before the process snapshot) may keep them open.
+	PipeGrace         = 5 * time.Second
 	LimitWait         = 1800
 	LimitTries        = 10
 	ReplanUnitLimit   = 2
@@ -159,6 +163,7 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = root
 	cmd.Env = options.Env
+	cmd.WaitDelay = PipeGrace
 	procgroup.Detach(cmd)
 	out := &eventWriter{}
 	if options.OnEvent != nil || options.OnStreamEvent != nil {

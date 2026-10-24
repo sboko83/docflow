@@ -161,6 +161,7 @@ func CodexProbe(argv []string, timeout time.Duration) map[string]any {
 		return nil
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.WaitDelay = PipeGrace
 	procgroup.Detach(cmd)
 	in, err := cmd.StdinPipe()
 	if err != nil {
