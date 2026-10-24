@@ -110,6 +110,7 @@ https://api.z.ai/api/monitor/usage/quota/limit`, заголовок `Authorizati
   P035.2.3 — отдельный юнит P035.2.5, повторное ревью — новый юнит
   P035.2.6 (P035.2.4 снят) — дефект только в тестах, код раннера верен — отвергнуто
   править P035.2.3 (`[x]`, история) и закрыть ревью без теста.
+- Acceptance fixtures use the full live response shape with millisecond resets off the second boundary — exercises unit/number parsing and ms normalisation end to end — rejected reusing the minimal zaiQuotaBody helper
 
 ## Phase 1: Зонд и раннер
 
@@ -385,7 +386,7 @@ Handoff:
 
 ## Phase 3: Приёмка
 
-### [ ] P035.3.1 Приёмка квоты z.ai через docflow run
+### [x] P035.3.1 Приёмка квоты z.ai через docflow run
 Read:
 - internal/runner/routes_test.go:L105-130
 - internal/runner/fallback_test.go:L100-160
@@ -417,3 +418,8 @@ Traps: упавший сценарий чинится в этом юните, е
 Depends: P035.1.1, P035.1.2, P035.2.6
 Executor: claude | claude-opus-5-5 | high
 Commit: P035.3.1: accept z.ai quota in run
+Handoff:
+- internal/runner/zai_acceptance_test.go covers all six P035.3.1 scenarios through the built docflow binary; zaiQuotaServer gained a status field for non-200 replies.
+- Live check on 2026-10-24 (macOS arm64): agentio.ProbeZaiQuota against the real api.z.ai endpoint with the pi key returned 5h used=0.73 (reset in 3h27m) and 7d used=0.59 (reset in 144h52m) — this closes the shared Unverified item from P035.1.2, P035.2.x and P035.2.6 (live pi auth and z.ai API); the scratch probe was deleted.
+- The plan's phases are all implemented; the next step is closing P035.
+- Unverified: The quota: zai start line of a real docflow run against the live z.ai API was not observed; the live probe was checked separately via agentio.ProbeZaiQuota, the runner only against the local server.

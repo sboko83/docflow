@@ -29,13 +29,15 @@ func zaiQuotaBodyWithoutResets(five, seven float64) string {
 func zaiMinuteFloor(at time.Time) int64 { return at.Unix() / 60 * 60 }
 
 // zaiQuotaServer serves the queued bodies in order (the last one repeats)
-// and counts requests, so tests assert what the runner probed and when.
+// with status when set, and counts requests, so tests assert what the
+// runner probed and when.
 type zaiQuotaServer struct {
 	server *httptest.Server
 	mu     sync.Mutex
 	bodies []string
 	served int
 	authed bool
+	status int
 }
 
 func (s *zaiQuotaServer) count() int {
@@ -74,8 +76,12 @@ func newZaiQuotaServer(t *testing.T) *zaiQuotaServer {
 			index = len(server.bodies) - 1
 		}
 		body := server.bodies[index]
+		status := server.status
 		server.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if status != 0 {
+			w.WriteHeader(status)
+		}
 		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(server.server.Close)
