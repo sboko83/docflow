@@ -36,6 +36,33 @@ func TestKillStopsGrandchildren(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	pid := waitPID(t, pidFile)
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	_ = Kill(cmd, done, 5*time.Second)
+	waitGone(t, pid)
+}
+
+func TestKillStopsDetachedDescendants(t *testing.T) {
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "pid")
+	script := filepath.Join(dir, "agent.sh")
+	data := `#!/bin/sh
+(
+	perl -e 'use POSIX; setsid(); open(F, ">", $ARGV[0]) or die $!; print F $$; close F; sleep 300' "$1" &
+	wait
+) &
+wait
+`
+	if err := os.WriteFile(script, []byte(data), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", script, pidFile)
+	Detach(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	pid := waitPID(t, pidFile)
 	_ = Kill(cmd, done, 5*time.Second)
 	waitGone(t, pid)
 }

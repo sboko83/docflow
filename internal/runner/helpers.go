@@ -83,6 +83,32 @@ func runDir(root string) (string, error) {
 	return filepath.Join(filepath.Dir(state), "run"), nil
 }
 
+func nextRunCallLog(logs, uid string, replan bool) (string, error) {
+	entries, err := os.ReadDir(logs)
+	if err != nil {
+		return "", err
+	}
+	prefix := uid + "."
+	if replan {
+		prefix += "replan"
+	}
+	max := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".out") {
+			continue
+		}
+		number, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, prefix), ".out"))
+		if err == nil && number > max {
+			max = number
+		}
+	}
+	if replan {
+		return filepath.Join(logs, fmt.Sprintf("%s.replan%d.out", uid, max+1)), nil
+	}
+	return filepath.Join(logs, fmt.Sprintf("%s.%d.out", uid, max+1)), nil
+}
+
 func stopFile(root string) (string, error) {
 	directory, err := runDir(root)
 	if err != nil {

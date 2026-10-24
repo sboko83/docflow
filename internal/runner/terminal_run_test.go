@@ -162,7 +162,9 @@ func TestRunStopSignalsKillAgent(t *testing.T) {
 		t.Run(fmt.Sprint(s), func(t *testing.T) {
 			f := newRunFixture(t)
 			path := filepath.Join(f.tmp, "pid")
-			f.steps("echo $$ > " + shellQuote(path) + "\nexec sleep 60\n")
+			detachedPath := filepath.Join(f.tmp, "detached-pid")
+			f.steps("echo $$ > " + shellQuote(path) + "\n" +
+				"perl -e 'use POSIX; setsid(); open(F, \">\", $ARGV[0]) or die $!; print F $$; close F; sleep 300' " + shellQuote(detachedPath) + " &\nwait\n")
 			c := f.command("run", "--config", f.config, "--no-wait")
 			var out, errOut bytes.Buffer
 			c.Stdout, c.Stderr = &out, &errOut
@@ -170,8 +172,12 @@ func TestRunStopSignalsKillAgent(t *testing.T) {
 				t.Fatal(err)
 			}
 			waitForFile(t, path)
+			waitForFile(t, detachedPath)
 			b, _ := os.ReadFile(path)
 			pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+			detachedBytes, _ := os.ReadFile(detachedPath)
+			detachedPID, _ := strconv.Atoi(strings.TrimSpace(string(detachedBytes)))
+			t.Cleanup(func() { _ = syscall.Kill(detachedPID, syscall.SIGKILL) })
 			if err := c.Process.Signal(s); err != nil {
 				t.Fatal(err)
 			}
@@ -191,6 +197,9 @@ func TestRunStopSignalsKillAgent(t *testing.T) {
 			if syscall.Kill(pid, 0) != syscall.ESRCH {
 				t.Errorf("agent %d survived", pid)
 			}
+			if !waitRunnerProcessGone(detachedPID) {
+				t.Errorf("detached descendant %d survived", detachedPID)
+			}
 			if !strings.Contains(f.read(planFile), "[~] P001.1.1") {
 				t.Fatal("unit status changed")
 			}
@@ -199,6 +208,17 @@ func TestRunStopSignalsKillAgent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func waitRunnerProcessGone(pid int) bool {
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if syscall.Kill(pid, 0) == syscall.ESRCH {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
 }
 
 func TestRunMixedInterruptKeepsQuota(t *testing.T) {

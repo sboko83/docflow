@@ -226,7 +226,6 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		return code, restorePlan(planPath, string(before))
 	}
 	session, problem := "", ""
-	calls := 0
 	timeout, _ := numericEpoch(agent["timeout"])
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
 		text, resume := prompt, ""
@@ -239,12 +238,14 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		}
 		var run agentio.AgentRun
 		for limits := 0; ; {
-			calls++
 			argv, stdin, err := agents.BuildCommand(agent, text, model, schema, resume, effort, format.PlanPermissions(plan))
 			if err != nil {
 				return 2, err
 			}
-			log := filepath.Join(logs, fmt.Sprintf("%s.replan%d.out", uid, calls))
+			log, err := nextRunCallLog(logs, uid, true)
+			if err != nil {
+				return 2, err
+			}
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("replan attempt %d, log %s", attempt, rel))
 			p.spin(func() string { return uid + " replan " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })

@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   frame instead of printing it flush left.
 - `docflow run` shows the starting quota of the plan's `replan:` agent too,
   not only of the agents assigned to the remaining units.
+- `docflow run` stops detached agent descendants on timeout or interruption
+  and keeps earlier call logs when a unit is run again.
 
 ## [0.7.0] - 2026-10-23
 

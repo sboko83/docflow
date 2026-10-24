@@ -2,7 +2,7 @@
 id: P032
 title: Runner fallback executors and run hygiene
 type: feature
-status: draft
+status: active
 created: 2026-10-24
 executor: codex | gpt-6-luna | max
 permissions: auto
@@ -117,10 +117,12 @@ assistant; pi сам повторил запрос 3 раза, `auto_retry_end` 
   порог 97%: юнит часто успевает закончиться.
 - replan при отказе идёт по той же цепочке `fallback:` — отвергнута
   остановка прогона из-за лимита исполнителя replan.
+- Kill ждёт завершения снимка дерева и только затем возвращает управление — агент может завершиться раньше detached-потомка — отвергнут немедленный возврат по `cmd.Wait`.
+- Номер лога берётся после наибольшего существующего номера этого юнита и типа вызова — локальные счётчики сбрасываются при новом Run — отвергнут локальный счётчик.
 
 ## Phase 1: Прогон без лишних часов
 
-### [ ] P032.1.1 Остановка всего дерева процессов агента, уникальные логи вызовов
+### [x] P032.1.1 Остановка всего дерева процессов агента, уникальные логи вызовов
 Read:
 - internal/procgroup/procgroup_unix.go
 - internal/procgroup/procgroup_unix_test.go
@@ -151,6 +153,9 @@ Do:
 Verify: `go test ./internal/procgroup/ ./internal/runner/ -run 'TestKillStopsDetachedDescendants|TestRunLogNamesUnique' -count=1`
 Traps: `ps` на macOS и Linux принимает `-A -o pid=,ppid=,pgid=`; после смерти агента его дети уходят к launchd/init — снимок снимается до первого сигнала. `setsid` в perl на macOS есть через POSIX, `setsid(1)` — нет.
 Commit: P032.1.1: kill agent descendants, unique call logs
+Handoff:
+- На macOS `docflow verify P032.1.1` и его gate `go test ./...` прошли.
+- Установленный Pi 1.4.0 запускает shell в `dist/core/tools/bash.js` с `detached: true` на не-Windows системах; гипотеза о новой группе процессов подтверждена.
 
 ### [ ] P032.1.2 Verify: один прогон на дерево, полный лог провала
 Read:

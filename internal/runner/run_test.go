@@ -345,6 +345,31 @@ func TestRunLoopRetries(t *testing.T) {
 	}
 }
 
+func TestRunLogNamesUnique(t *testing.T) {
+	f := newRunFixture(t)
+	first := f.run([]string{"exit 1"}, "--attempts", "1", "--max-units", "1")
+	if first.code == 0 {
+		t.Fatalf("first run unexpectedly succeeded:\n%s%s", first.out, first.err)
+	}
+	second := f.run([]string{"echo a > a.txt\n" + doneReply()}, "--max-units", "1")
+	f.check(second, 0, "P001.1.1 done:")
+
+	logs := filepath.Join(f.root, ".git", "docflow", "run")
+	firstLog := filepath.Join(logs, "P001.1.1.1.out")
+	secondLog := filepath.Join(logs, "P001.1.1.2.out")
+	firstData, err := os.ReadFile(firstLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondData, err := os.ReadFile(secondLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(firstData), "--- exit 1") || !strings.Contains(string(secondData), "--- exit 0") {
+		t.Fatalf("call logs do not preserve both runs:\nfirst: %s\nsecond: %s", firstData, secondData)
+	}
+}
+
 func TestZeroTimeoutNeverKills(t *testing.T) {
 	for _, timeout := range []int{0, -1} {
 		t.Run(fmt.Sprintf("%d", timeout), func(t *testing.T) {

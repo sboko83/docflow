@@ -510,7 +510,6 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	session, last := "", "agent"
 	var cost *float64
 	var unitIn, unitOut *int
-	calls := 0
 	timeout, _ := numericEpoch(agent["timeout"])
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
 		text, resume := prompt, ""
@@ -523,12 +522,14 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		}
 		var run agentio.AgentRun
 		for limits := 0; ; {
-			calls++
 			argv, stdin, err := agents.BuildCommand(agent, text, route.Model, schema, resume, route.Effort, mode)
 			if err != nil {
 				return 2, "", err
 			}
-			log := filepath.Join(logs, fmt.Sprintf("%s.%d.out", uid, calls))
+			log, err := nextRunCallLog(logs, uid, false)
+			if err != nil {
+				return 2, "", err
+			}
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("attempt %d, log %s", attempt, rel))
 			p.spin(func() string { return uid + " " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
