@@ -5,11 +5,14 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P032
 
 ## Frozen
 
 ## Backlog
+- `docflow run`: сверить классификатор отказов с живыми отказами Claude и
+  Codex по лимиту, проверить возврат к основному исполнителю после сброса
+  на живом прогоне; приёмку таймаута с detached-внуком прогнать на Linux CI
+  ([P032](archive/P032-runner-fallback.md)).
 - Релиз после 0.7.0: проверить `docflow update` с реальным переходом на
   новую версию и откатом через `versions/` (на 0.7.0 проверен только
   `--check`), живой `curl … | sh` на Linux (проверен на macOS arm64)

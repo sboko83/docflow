@@ -27,8 +27,9 @@ state in the repository instead of the agent's memory.
   commit.
 - **The whole plan can run unattended.** `docflow run` drives the units
   without a human: prompts the agent, verifies, commits, retries a
-  failed unit with the failure tail, waits out subscription rate limits,
-  and stops safely on a timeout or a soft stop. Claude Code, Codex
+  failed unit with the failure tail, switches to the plan's fallback
+  executor on a provider limit or outage and waits only when all of them
+  are unavailable, and stops safely on a timeout or a soft stop. Claude Code, Codex
   CLI and pi are built in, one run can mix them, and the plan routes each unit
   to its own assistant, model, and reasoning effort
   ([details](docs/usage.md#автозапуск), in Russian).
