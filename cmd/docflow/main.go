@@ -49,7 +49,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "show the route chains per plan role from the personal roster", args: []argument{positional("subcommand", "", true), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)")}},
+	{name: "roster", help: "show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills"},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it")}},
@@ -186,7 +186,7 @@ positional arguments:
                     copy them into the project with --project
     doctor          check that the installed script and skills match this repo
     roster          show the route chains per plan role from the personal
-                    roster
+                    roster, or write them into a plan header
     run             drive the plan unit by unit through a coding agent
     install         install an unpacked release into ~/.docflow and link
                     personal skills
@@ -324,14 +324,30 @@ func handleRoster(parsed *parsedArgs) error {
 	subcommand, _ := parsed.values["subcommand"].(string)
 	profileName, _ := parsed.values["--profile"].(string)
 	path, _ := parsed.values["--roster"].(string)
-	if subcommand != "show" {
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show)", subcommand), Code: clierrors.EXIT_FORMAT}
+	switch subcommand {
+	case "show":
+		r, err := roster.Load(path, profileName)
+		if err != nil {
+			return err
+		}
+		return commandResult{code: clierrors.EXIT_OK, stdout: r.Show()}
+	case "apply":
+		planID, _ := parsed.values["id"].(string)
+		if planID == "" {
+			return clierrors.DocflowError{Message: "docflow: roster apply: no plan id", Code: clierrors.EXIT_FORMAT}
+		}
+		root, err := projectRoot()
+		if err != nil {
+			return err
+		}
+		result, err := roster.Apply(root, planID, profileName, path)
+		if err != nil {
+			return err
+		}
+		return commandResult{code: result.Code, stdout: result.Stdout, stderr: result.Stderr}
+	default:
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply)", subcommand), Code: clierrors.EXIT_FORMAT}
 	}
-	r, err := roster.Load(path, profileName)
-	if err != nil {
-		return err
-	}
-	return commandResult{code: clierrors.EXIT_OK, stdout: r.Show()}
 }
 
 func handleStats(parsed *parsedArgs) error {

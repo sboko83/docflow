@@ -240,15 +240,23 @@ options:
   --target DIR          personal skills directory override
   --project             copy skills/* into the project
 `,
-	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] show
+	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] {show,apply} [PLAN]
 
-show the route chains per plan role from the personal roster
+show the route chains per plan role from the personal roster, or write
+them into a plan header
 
 Reads ~/.config/docflow/roster.toml (or --roster PATH), picks the chain
 of every role, and prints a spend summary line plus the plan-header
 lines executor:, fallback:, cheap:, heavy:, review:, acceptance: and
-replan:. The runner never reads the roster; paste the chains into a plan
-header or write them with docflow roster apply.
+replan:. roster apply PLAN writes executor:, fallback:, replan: and the
+role keys of the unit Role: fields into the plan header in docs/plans
+(draft, active or frozen), removes role keys without units, lints the
+plan and restores it on lint errors; a run in progress stops apply. The
+runner never reads the roster; a plan stays reproducible without it.
+
+subcommands:
+  show            print the chains per role
+  apply PLAN      write the chains into the plan header
 
 options:
   -h, --help      show this help message and exit

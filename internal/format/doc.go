@@ -106,6 +106,27 @@ func (d *Doc) RemoveLine(line int) error {
 	return d.reparseCommon()
 }
 
+// InsertMeta inserts key: value after the given 1-based line; after <= 0
+// appends at the end of the frontmatter, before the closing marker.
+func (d *Doc) InsertMeta(after int, key, value string) error {
+	line := after
+	if line < 1 {
+		lines := make([]string, len(d.Raw))
+		for i, raw := range d.Raw {
+			lines[i] = strings.TrimRight(raw, "\r\n")
+		}
+		_, _, body, err := ParseMeta(d.Path, lines)
+		if err != nil {
+			return err
+		}
+		line = body - 1
+	}
+	if err := d.insertRaw(line, []string{key + ": " + value}); err != nil {
+		return err
+	}
+	return d.reparseCommon()
+}
+
 func (d *Doc) removeRaw(line int) error {
 	if line < 1 || line > len(d.Raw) {
 		return fmt.Errorf("line %d out of range", line)

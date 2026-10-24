@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line plus the plan-header `executor:`, `fallback:` and role-key lines;
   `--profile NAME` applies a `[profile.NAME]` override of the spend order
   and provider flags. The runner never reads the roster.
+- `docflow roster apply PLAN [--profile NAME] [--roster PATH]` writes the
+  picked chains into a plan header in `docs/plans/` (`executor:`,
+  `fallback:`, `replan:` and the role keys of the unit `Role:` fields;
+  role keys without units are removed, other keys keep their place),
+  lints the plan and restores it on lint errors; refuses while a run is
+  in progress.
 
 ### Fixed
 - `docflow run` shows the quota delta for a window that was at 0% before

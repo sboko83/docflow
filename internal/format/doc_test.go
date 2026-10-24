@@ -251,6 +251,29 @@ func TestMetaLines(t *testing.T) {
 	}
 }
 
+func TestInsertMeta(t *testing.T) {
+	plan := parseSample(t)
+	if err := plan.InsertMeta(0, "executor", "pi | zai/m | high"); err != nil {
+		t.Fatalf("InsertMeta(0) error = %v", err)
+	}
+	if plan.Meta["executor"] != "pi | zai/m | high" || plan.MetaLines["executor"] != 7 {
+		t.Fatalf("executor meta = %q at %d, want line 7", plan.Meta["executor"], plan.MetaLines["executor"])
+	}
+	if err := plan.InsertMeta(plan.MetaLines["executor"], "fallback", "codex | c | high"); err != nil {
+		t.Fatalf("InsertMeta(after executor) error = %v", err)
+	}
+	if plan.Meta["fallback"] != "codex | c | high" || plan.MetaLines["fallback"] != 8 {
+		t.Fatalf("fallback meta = %q at %d, want line 8", plan.Meta["fallback"], plan.MetaLines["fallback"])
+	}
+	if plan.MetaLines["created"] != 6 || plan.MetaLines["status"] != 5 {
+		t.Fatalf("created at %d, status at %d, want 6 and 5", plan.MetaLines["created"], plan.MetaLines["status"])
+	}
+	body := strings.Join(plan.Raw[9:], "")
+	if !strings.HasPrefix(body, "## Goal") {
+		t.Fatalf("body after frontmatter = %q", body)
+	}
+}
+
 func TestSectionsSkipFencedCode(t *testing.T) {
 	plan := parseSample(t)
 	want := []string{"Goal", "Context", "Constraints", "Prerequisites", "Traps", "Decisions", "Phase 1: Storage layer", "Phase 2: Sync"}
