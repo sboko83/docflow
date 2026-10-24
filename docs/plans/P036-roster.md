@@ -106,12 +106,17 @@ trusted = true
 
 - Ключ z.ai известен pi (юниты плана идут на z.ai):
   `pi auth check --provider zai --no-refresh`
+- Навыки агентов идут из установленного релиза, а не из рабочего дерева:
+  `for l in ~/.claude/skills ~/.agents/skills ~/.pi/agent/skills; do readlink "$l/bsv-docflow-run" | grep -q '/.docflow/current/' || exit 1; done`
 
 ## Traps
 
 - Раннер этого прогона — установленный `~/.docflow/current/docflow`
-  формата 2. Не запускать `tools/install-dev.sh` и не подменять
-  установленный CLI во время плана; `go test ./...` бинарь не ставит.
+  формата 2, навыки агентов — ссылки на `~/.docflow/current/skills`. Не
+  запускать `tools/install-dev.sh` и не подменять установленный CLI во
+  время плана; `go test ./...` бинарь не ставит. Навыки из рабочего
+  дерева P036.3.1 переписывает под формат 3: связанные с ним агенты и
+  replan писали бы `Role:` в этот план формата 2.
 - `fallback:` — хвост роли executor, а не общий запас: юнит с `Role:` его
   не использует. Юнит с `Executor:` — использует, как в формате 2.
 - Ключ ступени `trusted` в `[role]` — не ступень маршрута: у маршрута
@@ -144,6 +149,10 @@ trusted = true
 - Ревью — отдельный юнит после фазы, ревьюер код не правит, дефект —
   `blocked` с `blocker: "plan"` — исправление планирует replan —
   отвергнута правка кода ревьюером.
+- Навыки на время плана — релизные, это проверяет Prerequisites —
+  P036.3.1 переписывает навыки под формат 3, а репозиторий до закрытия
+  остаётся на формате 2 — отвергнут один Trap без проверки: dev-ссылки
+  уже однажды остались после P035.
 
 ## Phase 1: Формат 3
 
@@ -328,7 +337,7 @@ Commit: P036.2.3: review roster phase
 Read:
 - skills/bsv-docflow-plan/SKILL.md:L28-107
 - skills/bsv-docflow-plan/SKILL.md:L164-225
-- skills/bsv-docflow-run/SKILL.md:L61-122
+- skills/bsv-docflow-run/SKILL.md:L61-128
 - docs/usage.md:L251-275
 - README.md:L20-40
 - README.ru.md:L20-40
@@ -351,6 +360,10 @@ Do:
   Pxxx`, затем lint и `run --dry-run --all`.
 - `bsv-docflow-run`: юнит с `Role: review` не правит файлы, дефект —
   `docflow block --needs plan`.
+- `bsv-docflow-run`, раздел «Executor»: режим раннера не менять (агент
+  назначение не проверяет). В ручной сессии агент подходит, если он есть
+  в цепочке юнита: цепочка его `Role:`, иначе `Executor:` или `executor:`
+  шапки вместе с `fallback:`; модель и усилие по-прежнему не сверяются.
 - `README.md` и `README.ru.md` — ростер одной строкой рядом с
   `fallback`; `docs/usage.md` «Планирование» — ссылка на «Ростер».
 - `CHANGELOG.md` `[Unreleased]`: скиллы под ростер.
