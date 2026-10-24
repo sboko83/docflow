@@ -101,10 +101,14 @@ func Load(path, profileName string) (*Roster, error) {
 	return r, nil
 }
 
-// failAt returns a located exit-code-2 error; a resolved line of 0 means
-// the line index has no entry, and the error points at the file head.
+// failAt returns a located exit-code-2 error; a line of 0 from the index
+// (no entry — exotic syntax) becomes line 1, the file head.
 func failAt(path string, index *lineIndex, table, key, format string, args ...any) error {
-	return clierrors.FormatError{Path: path, Line: index.line(table, key), Text: fmt.Sprintf(format, args...)}
+	line := index.line(table, key)
+	if line == 0 {
+		line = 1
+	}
+	return clierrors.FormatError{Path: path, Line: line, Text: fmt.Sprintf(format, args...)}
 }
 
 func (r *Roster) parse(index *lineIndex, root map[string]any) error {
@@ -115,7 +119,7 @@ func (r *Roster) parse(index *lineIndex, root map[string]any) error {
 			return failAt(r.Path, index, "", key, "unknown key '%s'", key)
 		}
 	}
-	spend, err := parseSpend(r.Path, index, "spend", "spend", root["spend"])
+	spend, err := parseSpend(r.Path, index, "", "spend", root["spend"])
 	if err != nil {
 		return err
 	}
@@ -253,22 +257,23 @@ func parseProviders(path string, index *lineIndex, tablePath, label string, valu
 	return providers, nil
 }
 
-// parseSpend reads a spend array; tablePath locates it in the line index,
-// label names it in messages.
+// parseSpend reads a spend array; tablePath is the table that holds the
+// spend key — every error points at that key's line — and label names
+// the spend in messages.
 func parseSpend(path string, index *lineIndex, tablePath, label string, value any) ([]string, error) {
 	items, ok := value.([]any)
 	if !ok {
-		return nil, failAt(path, index, tablePath, "", "%s must be an array of provider names in spend order", label)
+		return nil, failAt(path, index, tablePath, "spend", "%s must be an array of provider names in spend order", label)
 	}
 	spend := make([]string, 0, len(items))
 	seen := make(map[string]bool, len(items))
 	for n, item := range items {
 		name, ok := item.(string)
 		if !ok || name == "" || strings.ContainsAny(name, " \t") {
-			return nil, failAt(path, index, tablePath, "", "%s: item %d must be a provider name", label, n+1)
+			return nil, failAt(path, index, tablePath, "spend", "%s: item %d must be a provider name", label, n+1)
 		}
 		if seen[name] {
-			return nil, failAt(path, index, tablePath, "", "%s: duplicate provider '%s'", label, name)
+			return nil, failAt(path, index, tablePath, "spend", "%s: duplicate provider '%s'", label, name)
 		}
 		seen[name] = true
 		spend = append(spend, name)

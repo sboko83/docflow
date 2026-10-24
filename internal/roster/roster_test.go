@@ -418,6 +418,83 @@ func TestProfileProviderOfAnyType(t *testing.T) {
 	}
 }
 
+func TestSpendErrorsNameTheSpendKeyLine(t *testing.T) {
+	// A duplicate in the top-level spend names the line of the spend
+	// key: a multi-line array stays on that line — the scanner knows no
+	// element lines.
+	text := strings.Replace(minimal, `spend = ["zai", "codex"]`, "spend = [\n\t\"zai\",\n\t\"codex\",\n\t\"zai\",\n]", 1)
+	_, err := loadText(t, text, "")
+	formatErr, ok := err.(clierrors.FormatError)
+	if !ok {
+		t.Fatalf("Load() error = %T, want clierrors.FormatError", err)
+	}
+	if !strings.Contains(err.Error(), "spend: duplicate provider 'zai'") {
+		t.Fatalf("Load() error = %q, want the duplicate provider error", err.Error())
+	}
+	if formatErr.Line != 1 {
+		t.Errorf("Line = %d, want 1 (the top-level spend key, not the element)", formatErr.Line)
+	}
+
+	// A duplicate in a profile spend names the line of the profile's
+	// spend key, not the [profile.x] header.
+	text = minimal + "\n[profile.x]\nspend = [\"zai\", \"codex\", \"zai\"]\n"
+	_, err = loadText(t, text, "x")
+	formatErr, ok = err.(clierrors.FormatError)
+	if !ok {
+		t.Fatalf("Load() profile error = %T, want clierrors.FormatError", err)
+	}
+	if !strings.Contains(err.Error(), "profile x: duplicate provider 'zai'") {
+		t.Fatalf("Load() profile error = %q, want the duplicate provider error", err.Error())
+	}
+	if formatErr.Line != 23 {
+		t.Errorf("Line = %d, want 23 (the spend key of [profile.x], not its header on 22)", formatErr.Line)
+	}
+
+	// A non-array spend names the spend key's line.
+	text = strings.Replace(minimal, `spend = ["zai", "codex"]`, `spend = "zai"`, 1)
+	_, err = loadText(t, text, "")
+	formatErr, ok = err.(clierrors.FormatError)
+	if !ok {
+		t.Fatalf("Load() non-array error = %T, want clierrors.FormatError", err)
+	}
+	if !strings.Contains(err.Error(), "spend must be an array of provider names in spend order") {
+		t.Fatalf("Load() non-array error = %q, want the array error", err.Error())
+	}
+	if formatErr.Line != 1 {
+		t.Errorf("Line = %d, want 1 (the spend key)", formatErr.Line)
+	}
+}
+
+func TestUnindexedErrorFallsBackToLineOne(t *testing.T) {
+	// `profile = 1` without a [profile] header: the failing table has no
+	// scan entry, and the error falls back to line 1, not 0.
+	_, err := loadText(t, strings.Replace(minimal, "spend = [\"zai\", \"codex\"]\n", "spend = [\"zai\", \"codex\"]\nprofile = 1\n", 1), "x")
+	formatErr, ok := err.(clierrors.FormatError)
+	if !ok {
+		t.Fatalf("Load() error = %T, want clierrors.FormatError", err)
+	}
+	if !strings.Contains(err.Error(), "profile must be a table of [profile.<name>] sections") {
+		t.Fatalf("Load() error = %q, want the profile table error", err.Error())
+	}
+	if formatErr.Line != 1 {
+		t.Errorf("Line = %d, want 1 (no index entry)", formatErr.Line)
+	}
+
+	// An inline-table profile parses but leaves no scan entries: the
+	// spend error inside it falls back to line 1 too.
+	_, err = loadText(t, strings.Replace(minimal, "spend = [\"zai\", \"codex\"]\n", "spend = [\"zai\", \"codex\"]\nprofile = { x = { spend = 1 } }\n", 1), "x")
+	formatErr, ok = err.(clierrors.FormatError)
+	if !ok {
+		t.Fatalf("Load() inline error = %T, want clierrors.FormatError", err)
+	}
+	if !strings.Contains(err.Error(), "profile x must be an array of provider names in spend order") {
+		t.Fatalf("Load() inline error = %q, want the profile spend array error", err.Error())
+	}
+	if formatErr.Line != 1 {
+		t.Errorf("Line = %d, want 1 (no index entry)", formatErr.Line)
+	}
+}
+
 func TestValidations(t *testing.T) {
 	cases := []struct {
 		name string
