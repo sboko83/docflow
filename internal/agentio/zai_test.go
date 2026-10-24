@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -45,23 +46,22 @@ func TestIsZaiModel(t *testing.T) {
 	equal(t, IsZaiModel(""), false)
 }
 
-// fakeZaiPi puts a fake pi first in PATH; it prints a fixed key without
-// touching the real one.
-func fakeZaiPi(t *testing.T) {
+// fakeZaiPi puts a script-backed fake pi first in PATH without touching the
+// real key store.
+func fakeZaiPi(t *testing.T, script string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fake pi requires Unix")
 	}
 	bin := t.TempDir()
-	script := "#!/bin/sh\necho fake-zai-key\n"
-	if err := os.WriteFile(filepath.Join(bin, "pi"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "pi"), []byte("#!/bin/sh\n"+script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func TestProbeZaiQuotaHTTP(t *testing.T) {
-	fakeZaiPi(t)
+	fakeZaiPi(t, "printf '  fake-zai-key  \\n'\n")
 	var authorized, accepts bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authorized = r.Header.Get("Authorization") == "fake-zai-key"
@@ -86,7 +86,7 @@ func TestProbeZaiQuotaNoPi(t *testing.T) {
 }
 
 func TestProbeZaiQuotaHTTP500(t *testing.T) {
-	fakeZaiPi(t)
+	fakeZaiPi(t, "printf 'fake-zai-key\\n'\n")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
@@ -96,7 +96,7 @@ func TestProbeZaiQuotaHTTP500(t *testing.T) {
 }
 
 func TestProbeZaiQuotaHangingServer(t *testing.T) {
-	fakeZaiPi(t)
+	fakeZaiPi(t, "printf 'fake-zai-key\\n'\n")
 	block := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-block
@@ -106,7 +106,77 @@ func TestProbeZaiQuotaHangingServer(t *testing.T) {
 	t.Setenv("DOCFLOW_ZAI_QUOTA_URL", server.URL)
 	start := time.Now()
 	equal(t, ProbeZaiQuota(200*time.Millisecond), Quota{})
-	if time.Since(start) > 3*time.Second {
-		t.Fatal("probe failed to time out")
+	if elapsed := time.Since(start); elapsed > 450*time.Millisecond {
+		t.Fatalf("probe exceeded timeout allowance: %s", elapsed)
+	}
+}
+
+func TestProbeZaiQuotaSharedTimeoutBudget(t *testing.T) {
+	fakeZaiPi(t, "sleep 0.6\nprintf 'fake-zai-key\\n'\n")
+	var requested atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested.Store(true)
+		time.Sleep(600 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(zaiFixtureBody("CREDIT_LIMIT")))
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_ZAI_QUOTA_URL", server.URL)
+	start := time.Now()
+	equal(t, ProbeZaiQuota(time.Second), Quota{})
+	if elapsed := time.Since(start); elapsed > 1250*time.Millisecond {
+		t.Fatalf("probe exceeded shared timeout allowance: %s", elapsed)
+	}
+	if !requested.Load() {
+		t.Fatal("probe did not reach the quota server")
+	}
+}
+
+func TestProbeZaiQuotaWhitespaceKey(t *testing.T) {
+	fakeZaiPi(t, "printf ' \\n\\t\\n'\n")
+	var requested atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested.Store(true)
+		_, _ = w.Write([]byte(zaiFixtureBody("CREDIT_LIMIT")))
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_ZAI_QUOTA_URL", server.URL)
+	equal(t, ProbeZaiQuota(time.Second), Quota{})
+	if requested.Load() {
+		t.Fatal("probe sent a request with a whitespace-only key")
+	}
+}
+
+func TestProbeZaiQuotaNonzeroPiExit(t *testing.T) {
+	fakeZaiPi(t, "printf 'fake-zai-key\\n'\nexit 1\n")
+	var requested atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested.Store(true)
+		_, _ = w.Write([]byte(zaiFixtureBody("CREDIT_LIMIT")))
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_ZAI_QUOTA_URL", server.URL)
+	equal(t, ProbeZaiQuota(time.Second), Quota{})
+	if requested.Load() {
+		t.Fatal("probe sent a request after pi returned a nonzero exit code")
+	}
+}
+
+func TestProbeZaiQuotaPiTimeout(t *testing.T) {
+	fakeZaiPi(t, "exec sleep 5\n")
+	var requested atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested.Store(true)
+		_, _ = w.Write([]byte(zaiFixtureBody("CREDIT_LIMIT")))
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_ZAI_QUOTA_URL", server.URL)
+	start := time.Now()
+	equal(t, ProbeZaiQuota(150*time.Millisecond), Quota{})
+	if elapsed := time.Since(start); elapsed > 650*time.Millisecond {
+		t.Fatalf("probe exceeded key timeout allowance: %s", elapsed)
+	}
+	if requested.Load() {
+		t.Fatal("probe sent a request after pi timed out")
 	}
 }

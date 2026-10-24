@@ -86,11 +86,19 @@ func rawEpoch(value any) any {
 // HTTP other than 200, timeout, bad JSON, success other than true —
 // yields an empty quota, like the Claude and Codex probes.
 func ProbeZaiQuota(timeout time.Duration) Quota {
+	if timeout <= 0 {
+		return Quota{}
+	}
+	deadline := time.Now().Add(timeout)
 	key := zaiAPIKey(timeout)
 	if key == "" {
 		return Quota{}
 	}
-	body, err := zaiQuotaGet(zaiQuotaEndpoint(), key, timeout)
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return Quota{}
+	}
+	body, err := zaiQuotaGet(zaiQuotaEndpoint(), key, remaining)
 	if err != nil {
 		return Quota{}
 	}
