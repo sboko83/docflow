@@ -174,6 +174,8 @@ trusted = true
 - новые ключи вставляются в обратном порядке после одного якоря (строка fallback:, иначе конец frontmatter, вычисленный один раз через format.ParseMeta) — повторный InsertMeta(0) пересчитал бы конец после каждой вставки и перевернул канонический порядок — отвергнут пересчёт якоря на каждый ключ
 - пост-проверка — lint.ActivationIssues без CheckVersion — репозиторий остаётся docflow: 2 до закрытия P036, apply не должен зависеть от маркера версии — отвергнут полный lint.Lint по корню
 - профиль в тесте переупорядочивает spend всех трёх провайдеров (codex, claude, zai), а не сокращает его — проверка P036.2.1 кодом 2 отвергает маршруты провайдера вне эффективного spend
+- Исключение провайдеров с `check` из `review` действует при любом требовании роли, `trusted` включительно — цель `check` в том, чтобы юниты провайдера проверял другой провайдер, а ступень требования этого не меняет — отвергнуто исключать `check` только в нетрастовой ветке подбора (дефект 2 ревью P036.2.3)
+- Дефекты ревью фазы 2 исправляет отдельный юнит P036.2.4, затем повторное ревью P036.2.5 — как в фазе 1 (P036.1.4, P036.1.5) — отвергнута правка без повторного ревью: дефект 1 показал, что зелёный локальный прогон зависел от личной конфигурации
 
 ## Phase 1: Формат 3
 
@@ -415,7 +417,7 @@ Handoff:
 - lint после записи — lint.ActivationIssues (lintPlan + ссылки, без CheckVersion): apply работает, пока репозиторий docflow: 2
 - коды выхода apply: 0 записано, 1 нет изменений, 2 (нет плана/статус/ошибка ростера/ошибка lint с восстановлением), 5 run.lock
 
-### [ ] P036.2.3 Ревью фазы 2
+### [-] P036.2.3 Ревью фазы 2
 Read:
 - docs/usage.md:L418-520
 Do:
@@ -429,6 +431,67 @@ Do:
 Verify: `go test ./... && go vet ./...`
 Executor: codex | gpt-6.1-sol | high
 Commit: P036.2.3: review roster phase
+Handoff:
+- Blocked (plan): Обнаружены четыре дефекта. 1. [P1] internal/roster/apply_test.go:138, :217, :328 — тесты читают личный ростер вместо фикстуры. Запуск с пустым XDG_CONFIG_HOME и -count=1 воспроизводимо роняет три теста; успешная локальная проверка зависит от пользовательской конфигурации. 2. [P2] internal/roster/roster.go:359 — при review = "trusted" доверенный провайдер с check = true попадает в review. Воспроизведено; правило исключения check должно действовать независимо от требования роли. 3. [P2] internal/roster/lines.go:31 — сканер сохраняет кавычки в именах секций, поэтому маршруты [route."z-first"] и [route."a-second"] теряют позиции и сортируются по алфавиту. Воспроизведён выбор второго маршрута при равных ступенях вместо первого в файле. 4. [P2] internal/roster/roster.go:310 — неверный тип provider в выбранном профиле молча игнорируется. Профиль с provider = "typo" принят с кодом 0 вместо ошибки формата.
+
+### [ ] P036.2.4 Дефекты ревью фазы 2
+Read:
+- internal/roster/apply_test.go:L63-106
+- internal/roster/apply_test.go:L136-140
+- internal/roster/apply_test.go:L215-226
+- internal/roster/apply_test.go:L241-250
+- internal/roster/apply_test.go:L317-330
+- internal/roster/roster.go:L218-232
+- internal/roster/roster.go:L275-328
+- internal/roster/roster.go:L355-392
+- internal/roster/lines.go:L17-101
+Do:
+- Тесты `apply` не читают личный ростер: фикстура ростера пишется в
+  временный каталог теста и передаётся `rosterPath` (как в
+  `TestApplyProfile`), в каждом тесте пакета, вызывающем `Apply` или
+  `Load` с путём `""`, — `t.Setenv("XDG_CONFIG_HOME", t.TempDir())` плюс
+  фикстура в нём либо явный путь. Проверка: `env XDG_CONFIG_HOME="$(mktemp
+  -d)" go test -count=1 ./internal/roster/` зелёный.
+- `selectChain`: для роли `review` провайдеры с `check` исключены при
+  любом требовании, `trusted` включительно (и в доверенной части
+  цепочки, и в запасе). Тест: `review = "trusted"`, доверенный провайдер
+  с `check = true` — не в цепочке review; при цепочке короче двух — код 2.
+- `scanLines`: имя секции заголовка `[a."b".c]` разбирается по сегментам
+  вне кавычек, кавычки и пробелы каждого сегмента снимаются — ключи
+  индекса совпадают с ключами карт `agents.ParseTOML`. Тест: маршруты
+  `[route."z-first"]` и `[route."a-second"]` одной ступени — цепочка берёт
+  первый в файле; ошибка в такой секции указывает её строку.
+- `applyProfile`: `provider` профиля любого типа идёт в
+  `parseProviders` (тот уже даёт ошибку на не-таблицу). Тест:
+  `[profile.x]` с `provider = "typo"` при `--profile x` — код 2 со
+  строкой ключа.
+Verify: `env XDG_CONFIG_HOME="$(mktemp -d)" go test -count=1 ./internal/roster/ ./cmd/docflow/ && go vet ./internal/roster/`
+Traps: исключение `check` — только для `review`; `acceptance` и `replan`
+с доверенным провайдером, у которого `check`, ведут себя как раньше
+(правило подбора в `## Context`). Таблицу эталонных цепочек и
+`TestProfileReplacesSpendAndFlags` не менять.
+Depends: P036.2.2
+Executor: pi | zai/glm-5.3 | max
+Commit: P036.2.4: fix roster review defects
+
+### [ ] P036.2.5 Повторное ревью фазы 2
+Read:
+- docs/usage.md:L418-520
+Do:
+- Получить дифф фазы: `git diff "$(git log --format=%H --grep='^P036\.2\.' | tail -1)^" HEAD -- . ':!docs/plans'`.
+- Сверить с `## Goal`, `## Context` (формат, правило подбора, таблица
+  цепочек), `## Decisions` и каждым пунктом `Do:` P036.2.1, P036.2.2 и
+  P036.2.4; дефекты Handoff P036.2.3 закрыты или сняты решением в
+  `## Decisions`.
+- Прогнать `env XDG_CONFIG_HOME="$(mktemp -d)" go test -count=1 ./...` и
+  `go vet ./...`.
+- Код не править. Дефект — ответ `blocked`, `blocker: "plan"`, в
+  `reason` каждый дефект с `file:line`. Замечания без дефекта — Handoff
+  `Unverified:`.
+Verify: `go test ./... && go vet ./...`
+Depends: P036.2.4
+Executor: codex | gpt-6.1-sol | high
+Commit: P036.2.5: re-review roster phase
 
 ## Phase 3: Скиллы
 
@@ -467,7 +530,7 @@ Do:
   `fallback`; `docs/usage.md` «Планирование» — ссылка на «Ростер».
 - `CHANGELOG.md` `[Unreleased]`: скиллы под ростер.
 Verify: `go test ./... && grep -q 'roster apply' skills/bsv-docflow-plan/SKILL.md && grep -q 'Role: review' skills/bsv-docflow-run/SKILL.md`
-Depends: P036.2.3
+Depends: P036.2.5
 Commit: P036.3.1: plan with the roster
 
 ### [ ] P036.3.2 Ревью фазы 3
@@ -524,6 +587,6 @@ Do:
 Verify: `go test ./...`
 Traps: упавший сценарий чинится в этом юните, если правка мала; иначе
 `blocked` с причиной.
-Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.3.1, P036.3.2
+Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.3.1, P036.3.2
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.4.1: accept roster and format 3
