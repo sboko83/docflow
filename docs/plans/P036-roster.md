@@ -167,6 +167,9 @@ trusted = true
   правка только разбора `replan:`.
 - В PlanAgents при сбое UnitRoleRoutes остаётся основной маршрут, а не пусто — предупреждение о навыках best-effort, строгая валидация цепочек уже в lint — отвергнуто молчаливое исключение юнита
 - Агенты-маркеры в тесте: codex только вторым маршрутом heavy:, claude только вторым маршрутом replan: — ParseExecutor знает лишь claude/codex/pi, четыре разных агента невозможны, а такая раскладка роняет своего агента при обрыве каждой цепочки — отвергнуты уникальные агенты на маршрут
+- Все шесть ролей обязаны иметь явное требование в [role] — roster show печатает каждую цепочку, пропущенное требование — код 2 на строке [role] — отвергнуты необязательные роли с тихим пропуском
+- Таблица флагов профиля заменяет весь набор флагов перечисленного провайдера, неперечисленные держат top-level флаги — «заменяет флаги перечисленных провайдеров» из ## Context — отвергнуто слияние по ключам
+- Позиции ошибок берутся из отдельного сканера строк рядом с agents.ParseTOML (тот возвращает карты без позиций); при экзотическом синтаксисе — строка 1 — отвергнуто расширение парсера позициями ключей
 
 ## Phase 1: Формат 3
 
@@ -337,7 +340,7 @@ Handoff:
 
 ## Phase 2: Ростер
 
-### [ ] P036.2.1 Ростер и docflow roster show
+### [x] P036.2.1 Ростер и docflow roster show
 Read:
 - internal/agents/toml.go:L1-20
 - internal/agents/agents.go:L180-197
@@ -370,6 +373,11 @@ Do:
 Verify: `go test ./internal/roster/ ./cmd/docflow/`
 Depends: P036.1.5
 Commit: P036.2.1: add roster and roster show
+Handoff:
+- internal/roster API для P036.2.2: roster.Load(path, profile) — путь "" → DefaultPath() (~/.config/docflow/roster.toml, XDG_CONFIG_HOME, ~ раскрывается); возвращает *Roster{Path, Profile, Spend, RoleTiers, Chains (map[роль][]agents.Route, роли по Roles), Routes (в порядке файла)}; Roster.Show() рендерит ровно тот блок шапки, который apply должен писать (executor:, fallback:, затем Roles[1:]) — переиспользовать Chains/Show, не переразбирать
+- Каждая ошибка ростера — код 2: clierrors.FormatError с файлом и строкой (строки даёт индекс строк lines.go, не ParseTOML; экзотический TOML — строка 1) либо clierrors.DocflowError (нет файла, синтаксис, неизвестный профиль)
+- CLI: команда roster уже объявлена с позиционным subcommand и флагами --profile/--roster; для apply нужен второй позиционный id и ветка в handleRoster — сейчас apply отклоняется защитой «unknown roster subcommand 'apply'» с кодом 2 (тест это фиксирует)
+- Load валидирует всё сразу при каждом вызове: провайдеры маршрутов — против эффективного (после профиля) spend, цепочка каждой роли ≥ 2 маршрутов; флаги провайдера из [profile.X.provider.Y] заменяют его top-level флаги целиком (codex теряет check) — залочено тестом TestProfileReplacesSpendAndFlags
 
 ### [ ] P036.2.2 docflow roster apply
 Read:

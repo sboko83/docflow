@@ -240,6 +240,21 @@ options:
   --target DIR          personal skills directory override
   --project             copy skills/* into the project
 `,
+	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] show
+
+show the route chains per plan role from the personal roster
+
+Reads ~/.config/docflow/roster.toml (or --roster PATH), picks the chain
+of every role, and prints a spend summary line plus the plan-header
+lines executor:, fallback:, cheap:, heavy:, review:, acceptance: and
+replan:. The runner never reads the roster; paste the chains into a plan
+header or write them with docflow roster apply.
+
+options:
+  -h, --help      show this help message and exit
+  --profile NAME  spend and provider-flag overrides from [profile.NAME]
+  --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
+`,
 	"doctor": `usage: docflow doctor [-h] [--agent {claude,codex,pi}] [--target DIR]
 
 check that the installed script and skills match this repo

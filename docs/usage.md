@@ -57,8 +57,8 @@ docflow --version
 docflow doctor --agent codex
 ~~~
 
-Для pi укажите --agent pi: личные симлинки лягут в ~/.pi/agent/skills/, а
-doctor добавит строку с версией pi. Для Claude Code опустите --agent: это
+Для Pi укажите --agent pi: личные симлинки лягут в ~/.pi/agent/skills/, а
+doctor добавит строку с версией Pi. Для Claude Code опустите --agent: это
 цель по умолчанию. Команда
 install-skills без --project ставит личные симлинки; --target DIR явно
 задаёт другой личный каталог.
@@ -74,7 +74,7 @@ docflow init --agent codex
 проект, добавьте --skills, например docflow init --agent codex --skills.
 В уже подключённом проекте используйте docflow install-skills --project
 --agent codex; для Claude опустите --agent. Проектные копии находятся в
-.agents/skills/ для Codex, .pi/skills/ для pi или .claude/skills/ для Claude и коммитятся вместе
+.agents/skills/ для Codex, .pi/skills/ для Pi или .claude/skills/ для Claude и коммитятся вместе
 с проектом.
 
 Выберите личную установку для своих проектов или проектные копии для команды.
@@ -360,7 +360,7 @@ docflow run              # юниты текущего плана подряд �
   осталось и режим не `full`, вопрос не задаётся. Ответ «n» — код 1.
   Dry-run печатает `(once)` после текста или команды. `full` снимает песочницу: claude
   `--permission-mode bypassPermissions`, codex
-  `--dangerously-bypass-approvals-and-sandbox`, pi `--approve`; dry-run
+  `--dangerously-bypass-approvals-and-sandbox`, Pi `--approve`; dry-run
   показывает режим и список предусловий.
 - Авто-replan: `replan: agent | model | effort` в шапке плана — исполнитель
   перепланирования. Триггеры — блок `needs plan` и устаревшая ссылка
@@ -445,7 +445,7 @@ docflow run              # юниты текущего плана подряд �
 | `auth` | regex сообщения «CLI агента не залогинен»: прогон останавливается сразу, без повторов |
 | `timeout` | положительное число секунд на вызов; 0, отрицательное значение или отсутствие ключа — без таймаута |
 | `instructions` | текст в конец промпта юнита; только в режиме прав `auto` |
-| `quota` | argv опроса квоты на старте `run`, без вызова модели; вывод разбирает `stream` (`claude`: текст `/usage`, `codex`: JSON-RPC `app-server`); пусто — не опрашивать; у pi квота встроена для модели `zai/...`, ключ профиля не нужен |
+| `quota` | argv опроса квоты на старте `run`, без вызова модели; вывод разбирает `stream` (`claude`: текст `/usage`, `codex`: JSON-RPC `app-server`); пусто — не опрашивать; у Pi квота встроена для модели `zai/...`, ключ профиля не нужен |
 
 Плейсхолдеры в аргументах: `{prompt}`, `{model}`, `{effort}`, `{schema}` (JSON-схема
 result inline), `{schema_file}`, `{session}`.
@@ -476,17 +476,72 @@ workspace-write с сетью; запись вне репозитория аге
 `--model`, усилие — `--thinking` (`off`…`max`) один к одному, продолжение
 сессии — `--session <id>`. В исполнителе плана модель — строка тройки как
 есть: `executor: pi | zai/glm-5.3 | high`, `zai/glm-5.3-flash` (подписка
-z.ai) или модель локального провайдера (`local-lan/<id>`). Квота pi
+z.ai) или модель локального провайдера (`local-lan/<id>`). Квота Pi
 опрашивается только для моделей `zai/…` — встроенным зондом API z.ai;
-остаток других подписок pi отдельной командой не отдаёт. Скиллы —
-`docflow install-skills --agent pi`; в headless-режиме pi пропускает
+остаток других подписок Pi отдельной командой не отдаёт. Скиллы —
+`docflow install-skills --agent pi`; в headless-режиме Pi пропускает
 `.pi/skills/` без project trust (запись в `~/.pi/agent/trust.json` или
-`--approve`), личный каталог trust не требует. Нужен вход в провайдера pi.
+`--approve`), личный каталог trust не требует. Нужен вход в провайдера Pi.
 
 Профиль без `result` берёт result JSON из последнего блока ` ```json `,
 без `resume_args` повторяет попытку полным промптом. Запуск —
 `docflow run --agent codex` для всех юнитов или `agent = "codex"` в нужном
 ярусе.
+
+## Ростер
+
+Ростер подбирает маршруты ролей при составлении плана: `docflow roster
+show` печатает готовые цепочки, `docflow roster apply Pxxx` пишет их в
+шапку плана. Раннер и `lint` ростер не читают — план остаётся
+воспроизводимым. Файл: `--roster PATH` >
+`$XDG_CONFIG_HOME/docflow/roster.toml` (`~/.config/…`); файла нет — код 2
+с путём.
+
+```toml
+spend = ["zai", "codex", "claude"]   # порядок расхода: первый тратится первым
+
+[provider.zai]
+check = true      # юниты этого провайдера проверяет ревью другим провайдером
+
+[provider.claude]
+trusted = true    # допускается к acceptance и replan
+
+[role]            # роль -> минимальная ступень: cheap < standard < strong;
+cheap      = "cheap"      # trusted = strong у провайдера с trusted
+executor   = "standard"
+heavy      = "strong"
+review     = "strong"     # провайдеры с check исключены
+acceptance = "trusted"
+replan     = "trusted"
+
+[route.glm-flash-high]
+run  = "pi | zai/glm-5.3-flash | high"   # тройка, как у Executor
+tier = "cheap"
+
+[profile.save-claude]          # необязательно: заменяет spend и флаги
+spend = ["zai", "codex"]       # перечисленных провайдеров; выбор --profile NAME
+[profile.save-claude.provider.codex]
+trusted = true
+```
+
+Провайдер маршрута: для `pi` — префикс модели до `/` (`zai/glm-5.3` →
+`zai`, модель без `/` → `pi`), для остальных — имя агента. Подбор цепочки
+роли: провайдеры в порядке `spend`, у каждого один маршрут — с наименьшей
+ступенью не ниже требуемой (при равенстве — первый в файле); провайдер без
+подходящего маршрута пропускается: квота общая на подписку, второй маршрут
+того же провайдера был бы пустой попыткой. Для `review` провайдеры с
+`check` исключены. Для `trusted` — сначала `strong` провайдеров с
+`trusted`, затем запас: `strong` остальных провайдеров без `check` в
+порядке `spend`. Цепочка короче двух маршрутов разных провайдеров — код 2:
+без запаса лимит единственного провайдера останавливает прогон до сброса.
+
+`roster show` печатает строку `spend: … · check: … · trusted: …` и шапку
+плана: `executor:` — первый маршрут роли executor, `fallback:` — её
+остальные маршруты, `cheap:`, `heavy:`, `review:`, `acceptance:`,
+`replan:` — полные цепочки. Неизвестный ключ, неразбираемая тройка `run`,
+ступень вне `cheap|standard|strong`, требование роли вне
+`cheap|standard|strong|trusted`, неизвестная роль, провайдер маршрута вне
+`spend`, повтор в `spend`, неизвестный профиль — код 2 с файлом и строкой.
 
 ## Блок и replan
 

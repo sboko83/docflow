@@ -289,7 +289,7 @@ func TestVerifyFindsProjectRootFromSubdirectory(t *testing.T) {
 }
 
 func TestCommandsMatchDesign(t *testing.T) {
-	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "run", "install", "update", "uninstall"}
+	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "install", "update", "uninstall"}
 	got := make([]string, len(commands))
 	for i, spec := range commands {
 		got[i] = spec.name
@@ -327,4 +327,134 @@ func gitTestCommand(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
 	}
 	return string(output)
+}
+
+// rosterMinimal is the smallest valid roster for the CLI tests.
+const rosterMinimal = `spend = ["zai", "codex"]
+[role]
+cheap = "cheap"
+executor = "standard"
+heavy = "strong"
+review = "strong"
+acceptance = "trusted"
+replan = "trusted"
+[route.z1]
+run = "pi | zai/m | high"
+tier = "cheap"
+[route.zs]
+run = "pi | zai/m2 | high"
+tier = "strong"
+[route.c1]
+run = "codex | c | high"
+tier = "cheap"
+[route.cs]
+run = "codex | c2 | high"
+tier = "strong"
+`
+
+func writeRosterFile(t *testing.T, text string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "roster.toml")
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRosterShowCommand(t *testing.T) {
+	path := writeRosterFile(t, rosterMinimal)
+	var stdout, stderr bytes.Buffer
+	parsed, code := parseArgs([]string{"roster", "show", "--roster", path}, &stdout, &stderr)
+	if parsed == nil || code != 0 {
+		t.Fatalf("parseArgs() = (%v, %d), want (parsed, 0)", parsed, code)
+	}
+	err := handleRoster(parsed)
+	result, ok := err.(commandResult)
+	if !ok {
+		t.Fatalf("handleRoster() error = %v, want commandResult", err)
+	}
+	if result.code != 0 {
+		t.Fatalf("handleRoster() code = %d, stdout %q", result.code, result.stdout)
+	}
+	want := `spend: zai, codex · check: - · trusted: -
+executor: pi | zai/m2 | high
+fallback: codex | c2 | high
+cheap: pi | zai/m | high; codex | c | high
+heavy: pi | zai/m2 | high; codex | c2 | high
+review: pi | zai/m2 | high; codex | c2 | high
+acceptance: pi | zai/m2 | high; codex | c2 | high
+replan: pi | zai/m2 | high; codex | c2 | high
+`
+	if result.stdout != want {
+		t.Fatalf("roster show stdout =\n%s\nwant\n%s", result.stdout, want)
+	}
+}
+
+func TestRosterShowProfile(t *testing.T) {
+	path := writeRosterFile(t, rosterMinimal+"\n[profile.reversed]\nspend = [\"codex\", \"zai\"]\n")
+	parsed, code := parseArgs([]string{"roster", "show", "--profile", "reversed", "--roster", path}, &bytes.Buffer{}, &bytes.Buffer{})
+	if parsed == nil || code != 0 {
+		t.Fatalf("parseArgs() = (%v, %d), want (parsed, 0)", parsed, code)
+	}
+	err := handleRoster(parsed)
+	result, ok := err.(commandResult)
+	if !ok || result.code != 0 {
+		t.Fatalf("handleRoster() = %#v, error %v", result, err)
+	}
+	lines := strings.Split(strings.TrimRight(result.stdout, "\n"), "\n")
+	if lines[0] != "spend: codex, zai · check: - · trusted: -" {
+		t.Fatalf("spend line = %q", lines[0])
+	}
+	if lines[1] != "executor: codex | c2 | high" || lines[2] != "fallback: pi | zai/m2 | high" {
+		t.Fatalf("executor lines = %q, %q", lines[1], lines[2])
+	}
+}
+
+func TestRosterShowErrors(t *testing.T) {
+	t.Run("missing file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "absent.toml")
+		parsed, code := parseArgs([]string{"roster", "show", "--roster", path}, &bytes.Buffer{}, &bytes.Buffer{})
+		if parsed == nil || code != 0 {
+			t.Fatalf("parseArgs() = (%v, %d)", parsed, code)
+		}
+		err := handleRoster(parsed)
+		if !strings.Contains(err.Error(), "absent.toml") {
+			t.Fatalf("error = %v, want it to name the path", err)
+		}
+		if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
+			t.Fatalf("exit code of %v is not %d", err, clierrors.EXIT_FORMAT)
+		}
+	})
+	t.Run("unknown subcommand", func(t *testing.T) {
+		parsed, code := parseArgs([]string{"roster", "apply"}, &bytes.Buffer{}, &bytes.Buffer{})
+		if parsed == nil || code != 0 {
+			t.Fatalf("parseArgs() = (%v, %d)", parsed, code)
+		}
+		err := handleRoster(parsed)
+		if !strings.Contains(err.Error(), "unknown roster subcommand 'apply'") {
+			t.Fatalf("error = %v, want unknown roster subcommand", err)
+		}
+	})
+	t.Run("unknown profile", func(t *testing.T) {
+		path := writeRosterFile(t, rosterMinimal)
+		parsed, _ := parseArgs([]string{"roster", "show", "--profile", "nope", "--roster", path}, &bytes.Buffer{}, &bytes.Buffer{})
+		err := handleRoster(parsed)
+		if !strings.Contains(err.Error(), "unknown profile 'nope'") {
+			t.Fatalf("error = %v, want unknown profile", err)
+		}
+	})
+}
+
+func TestRosterHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	parsed, code := parseArgs([]string{"roster", "--help"}, &stdout, &stderr)
+	if parsed != nil || code != 0 {
+		t.Fatalf("parseArgs() = (%v, %d), want (nil, 0)", parsed, code)
+	}
+	if stdout.String() != helpTexts["roster"] {
+		t.Fatalf("roster help =\n%s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("help wrote to stderr: %q", stderr.String())
+	}
 }

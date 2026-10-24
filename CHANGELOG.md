@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `docflow run` spells the Pi agent as `Pi` and paints its badge in the
+  pi.dev logo colours; the documentation follows the same spelling.
 - `docflow run` displays the quota provider name as `Z.ai` in terminal output.
 - `docflow run` follows the role chain of a unit's `Role:` field on route
   refusals instead of the shared `fallback:`, and uses the `replan:` chain
@@ -26,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folds `fallback:` routes into the `replan:` chain of open plans.
 - `lint` warns about single-route chains (`no fallback for <role>`) and
   about role keys that no unit uses.
+- `docflow roster show` prints the route chains per plan role picked from
+  the personal roster (`~/.config/docflow/roster.toml`): a spend summary
+  line plus the plan-header `executor:`, `fallback:` and role-key lines;
+  `--profile NAME` applies a `[profile.NAME]` override of the spend order
+  and provider flags. The runner never reads the roster.
 
 ### Fixed
 - `docflow run` shows the quota delta for a window that was at 0% before

@@ -183,7 +183,7 @@ Result JSON — единственный контракт с ассистент�
 Берётся из поля вывода `result` профиля, иначе — последний блок
 ` ```json ` в тексте ответа (ассистенты без JSON-схем), иначе — голый
 объект с ключом `status`, которым заканчивается ответ (малые модели,
-например GLM-flash под pi, пропускают ограждение блока, и попытки
+например GLM-flash под Pi, пропускают ограждение блока, и попытки
 сгорали на «no result JSON»).
 
 Конфиг — TOML, накладывается на встроенные профили по ключам; новый
@@ -253,9 +253,9 @@ Result JSON — единственный контракт с ассистент�
 
 | Класс | Признаки и источник | Реакция |
 |---|---|---|
-| `limit` | Claude: `rate_limit_event` со `status: rejected` даёт `resetsAt`; текст `rate_limit_error` или HTTP 429 ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors), [событие Claude Code](https://github.com/anthropics/claude-code/issues/91857)). Codex: `rate_limit_reached_type` или окно `used_percent` ≥ 100 в rollout-файле ([парсер CodexLimits](../../internal/agentio/quota.go), [типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)); текст `usage limit`, `usage_limit_reached` или HTTP 429. pi: коды z.ai 1308/1310 или другой HTTP 429 ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)); образец 1310 — [сохранённый ответ](../../internal/agentio/testdata/pi-limit-zai.jsonl). | Ждать до сброса + 60 с, затем продолжить ту же сессию; без времени сброса использовать `limit_wait`. Для кода z.ai время без зоны трактуется как UTC+8. |
-| `throttle` | pi: код z.ai 1302 (`Rate limit reached for requests`, [таблица ошибок z.ai](https://docs.z.ai/api-reference/api-code)). | Повторить через 30 с в той же сессии; четвёртый подряд throttle становится `outage`. |
-| `outage` | Claude: `overloaded_error`, HTTP 529/5xx или `api_error` ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors)). Codex: `stream disconnected`, overloaded или 5xx ([типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)). pi: код z.ai 1305 (временно перегружен), HTTP 5xx или `fetch failed`, `ECONNREFUSED`, `connection error`, `terminated` ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)). | Повторить через 10 мин в той же сессии. |
+| `limit` | Claude: `rate_limit_event` со `status: rejected` даёт `resetsAt`; текст `rate_limit_error` или HTTP 429 ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors), [событие Claude Code](https://github.com/anthropics/claude-code/issues/91857)). Codex: `rate_limit_reached_type` или окно `used_percent` ≥ 100 в rollout-файле ([парсер CodexLimits](../../internal/agentio/quota.go), [типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)); текст `usage limit`, `usage_limit_reached` или HTTP 429. Pi: коды z.ai 1308/1310 или другой HTTP 429 ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)); образец 1310 — [сохранённый ответ](../../internal/agentio/testdata/pi-limit-zai.jsonl). | Ждать до сброса + 60 с, затем продолжить ту же сессию; без времени сброса использовать `limit_wait`. Для кода z.ai время без зоны трактуется как UTC+8. |
+| `throttle` | Pi: код z.ai 1302 (`Rate limit reached for requests`, [таблица ошибок z.ai](https://docs.z.ai/api-reference/api-code)). | Повторить через 30 с в той же сессии; четвёртый подряд throttle становится `outage`. |
+| `outage` | Claude: `overloaded_error`, HTTP 529/5xx или `api_error` ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors)). Codex: `stream disconnected`, overloaded или 5xx ([типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)). Pi: код z.ai 1305 (временно перегружен), HTTP 5xx или `fetch failed`, `ECONNREFUSED`, `connection error`, `terminated` ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)). | Повторить через 10 мин в той же сессии. |
 
 Ни один класс не тратит попытку; `LimitTries` считает подряд отказы всех
 классов. `--no-wait` или 10 отказов подряд останавливают раннер с кодом 7.
@@ -333,7 +333,7 @@ stdout или stderr агента, вызов после выхода агент
 `codex app-server` → `account/rateLimits/read`); для `pi` с моделью
 `zai/...` встроенный зонд получает ключ командой
 `pi auth print-api-key --provider zai` и запрашивает API z.ai; он повторяется
-после каждого вызова, поскольку поток pi квоту не содержит
+после каждого вызова, поскольку поток Pi квоту не содержит
 ([P035](../archive/P035-zai-quota.md)). Сбой зонда —
 агента нет в строке. Дельты считаются от этого замера, без него — от первого
 `rate_limit_event` агента в прогоне; окно сбросилось (время сброса сдвинулось
@@ -367,7 +367,7 @@ bypassPermissions`. Haiku `auto` не поддерживает и без явн�
 Профиль `pi`: `pi -p --mode json`, промпт в stdin; модель `--model
 <provider/id>` из тройки как есть (каталога моделей в коде нет), усилие —
 `--thinking`, продолжение — `--session <id>` из события `session`. Права:
-у pi нет песочницы и подтверждений инструментов, `auto` не добавляет
+у Pi нет песочницы и подтверждений инструментов, `auto` не добавляет
 аргументов, `full` добавляет `--approve` — доверие проектным файлам
 (`.pi/skills/`, расширения). Декодер
 `stream = "pi"` сворачивает JSON Lines в объект `session`, `text` (последний
@@ -377,7 +377,7 @@ assistant `message_end`: каждый — отдельный вызов API), `i
 `agent_settled.aborted`), `error` (`errorMessage`: ошибка API может выйти с
 кодом 0, классификатор читает её из этого поля). Токены —
 `input + cacheRead + cacheWrite`, не `totalTokens` (в нём reasoning). Ключа
-`quota` у pi нет; исключение — модель `zai/...`: квота зондируется встроенно,
+`quota` у Pi нет; исключение — модель `zai/...`: квота зондируется встроенно,
 ключ профиля не нужен. Regex `limit` сохраняется для пользовательского
 конфига; `auth` — только
 `no api key found` ([P026](../archive/P026-pi-agent.md)).

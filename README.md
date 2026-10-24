@@ -30,7 +30,7 @@ state in the repository instead of the agent's memory.
   failed unit with the failure tail, switches to the plan's fallback
   executor on a provider limit or outage and waits only when all of them
   are unavailable, and stops safely on a timeout or a soft stop. Claude Code, Codex
-  CLI and pi are built in, one run can mix them, and the plan routes each unit
+  CLI and Pi are built in, one run can mix them, and the plan routes each unit
   to its own assistant, model, and reasoning effort
   ([details](docs/usage.md#автозапуск), in Russian).
 - **Sessions hand off.** A finished unit leaves Handoff lines and
@@ -71,7 +71,7 @@ subject. A unit that cannot proceed because its plan went stale is marked
 ## See it run
 
 A real `docflow run` of a small demo plan: a Go `slug` command built in
-three phases by Codex, pi, and Claude. `bash tools/demo-run.sh`
+three phases by Codex, Pi, and Claude. `bash tools/demo-run.sh`
 reproduces it in a throwaway repository and spends agent quota.
 
 ![docflow run: start and the first units](docs/img/demo-run.svg)
@@ -126,7 +126,7 @@ cd <project>
 docflow init --agent codex
 ~~~
 
-Claude Code is the default; omit `--agent codex` for it. For pi use
+Claude Code is the default; omit `--agent codex` for it. For Pi use
 `--agent pi` (personal skills in `~/.pi/agent/skills/`, project copies in
 `.pi/skills/`). To copy the skills
 into a project, use `docflow init --skills`, or `docflow install-skills
@@ -163,7 +163,7 @@ such a build; update by checking out a newer tag and rerunning the script.
 
 ## Acknowledgements
 
-bsv-docflow was written with the assistance of Claude Code, Codex, ZCode, and pi.
+bsv-docflow was written with the assistance of Claude Code, Codex, ZCode, and Pi.
 
 ## License
 

@@ -30,7 +30,7 @@ Go-бинарник, только стандартная библиотека, �
   с хвостом вывода, при лимите или недоступности провайдера переходит на
   запасного исполнителя плана и ждёт, только когда недоступны все,
   безопасно останавливается по таймауту или мягкой остановке. Claude Code,
-  Codex CLI и pi встроены,
+  Codex CLI и Pi встроены,
   один прогон может их смешивать, а план назначает каждому юниту своего
   ассистента, модель и усилие ([подробности](docs/usage.md#автозапуск)).
 - **Сессии передают работу.** Завершённый юнит оставляет Handoff и
@@ -69,7 +69,7 @@ docs/archive/P007-cache.md  Outcome · Decisions · Gotchas · Follow-ups
 ## Как это выглядит
 
 Настоящий `docflow run` небольшого демо-плана: Go-команда `slug` в трёх
-фазах, которую пишут Codex, pi и Claude. `bash tools/demo-run.sh`
+фазах, которую пишут Codex, Pi и Claude. `bash tools/demo-run.sh`
 повторяет его в одноразовом репозитории и тратит квоту агентов.
 
 ![docflow run: старт и первые юниты](docs/img/demo-run.svg)
@@ -124,7 +124,7 @@ docflow init --agent codex
 ~~~
 
 По умолчанию используется Claude Code; для него опустите --agent codex.
-Для pi используйте --agent pi (личные скиллы в ~/.pi/agent/skills/,
+Для Pi используйте --agent pi (личные скиллы в ~/.pi/agent/skills/,
 проектные копии в .pi/skills/). Чтобы скопировать скиллы в проект,
 используйте docflow init --skills или, в уже подключённом проекте,
 docflow install-skills --project.
@@ -160,7 +160,7 @@ bash tools/install-dev.sh
 
 ## Благодарности
 
-bsv-docflow написан с помощью Claude Code, Codex, ZCode и pi.
+bsv-docflow написан с помощью Claude Code, Codex, ZCode и Pi.
 
 ## Лицензия
 

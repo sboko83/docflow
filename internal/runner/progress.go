@@ -20,7 +20,10 @@ var STYLES = map[string]string{
 	"bold": "1", "cyan": "36", "low": "90", "medium": "1;34", "high": "1;35",
 	"max": "1;38;5;208", "ultra": "1;91", "codex": "1;97;48;2;36;87;166", "claude": "1;97;48;2;193;95;60",
 	"white": "97",
-	"pi":    "1;37;45", "agent": "1;30;47",
+	// Pi colours come from the pi.dev logo: coral P and yellow i on its
+	// dark background.
+	"pi": "1;38;2;234;123;111;48;2;17;21;28", "pi-i": "1;38;2;236;178;71;48;2;17;21;28",
+	"agent": "1;30;47",
 }
 
 var ansiStyleRE = regexp.MustCompile(`\x1b\[[\d;]*m`)
@@ -294,8 +297,11 @@ func (p *Progress) start(planID, title string, wall float64, full bool) {
 }
 
 func (p *Progress) badge(name string) string {
+	if name == "pi" {
+		return p.paint(" P", "pi", p.out) + p.paint("i ", "pi-i", p.out)
+	}
 	style := "agent"
-	if name == "codex" || name == "claude" || name == "pi" {
+	if name == "codex" || name == "claude" {
 		style = name
 	}
 	return p.paint(" "+agentName(name)+" ", style, p.out)
@@ -307,6 +313,8 @@ func agentName(name string) string {
 		return "Codex"
 	case "claude":
 		return "Claude"
+	case "pi":
+		return "Pi"
 	case zaiQuota:
 		return "Z.ai"
 	default:
@@ -361,17 +369,10 @@ func (p *Progress) executorLocked(route agents.Route) {
 	if visibleLength(row) <= p.width()-3 {
 		p.emitLocked(p.paint("│  ", "dim", p.out)+row, p.out)
 	} else {
-		p.wrappedLocked(" "+agentName(route.Agent)+" ", "│  ", badgeStyle(route.Agent), p.out, "")
+		p.emitLocked(p.paint("│  ", "dim", p.out)+p.badge(route.Agent), p.out)
 		p.wrappedLocked(model, "│  ", "", p.out, "")
 		p.wrappedLocked(effort, "│  ", level, p.out, "")
 	}
-}
-
-func badgeStyle(name string) string {
-	if name == "codex" || name == "claude" || name == "pi" {
-		return name
-	}
-	return "agent"
 }
 
 func routeText(route agents.Route) string {

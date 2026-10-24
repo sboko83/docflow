@@ -62,7 +62,7 @@ docflow-жизненный цикл. Политики коммитов и рел
   поэтому правка скилла видна ему только после коммита, обновление —
   `update_from_sources` + `install`.
 - Ruleblend и симлинки сочетаются по агентам: агент, чьи скиллы снял
-  Ruleblend, получает симлинки `install-skills` (pi видит их в
+  Ruleblend, получает симлинки `install-skills` (Pi видит их в
   `~/.pi/agent/skills/`) ([P027](../archive/P027-skills-check-symlinks.md)).
 - Нет Ruleblend — `docflow install-skills` ставит личные симлинки; отказ,
   если на месте уже лежит чужое. `--agent claude|codex|pi` выбирает каталоги
@@ -76,7 +76,7 @@ docflow-жизненный цикл. Политики коммитов и рел
   скиллов; `docflow uninstall` убирает их вместе с `~/.docflow`.
 - `install-skills --project` копирует скиллы (не симлинки) в
   `<project>/.claude/skills/` для Claude или `<project>/.agents/skills/` для
-  Codex или `<project>/.pi/skills/` для pi. `--project` и `--target` несовместимы. `init --skills` использует тот
+  Codex или `<project>/.pi/skills/` для Pi. `--project` и `--target` несовместимы. `init --skills` использует тот
   же проектный каталог; `init --agent codex|pi` без `--skills` скиллы не ставит.
   Копии коммитят. Каталог с тем же `name:` в `SKILL.md` считается копией
   docflow и обновляется целиком; чужой каталог или симлинк — конфликт, весь
@@ -88,10 +88,10 @@ docflow-жизненный цикл. Политики коммитов и рел
   в каталогах от cwd до корня репозитория, поддерживает симлинки; скиллы с
   одинаковым `name` не объединяются и могут отображаться как дубли — [Codex
   local skill locations](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
-- pi читает личные скиллы из `~/.pi/agent/skills/` и проектные из
-  `.pi/skills/`; симлинки подхватывает в обоих (проверено на pi 1.3.0 с
-  `PI_CODING_AGENT_DIR` в scratch-каталоге), поэтому личная установка pi —
-  симлинки, как у claude и codex. Проектные скиллы pi в headless-режиме
+- Pi читает личные скиллы из `~/.pi/agent/skills/` и проектные из
+  `.pi/skills/`; симлинки подхватывает в обоих (проверено на Pi 1.3.0 с
+  `PI_CODING_AGENT_DIR` в scratch-каталоге), поэтому личная установка Pi —
+  симлинки, как у claude и codex. Проектные скиллы Pi в headless-режиме
   (`-p`, `docflow run`) грузит только при project trust: без записи в
   `~/.pi/agent/trust.json` или флага `--approve` каталог `.pi/skills/`
   молча пропускается; личный каталог trust не требует

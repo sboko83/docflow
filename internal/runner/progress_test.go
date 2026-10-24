@@ -68,12 +68,19 @@ func TestTerminalLayoutAgentBadgesAndReasoningColors(t *testing.T) {
 			t.Errorf("%s badge colors: %q", agent, got)
 		}
 	}
+	pi := "\x1b[" + STYLES["pi"] + "m P\x1b[0m\x1b[" + STYLES["pi-i"] + "mi \x1b[0m"
+	if got := p.badge("pi"); got != pi {
+		t.Errorf("pi badge colors: %q", got)
+	}
+	if agentName("pi") != "Pi" {
+		t.Errorf("pi display name: %q", agentName("pi"))
+	}
 	for _, item := range []struct{ agent, label, effort, colour string }{
 		{"codex", "Codex", "low", "90"},
 		{"codex", "Codex", "medium", "1;34"},
 		{"claude", "Claude", "high", "1;35"},
 		{"codex", "Codex", "xhigh", "1;38;5;208"},
-		{"pi", "pi", "max", "1;38;5;208"},
+		{"claude", "Claude", "max", "1;38;5;208"},
 		{"claude", "Claude", "ultra", "1;91"},
 	} {
 		p.unit("P001.1.1", "Unit", agents.Route{Agent: item.agent, Model: "model", Effort: item.effort})
@@ -111,7 +118,7 @@ func TestTerminalFallbackRouteIsShownInUnitBlock(t *testing.T) {
 	p.result("P001.1.1", "done", "abc123 (1 attempt via codex gpt-5.5)")
 	p.quotas(nil, nil, "", true)
 	text := plainTTY(out.String())
-	if !strings.Contains(text, " pi  │ zai/glm-5.3 │ max") || !strings.Contains(text, " Codex  │ gpt-5.5 │ -") || !strings.Contains(text, "via codex gpt-5.5") {
+	if !strings.Contains(text, " Pi  │ zai/glm-5.3 │ max") || !strings.Contains(text, " Codex  │ gpt-5.5 │ -") || !strings.Contains(text, "via codex gpt-5.5") {
 		t.Fatalf("fallback route is missing from the unit block:\n%s", text)
 	}
 }
