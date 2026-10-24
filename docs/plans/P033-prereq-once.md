@@ -99,7 +99,7 @@ Handoff:
 
 ## Phase 2: Acceptance
 
-### [ ] P033.2.1 Accept one-time prerequisites end to end
+### [x] P033.2.1 Accept one-time prerequisites end to end
 Read:
 - internal/runner/run_test.go:L1-170
 - docs/design/format.md#план
@@ -124,3 +124,6 @@ Traps: Падающий сценарий с малой правкой чинит
 Depends: P033.1.1
 Executor: claude | claude-opus-5-5 | high
 Commit: P033.2.1: accept one-time prerequisites
+Handoff:
+- Приёмка закрыта тестом TestRunOncePrerequisitesAcceptance; без пропуска (once) в раннере падают сценарии «начатый план пропускает падающий (once)» и «пункт без команды (once) не спрашивает подтверждения» — проверено временным отключением PlanStarted.
+- Unverified-пунктов у P033.1.1 не было.

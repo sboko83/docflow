@@ -650,6 +650,74 @@ func TestRunPrerequisiteOnce(t *testing.T) {
 	})
 }
 
+// Acceptance for P033: one scenario per claim of the plan Goal.
+func TestRunOncePrerequisitesAcceptance(t *testing.T) {
+	const failing = "- baseline: `echo no-baseline >&2; exit 3` (once)\n"
+	const passing = "- env: `test -f docs/docflow.md`\n"
+	prereqs := func(f *runFixture, items string) {
+		f.replace(planFile, "## Traps", "## Prerequisites\n"+items+"\n## Traps")
+	}
+	start := func(f *runFixture) { f.replace(planFile, "### [ ] P001.1.1", "### [x] P001.1.1") }
+
+	t.Run("started plan skips a failing once item", func(t *testing.T) {
+		f := newRunFixture(t)
+		start(f)
+		prereqs(f, failing+passing)
+		r := f.run([]string{writeReply("b.txt")}, "--max-units", "1")
+		f.check(r, 0, "prerequisite skipped (once, plan started): baseline", "run: 1 unit,")
+		if len(f.calls()) != 1 {
+			t.Fatalf("agent calls = %d, want 1", len(f.calls()))
+		}
+	})
+
+	t.Run("not-started plan checks the once item", func(t *testing.T) {
+		f := newRunFixture(t)
+		prereqs(f, failing+passing)
+		r := f.run([]string{writeReply("a.txt")}, "--max-units", "1")
+		f.check(r, 2, "prerequisite failed: baseline")
+		if len(f.calls()) != 0 {
+			t.Fatalf("agent called despite failed prerequisite: %+v", f.calls())
+		}
+	})
+
+	t.Run("started plan still checks an unmarked item", func(t *testing.T) {
+		f := newRunFixture(t)
+		start(f)
+		prereqs(f, "- token: `echo no-token >&2; exit 3`\n")
+		r := f.run([]string{writeReply("b.txt")}, "--max-units", "1")
+		f.check(r, 2, "prerequisite failed: token")
+		if len(f.calls()) != 0 {
+			t.Fatalf("agent called despite failed prerequisite: %+v", f.calls())
+		}
+	})
+
+	t.Run("started plan skips a once item without command and its confirmation", func(t *testing.T) {
+		f := newRunFixture(t)
+		start(f)
+		prereqs(f, "- вход в симулятор (once)\n")
+		r := f.run([]string{writeReply("b.txt")}, "--max-units", "1")
+		f.check(r, 0, "prerequisite skipped (once, plan started): вход в симулятор", "run: 1 unit,")
+		if strings.Contains(r.out+r.err, "--yes") || len(f.calls()) != 1 {
+			t.Fatalf("confirmation asked or agent not called (calls=%d):\n%s%s", len(f.calls()), r.out, r.err)
+		}
+	})
+
+	t.Run("dry-run all prints the marker and lint accepts both forms", func(t *testing.T) {
+		f := newRunFixture(t)
+		prereqs(f, failing+"- вход в симулятор (once)\n")
+		r := f.cli("run", "--config", f.config, "--dry-run", "--all")
+		f.check(r, 0, "baseline: `echo no-baseline >&2; exit 3` (once)", "вход в симулятор (once)")
+		if len(f.calls()) != 0 {
+			t.Fatalf("dry-run called the agent: %+v", f.calls())
+		}
+		lint := f.cli("lint")
+		f.check(lint, 0)
+		if strings.Contains(lint.out+lint.err, "error") {
+			t.Fatalf("lint reported errors:\n%s%s", lint.out, lint.err)
+		}
+	})
+}
+
 func TestRunStopsAndLock(t *testing.T) {
 	for _, mode := range []string{"max-units", "soft-stop", "stale-stop", "lock", "stop-command", "empty", "blocked"} {
 		t.Run(mode, func(t *testing.T) {
