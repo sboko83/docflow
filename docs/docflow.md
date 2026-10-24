@@ -10,6 +10,10 @@ start_budget: 4000
 ## Frozen
 
 ## Backlog
+- `tools/install-dev.sh` поверх релизной установки падает на первой ссылке
+  навыка в `~/.docflow/current/skills` («exists and is not a link») и не
+  переключает навыки: заменять ссылки, ведущие в `~/.docflow/`, или
+  печатать команду переключения.
 - `docflow run`: увидеть строку `quota: zai` и дельту после юнита в
   настоящем прогоне на маршруте `pi | zai/…` — при случае на рабочем
   прогоне ([P035](archive/P035-zai-quota.md)).
