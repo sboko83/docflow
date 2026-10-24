@@ -521,7 +521,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 		}
 		var run agentio.AgentRun
-		for limits := 0; ; {
+		for limits, throttles := 0, 0; ; {
 			argv, stdin, err := agents.BuildCommand(agent, text, route.Model, schema, resume, route.Effort, mode)
 			if err != nil {
 				return 2, "", err
@@ -596,29 +596,26 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				p.line(totals.stop, true, "")
 				return 5, "", nil
 			}
-			reset, reply := agentio.LimitReset(agent, run), agentio.LimitText(agent, run)
-			if reply == nil && reset == nil {
+			refusal := agentio.Classify(agent, run, time.Now())
+			if refusal == nil {
 				break
 			}
 			limits++
+			refusal.Kind, throttles = retryRefusalKind(refusal.Kind, throttles)
 			if args.NoWait || limits >= agentio.LimitTries {
 				why := fmt.Sprintf("%d in a row", limits)
 				if args.NoWait {
 					why = "--no-wait"
 				}
-				totals.stop = uid + ": usage limit (" + why + ")"
+				totals.stop = uid + ": " + refusalLabel(refusal.Kind) + " (" + why + ")"
 				p.line(totals.stop+"; the unit stays [~]", true, "")
 				return 7, "", nil
 			}
-			message := ""
-			if reply != nil {
-				message = *reply
-			}
-			if err := agentio.WaitLimit(ctx, agent, message, limitProgress{p}, reset); err != nil {
+			if err := waitRefusal(ctx, agent, refusal, limitProgress{p}); err != nil {
 				return 7, "", err
 			}
 			if session != "" {
-				text, resume = agentio.LimitPrompt, session
+				text, resume = agentio.RefusalPrompt, session
 			}
 		}
 		if auth := agentio.AuthReason(agent, run); auth != "" {

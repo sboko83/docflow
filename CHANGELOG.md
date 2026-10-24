@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docflow run` distinguishes subscription limits, request throttles, and
+  provider outages, and retries each class on its own delay.
+
 ### Changed
 - `docflow verify` keeps the complete output of each check in a per-unit log
   and prints its path on failure; `docflow run` reuses a successful agent
   verify while the tree is unchanged.
 
 ### Fixed
+- pi's z.ai usage-limit errors retain their reset time instead of falling
+  back to the generic profile wait.
 - `docflow run` in a terminal keeps the output of a failed `prompt`,
   `verify` or `commit`, such as a stale `Read:` link, inside the unit's
   frame instead of printing it flush left.

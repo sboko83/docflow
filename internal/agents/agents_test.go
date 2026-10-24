@@ -18,7 +18,7 @@ import (
 )
 
 func TestDefaultAgentsBytesAndSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "6c9f25888de44be6f2a4a34b0bb7ec82d4a1d76261d4a94d1c4cf8f217197046" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "fd1b53eed2296b7c5a1047ed7512d83b928111288a33da14ebed0d37eabb4ebc" {
 		t.Fatalf("DefaultAgents SHA-256 = %s", got)
 	}
 	parsed, err := ParseTOML(DefaultAgents)

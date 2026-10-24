@@ -25,7 +25,7 @@ const (
 	ReplanUnitLimit   = 2
 	PrereqTimeout     = 60 * time.Second
 	QuotaProbeTimeout = 30 * time.Second
-	LimitPrompt       = "Runner: the previous run stopped on a usage limit. Continue the unit.\n"
+	RefusalPrompt     = "Runner: the previous run stopped on a provider refusal. Continue the unit.\n"
 	RunnerEnv         = "DOCFLOW_RUNNER_UNIT"
 )
 

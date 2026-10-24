@@ -845,9 +845,9 @@ func TestRunLimitsResumeWithoutSpendingAttempt(t *testing.T) {
 	f.configure("error = \"json:is_error\"\nlimit = \"hit your limit\"\nlimit_wait = 0\n")
 	f.steps(emit(map[string]any{"is_error": true, "result": "hit your limit · resets 1700000000", "session_id": "s1"}), writeReply("a.txt"))
 	r := f.cli("run", "--config", f.config, "--attempts", "1", "--max-units", "1")
-	f.check(r, 0, "usage limit; waiting until", "(1 attempt,")
+	f.check(r, 0, "usage limit until", "(1 attempt,")
 	calls := f.calls()
-	if len(calls) != 2 || strings.Join(calls[1].Argv, " ") != "--resume s1" || !strings.Contains(calls[1].Stdin, "stopped on a usage limit") {
+	if len(calls) != 2 || strings.Join(calls[1].Argv, " ") != "--resume s1" || !strings.Contains(calls[1].Stdin, "stopped on a provider refusal") {
 		t.Fatal(calls)
 	}
 }

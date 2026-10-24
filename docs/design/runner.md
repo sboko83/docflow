@@ -181,15 +181,21 @@ Result JSON — единственный контракт с ассистент�
 (`--config`, `$DOCFLOW_AGENTS`), которого нет, — ошибка; нет файла по
 умолчанию — встроенные профили.
 
-Лимит подписки: ответ с ошибкой (флаг `error` или код ≠ 0) и время сброса
-из данных ответа: Codex — rollout-файл вызова имеет `rate_limit_reached_type`
-или окно с `used_percent` ≥ 100 → последний `resets_at`; Claude —
-`rate_limit_event` со `status: rejected` → `resetsAt`. Данных нет — совпавший
-`limit` (без учёта регистра) и время сброса из текста (10-значный epoch —
-секунды, 13-значный — мс), иначе `limit_wait`. Ждать до сброса + 60 с;
-затем продолжить сессию. Попытку не тратит; `--no-wait` или 10 лимитов
-подряд → код 7. Regex к обычному ответу не применяется: агент может
-цитировать файл про «rate limit».
+Классификатор отказов запускается только для ответа с ошибкой (`error` или
+ненулевой код); таймаут и обычный ответ с цитатой «rate limit» не считаются
+отказом. Сначала проверяются признаки встроенного исполнителя, затем — regex
+`limit` пользовательского профиля для legacy-режима.
+
+| Класс | Признаки и источник | Реакция |
+|---|---|---|
+| `limit` | Claude: `rate_limit_event` со `status: rejected` даёт `resetsAt`; текст `rate_limit_error` или HTTP 429 ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors), [событие Claude Code](https://github.com/anthropics/claude-code/issues/91857)). Codex: `rate_limit_reached_type` или окно `used_percent` ≥ 100 в rollout-файле ([парсер CodexLimits](../../internal/agentio/quota.go), [типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)); текст `usage limit`, `usage_limit_reached` или HTTP 429. pi: коды z.ai 1308/1310 или другой HTTP 429 ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)); образец 1310 — [сохранённый ответ](../../internal/agentio/testdata/pi-limit-zai.jsonl). | Ждать до сброса + 60 с, затем продолжить ту же сессию; без времени сброса использовать `limit_wait`. Для кода z.ai время без зоны трактуется как UTC+8. |
+| `throttle` | pi: код z.ai 1302 (`Rate limit reached for requests`, [таблица ошибок z.ai](https://docs.z.ai/api-reference/api-code)). | Повторить через 30 с в той же сессии; четвёртый подряд throttle становится `outage`. |
+| `outage` | Claude: `overloaded_error`, HTTP 529/5xx или `api_error` ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors)). Codex: `stream disconnected`, overloaded или 5xx ([типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)). pi: код z.ai 1305 (временно перегружен), HTTP 5xx или `fetch failed`, `ECONNREFUSED`, `connection error`, `terminated` ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)). | Повторить через 10 мин в той же сессии. |
+
+Ни один класс не тратит попытку; `LimitTries` считает подряд отказы всех
+классов. `--no-wait` или 10 отказов подряд останавливают раннер с кодом 7.
+Сигнатуры применяются только к ошибке, чтобы не принять обычный ответ,
+цитирующий файл про «rate limit», за отказ провайдера.
 
 Нет авторизации: строка ответа с ошибкой совпала с `auth` (без учёта
 регистра; `claude` — «Failed to authenticate», «Not logged in», `codex` —
@@ -296,11 +302,11 @@ bypassPermissions`. Haiku `auto` не поддерживает и без явн�
 `message_end` с `role: assistant`), `usage` и `cost` (суммы по всем
 assistant `message_end`: каждый — отдельный вызов API), `is_error` (true, пока
 не было assistant `message_end`, при `stopReason: "error"` в нём и при
-`agent_settled.aborted`), `error` (`errorMessage`: ошибка API выходит с
-кодом 0, текст лимита виден regex `limit` только через это поле). Токены —
+`agent_settled.aborted`), `error` (`errorMessage`: ошибка API может выйти с
+кодом 0, классификатор читает её из этого поля). Токены —
 `input + cacheRead + cacheWrite`, не `totalTokens` (в нём reasoning). Ключа
-`quota` нет: pi не отдаёт остаток подписки отдельной командой. Строки
-`limit` общие с codex, для z.ai не проверены; `auth` — только
+`quota` нет: pi не отдаёт остаток подписки отдельной командой. Regex `limit`
+сохраняется для пользовательского конфига; `auth` — только
 `no api key found` ([P026](../archive/P026-pi-agent.md)).
 
 Профиль `codex`: `codex exec --json --output-schema {schema_file}`,

@@ -237,7 +237,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			}
 		}
 		var run agentio.AgentRun
-		for limits := 0; ; {
+		for limits, throttles := 0, 0; ; {
 			argv, stdin, err := agents.BuildCommand(agent, text, model, schema, resume, effort, format.PlanPermissions(plan))
 			if err != nil {
 				return 2, err
@@ -268,28 +268,25 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 				return 2, err
 			}
 			totals.cost = agentio.Add(totals.cost, spent)
-			reset, reply := agentio.LimitReset(agent, run), agentio.LimitText(agent, run)
-			if reset == nil && reply == nil {
+			refusal := agentio.Classify(agent, run, time.Now())
+			if refusal == nil {
 				break
 			}
 			limits++
+			refusal.Kind, throttles = retryRefusalKind(refusal.Kind, throttles)
 			if args.NoWait || limits >= agentio.LimitTries {
 				why := fmt.Sprintf("%d in a row", limits)
 				if args.NoWait {
 					why = "--no-wait"
 				}
-				line := uid + ": replan usage limit (" + why + ")"
+				line := uid + ": replan " + refusalLabel(refusal.Kind) + " (" + why + ")"
 				return stop(7, line, line+"; the plan is restored", "")
 			}
-			message := ""
-			if reply != nil {
-				message = *reply
-			}
-			if err := agentio.WaitLimit(ctx, agent, message, limitProgress{p}, reset); err != nil {
+			if err := waitRefusal(ctx, agent, refusal, limitProgress{p}); err != nil {
 				return 7, err
 			}
 			if session != "" {
-				text, resume = agentio.LimitPrompt, session
+				text, resume = agentio.RefusalPrompt, session
 			}
 		}
 		if auth := agentio.AuthReason(agent, run); auth != "" {
