@@ -223,7 +223,7 @@ func TestReplanZaiLimitWithoutResetUsesServerQuotaReset(t *testing.T) {
 		t.Skip("shell fake pi requires Unix")
 	}
 	f := executorRunFixture(t)
-	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max")
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
 	if err != nil {
 		t.Fatal(err)

@@ -674,6 +674,9 @@ func RouteSource(plan *format.Plan, unit *format.Unit) string {
 	if !lint.ExecutorMode(plan) {
 		return "legacy"
 	}
+	if unit.Field("Role") != nil {
+		return "role"
+	}
 	if unit.Field("Executor") != nil {
 		return "unit"
 	}

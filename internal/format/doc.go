@@ -15,9 +15,9 @@ import (
 )
 
 const DocflowFilePath = "docs/docflow.md"
-const DocflowVersion = "2"
+const DocflowVersion = "3"
 
-var UnitFields = []string{"Read", "Do", "Verify", "Traps", "Depends", "Executor", "Model", "Commit", "Handoff"}
+var UnitFields = []string{"Read", "Do", "Verify", "Traps", "Depends", "Executor", "Model", "Role", "Commit", "Handoff"}
 
 var Statuses = map[string]string{" ": "todo", "~": "doing", "x": "done", "-": "skipped", "!": "blocked"}
 

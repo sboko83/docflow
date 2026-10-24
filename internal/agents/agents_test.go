@@ -515,7 +515,7 @@ func TestStrictRunnerSchema(t *testing.T) {
 
 func TestRunSelection(t *testing.T) {
 	root := t.TempDir()
-	writeConfig(t, filepath.Join(root, "docs", "docflow.md"), "---\ndocflow: 2\nread_budget: 10000\n---\n## Queue\n- P001\n\n## Backlog\n")
+	writeConfig(t, filepath.Join(root, "docs", "docflow.md"), "---\ndocflow: 3\nread_budget: 10000\n---\n## Queue\n- P001\n\n## Backlog\n")
 	planPath := filepath.Join(root, "docs", "plans", "P001-plan.md")
 	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
 		t.Fatal(err)

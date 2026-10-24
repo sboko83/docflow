@@ -2,7 +2,7 @@
 id: P036
 title: Executor roster
 type: feature
-status: draft
+status: active
 created: 2026-10-24
 gate: go test ./...
 executor: pi | zai/glm-5.3-flash | max
@@ -153,10 +153,11 @@ trusted = true
   P036.3.1 переписывает навыки под формат 3, а репозиторий до закрытия
   остаётся на формате 2 — отвергнут один Trap без проверки: dev-ссылки
   уже однажды остались после P035.
+- Dry-run берёт первый маршрут `Role:` и показывает источник `role`, чтобы превью совпадало с маршрутом запуска; наследование `executor:` для такого юнита исключено.
 
 ## Phase 1: Формат 3
 
-### [ ] P036.1.1 Роли и цепочки в формате, миграция 2 → 3
+### [x] P036.1.1 Роли и цепочки в формате, миграция 2 → 3
 Read:
 - docs/design/format.md:L240-252
 - internal/format/doc.go:L15-25
@@ -202,6 +203,10 @@ Traps: фикстуры тестов с `docflow: 2` в `cmd/docflow` и `intern
 Depends: -
 Executor: pi | zai/glm-5.3 | max
 Commit: P036.1.1: add roles and format 3
+Handoff:
+- Полный `docflow verify P036.1.1` прошёл: Verify `go test ./internal/format/ ./internal/lint/ ./internal/cycle/` и gate `go test ./...`.
+- `docs/docflow.md` оставлен на `docflow: 2`; миграцию репозитория выполнять после закрытия P036, чтобы установленный CLI формата 2 мог продолжить план.
+- Изменения оставлены незакоммиченными для `docflow done/commit` раннера.
 
 ### [ ] P036.1.2 Раннер по цепочке роли
 Read:

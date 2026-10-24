@@ -149,24 +149,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 	if err != nil {
 		return 2, err
 	}
-	name, model, parsedEffort, err := lint.ParseExecutor(plan.Meta["replan"])
-	if err != nil {
-		totals.stop = fmt.Sprintf("%s: replan: %s", uid, err)
-		p.line(totals.stop, true, "")
-		return 2, nil
-	}
-	effort := ""
-	if parsedEffort != nil {
-		effort = *parsedEffort
-	}
-	agent := profile(config, name)
-	if agent == nil {
-		totals.stop = fmt.Sprintf("%s: replan: no agent profile '%s'", uid, name)
-		p.line(totals.stop, true, "")
-		return 2, nil
-	}
-	primary := agents.Route{Agent: name, Model: model, Effort: effort}
-	chain, err := routeExecutorChain(config, plan, primary, args.RunArgs, unavailable)
+	chain, err := replanExecutorChain(config, plan, args.RunArgs, unavailable)
 	if err != nil {
 		totals.stop = fmt.Sprintf("%s: replan: %s", uid, err)
 		p.line(totals.stop, true, "")
@@ -202,8 +185,8 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			totals.switches++
 		}
 	}
-	name, model, effort = route.Agent, route.Model, route.Effort
-	agent = profile(config, name)
+	name, model, effort := route.Agent, route.Model, route.Effort
+	agent := profile(config, name)
 	if agent == nil {
 		totals.stop = fmt.Sprintf("%s: replan: no agent profile '%s'", uid, name)
 		p.line(totals.stop, true, "")

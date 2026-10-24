@@ -26,7 +26,7 @@ var (
 	docflowSections     = []string{"Queue", "Frozen", "Backlog"}
 	docflowOptionalSecs = []string{"Frozen"}
 	planKeys            = []string{"id", "title", "type", "status", "created"}
-	planOptionalKeys    = []string{"gate", "executor", "permissions", "replan", "fallback", "timeout"}
+	planOptionalKeys    = []string{"gate", "executor", "permissions", "replan", "fallback", "timeout", "cheap", "heavy", "review", "acceptance"}
 	planTypes           = []string{"feature", "bugfix", "perf", "module", "refactor"}
 	planStatuses        = []string{"draft", "active", "frozen"}
 	planPermissions     = []string{"auto", "full"}
@@ -36,6 +36,7 @@ var (
 	archiveSections     = []string{"Outcome", "Decisions", "Gotchas", "Follow-ups"}
 	requiredFields      = []string{"Read", "Do", "Verify", "Commit"}
 	executorAgents      = []string{"claude", "codex", "pi"}
+	roleKeys            = []string{"cheap", "heavy", "review", "acceptance"}
 
 	planIDRE       = regexp.MustCompile(`^P\p{Nd}{3,}$`)
 	unitIDRE       = regexp.MustCompile(`^P\p{Nd}+\.\p{Nd}+\.\p{Nd}+$`)
@@ -490,7 +491,7 @@ func executorIssues(plan *format.Plan) []executorIssue {
 		if model := unit.Field("Model"); model != nil {
 			issues = append(issues, executorIssue{model.Line, fmt.Sprintf("unit %s: Model: conflicts with executors of the plan; use Executor:", unit.ID)})
 		}
-		if len(fields) == 0 && !head {
+		if len(fields) == 0 && unit.Field("Role") == nil && !head {
 			issues = append(issues, executorIssue{unit.Line, fmt.Sprintf("unit %s: no executor; add Executor: to the unit or executor: to the frontmatter", unit.ID)})
 		}
 	}
@@ -534,6 +535,137 @@ func executorKey(agent, model string, effort *string) string {
 	return strings.Join([]string{agent, model, effortValue}, "\x00")
 }
 
+// planIssue is a plan-level finding with a level: executor chains add
+// warnings next to errors.
+type planIssue struct {
+	line  int
+	level string
+	text  string
+}
+
+type routeTriple struct {
+	agent  string
+	model  string
+	effort *string
+}
+
+func (t routeTriple) chainKey() string {
+	return t.agent + "\x00" + t.model
+}
+
+// parseExecutorChain splits a "agent | model | effort; ..." chain into
+// triples; every segment must parse, so empty segments are errors.
+func parseExecutorChain(value string) ([]routeTriple, []string) {
+	var triples []routeTriple
+	var errs []string
+	for _, raw := range strings.Split(value, ";") {
+		agent, model, effort, err := ParseExecutor(strings.TrimSpace(raw))
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		triples = append(triples, routeTriple{agent: agent, model: model, effort: effort})
+	}
+	return triples, errs
+}
+
+// chainIssues validates role chains, the replan chain, Role fields, and
+// single-route chains that leave a unit without a fallback.
+func chainIssues(plan *format.Plan) []planIssue {
+	issues := make([]planIssue, 0)
+	mode := executorMode(plan)
+	used := make(map[string]bool)
+	for _, unit := range plan.Units {
+		field := unit.Field("Role")
+		if field == nil {
+			continue
+		}
+		if len(field.Items) > 0 || field.End != field.Line {
+			issues = append(issues, planIssue{field.Line, "error", fmt.Sprintf("unit %s: Role must be one line", unit.ID)})
+			continue
+		}
+		if !mode {
+			issues = append(issues, planIssue{field.Line, "error", fmt.Sprintf("unit %s: Role needs executor mode", unit.ID)})
+			continue
+		}
+		if unit.Field("Executor") != nil {
+			issues = append(issues, planIssue{field.Line, "error", fmt.Sprintf("unit %s: Role: conflicts with Executor:", unit.ID)})
+		}
+		if !contains(roleKeys, field.Value) {
+			issues = append(issues, planIssue{field.Line, "error", fmt.Sprintf("unit %s: Role must be one of: %s", unit.ID, strings.Join(roleKeys, ", "))})
+			continue
+		}
+		used[field.Value] = true
+		if _, ok := plan.Meta[field.Value]; !ok {
+			issues = append(issues, planIssue{field.Line, "error", fmt.Sprintf("unit %s: Role '%s' has no '%s:' chain in the frontmatter", unit.ID, field.Value, field.Value)})
+		}
+	}
+	for _, key := range roleKeys {
+		value, present := plan.Meta[key]
+		if !present {
+			continue
+		}
+		line := plan.MetaLines[key]
+		if !mode {
+			issues = append(issues, planIssue{line, "error", key + " needs executor mode"})
+			continue
+		}
+		triples, errs := parseExecutorChain(value)
+		for _, err := range errs {
+			issues = append(issues, planIssue{line, "error", key + ": " + err})
+		}
+		seen := make(map[string]bool)
+		for _, triple := range triples {
+			if seen[triple.chainKey()] {
+				issues = append(issues, planIssue{line, "error", fmt.Sprintf("%s: route '%s | %s' repeats in the chain", key, triple.agent, triple.model)})
+				continue
+			}
+			seen[triple.chainKey()] = true
+		}
+		if len(errs) == 0 {
+			if len(triples) == 1 {
+				issues = append(issues, planIssue{line, "warning", "no fallback for " + key})
+			}
+			if !used[key] {
+				issues = append(issues, planIssue{line, "warning", "no units with role " + key})
+			}
+		}
+	}
+	if value, present := plan.Meta["replan"]; present {
+		line := plan.MetaLines["replan"]
+		if !mode {
+			issues = append(issues, planIssue{line, "error", "replan needs executor mode"})
+		} else {
+			triples, errs := parseExecutorChain(value)
+			for _, err := range errs {
+				issues = append(issues, planIssue{line, "error", "replan: " + err})
+			}
+			seen := make(map[string]bool)
+			for _, triple := range triples {
+				if seen[triple.chainKey()] {
+					issues = append(issues, planIssue{line, "error", fmt.Sprintf("replan: route '%s | %s' repeats in the chain", triple.agent, triple.model)})
+					continue
+				}
+				seen[triple.chainKey()] = true
+			}
+			if len(errs) == 0 && len(triples) == 1 {
+				issues = append(issues, planIssue{line, "warning", "no fallback for replan"})
+			}
+		}
+	}
+	if mode && strings.TrimSpace(plan.Meta["fallback"]) == "" {
+		if _, ok := plan.Meta["executor"]; ok {
+			issues = append(issues, planIssue{plan.MetaLines["executor"], "warning", "no fallback for executor"})
+		}
+		for _, unit := range plan.Units {
+			if field := unit.Field("Executor"); field != nil {
+				issues = append(issues, planIssue{field.Line, "warning", fmt.Sprintf("unit %s: no fallback for executor", unit.ID)})
+			}
+		}
+	}
+	return issues
+}
+
 // ExecutorIssueStrings returns executor assignment findings in CLI form.
 func ExecutorIssueStrings(plan *format.Plan) []string {
 	issues := executorIssues(plan)
@@ -544,8 +676,16 @@ func ExecutorIssueStrings(plan *format.Plan) []string {
 	return result
 }
 
-// UnitExecutor resolves a unit assignment, replacing the full plan value.
+// UnitExecutor resolves the first route assigned to a unit, replacing the
+// full plan value when the unit has an explicit Executor: or Role: field.
 func UnitExecutor(plan *format.Plan, unit *format.Unit) (string, string, *string, error) {
+	if field := unit.Field("Role"); field != nil {
+		chain := strings.Split(plan.Meta[field.Value], ";")
+		if len(chain) == 0 {
+			return "", "", nil, fmt.Errorf("role %s has no route", field.Value)
+		}
+		return ParseExecutor(strings.TrimSpace(chain[0]))
+	}
 	field := unit.Field("Executor")
 	if field != nil {
 		return ParseExecutor(field.Value)
@@ -797,11 +937,11 @@ func lintPlan(rep *Report, plan *format.Plan) {
 			rep.Error(path, plan.MetaLines["timeout"], "timeout must be an integer from 60 to 86400 seconds")
 		}
 	}
-	if value, present := plan.Meta["replan"]; present {
-		if !executorMode(plan) {
-			rep.Error(path, plan.MetaLines["replan"], "replan needs executor mode")
-		} else if _, _, _, err := ParseExecutor(value); err != nil {
-			rep.Error(path, plan.MetaLines["replan"], "replan: "+err.Error())
+	for _, issue := range chainIssues(plan) {
+		if issue.level == "warning" {
+			rep.Warning(path, issue.line, issue.text)
+		} else {
+			rep.Error(path, issue.line, issue.text)
 		}
 	}
 	for _, issue := range prereqIssues(plan) {

@@ -9,7 +9,10 @@ created: {date}
 
 ## Context
 
-<!-- Optional header keys: fallback: agent | model | effort; ... (executor mode), timeout: 60..86400 seconds. -->
+<!-- Optional header keys: timeout: 60..86400 seconds. Executor mode adds
+fallback: agent | model | effort; ..., role chains cheap: heavy: review:
+acceptance: replan: agent | model | effort; ..., and the unit field
+Role: cheap|heavy|review|acceptance instead of Executor:. -->
 
 ## Constraints
 

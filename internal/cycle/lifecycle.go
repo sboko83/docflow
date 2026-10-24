@@ -22,9 +22,8 @@ import (
 const agentsLine = "Plans: docflow (run docflow status), not the bsv-docs PLAN genre"
 
 var (
-	slugRE       = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-	idPrefixRE   = regexp.MustCompile(`^P(\p{Nd}+)`)
-	migrateOneRE = regexp.MustCompile(`^(docflow:[ \t]*)1`)
+	slugRE     = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	idPrefixRE = regexp.MustCompile(`^P(\p{Nd}+)`)
 )
 
 func renderTemplate(name string, values map[string]string) (string, error) {
@@ -670,11 +669,26 @@ func Note(root, slug, title string) (Result, error) {
 	return Result{Code: clierrors.EXIT_OK, Stdout: rel + "\n"}, nil
 }
 
-type migration func(string) error
+type migration func(string) ([]string, error)
 
-var migrations = map[string]migration{"1": migrateOne}
+var migrations = map[string]migration{"1": migrateOne, "2": migrateTwo}
 
-func migrateOne(root string) error {
+func migrateOne(root string) ([]string, error) {
+	return nil, bumpVersion(root, "1", "2")
+}
+
+// migrateTwo advances the marker to 3 and folds the fallback chain into
+// the replan chain of every open plan: replan is trusted-only under the
+// roster, so old plans keep their fallback behavior in the replan chain
+// itself.
+func migrateTwo(root string) ([]string, error) {
+	if err := bumpVersion(root, "2", "3"); err != nil {
+		return nil, err
+	}
+	return extendReplanChains(root)
+}
+
+func bumpVersion(root, from, to string) error {
 	path := filepath.Join(root, filepath.FromSlash(format.DocflowFilePath))
 	text, err := format.ReadText(path)
 	if err != nil {
@@ -684,15 +698,106 @@ func migrateOne(root string) error {
 	if err != nil {
 		return err
 	}
+	re := regexp.MustCompile(`^(docflow:[ \t]*)` + from)
 	line := doc.MetaLines["docflow"]
 	if line == 0 {
 		line = 1
 	}
 	index := line - 1
 	if index >= 0 && index < len(doc.Raw) {
-		doc.Raw[index] = migrateOneRE.ReplaceAllString(doc.Raw[index], "${1}2")
+		doc.Raw[index] = re.ReplaceAllString(doc.Raw[index], "${1}"+to)
 	}
 	return doc.Save(path)
+}
+
+// extendReplanChains rewrites replan: of every plan that carries both a
+// replan assignment and a fallback chain: "replan: X; <fallback routes
+// without X>". The archive is not touched.
+func extendReplanChains(root string) ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(root, "docs", "plans", "*.md"))
+	if err != nil {
+		return nil, err
+	}
+	var changed []string
+	for _, full := range paths {
+		rel, err := filepath.Rel(root, full)
+		if err != nil {
+			return nil, err
+		}
+		text, err := format.ReadText(full)
+		if err != nil {
+			return nil, err
+		}
+		plan, err := format.ParsePlan(text, filepath.ToSlash(rel))
+		if err != nil {
+			continue // a broken plan stays as is; lint reports it
+		}
+		replan := plan.Meta["replan"]
+		if replan == "" || plan.Meta["fallback"] == "" {
+			continue
+		}
+		segments, ok := mergedReplanChain(replan, plan.Meta["fallback"])
+		if !ok {
+			continue
+		}
+		line := plan.MetaLines["replan"]
+		if line <= 0 || line > len(plan.Raw) {
+			continue
+		}
+		replacement := "replan: " + strings.Join(segments, "; ")
+		if strings.HasSuffix(plan.Raw[line-1], "\n") {
+			replacement += "\n"
+		}
+		plan.Raw[line-1] = replacement
+		if err := plan.Save(full); err != nil {
+			return nil, err
+		}
+		changed = append(changed, filepath.ToSlash(rel)+": replan carries the fallback chain")
+	}
+	return changed, nil
+}
+
+// mergedReplanChain joins the replan triple with the fallback routes,
+// dropping routes whose agent and model already appear in the chain.
+func mergedReplanChain(replan, fallback string) ([]string, bool) {
+	agent, model, ok := tripleParts(replan)
+	if !ok {
+		return nil, false
+	}
+	segments := []string{replan}
+	seen := map[string]bool{agent + "\x00" + model: true}
+	for _, raw := range strings.Split(fallback, ";") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		agent, model, ok := tripleParts(raw)
+		if !ok {
+			return nil, false
+		}
+		key := agent + "\x00" + model
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		segments = append(segments, raw)
+	}
+	return segments, true
+}
+
+// tripleParts splits a validated "agent | model | effort" triple for
+// chain merging; full validation stays in lint.
+func tripleParts(value string) (string, string, bool) {
+	parts := strings.Split(value, "|")
+	if len(parts) != 3 {
+		return "", "", false
+	}
+	agent := strings.TrimSpace(parts[0])
+	model := strings.TrimSpace(parts[1])
+	if agent == "" || model == "" {
+		return "", "", false
+	}
+	return agent, model, true
 }
 
 // Migrate advances supported project formats and preserves all other content.
@@ -720,7 +825,8 @@ func Migrate(root string) (Result, error) {
 			}
 			return Result{}, &clierrors.FormatError{Path: format.DocflowFilePath, Line: line, Text: fmt.Sprintf("unknown format version %s", pythonRepr(version))}
 		}
-		if err := step(root); err != nil {
+		extra, err := step(root)
+		if err != nil {
 			return Result{}, err
 		}
 		text, err = format.ReadText(path)
@@ -733,6 +839,9 @@ func Migrate(root string) (Result, error) {
 		}
 		next := docflow.Meta["docflow"]
 		fmt.Fprintf(&stdout, "migrated %s -> %s\n", version, next)
+		for _, line := range extra {
+			stdout.WriteString(line + "\n")
+		}
 		version = next
 	}
 	return Result{Code: clierrors.EXIT_OK, Stdout: stdout.String()}, nil

@@ -176,7 +176,7 @@ func TestRunQuotaSkip(t *testing.T) {
 
 func TestReplanFallback(t *testing.T) {
 	f := executorRunFixture(t)
-	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max")
+	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
 	if err != nil {
 		t.Fatal(err)

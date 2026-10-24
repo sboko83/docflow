@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"bsv-docflow/internal/clierrors"
 )
 
 func cycleDocflow(queue ...string) string {
@@ -15,7 +17,7 @@ func cycleDocflow(queue ...string) string {
 	for _, id := range queue {
 		fmt.Fprintf(&items, "- %s\n", id)
 	}
-	return "---\ndocflow: 2\nread_budget: 40000\n---\n## Queue\n" + items.String() + "\n## Backlog\n"
+	return "---\ndocflow: 3\nread_budget: 40000\n---\n## Queue\n" + items.String() + "\n## Backlog\n"
 }
 
 func cycleUnit(id, status string, depends ...string) string {
@@ -314,7 +316,7 @@ func TestCommitPendingStateIsSelectedAndReported(t *testing.T) {
 	}
 }
 
-const promptDocflow = "---\ndocflow: 2\nread_budget: 40000\n---\n## Queue\n- P001\n\n## Backlog\n"
+const promptDocflow = "---\ndocflow: 3\nread_budget: 40000\n---\n## Queue\n- P001\n\n## Backlog\n"
 
 const promptPlan = `---
 id: P001
@@ -648,4 +650,108 @@ func TestPromptExplicitSelectionRules(t *testing.T) {
 			t.Fatalf("Prompt() = %#v, %v", result, err)
 		}
 	})
+}
+
+func writeMigrationProject(t *testing.T, version string, plans map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs", "plans"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	text := "---\ndocflow: " + version + "\nread_budget: 40000\n---\n## Queue\n- P001\n\n## Backlog\n"
+	if err := os.WriteFile(filepath.Join(root, "docs", "docflow.md"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, plan := range plans {
+		if err := os.WriteFile(filepath.Join(root, "docs", "plans", name), []byte(plan), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+const migrationPlan = `---
+id: P001
+title: Plan
+type: feature
+status: active
+created: 2026-10-24
+executor: pi | zai/glm-5.3 | max
+fallback: codex | gpt-6-luna | max; claude | claude-opus-5-5 | low; pi | glm-5.3 | high
+replan: claude | claude-opus-5-5 | high
+---
+## Goal
+
+Цель.
+
+## Context
+
+## Constraints
+
+## Traps
+
+## Decisions
+
+## Phase 1: First
+
+### [ ] P001.1.1 Unit
+Read:
+- a.txt
+Do:
+- work
+Verify: ` + "`true`" + `
+Commit: P001.1.1: unit
+`
+
+func TestMigrateTwoFoldsFallbackIntoReplan(t *testing.T) {
+	root := writeMigrationProject(t, "2", map[string]string{
+		"P001-plan.md":  migrationPlan,
+		"P002-plain.md": strings.Replace(migrationPlan, "replan: claude | claude-opus-5-5 | high\n", "", 1),
+	})
+	result, err := Migrate(root)
+	if err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	want := "migrated 2 -> 3\ndocs/plans/P001-plan.md: replan carries the fallback chain\n"
+	if result.Code != clierrors.EXIT_OK || result.Stdout != want || result.Stderr != "" {
+		t.Fatalf("Migrate() = (%d, %q, %q), want (%d, %q, \"\")", result.Code, result.Stdout, result.Stderr, clierrors.EXIT_OK, want)
+	}
+	text, _ := os.ReadFile(filepath.Join(root, "docs", "docflow.md"))
+	if !strings.Contains(string(text), "docflow: 3") {
+		t.Fatalf("docflow.md marker = %q", text)
+	}
+	plan, _ := os.ReadFile(filepath.Join(root, "docs", "plans", "P001-plan.md"))
+	wantReplan := "replan: claude | claude-opus-5-5 | high; codex | gpt-6-luna | max; pi | glm-5.3 | high"
+	found := ""
+	for _, line := range strings.Split(string(plan), "\n") {
+		if strings.HasPrefix(line, "replan:") {
+			found = line
+		}
+	}
+	if found != wantReplan {
+		t.Fatalf("replan line = %q, want %q", found, wantReplan)
+	}
+	if !strings.Contains(string(plan), "fallback: codex | gpt-6-luna | max; claude | claude-opus-5-5 | low; pi | glm-5.3 | high") {
+		t.Fatal("fallback chain changed")
+	}
+	plain, _ := os.ReadFile(filepath.Join(root, "docs", "plans", "P002-plain.md"))
+	if strings.Contains(string(plain), "replan") {
+		t.Fatal("plan without replan changed")
+	}
+}
+
+func TestMigrateOneRunsThroughThree(t *testing.T) {
+	root := writeMigrationProject(t, "1", map[string]string{"P001-plan.md": migrationPlan})
+	result, err := Migrate(root)
+	if err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	want := "migrated 1 -> 2\nmigrated 2 -> 3\ndocs/plans/P001-plan.md: replan carries the fallback chain\n"
+	if result.Code != clierrors.EXIT_OK || result.Stdout != want {
+		t.Fatalf("Migrate() = (%d, %q), want (%d, %q)", result.Code, result.Stdout, clierrors.EXIT_OK, want)
+	}
+	again, err := Migrate(root)
+	if err != nil || again.Code != clierrors.EXIT_NOTHING || again.Stderr != "nothing to migrate\n" {
+		t.Fatalf("repeat Migrate() = (%d, %q, %q), %v", again.Code, again.Stdout, again.Stderr, err)
+	}
 }

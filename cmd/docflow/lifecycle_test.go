@@ -48,7 +48,7 @@ func writeLifecycleFile(t *testing.T, root, rel, content string) {
 
 func lifecycleDocflow(queue, frozen []string) string {
 	var text strings.Builder
-	text.WriteString("---\ndocflow: 2\nread_budget: 40000\n---\n## Queue\n")
+	text.WriteString("---\ndocflow: 3\nread_budget: 40000\n---\n## Queue\n")
 	for _, id := range queue {
 		fmt.Fprintf(&text, "- %s\n", id)
 	}
@@ -719,7 +719,7 @@ func TestFrozenPlansAreSkippedAndLinted(t *testing.T) {
 	})
 	t.Run("frozen section order", func(t *testing.T) {
 		root := t.TempDir()
-		writeLifecycleFile(t, root, "docs/docflow.md", "---\ndocflow: 2\nread_budget: 40000\n---\n## Frozen\n\n## Queue\n\n## Backlog\n")
+		writeLifecycleFile(t, root, "docs/docflow.md", "---\ndocflow: 3\nread_budget: 40000\n---\n## Frozen\n\n## Queue\n\n## Backlog\n")
 		code, stdout, _ := callLifecycleCLI(t, root, "lint")
 		if code != 2 || !strings.Contains(stdout, "out of order") {
 			t.Fatalf("lint section order = (%d, %q)", code, stdout)
@@ -752,21 +752,21 @@ func TestCloseRemovesFrozenPlanAndMembership(t *testing.T) {
 	}
 }
 
-func TestMigrateOneToTwoChangesOnlyVersionMarker(t *testing.T) {
+func TestMigrateLegacyChangesOnlyVersionMarker(t *testing.T) {
 	t.Setenv("DOCFLOW_RUNNER_UNIT", "")
 	root := t.TempDir()
-	docflowV1 := strings.Replace(lifecycleDocflow([]string{"P001"}, nil), "docflow: 2", "docflow: 1", 1)
+	docflowV1 := strings.Replace(lifecycleDocflow([]string{"P001"}, nil), "docflow: 3", "docflow: 1", 1)
 	plan := lifecyclePlan("P001", "draft", " ")
 	writeLifecycleFile(t, root, "docs/docflow.md", docflowV1)
 	writeLifecycleFile(t, root, "docs/plans/P001-slug.md", plan)
-	if code, _, stderr := callLifecycleCLI(t, root, "lint"); code != 2 || !strings.Contains(stderr, "format version 1, expected 2; run docflow migrate") {
+	if code, _, stderr := callLifecycleCLI(t, root, "lint"); code != 2 || !strings.Contains(stderr, "format version 1, expected 3; run docflow migrate") {
 		t.Fatalf("lint legacy = (%d, %q)", code, stderr)
 	}
 	code, stdout, stderr := callLifecycleCLI(t, root, "migrate")
-	if code != 0 || stdout != "migrated 1 -> 2\n" || stderr != "" {
+	if code != 0 || stdout != "migrated 1 -> 2\nmigrated 2 -> 3\n" || stderr != "" {
 		t.Fatalf("migrate = (%d, %q, %q)", code, stdout, stderr)
 	}
-	want := strings.Replace(docflowV1, "docflow: 1", "docflow: 2", 1)
+	want := strings.Replace(docflowV1, "docflow: 1", "docflow: 3", 1)
 	if got, _ := os.ReadFile(filepath.Join(root, "docs/docflow.md")); string(got) != want {
 		t.Fatalf("migrated docflow differs beyond marker:\n%s", got)
 	}
@@ -787,7 +787,7 @@ func TestInitAndNewWriteCurrentFormatAndExecutorLint(t *testing.T) {
 			t.Fatalf("init = (%d, %q)", code, stderr)
 		}
 		docflow, err := format.LoadDocflow(filepath.Join(root, "docs/docflow.md"))
-		if err != nil || docflow.Meta["docflow"] != format.DocflowVersion || format.DocflowVersion != "2" {
+		if err != nil || docflow.Meta["docflow"] != format.DocflowVersion || format.DocflowVersion != "3" {
 			t.Fatalf("format version = %v, %v", docflow, err)
 		}
 	})
@@ -814,7 +814,7 @@ func TestInitAndNewWriteCurrentFormatAndExecutorLint(t *testing.T) {
 			t.Fatalf("lint executor omissions = (%d, %q)", code, stdout)
 		}
 		plan, _ := os.ReadFile(path)
-		text := strings.Replace(string(plan), "created: "+time.Now().Format("2006-01-02")+"\n---", "created: "+time.Now().Format("2006-01-02")+"\nexecutor: claude | claude-opus-5-5 | high\n---", 1)
+		text := strings.Replace(string(plan), "created: "+time.Now().Format("2006-01-02")+"\n---", "created: "+time.Now().Format("2006-01-02")+"\nexecutor: claude | claude-opus-5-5 | high\nfallback: codex | gpt-5.5 | -\n---", 1)
 		text = strings.Replace(text, "Model: strong\n", "", 1)
 		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 			t.Fatal(err)

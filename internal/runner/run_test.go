@@ -16,7 +16,7 @@ import (
 	"bsv-docflow/internal/format"
 )
 
-const loopDoc = "---\ndocflow: 2\nread_budget: 40000\n---\n## Queue\n- P001\n- P002\n\n## Backlog\n"
+const loopDoc = "---\ndocflow: 3\nread_budget: 40000\n---\n## Queue\n- P001\n- P002\n\n## Backlog\n"
 const loopHeader = "---\nid: P001\ntitle: Plan\ntype: feature\nstatus: active\ncreated: 2026-10-12\n---\n## Goal\nЦель {model}.\n\n## Context\n\n## Constraints\n\n## Traps\n\n## Decisions\n\n## Phase 1: First\n\n"
 const loopUnit = "### [ ] P001.1.%d %s unit\nRead:\n- docs/docflow.md\nDo:\n- write %s\nVerify: `test -f %s`\nCommit: P001.1.%d: %s unit\n\n"
 const planFile = "docs/plans/P001-plan.md"
@@ -491,7 +491,7 @@ func TestRunPendingCommit(t *testing.T) {
 
 func TestRunResumesAfterMigrate(t *testing.T) {
 	f := newRunFixture(t)
-	f.write("docs/docflow.md", strings.Replace(f.read("docs/docflow.md"), "docflow: 2", "docflow: 1", 1))
+	f.write("docs/docflow.md", strings.Replace(f.read("docs/docflow.md"), "docflow: 3", "docflow: 1", 1))
 	f.write(planFile, strings.Replace(f.read(planFile), "### [ ] P001.1.1", "### [~] P001.1.1", 1))
 	f.commit("legacy working unit")
 	f.steps(writeReply("a.txt"))
@@ -503,7 +503,7 @@ func TestRunResumesAfterMigrate(t *testing.T) {
 	}
 
 	f.check(f.cli("migrate"), 0)
-	if !strings.Contains(f.read("docs/docflow.md"), "docflow: 2") {
+	if !strings.Contains(f.read("docs/docflow.md"), "docflow: 3") {
 		t.Fatal("migrate did not update docs/docflow.md")
 	}
 	after := f.run(nil, "--max-units", "1")

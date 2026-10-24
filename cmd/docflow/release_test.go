@@ -292,7 +292,7 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	}
 	// Stale project copies in the current project get a hint.
 	project := t.TempDir()
-	writeReleaseFile(t, filepath.Join(project, "docs", "docflow.md"), "---\ndocflow: 2\n---\n", 0644)
+	writeReleaseFile(t, filepath.Join(project, "docs", "docflow.md"), "---\ndocflow: 3\n---\n", 0644)
 	writeReleaseFile(t, filepath.Join(project, ".claude", "skills", "sample", "SKILL.md"), "---\nname: sample\n---\nold\n", 0644)
 	t.Chdir(project)
 	latest = "1.3.0"

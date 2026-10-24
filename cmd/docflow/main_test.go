@@ -140,7 +140,7 @@ func TestLintCommandExitCodesAndVersionPrecheck(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	docflow := "---\ndocflow: 2\nread_budget: 40000\n---\n## Queue\n- P001\n\n## Backlog\n"
+	docflow := "---\ndocflow: 3\nread_budget: 40000\n---\n## Queue\n- P001\n\n## Backlog\n"
 	plan := "---\nid: P001\ntitle: Plan\ntype: feature\nstatus: active\ncreated: 2026-10-22\n---\n" +
 		"## Goal\nGoal.\n\n## Context\n\n## Constraints\n\n## Traps\n\n## Decisions\n\n## Phase 1: First\n\n" +
 		"### [ ] P001.1.1 Unit\nRead:\n- fixture.txt\nDo:\n- edit fixture\nVerify: `true`\nCommit: P001.1.1: update fixture\n"
@@ -188,11 +188,11 @@ func TestLintCommandExitCodesAndVersionPrecheck(t *testing.T) {
 	if code, stdout, stderr := runLint(); code != 2 || !strings.Contains(stdout, "docs/plans/P001-plan.md:5: error:") || stderr != "" {
 		t.Fatalf("error lint = (%d, %q, %q)", code, stdout, stderr)
 	}
-	docflow = strings.Replace(docflow, "docflow: 2", "docflow: 0", 1)
+	docflow = strings.Replace(docflow, "docflow: 3", "docflow: 0", 1)
 	if err := os.WriteFile(filepath.Join(root, "docs/docflow.md"), []byte(docflow), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, stdout, stderr := runLint(); code != 2 || stdout != "" || !strings.Contains(stderr, "docs/docflow.md:2: error: format version 0, expected 2; run docflow migrate") {
+	if code, stdout, stderr := runLint(); code != 2 || stdout != "" || !strings.Contains(stderr, "docs/docflow.md:2: error: format version 0, expected 3; run docflow migrate") {
 		t.Fatalf("old format lint = (%d, %q, %q)", code, stdout, stderr)
 	}
 }
@@ -219,7 +219,7 @@ func TestPreflightAndGateKeysLintClean(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	docflow := "---\ndocflow: 2\nread_budget: 40000\npreflight: test -f ready\n---\n## Queue\n- P001\n\n## Backlog\n"
+	docflow := "---\ndocflow: 3\nread_budget: 40000\npreflight: test -f ready\n---\n## Queue\n- P001\n\n## Backlog\n"
 	plan := "---\nid: P001\ntitle: Plan\ntype: feature\nstatus: active\ncreated: 2026-10-22\ngate: test -f ready\n---\n" +
 		"## Goal\nGoal.\n\n## Context\n\n## Constraints\n\n## Prerequisites\n\n## Traps\n\n## Decisions\n\n## Phase 1: First\n\n" +
 		"### [~] P001.1.1 Unit\nRead:\n- fixture.txt\nDo:\n- edit fixture\nVerify: `true`\nCommit: P001.1.1: unit\n"
@@ -249,7 +249,7 @@ func TestVerifyFindsProjectRootFromSubdirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	docflow := "---\ndocflow: 2\nread_budget: 40000\n---\n## Queue\n- P001\n\n## Backlog\n"
+	docflow := "---\ndocflow: 3\nread_budget: 40000\n---\n## Queue\n- P001\n\n## Backlog\n"
 	plan := "---\nid: P001\ntitle: Plan\ntype: feature\nstatus: active\ncreated: 2026-10-22\n---\n" +
 		"## Goal\nGoal.\n\n## Context\n\n## Constraints\n\n## Prerequisites\n\n## Traps\n\n## Decisions\n\n## Phase 1: First\n\n" +
 		"### [~] P001.1.1 Unit\nRead:\n- a.py\nDo:\n- edit fixture\nVerify: `test -f a.py && echo checked`\nCommit: P001.1.1: unit\n"

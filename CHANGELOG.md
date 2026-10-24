@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Format 3: role route chains in the plan header (`cheap:`, `heavy:`,
+  `review:`, `acceptance:`) and the unit field `Role:` that routes a unit
+  through its role chain instead of the shared `fallback:`; `replan:` is a
+  full route chain. `docflow migrate` moves a format 2 project to 3 and
+  folds `fallback:` routes into the `replan:` chain of open plans.
+- `lint` warns about single-route chains (`no fallback for <role>`) and
+  about role keys that no unit uses.
+
 ## [0.10.0] - 2026-10-24
 
 ### Added

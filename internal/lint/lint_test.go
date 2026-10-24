@@ -13,7 +13,7 @@ import (
 )
 
 const testDocflow = `---
-docflow: 2
+docflow: 3
 read_budget: 40000
 ---
 ## Queue
@@ -183,7 +183,7 @@ func TestLintValidProject(t *testing.T) {
 
 func TestLintDocflow(t *testing.T) {
 	t.Run("version", func(t *testing.T) {
-		docflow := strings.Replace(testDocflow, "docflow: 2", "docflow: 0", 1)
+		docflow := strings.Replace(testDocflow, "docflow: 3", "docflow: 0", 1)
 		report, _ := lintProject(t, projectOptions{docflow: docflow})
 		issue(t, report, "run docflow migrate", "error", 2)
 	})
@@ -272,7 +272,7 @@ func TestLintPermissionsReplanAndPrerequisites(t *testing.T) {
 	withMeta := func(plan, meta string) string {
 		return replaceOnce(t, plan, "created: 2026-10-12\n", "created: 2026-10-12\n"+meta)
 	}
-	execPlan := withMeta(testPlan, "executor: pi | x | -\n")
+	execPlan := withMeta(testPlan, "executor: pi | x | -\nfallback: codex | gpt-5.5 | -\n")
 	execPlan = replaceOnce(t, execPlan, "Verify: `true`\nCommit: P001.2.1", "Verify: `true`\nExecutor: pi | x | -\nCommit: P001.2.1")
 	t.Run("permissions", func(t *testing.T) {
 		for _, value := range []string{"full", "auto"} {
@@ -285,7 +285,7 @@ func TestLintPermissionsReplanAndPrerequisites(t *testing.T) {
 		issue(t, report, "permissions 'sudo' not in: auto, full", "error", 7)
 	})
 	t.Run("replan", func(t *testing.T) {
-		plan := withMeta(execPlan, "replan: pi | x | -\n")
+		plan := withMeta(execPlan, "replan: codex | gpt-5.5 | -; claude | claude-opus-5-5 | high\n")
 		report, _ := lintProject(t, projectOptions{plan: &plan})
 		assertClean(t, report)
 		plan = withMeta(testPlan, "replan: pi | x | -\n")
@@ -370,7 +370,7 @@ func TestLintPlanTimeout(t *testing.T) {
 			issue(t, report, "timeout must be an integer from 60 to 86400 seconds", "error", 0)
 		})
 	}
-	execPlan := strings.Replace(testPlan, "created: 2026-10-12\n", "created: 2026-10-12\nexecutor: pi | zai/glm-5.3 | high\ntimeout: 60\n", 1)
+	execPlan := strings.Replace(testPlan, "created: 2026-10-12\n", "created: 2026-10-12\nexecutor: pi | zai/glm-5.3 | high\nfallback: codex | gpt-6-luna | max\ntimeout: 60\n", 1)
 	report, _ := lintProject(t, projectOptions{plan: &execPlan})
 	assertClean(t, report)
 }
@@ -667,14 +667,14 @@ func TestCheckVersion(t *testing.T) {
 	if err := CheckVersion(root); err != nil {
 		t.Fatalf("CheckVersion() = %v", err)
 	}
-	docflow := strings.Replace(testDocflow, "docflow: 2", "docflow: 0", 1)
+	docflow := strings.Replace(testDocflow, "docflow: 3", "docflow: 0", 1)
 	writeProjectFile(t, root, "docs/docflow.md", docflow)
 	err := CheckVersion(root)
-	if err == nil || !strings.Contains(err.Error(), "docs/docflow.md:2: error: format version 0, expected 2; run docflow migrate") {
+	if err == nil || !strings.Contains(err.Error(), "docs/docflow.md:2: error: format version 0, expected 3; run docflow migrate") {
 		t.Fatalf("CheckVersion() = %v, want current format error", err)
 	}
-	if DocflowVersion != "2" {
-		t.Fatalf("DocflowVersion = %q, want 2", DocflowVersion)
+	if DocflowVersion != "3" {
+		t.Fatalf("DocflowVersion = %q, want 3", DocflowVersion)
 	}
 }
 
@@ -721,6 +721,7 @@ type: feature
 status: active
 created: 2026-10-20
 executor: claude | claude-opus-5-5 | high
+fallback: codex | gpt-5.5 | -
 ---
 ## Goal
 Цель.
@@ -787,6 +788,7 @@ func TestUnitExecutorAndMode(t *testing.T) {
 		t.Fatal("executorMode() = false for plan assignment")
 	}
 	legacy := strings.Replace(executorPlan, "executor: claude | claude-opus-5-5 | high\n", "", 1)
+	legacy = strings.Replace(legacy, "fallback: codex | gpt-5.5 | -\n", "", 1)
 	legacy = strings.Replace(legacy, "Executor: codex | gpt-5.5 | -\n", "", 1)
 	plan = parseExecutorPlan(t, legacy)
 	if executorMode(plan) || len(executorIssues(plan)) != 0 {
@@ -808,7 +810,7 @@ func TestLintExecutorAssignments(t *testing.T) {
 	t.Run("missing assignment", func(t *testing.T) {
 		plan := strings.Replace(executorPlan, "executor: claude | claude-opus-5-5 | high\n", "", 1)
 		found := find(t, plan, "unit P001.1.2: no executor")
-		if found.Line != 32 {
+		if found.Line != 33 {
 			t.Fatalf("line = %d, want unit heading", found.Line)
 		}
 	})
@@ -870,4 +872,88 @@ func TestPlanPermissionsAndPrerequisitesHelpers(t *testing.T) {
 	if len(prerequisites) != 2 || prerequisites[0].Text != "Аккаунт" || prerequisites[0].Command == nil || *prerequisites[0].Command != "cat ~/logins/rmg.txt" || prerequisites[1].Text != "Симулятор запущен" || prerequisites[1].Command != nil {
 		t.Fatalf("PlanPrerequisites() = %#v", prerequisites)
 	}
+}
+
+func TestLintRoles(t *testing.T) {
+	clean := func(plan string) *Report {
+		t.Helper()
+		report, _ := lintProject(t, projectOptions{plan: &plan})
+		return report
+	}
+	withMeta := func(meta string) string {
+		return replaceOnce(t, executorPlan, "fallback: codex | gpt-5.5 | -\n", "fallback: codex | gpt-5.5 | -\n"+meta)
+	}
+	// withRole moves unit P001.1.2 (no assignment of its own) onto a role.
+	withRole := func(plan, role string) string {
+		return replaceOnce(t, plan, "Commit: P001.1.2: inherits", "Role: "+role+"\nCommit: P001.1.2: inherits")
+	}
+	t.Run("valid role chain and field", func(t *testing.T) {
+		plan := withRole(withMeta("heavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\n"), "heavy")
+		assertClean(t, clean(plan))
+	})
+	t.Run("plan without roles stays as in format 2", func(t *testing.T) {
+		assertClean(t, clean(executorPlan))
+	})
+	t.Run("chain segments must parse", func(t *testing.T) {
+		plan := withRole(withMeta("heavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol\n"), "heavy")
+		issue(t, clean(plan), "heavy: expected \"agent | model | effort\"", "error", 0)
+	})
+	t.Run("chain repeats agent and model", func(t *testing.T) {
+		plan := withRole(withMeta("heavy: pi | zai/glm-5.3 | max; pi | zai/glm-5.3 | high\n"), "heavy")
+		issue(t, clean(plan), "heavy: route 'pi | zai/glm-5.3' repeats in the chain", "error", 0)
+	})
+	t.Run("single-route chain warns", func(t *testing.T) {
+		plan := withRole(withMeta("heavy: pi | zai/glm-5.3 | max\n"), "heavy")
+		issue(t, clean(plan), "no fallback for heavy", "warning", 0)
+	})
+	t.Run("role key without units warns", func(t *testing.T) {
+		plan := withMeta("heavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\n")
+		issue(t, clean(plan), "no units with role heavy", "warning", 0)
+	})
+	t.Run("unknown role value", func(t *testing.T) {
+		plan := withRole(executorPlan, "executor")
+		issue(t, clean(plan), "unit P001.1.2: Role must be one of: cheap, heavy, review, acceptance", "error", 0)
+	})
+	t.Run("role conflicts with executor", func(t *testing.T) {
+		plan := withMeta("heavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\n")
+		plan = replaceOnce(t, plan, "Commit: P001.1.3: overrides", "Role: heavy\nCommit: P001.1.3: overrides")
+		issue(t, clean(plan), "unit P001.1.3: Role: conflicts with Executor:", "error", 0)
+	})
+	t.Run("role without a chain", func(t *testing.T) {
+		plan := withRole(executorPlan, "heavy")
+		issue(t, clean(plan), "unit P001.1.2: Role 'heavy' has no 'heavy:' chain in the frontmatter", "error", 0)
+	})
+	t.Run("role must be one line", func(t *testing.T) {
+		plan := withMeta("heavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\n")
+		plan = replaceOnce(t, plan, "Commit: P001.1.2: inherits", "Role:\n- heavy\nCommit: P001.1.2: inherits")
+		issue(t, clean(plan), "unit P001.1.2: Role must be one line", "error", 0)
+	})
+	t.Run("role key needs executor mode", func(t *testing.T) {
+		plan := replaceOnce(t, testPlan, "created: 2026-10-12\n", "created: 2026-10-12\nheavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\n")
+		issue(t, clean(plan), "heavy needs executor mode", "error", 0)
+	})
+	t.Run("role field needs executor mode", func(t *testing.T) {
+		plan := replaceOnce(t, testPlan, "Commit: P001.2.1: second unit", "Role: heavy\nCommit: P001.2.1: second unit")
+		issue(t, clean(plan), "unit P001.2.1: Role needs executor mode", "error", 0)
+	})
+	t.Run("field order with Role", func(t *testing.T) {
+		plan := withRole(withMeta("heavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\n"), "heavy")
+		plan = replaceOnce(t, plan, "Role: heavy\nCommit: P001.1.2", "Commit: P001.1.2")
+		plan = replaceOnce(t, plan, "Commit: P001.1.2: inherits", "Commit: P001.1.2: inherits\nRole: heavy")
+		issue(t, clean(plan), "field 'Role' out of order", "error", 0)
+	})
+	t.Run("replan chain", func(t *testing.T) {
+		plan := withMeta("replan: codex | gpt-5.5 | -\n")
+		issue(t, clean(plan), "no fallback for replan", "warning", 0)
+		plan = withMeta("replan: codex | gpt-5.5 | -; codex | gpt-5.5 | high\n")
+		issue(t, clean(plan), "replan: route 'codex | gpt-5.5' repeats in the chain", "error", 0)
+		plan = withMeta("replan: codex | gpt-5.5 | -; claude | claude-opus-5-5 | high\n")
+		assertClean(t, clean(plan))
+	})
+	t.Run("executor without fallback warns", func(t *testing.T) {
+		plan := strings.Replace(executorPlan, "fallback: codex | gpt-5.5 | -\n", "", 1)
+		report := clean(plan)
+		issue(t, report, "no fallback for executor", "warning", 7)
+		issue(t, report, "unit P001.1.3: no fallback for executor", "warning", 0)
+	})
 }

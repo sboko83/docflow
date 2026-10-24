@@ -60,6 +60,7 @@ var sampleLines = []string{
 	"Depends: -",
 	"Executor: codex | gpt-5.5 | high",
 	"Model: strong",
+	"Role: heavy",
 	"Commit: P007.1.1: add feed cache schema",
 	"Handoff:",
 	"- кэш пустой при первом запуске",
@@ -141,7 +142,7 @@ func TestDocflowTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantMeta := map[string]string{"docflow": "2", "read_budget": "40000", "start_read": "README.md", "start_budget": "4000"}
+	wantMeta := map[string]string{"docflow": "3", "read_budget": "40000", "start_read": "README.md", "start_budget": "4000"}
 	if !reflect.DeepEqual(doc.Meta, wantMeta) {
 		t.Fatalf("meta = %#v, want %#v", doc.Meta, wantMeta)
 	}
