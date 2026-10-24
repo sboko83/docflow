@@ -147,9 +147,13 @@ func (c *executorChain) agentsUsed() []string {
 	result := make([]string, 0, len(c.used))
 	seen := make(map[string]bool, len(c.used))
 	for _, route := range c.routes {
-		if c.used[route.Agent] && !seen[route.Agent] {
-			seen[route.Agent] = true
-			result = append(result, route.Agent)
+		if !c.used[route.Agent] {
+			continue
+		}
+		name := quotaName(route)
+		if !seen[name] {
+			seen[name] = true
+			result = append(result, name)
 		}
 	}
 	return result
@@ -159,12 +163,26 @@ func (c *executorChain) routeAgents() []string {
 	result := make([]string, 0, len(c.routes))
 	seen := make(map[string]bool, len(c.routes))
 	for _, route := range c.routes {
-		if !seen[route.Agent] {
-			seen[route.Agent] = true
-			result = append(result, route.Agent)
+		name := quotaName(route)
+		if !seen[name] {
+			seen[name] = true
+			result = append(result, name)
 		}
 	}
 	return result
+}
+
+// zaiQuota names the z.ai subscription quota: pi routes on zai/ models
+// draw from the z.ai subscription, not from a pi-wide pool.
+const zaiQuota = "zai"
+
+// quotaName maps a route to the quota its usage draws from: pi on a zai/
+// model shares the z.ai subscription, every other route its agent quota.
+func quotaName(route agents.Route) string {
+	if route.Agent == "pi" && agentio.IsZaiModel(route.Model) {
+		return zaiQuota
+	}
+	return route.Agent
 }
 
 func availabilityKey(route agents.Route) string {
@@ -189,7 +207,8 @@ func markQuotaRoutes(routes []agents.Route, quotas map[string]agentio.Quota, una
 			continue
 		}
 		seenRoutes[key] = true
-		until, exhausted := quotaExhaustedUntil(quotas[route.Agent], now)
+		name := quotaName(route)
+		until, exhausted := quotaExhaustedUntil(quotas[name], now)
 		if !exhausted {
 			continue
 		}
@@ -199,11 +218,11 @@ func markQuotaRoutes(routes []agents.Route, quotas map[string]agentio.Quota, una
 		}
 		if !current.After(now) || until.After(current) {
 			unavailable[key] = until
-			if _, found := byAgent[route.Agent]; !found {
-				order = append(order, route.Agent)
+			if _, found := byAgent[name]; !found {
+				order = append(order, name)
 			}
-			if until.After(byAgent[route.Agent]) {
-				byAgent[route.Agent] = until
+			if until.After(byAgent[name]) {
+				byAgent[name] = until
 			}
 		}
 	}
@@ -230,6 +249,19 @@ func quotaExhaustedUntil(quota agentio.Quota, now time.Time) (time.Time, bool) {
 		}
 	}
 	return until, !until.IsZero()
+}
+
+// zaiRefusalReset refreshes the z.ai quota and returns the latest reset
+// among the exhausted windows: a limit refusal that names no reset time
+// waits for the subscription to recover instead of the profile limit_wait.
+// nil keeps the profile wait.
+func zaiRefusalReset() *float64 {
+	until, ok := quotaExhaustedUntil(agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout), time.Now())
+	if !ok {
+		return nil
+	}
+	seconds := float64(until.Unix())
+	return &seconds
 }
 
 func routeIdentity(route agents.Route) string {

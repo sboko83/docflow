@@ -20,12 +20,20 @@ func fallbackExecutorRunFixture(t *testing.T) *runFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	writeFakePi(t, f, fake)
+	return f
+}
+
+// writeFakePi installs a pi stub that answers the zai quota key request
+// without touching the scenario and otherwise delegates to the fake agent;
+// without FAKE_ZAI_KEY the stub reports no key, so probes stay empty.
+func writeFakePi(t *testing.T, f *runFixture, fake string) {
+	t.Helper()
 	path := filepath.Join(f.tmp, "bin", "pi")
-	f.write(path, "#!/bin/sh\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
+	f.write(path, "#!/bin/sh\ncase \"$*\" in *'auth print-api-key'*) if [ -n \"$FAKE_ZAI_KEY\" ]; then printf '%s\\n' \"$FAKE_ZAI_KEY\"; exit 0; fi; exit 1;; esac\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return f
 }
 
 func piLimitStep(t *testing.T) string {
@@ -173,11 +181,7 @@ func TestReplanFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pi := filepath.Join(f.tmp, "bin", "pi")
-	f.write(pi, "#!/bin/sh\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
-	if err := os.Chmod(pi, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writeFakePi(t, f, fake)
 	piRefusal := strings.Replace(piLimitStep(t), "printf partial > partial.txt\n", "", 1)
 	codexReplan := editPlan("### [!] P001.1.1", "### [~] P001.1.1") + codexStep(f, 3, 20, 30, false)
 	f.steps(blockReply(), piRefusal, codexReplan, writeReply("a.txt"))

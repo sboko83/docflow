@@ -315,7 +315,9 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 	names := []string{}
 	routes := []agents.Route{}
 	add := func(name string) {
-		if profile(config, name)["quota"] == nil {
+		// zai has no agent profile: the quota belongs to the z.ai
+		// subscription behind pi, so only the profile check is skipped.
+		if name != zaiQuota && profile(config, name)["quota"] == nil {
 			return
 		}
 		for _, n := range names {
@@ -332,7 +334,7 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 		}
 		routes = append(routes, chain.routes...)
 		for _, route := range chain.routes {
-			add(route.Agent)
+			add(quotaName(route))
 		}
 	}
 	// The replan agent runs only after a block, but its quota still matters
@@ -341,7 +343,7 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 		if chain, err := replanExecutorChain(config, plan, args.RunArgs, unavailable); err == nil {
 			routes = append(routes, chain.routes...)
 			for _, route := range chain.routes {
-				add(route.Agent)
+				add(quotaName(route))
 			}
 		}
 	}
@@ -355,6 +357,10 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 		wait.Add(1)
 		go func(i int, name string) {
 			defer wait.Done()
+			if name == zaiQuota {
+				quotas[i] = agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout)
+				return
+			}
 			quotas[i] = agentio.ProbeQuota(profile(config, name), agentio.QuotaProbeTimeout)
 		}(i, name)
 	}
@@ -600,6 +606,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				thread, _ := agentio.JSONPath(output, "json:thread_id").(string)
 				totals.mergeQuota(name, agentio.CodexQuota(thread))
 			}
+			// The pi stream carries no quota; a zai route is re-probed after
+			// every call, so the unit delta and mid-run exhaustion show up.
+			if quotaName(route) == zaiQuota {
+				totals.mergeQuota(zaiQuota, agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout))
+			}
 			if found != "" {
 				session = found
 			}
@@ -655,6 +666,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			refusal := agentio.Classify(agent, run, time.Now())
 			if refusal == nil {
 				break
+			}
+			if refusal.Kind == agentio.RefusalLimit && refusal.Reset == nil && quotaName(route) == zaiQuota {
+				refusal.Reset = zaiRefusalReset()
 			}
 			if chain.enabled && (refusal.Kind == agentio.RefusalLimit || refusal.Kind == agentio.RefusalOutage) {
 				now := time.Now()

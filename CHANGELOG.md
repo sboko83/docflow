@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docflow run` reports z.ai subscription quota for pi routes using `zai/...`
+  models, skips exhausted routes, and uses available reset times for limit
+  refusals.
+
 ## [0.9.0] - 2026-10-24
 
 ### Added
