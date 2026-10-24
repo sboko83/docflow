@@ -356,7 +356,7 @@ Handoff:
 - Обычный sandbox не может записать лог в `.git/docflow/run`; полный `docflow verify` прошёл после одобренного запроса расширенного доступа.
 - Изменение плана — только `[ ]` → `[~]`, выполненное `docflow prompt`; план вручную не редактировал.
 
-### [ ] P035.2.6 Повторное ревью фазы 1 после P035.2.5
+### [x] P035.2.6 Повторное ревью фазы 1 после P035.2.5
 Read:
 - internal/agentio/zai.go
 - internal/runner/chain.go:L90-190
@@ -377,6 +377,11 @@ Verify: `go test ./... && go vet ./...`
 Depends: P035.2.2, P035.2.3, P035.2.5
 Executor: codex | gpt-6.1-sol | high
 Commit: P035.2.6: re-review z.ai quota phase
+Handoff:
+- Ревью дефектов не выявило: закрыты пять замечаний P035.2.1 и замечание P035.2.4; регрессионные тесты подтверждены.
+- На macOS arm64 полный docflow verify прошёл: go test ./..., go vet ./... и gate.
+- Код и план не редактировались; done и commit оставлены runner’у.
+- Unverified: Живые pi auth и API z.ai не проверялись; приёмка остаётся в P035.3.1.
 
 ## Phase 3: Приёмка
 
