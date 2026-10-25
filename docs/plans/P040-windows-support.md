@@ -351,7 +351,7 @@ Handoff:
 
 ## Phase 4: Acceptance
 
-### [ ] P040.4.1 Accept Windows support end to end
+### [x] P040.4.1 Accept Windows support end to end
 Read:
 - tools/test-install.sh
 - tools/smoke-run.sh
@@ -377,3 +377,7 @@ Traps: a failing scenario is fixed inside this unit when the fix is
 small; otherwise block with the reason.
 Depends: P040.1.1, P040.1.2, P040.1.3, P040.2.1, P040.3.1, P040.3.2
 Commit: P040.4.1: accept Windows support
+Handoff:
+- Agent shell profiles may replace inherited PATH; the live smoke plan supplies the absolute checkout executable path so Claude and Codex can verify. Parity must normalize per-unit time lines as well as the run summary to compare identical builds reliably.
+- Windows acceptance covers real Claude/Codex execution, a real Claude timeout with descendant cleanup, and installed-binary update, skill links and uninstall against a local release layout in a temporary USERPROFILE with a file-backed user Path.
+- Unverified: Linux/macOS Go and e2e runs (CI after push); Unix-shell runner/agentio fixtures remain skipped on Windows; release installation on a machine with Developer Mode disabled was not checked (the host setting was not changed).

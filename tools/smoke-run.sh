@@ -16,6 +16,7 @@ esac
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 docflow="$repo/bin/docflow$(cd "$repo" && go env GOEXE)"
+export PATH="$repo/bin:$PATH"
 work="$(mktemp -d)"
 
 fail() {
@@ -30,6 +31,8 @@ git config core.autocrlf false
 git config user.name smoke
 git config user.email smoke@example.invalid
 "$docflow" init >/dev/null
+printf 'Use the absolute docflow executable path for verification: `%s`.\n' \
+    "$docflow" > README.md
 
 cat > docs/docflow.md <<'EOF'
 ---
@@ -57,6 +60,8 @@ Two trivial files written by the runner's agent.
 ## Context
 
 ## Constraints
+Use the absolute docflow executable path from README.md for verification;
+an agent's shell profile may replace the inherited PATH.
 
 ## Traps
 
@@ -67,6 +72,7 @@ Two trivial files written by the runner's agent.
 ### [ ] P001.1.1 Write hello
 Read:
 - docs/docflow.md
+- README.md
 Do:
 - Create `hello.txt` containing the single line `hello`.
 Verify: `grep -qx hello hello.txt`
@@ -75,6 +81,7 @@ Commit: P001.1.1: write hello
 ### [ ] P001.1.2 Write bye
 Read:
 - docs/docflow.md
+- README.md
 Do:
 - Create `bye.txt` containing the single line `bye`.
 Verify: `grep -qx bye bye.txt`

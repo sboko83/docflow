@@ -31,6 +31,7 @@ code=0
 sed -E \
     -e 's/^(run: P[0-9]+ .*, start )[0-9:]+/\1<clock>/' \
     -e 's/^(run: [0-9]+ units?, )[^,]*–[^,]* \([^)]*\)/\1<clock> (<duration>)/' \
+    -e 's/^(P[0-9.]+ time: ).*/\1<duration>/' \
     -e 's/^(P[0-9.]+ done: [0-9a-f]+ \([0-9]+ attempts?, )[^,)]*/\1<duration>/' \
     "$HOME/raw.stdout"
 cat "$HOME/raw.stderr" >&2
