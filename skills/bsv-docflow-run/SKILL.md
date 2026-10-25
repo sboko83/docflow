@@ -125,7 +125,8 @@ secret, a device or simulator step, a decision. In runner mode the
 A unit with `Role: review` reviews and fixes nothing: it edits no
 files. A defect it finds is a block with `--needs plan` — the plan's
 `replan:` schedules the fix; observations without a defect go to the
-Handoff as `Unverified:` items.
+Handoff as `Unverified:` items. The prompt's `## Phase diff` section names
+the base, commits, and diff command to review.
 
 Outside the runner — `bsv-docflow-plan` in replan mode next, not this
 skill.

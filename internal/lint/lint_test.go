@@ -600,7 +600,10 @@ func TestReadBudgetCountsPromptAndReadReferencesTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	unit := plan.Unit("P001.2.1")
-	prompt := cycle.PromptText(root, plan, unit)
+	prompt, err := cycle.PromptText(root, plan, unit, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tokens := (len([]byte(prompt)) + len("print(1)\n")) / 4
 	issue(t, report, fmt.Sprintf("unit P001.2.1: ~%d tokens of context", tokens), "warning", 36)
 }

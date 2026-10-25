@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `docflow prompt` and `docflow run` give review units the phase's commit
+  subjects, diff base, and command to inspect the diff.
 - `docflow install-skills` relinks personal skill links that still point
   into `~/.docflow/` when installing from another source; foreign paths remain conflicts.
 - `docflow run` gives a fallback executor the previous attempt's diff

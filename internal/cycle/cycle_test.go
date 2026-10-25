@@ -438,6 +438,97 @@ func TestPromptTextAndReadBudget(t *testing.T) {
 	}
 }
 
+func TestPromptPhaseDiff(t *testing.T) {
+	reviewPlan := strings.Replace(promptPlan,
+		"### [ ] P001.1.3 Third\nRead:",
+		"### [ ] P001.1.3 Third\nRole: review\nRead:", 1)
+	t.Run("phase commits and anchored prefix", func(t *testing.T) {
+		root := promptProject(t, reviewPlan, nil)
+		base := strings.TrimSpace(gitCycle(t, root, "rev-parse", "--short", "HEAD"))
+		for _, subject := range []string{
+			"P001.1.1: first phase commit",
+			"P001.1.2: second phase commit",
+			"P001.21.1: another phase",
+			"P001: replan",
+			"P001.1.3: review unit",
+		} {
+			gitCycle(t, root, "commit", "--allow-empty", "-q", "-m", subject)
+		}
+		result, err := Prompt(root, "P001.1.3", nil)
+		if err != nil || result.Code != 0 {
+			t.Fatalf("Prompt() = %#v, %v", result, err)
+		}
+		for _, want := range []string{
+			"## Phase diff\n\n",
+			"Base: " + base,
+			"P001.1.1: first phase commit",
+			"P001.1.2: second phase commit",
+			"Command: `git diff " + base + " HEAD`",
+		} {
+			if !strings.Contains(result.Stdout, want) {
+				t.Errorf("phase diff does not contain %q:\n%s", want, result.Stdout)
+			}
+		}
+		for _, excluded := range []string{"P001.21.1:", "P001: replan", "P001.1.3: review unit"} {
+			if strings.Contains(result.Stdout, excluded) {
+				t.Errorf("phase diff contains excluded subject %q", excluded)
+			}
+		}
+	})
+	t.Run("empty phase", func(t *testing.T) {
+		root := promptProject(t, reviewPlan, nil)
+		result, err := Prompt(root, "P001.1.3", nil)
+		if err != nil || result.Code != 0 {
+			t.Fatalf("Prompt() = %#v, %v", result, err)
+		}
+		if !strings.Contains(result.Stdout, "## Phase diff\n\nno commits with prefix P001.1.\n") || strings.Contains(result.Stdout, "Base:") {
+			t.Fatalf("empty phase diff = %q", result.Stdout)
+		}
+	})
+	t.Run("nested repositories", func(t *testing.T) {
+		docflow := strings.Replace(promptDocflow, "read_budget: 40000\n", "read_budget: 40000\nrepos: deps/*\n", 1)
+		root := makeCycleProject(t, docflow, map[string]string{"P001": reviewPlan}, map[string]string{
+			".gitignore":  "deps/module\n",
+			"a.py":        "print(1)\n",
+			"docs/ctx.md": "# Ctx\n",
+		})
+		nested := filepath.Join(root, "deps", "module")
+		if err := os.MkdirAll(nested, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitCycleDir(t, nested, "init", "-q")
+		gitCycleDir(t, nested, "config", "user.name", "docflow test")
+		gitCycleDir(t, nested, "config", "user.email", "test@example.invalid")
+		writeCycleFile(t, nested, "tracked.txt", "initial\n")
+		gitCycleDir(t, nested, "add", "-A")
+		gitCycleDir(t, nested, "commit", "-q", "-m", "initial nested")
+		base := strings.TrimSpace(gitCycleDir(t, nested, "rev-parse", "--short", "HEAD"))
+		gitCycleDir(t, nested, "commit", "--allow-empty", "-q", "-m", "P001.1.1: nested phase commit")
+		result, err := Prompt(root, "P001.1.3", func(string) ([]string, error) {
+			return []string{"deps/module"}, nil
+		})
+		if err != nil || result.Code != 0 {
+			t.Fatalf("Prompt() = %#v, %v", result, err)
+		}
+		for _, want := range []string{"### .\n", "### deps/module\n", "Base: " + base, "P001.1.1: nested phase commit", "git diff " + base + " HEAD"} {
+			if !strings.Contains(result.Stdout, want) {
+				t.Errorf("nested phase diff does not contain %q:\n%s", want, result.Stdout)
+			}
+		}
+	})
+}
+
+func TestPromptOmitsPhaseDiffForNonReview(t *testing.T) {
+	root := promptProject(t, promptPlan, nil)
+	result, err := runPrompt(t, root, "")
+	if err != nil || result.Code != 0 {
+		t.Fatalf("Prompt() = %#v, %v", result, err)
+	}
+	if strings.Contains(result.Stdout, "## Phase diff") {
+		t.Fatalf("non-review prompt contains phase diff: %s", result.Stdout)
+	}
+}
+
 func TestPromptArchiveGotchas(t *testing.T) {
 	archive := func(id, gotcha, extra string) string {
 		return fmt.Sprintf("---\nid: %s\ntitle: Old\nclosed: 2026-10-01\n%s---\n## Outcome\nЕсть.\n\n## Decisions\n- d — w — a\n\n## Gotchas\n- %s\n\n## Follow-ups\n- нет\n", id, extra, gotcha)

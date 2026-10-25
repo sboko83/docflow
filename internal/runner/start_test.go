@@ -19,7 +19,10 @@ func TestRunnerPromptInstructions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, mode := range []string{"auto", "full"} {
-		text := runnerPrompt(f.root, plan, plan.Units[0], map[string]any{"instructions": "Be brief.\n"}, mode)
+		text, err := runnerPrompt(f.root, plan, plan.Units[0], map[string]any{"instructions": "Be brief.\n"}, mode)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if strings.Contains(text, "Be brief.") != (mode == "auto") {
 			t.Fatal(text)
 		}
@@ -32,7 +35,15 @@ func TestRunnerPromptInstructions(t *testing.T) {
 		t.Fatal(err)
 	}
 	agent := profile(config, "codex")
-	if !strings.Contains(runnerPrompt(f.root, plan, plan.Units[0], agent, "auto"), "workspace-write sandbox") || strings.Contains(runnerPrompt(f.root, plan, plan.Units[0], agent, "full"), "sandbox") {
+	auto, err := runnerPrompt(f.root, plan, plan.Units[0], agent, "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := runnerPrompt(f.root, plan, plan.Units[0], agent, "full")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(auto, "workspace-write sandbox") || strings.Contains(full, "sandbox") {
 		t.Fatal("instructions did not follow permissions")
 	}
 }

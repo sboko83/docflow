@@ -3,6 +3,7 @@ package cycle
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,8 +28,9 @@ const cycleText = "## Cycle\n" +
 var promptSections = []string{"Goal", "Constraints", "Prerequisites", "Traps", "Context", "Decisions"}
 
 // PromptText renders the plan sections, unit, dependency handoff, archive
-// gotchas, and cycle instructions used by docflow prompt and lint budgeting.
-func PromptText(root string, plan *format.Plan, unit *format.Unit) string {
+// gotchas, phase diff for review units, and cycle instructions used by
+// docflow prompt and lint budgeting.
+func PromptText(root string, plan *format.Plan, unit *format.Unit, repos []string) (string, error) {
 	var out strings.Builder
 	fmt.Fprintf(&out, "# %s %s\n\nPlan: %s %s (%s)\n\n",
 		unit.ID, unit.Title, plan.Meta["id"], plan.Meta["title"], plan.Path)
@@ -64,8 +66,124 @@ func PromptText(root string, plan *format.Plan, unit *format.Unit) string {
 		out.WriteString(strings.Join(gotchas, "\n"))
 		out.WriteString("\n\n")
 	}
+	if reviewUnit(unit) {
+		section, err := phaseDiffSection(root, plan, unit, repos)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString(section)
+	}
 	out.WriteString(strings.ReplaceAll(cycleText, "{id}", unit.ID))
-	return out.String()
+	return out.String(), nil
+}
+
+func reviewUnit(unit *format.Unit) bool {
+	role := unit.Field("Role")
+	return role != nil && role.Value == "review"
+}
+
+func phaseDiffSection(root string, plan *format.Plan, unit *format.Unit, repos []string) (string, error) {
+	if unit.Phase == nil {
+		return "", fmt.Errorf("review unit %s has no phase", unit.ID)
+	}
+	prefix := fmt.Sprintf("%s.%d.", plan.Meta["id"], *unit.Phase)
+	type repository struct {
+		path string
+		root string
+	}
+	repositories := []repository{{path: ".", root: root}}
+	for _, repo := range repos {
+		if repo == "" || repo == "." {
+			continue
+		}
+		repositories = append(repositories, repository{
+			path: filepath.ToSlash(repo),
+			root: filepath.Join(root, filepath.FromSlash(repo)),
+		})
+	}
+	sort.Slice(repositories, func(i, j int) bool {
+		if repositories[i].path == repositories[j].path {
+			return false
+		}
+		if repositories[i].path == "." {
+			return true
+		}
+		if repositories[j].path == "." {
+			return false
+		}
+		return repositories[i].path < repositories[j].path
+	})
+
+	var out strings.Builder
+	out.WriteString("## Phase diff\n\n")
+	for i, repo := range repositories {
+		if len(repos) > 0 {
+			if i > 0 {
+				out.WriteByte('\n')
+			}
+			fmt.Fprintf(&out, "### %s\n\n", repo.path)
+		}
+		block, err := phaseDiffForRepository(repo.root, prefix, unit.ID)
+		if err != nil {
+			return "", fmt.Errorf("phase diff in %s: %w", repo.path, err)
+		}
+		out.WriteString(block)
+		out.WriteByte('\n')
+	}
+	return out.String(), nil
+}
+
+func phaseDiffForRepository(root, prefix, reviewUnitID string) (string, error) {
+	log, err := gitx.Git(root, "log", "--reverse", "--format=%H%x00%P%x00%s", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	base := ""
+	for _, line := range strings.Split(strings.TrimRight(string(log), "\r\n"), "\n") {
+		fields := strings.SplitN(line, "\x00", 3)
+		if len(fields) != 3 || !strings.HasPrefix(fields[2], prefix) || reviewUnitCommit(fields[2], reviewUnitID) {
+			continue
+		}
+		parents := strings.Fields(fields[1])
+		if len(parents) == 0 {
+			return "", fmt.Errorf("phase commit %s has no parent", fields[0])
+		}
+		base = parents[0]
+		break
+	}
+	if base == "" {
+		return "no commits with prefix " + prefix + "\n", nil
+	}
+	baseShort, err := gitx.Git(root, "rev-parse", "--short", base)
+	if err != nil {
+		return "", err
+	}
+	baseShortText := strings.TrimSpace(string(baseShort))
+	phaseLog, err := gitx.Git(root, "log", "--reverse", "--format=%h %s", base+"..HEAD")
+	if err != nil {
+		return "", err
+	}
+	commits := make([]string, 0)
+	for _, line := range strings.Split(strings.TrimRight(string(phaseLog), "\r\n"), "\n") {
+		fields := strings.SplitN(line, " ", 2)
+		if len(fields) == 2 && strings.HasPrefix(fields[1], prefix) && !reviewUnitCommit(fields[1], reviewUnitID) {
+			commits = append(commits, line)
+		}
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "Base: %s\n\nCommits:\n%s\nCommand: `git diff %s HEAD`\n", baseShortText, strings.Join(commits, "\n"), baseShortText)
+	return out.String(), nil
+}
+
+func reviewUnitCommit(subject, unitID string) bool {
+	if subject == unitID {
+		return true
+	}
+	if !strings.HasPrefix(subject, unitID) || len(subject) == len(unitID) {
+		return false
+	}
+	next := subject[len(unitID)]
+	return next == ':' || unicode.IsSpace(rune(next))
 }
 
 func rawPlanText(plan *format.Plan, start, end int) string {
@@ -269,6 +387,15 @@ func Prompt(root, unitID string, projectRepos func(string) ([]string, error)) (R
 	if unit.Status == "x" {
 		return Result{Code: clierrors.EXIT_ORDER, Stderr: fmt.Sprintf("%s: commit pending; run docflow run or docflow finish %s\n", unit.ID, unit.ID)}, nil
 	}
+	var repos []string
+	if unit.Status == " " || reviewUnit(unit) {
+		if projectRepos != nil {
+			repos, err = projectRepos(root)
+			if err != nil {
+				return Result{}, err
+			}
+		}
+	}
 	refBytes := 0
 	refs := append([]format.Item{}, format.ContextRefs(plan)...)
 	if read := unit.Field("Read"); read != nil {
@@ -283,13 +410,6 @@ func Prompt(root, unitID string, projectRepos func(string) ([]string, error)) (R
 	}
 	resumed := unit.Status == "~"
 	if unit.Status == " " {
-		var repos []string
-		if projectRepos != nil {
-			repos, err = projectRepos(root)
-			if err != nil {
-				return Result{}, err
-			}
-		}
 		dirty, err := gitx.DirtyFiles(root, plan.Path, repos)
 		if err != nil {
 			return Result{}, err
@@ -305,7 +425,10 @@ func Prompt(root, unitID string, projectRepos func(string) ([]string, error)) (R
 		}
 		unit = plan.Unit(unit.ID)
 	}
-	text := PromptText(root, plan, unit)
+	text, err := PromptText(root, plan, unit, repos)
+	if err != nil {
+		return Result{}, err
+	}
 	tokens := (len([]byte(text)) + refBytes) / 4
 	record := readStats(root, unit.ID)
 	if _, ok := record["proxy_tokens"]; !ok {

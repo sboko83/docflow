@@ -568,7 +568,10 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		}
 	}
 	mode := format.PlanPermissions(plan)
-	prompt := runnerPrompt(root, plan, unit, agent, mode)
+	prompt, err := runnerPrompt(root, plan, unit, agent, mode)
+	if err != nil {
+		return 2, "", err
+	}
 	if committing {
 		prompt += "\n## Pending commit\nThe unit implementation is complete; repair only the failed check or hook. Do not redo the unit or modify repositories already committed by this unit.\n"
 	}
@@ -735,7 +738,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					if err != nil {
 						return 2, "", err
 					}
-					prompt = runnerPrompt(root, plan, unit, agent, mode) + previous
+					prompt, err = runnerPrompt(root, plan, unit, agent, mode)
+					if err != nil {
+						return 2, "", err
+					}
+					prompt += previous
 					session = ""
 					text, resume = prompt, ""
 					continue
@@ -773,7 +780,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 						if err != nil {
 							return 2, "", err
 						}
-						prompt = runnerPrompt(root, plan, unit, agent, mode) + previous
+						prompt, err = runnerPrompt(root, plan, unit, agent, mode)
+						if err != nil {
+							return 2, "", err
+						}
+						prompt += previous
 						session = ""
 						text, resume = prompt, ""
 					} else if session != "" {
@@ -1006,7 +1017,10 @@ func dryRun(root string, args Args, config map[string]any, sel cycle.Selection, 
 		return 2, err
 	}
 	mode := format.PlanPermissions(sel.Plan)
-	prompt := runnerPrompt(root, sel.Plan, unit, profile(config, route.Agent), mode)
+	prompt, err := runnerPrompt(root, sel.Plan, unit, profile(config, route.Agent), mode)
+	if err != nil {
+		return 2, err
+	}
 	logs, err := runDir(root)
 	if err != nil {
 		return 2, err

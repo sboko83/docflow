@@ -771,7 +771,7 @@ func lintDepends(rep *Report, plan *format.Plan) {
 
 const contextHint = " (Context list items are file references; write repro as prose)"
 
-func lintRefs(rep *Report, root string, plan *format.Plan, budget int) {
+func lintRefs(rep *Report, root string, plan *format.Plan, budget int, repos []string) {
 	size := func(item format.Item, hint string) int {
 		value, err := format.RefSize(root, item.Text)
 		if err == nil {
@@ -797,7 +797,12 @@ func lintRefs(rep *Report, root string, plan *format.Plan, budget int) {
 			continue
 		}
 		read := unit.Field("Read")
-		total := context + len([]byte(cycle.PromptText(root, plan, unit)))
+		prompt, err := cycle.PromptText(root, plan, unit, repos)
+		if err != nil {
+			rep.Error(plan.Path, unit.Line, fmt.Sprintf("unit %s: %v", unit.ID, err))
+			continue
+		}
+		total := context + len([]byte(prompt))
 		// prompt_text is transferred in P024.3.1; this unit accounts for
 		// the prompt and its Context and Read references together.
 		if read != nil {
@@ -828,7 +833,7 @@ func ActivationIssues(root string, plan *format.Plan) ([]string, bool, error) {
 	}
 	report := &Report{Issues: make([]Issue, 0)}
 	lintPlan(report, plan)
-	lintRefs(report, root, plan, readBudget(docflow))
+	lintRefs(report, root, plan, readBudget(docflow), NestedRepos(root, docflow))
 	issues := make([]string, 0, len(report.Issues))
 	for _, issue := range report.Issues {
 		issues = append(issues, issue.String())
@@ -851,7 +856,7 @@ func ReferenceIssues(root string, plan *format.Plan) ([]string, error) {
 		return nil, err
 	}
 	report := &Report{Issues: make([]Issue, 0)}
-	lintRefs(report, root, plan, readBudget(docflow))
+	lintRefs(report, root, plan, readBudget(docflow), NestedRepos(root, docflow))
 	issues := make([]string, 0, len(report.Issues))
 	for _, issue := range report.Issues {
 		issues = append(issues, issue.String())
@@ -1010,9 +1015,11 @@ func Lint(root string) (*Report, error) {
 		return nil, err
 	}
 	var budget int
+	var repos []string
 	if docflow != nil {
 		lintDocflow(rep, root, docflow)
 		budget = readBudget(docflow)
+		repos = NestedRepos(root, docflow)
 	}
 	ids := make(map[string]string)
 	type planRecord struct {
@@ -1044,7 +1051,7 @@ func Lint(root string) (*Report, error) {
 				}
 				lintPlan(rep, plan)
 				if plan.Meta["status"] != "frozen" {
-					lintRefs(rep, root, plan, budget)
+					lintRefs(rep, root, plan, budget, repos)
 				}
 				id := plan.Meta["id"]
 				if id == "" {

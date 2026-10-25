@@ -52,7 +52,9 @@ prompt → работа → verify* → finish   (finish = verify → done → c
   `Depends:` на все юниты — [P013](../archive/P013-result-verification.md).
 
 `prompt` содержит: Goal, Constraints, Traps, Context, `## Decisions` плана,
-юнит, Handoff прямых `Depends`, инструкции по циклу.
+юнит, Handoff прямых `Depends`, инструкции по циклу. Для `Role: review`
+добавляется `## Phase diff` с базой, commit subjects фазы и командой просмотра
+diff; при `repos:` блоки строятся для корневого и каждого вложенного репозитория.
 
 ## Размер юнита
 

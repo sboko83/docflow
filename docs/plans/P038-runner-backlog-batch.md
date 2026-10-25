@@ -53,6 +53,8 @@ code, comments and `CHANGELOG.md` are in English.
   `fallback:` when the plan has no `cheap:` — closing is documentation
   work — the `acceptance:` chain is rejected as needlessly expensive.
 - Перенёс проверку убийства detached grandchild в тест `CallAgent`, а runner acceptance оставил проверку timeout и возобновления: config override запрещён для плана с executor-маршрутом.
+- Отбирать коммиты по буквальному префиксу subject и исключать commit review unit по его ID — так соседние номера фаз и replan не попадают в список — вместо `git log --grep`.
+- Передавать список `repos:` в общий рендерер prompt — чтобы обычный prompt, runner и read-budget lint строили одинаковый phase diff — вместо отдельных реализаций.
 
 ## Phase 1: Tooling
 
@@ -130,7 +132,7 @@ Handoff:
 - Fallback and replan prompts share the same context block; its Git snapshot covers the root repository, not configured nested repositories.
 - Package tests and full `docflow verify P038.2.1` passed. The runner can proceed with `done` and `commit`.
 
-### [ ] P038.2.2 Put the phase diff base into the review prompt
+### [x] P038.2.2 Put the phase diff base into the review prompt
 Read:
 - internal/cycle/commands.go:L1-95
 - internal/cycle/cycle_test.go:L380-420
@@ -163,6 +165,8 @@ Traps: the subject prefix match must be anchored (`P038.2.` must not
 match `P038.21.` or a `P038: replan` commit).
 Depends: -
 Commit: P038.2.2: add phase diff base to review prompt
+Handoff:
+- Новые прямые вызовы `cycle.PromptText` должны передавать вложенные репозитории из `docs/docflow.md`, чтобы review prompt и оценка read budget учитывали одинаковый контекст.
 
 ## Phase 3: Event stream and close
 

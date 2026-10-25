@@ -20,6 +20,7 @@ import (
 	"bsv-docflow/internal/clierrors"
 	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
+	"bsv-docflow/internal/lint"
 )
 
 const (
@@ -221,8 +222,19 @@ func noEcho(stream io.Reader) func() {
 	return disableEcho(file)
 }
 
-func runnerPrompt(root string, plan *format.Plan, unit *format.Unit, agent map[string]any, permissions string) string {
-	text := cycle.PromptText(root, plan, unit)
+func runnerPrompt(root string, plan *format.Plan, unit *format.Unit, agent map[string]any, permissions string) (string, error) {
+	var repos []string
+	if role := unit.Field("Role"); role != nil && role.Value == "review" {
+		var err error
+		repos, err = lint.ProjectRepos(root)
+		if err != nil {
+			return "", err
+		}
+	}
+	text, err := cycle.PromptText(root, plan, unit, repos)
+	if err != nil {
+		return "", err
+	}
 	if start := strings.LastIndex(text, "## Cycle\n"); start >= 0 {
 		text = text[:start] + strings.ReplaceAll(agents.RunnerCycle, "{id}", unit.ID)
 	}
@@ -233,7 +245,7 @@ func runnerPrompt(root string, plan *format.Plan, unit *format.Unit, agent map[s
 	if instructions != "" && permissions == "auto" {
 		text += "\n" + strings.TrimRightFunc(instructions, unicode.IsSpace) + "\n"
 	}
-	return text
+	return text, nil
 }
 
 func runPrerequisites(root string, plan *format.Plan, progress *Progress) int {

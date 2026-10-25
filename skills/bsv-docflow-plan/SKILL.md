@@ -248,9 +248,9 @@ routes — visible in `docflow roster show`) ends with a review unit.
 
 - One unit at the end of the phase, `Role: review` — its chain holds no
   `check` provider.
-- `Do:` template — review the phase diff, the commits with the phase's
-  commit prefix, against `Goal`, `Constraints`, `## Decisions`, and each
-  unit's `Do:`. The reviewer edits nothing.
+- `Do:` template — review the diff named in the prompt's `## Phase diff`
+  against `Goal`, `Constraints`, `## Decisions`, and each unit's `Do:`.
+  The reviewer edits nothing.
 - A defect — `blocked` with `blocker: "plan"` (outside the runner,
   `docflow block --needs plan`): the plan's `replan:` schedules the fix.
   Everything else worth noting — an `Unverified:` item in the Handoff.
