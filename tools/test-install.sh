@@ -181,6 +181,34 @@ GOT=$(docflow --version)
 [ "$GOT" = 0.0.3 ] \
     || fail "version changed after a development update: got '$GOT', want '0.0.3'"
 
+echo '== install-dev.sh relinks release skills to the checkout'
+bash "$REPO_DIR/tools/install-dev.sh" >"$WORK/install-dev.log" 2>&1 \
+    || { cat "$WORK/install-dev.log" >&2; fail 'install-dev.sh failed'; }
+grep -qF 'relinked' "$WORK/install-dev.log" \
+    || fail "install-dev.sh: no relink message in '$(cat "$WORK/install-dev.log")'"
+for dir in $SKILL_DIRS; do
+    for skill in "$REPO_DIR"/skills/*/; do
+        name=$(basename "$skill")
+        GOT=$(readlink "$HOME/$dir/$name") || fail "no skill link ~/$dir/$name"
+        WANT=$REPO_DIR/skills/$name
+        [ "$GOT" = "$WANT" ] \
+            || fail "readlink ~/$dir/$name after install-dev.sh: got '$GOT', want '$WANT'"
+    done
+done
+# Put the release links back so uninstall below checks its own links.
+for dir in $SKILL_DIRS; do
+    for skill in "$REPO_DIR"/skills/*/; do
+        rm "$HOME/$dir/$(basename "$skill")"
+    done
+done
+rm "$HOME/.local/bin/docflow"
+for agent in claude codex pi; do
+    docflow install-skills --agent "$agent" >/dev/null \
+        || fail "release install-skills --agent $agent failed"
+done
+docflow install-skills --target "$HOME/.zcode/skills" >/dev/null \
+    || fail 'release install-skills --target ~/.zcode/skills failed'
+
 echo '== uninstall'
 docflow uninstall >/dev/null || fail 'docflow uninstall failed'
 [ ! -e "$HOME/.docflow" ] || fail '~/.docflow still exists after uninstall'

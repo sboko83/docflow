@@ -258,7 +258,7 @@ Handoff:
 
 ## Phase 4: Acceptance
 
-### [ ] P038.4.1 Accept the batch end to end
+### [x] P038.4.1 Accept the batch end to end
 Read:
 - internal/runner/run_test.go:L27-215
 - internal/runner/acceptance_fallback_test.go
@@ -289,3 +289,8 @@ small; otherwise block with the reason.
 Depends: P038.1.1, P038.2.1, P038.2.2, P038.3.1, P038.3.2
 Role: acceptance
 Commit: P038.4.1: accept runner backlog batch
+Handoff:
+- batch_acceptance_test.go adds four CLI scenarios: route-switch diff stat and last message, review unit Phase diff via docflow prompt, events.jsonl bounded by run_start/run_end with one route_switch, run --close archiving the plan with last commit P001: close plan.
+- tools/test-install.sh now runs tools/install-dev.sh over the installed 0.0.3 release with the same temporary HOME, checks every skill link in all four skill dirs points into $REPO_DIR/skills, then restores release links with the release install-skills so the uninstall check stays meaningful; it rebuilds the real checkout's gitignored bin/docflow.
+- TestAcceptanceTimeoutKillsDetachedGrandchild takes 3.80 s; the internal/runner package still takes ~184 s in total, the slowest test is TestReplanRun at 24.8 s.
+- No earlier Handoff carried Unverified items; full docflow verify P038.4.1 and the gate passed on macOS.
