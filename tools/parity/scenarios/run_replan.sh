@@ -87,6 +87,7 @@ cat "$HOME/raw.stderr" >&2
 exit "$rc"
 EOF
 chmod +x "$HOME/bin/claude" "$HOME/bin/replan-cli"
+parity_shim claude
 export PATH="$HOME/bin:$PATH"
 export PARITY_REPLAN_BINARY="$parity_binary"
 

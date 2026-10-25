@@ -37,6 +37,20 @@ cat "$HOME/raw.stderr" >&2
 exit "$code"
 EOF
 chmod +x "$HOME/bin/claude" "$HOME/bin/codex" "$HOME/bin/osascript" "$HOME/bin/notify-send" "$HOME/bin/e2e-cli"
+e2e_windows=0
+e2e_exe=
+e2e_bash=/bin/bash
+e2e_fake_cmd="$E2E_FAKE"
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        e2e_windows=1
+        e2e_exe=.exe
+        # Native programs cannot start /bin/bash or open POSIX paths.
+        e2e_bash="$(cygpath -m "$(command -v bash)")"
+        e2e_fake_cmd="$(cygpath -m "$E2E_FAKE")"
+        parity_shim claude codex
+        ;;
+esac
 export PATH="$HOME/bin:$PATH"
 
 # Check success and refusals explicitly; run_docflow owns output comparison.
@@ -149,7 +163,7 @@ fast = {agent = "fake", model = "fast"}
 default = {agent = "fake", model = ""}
 strong = {agent = "fake", model = "strong"}
 [agents.fake]
-cmd = ["/bin/bash", "$E2E_FAKE"]
+cmd = ["$e2e_bash", "$e2e_fake_cmd"]
 model_args = ["--model", "{model}"]
 resume_args = ["--resume", "{session}"]
 result = "json:structured_output"
@@ -172,15 +186,29 @@ checkout_fixture() {
     cp "$e2e_source/go.mod" "$checkout/go.mod"
     # A shared Git-dir gives both copies the same version SHA, without
     # committing executable bytes (which necessarily differ by language).
-    printf 'gitdir: %s/.git\n' "$e2e_source" >"$checkout/.git"
-    for tool in go grep git dirname ln mkdir cat readlink cmp basename diff; do
-        ln -s "$(command -v "$tool")" "$HOME/isolated path/$tool"
-    done
-    export PATH="$HOME/isolated path"
+    if [ "$e2e_windows" -eq 1 ]; then
+        printf 'gitdir: %s/.git\n' "$(cygpath -m "$e2e_source")" >"$checkout/.git"
+    else
+        printf 'gitdir: %s/.git\n' "$e2e_source" >"$checkout/.git"
+    fi
+    if [ "$e2e_windows" -eq 1 ]; then
+        # MSYS tools cannot be linked: copy them with their runtime DLLs.
+        # go and git keep their own trees, so their directories join PATH.
+        for tool in grep dirname ln mkdir cat readlink cmp basename diff; do
+            cp "$(command -v "$tool")" "$HOME/isolated path/"
+        done
+        cp "$(dirname "$(command -v ln)")"/*.dll "$HOME/isolated path/"
+        export PATH="$HOME/isolated path:$(dirname "$(command -v go)"):$(dirname "$(command -v git)")"
+    else
+        for tool in go grep git dirname ln mkdir cat readlink cmp basename diff; do
+            ln -s "$(command -v "$tool")" "$HOME/isolated path/$tool"
+        done
+        export PATH="$HOME/isolated path"
+    fi
     cd "$outside"
 }
 
 installer() { run_docflow /bin/bash "$checkout/tools/install-dev.sh" --no-skills "$@"; }
 
-installed_cli() { run_docflow "$bin_dir/docflow" "$@"; }
-export plan
+installed_cli() { run_docflow "$bin_dir/docflow$e2e_exe" "$@"; }
+export plan e2e_exe

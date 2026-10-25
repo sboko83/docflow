@@ -33,9 +33,22 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Windows programs need these to find the system, a temp directory and the
+# user profile; env -i drops them. USERPROFILE and TMP follow the sandbox.
+win_env=()
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        win_env=("SYSTEMROOT=${SYSTEMROOT:-}" "COMSPEC=${COMSPEC:-}"
+            "PATHEXT=${PATHEXT:-}" "WINDIR=${WINDIR:-}" "GOCACHE=$(go env GOCACHE)" "MSYS=winsymlinks:nativestrict")
+        ;;
+esac
+
 run_scenario() {
     local binary="$1" scenario="$2" output="$3" baseline="$4" peer="$5"
-    local code=0
+    local code=0 win_sandbox=()
+    if [ "${#win_env[@]}" -gt 0 ]; then
+        win_sandbox=("USERPROFILE=$work/sandbox/home" "TMP=$work/sandbox/tmp" "TEMP=$work/sandbox/tmp")
+    fi
     # Recreate HOME, CODEX_HOME and the fixture at identical paths, including
     # between scenarios. Logs live outside the disposable sandbox.
     rm -rf "$work/sandbox"
@@ -45,6 +58,7 @@ run_scenario() {
         cd "$work/sandbox/repo"
         env -i PATH="$PATH" HOME="$work/sandbox/home" \
             CODEX_HOME="$work/sandbox/codex" TMPDIR="$work/sandbox/tmp" \
+            ${win_env[@]+"${win_env[@]}"} ${win_sandbox[@]+"${win_sandbox[@]}"} \
             XDG_CONFIG_HOME="$work/sandbox/home/.config" \
             LC_ALL=C TZ=UTC TERM=dumb DOCFLOW_NOTIFY=0 DOCFLOW_SKILLS_CHECK=0 \
             GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \

@@ -48,7 +48,10 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P) \
     || fail 'cannot locate tools directory'
 REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd -P) \
     || fail 'cannot locate checkout'
-SOURCE="$REPO_DIR/bin/docflow"
+# Windows executables carry .exe: LookPath and doctor need it on PATH.
+EXE=
+case "${OSTYPE:-}" in msys*|cygwin*) EXE=.exe ;; esac
+SOURCE="$REPO_DIR/bin/docflow$EXE"
 GO_MOD="$REPO_DIR/go.mod"
 MAIN_SOURCE="$REPO_DIR/cmd/docflow/main.go"
 [ -f "$GO_MOD" ] || fail "incomplete checkout: missing $GO_MOD"
@@ -81,7 +84,7 @@ check_path_components() {
     done
 }
 check_path_components "$BIN_DIR"
-TARGET="$BIN_DIR/docflow"
+TARGET="$BIN_DIR/docflow$EXE"
 
 resolve_path() {
     local path="$1" link parent

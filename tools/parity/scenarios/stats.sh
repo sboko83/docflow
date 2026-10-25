@@ -16,7 +16,8 @@ cat >.git/docflow/stats/P001.1.1.json <<'EOF'
 }
 EOF
 
-project_path="$(pwd -P | sed 's/[^A-Za-z0-9]/-/g')"
+# Native Windows names Claude project directories from the Windows path.
+project_path="$({ pwd -W 2>/dev/null || pwd -P; } | sed 's/[^A-Za-z0-9]/-/g')"
 transcripts="$HOME/.claude/projects/$project_path"
 mkdir -p "$transcripts"
 cat >"$transcripts/session.jsonl" <<'EOF'

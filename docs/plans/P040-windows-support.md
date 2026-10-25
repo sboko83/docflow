@@ -94,6 +94,7 @@ comments and `CHANGELOG.md` are in English.
 - The process tree is killed with `taskkill /T /F /PID` — stdlib only —
   Job Objects were rejected: they need `syscall` DLL calls.
 - Git root for bash.exe is one or two levels above the directory of git.exe from PATH — inside Git Bash PATH yields <root>\mingw64\bin\git.exe, so a cmd\|bin-only rule falls back to cmd.exe in the most common launch — checking only <root>\cmd and <root>\bin was rejected.
+- The harness exports MSYS=winsymlinks:nativestrict on Windows — a silent file copy instead of a link made the install-dev scenarios fail far from the cause — a skip of those scenarios on Windows was rejected.
 
 ## Phase 1: Tests on Windows
 
@@ -198,7 +199,7 @@ Handoff:
 - The OS-neutral fixes were docflow: 2 -> 3 only: no fixture has fallback:, so the 2 -> 3 migration changes only the marker. MigrateLegacy downgrades with 's/^docflow: [0-9]*$/docflow: 1/' because init now writes docflow: 3.
 - Unverified: the e2e run on Linux and macOS — CI runs it only after a push; the scenarios blocked by Windows causes (agents, bootstrap) may still hide OS-neutral failures.
 
-### [ ] P040.1.3 Pass the e2e scenarios and add Windows to CI
+### [x] P040.1.3 Pass the e2e scenarios and add Windows to CI
 Read:
 - tools/parity/README.md
 - tools/parity/run.sh
@@ -221,6 +222,10 @@ Do:
 - Update the run command in `tools/parity/README.md` with the `.exe` form.
 Verify: `go build -o bin/docflow.exe ./cmd/docflow && bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe && grep -q windows-latest .github/workflows/ci.yml`
 Commit: P040.1.3: pass e2e scenarios on Windows, add Windows CI
+Handoff:
+- Windows e2e: 68 of 68 scenarios pass in Git Bash with claude, codex and pi removed from PATH (31 failed before). Fixes: run.sh passes SYSTEMROOT, COMSPEC, PATHEXT, WINDIR, GOCACHE, MSYS=winsymlinks:nativestrict and points USERPROFILE, TMP, TEMP at the sandbox; parity_shim (driver.sh) fronts the bash fake agents with .cmd so exec.LookPath finds them (run_replan and e2e.sh use it); agents.toml fakes use cygpath -m paths; checkout_fixture copies MSYS tools and DLLs instead of linking and adds the go and git directories to PATH; stats.sh takes the project path from pwd -W.
+- Product fixes: internal/skills expandUser splits ~/ on / as well as the OS separator (test added; the matching P040.3.1 bullet is removed); tools/install-dev.sh builds and links docflow.exe on Windows (OSTYPE check, uname is not on the isolated PATH), so doctor finds docflow on PATH; install-dev scenarios use $e2e_exe.
+- The 10 install-dev scenarios create real symlinks (MSYS=winsymlinks:nativestrict): they need Developer Mode or an elevated shell, otherwise ln fails loudly. install-dev.sh itself still calls ln -s without that variable, so a plain Git Bash copies the file and skills are not found next to it — outside this unit.
 
 ## Phase 2: Live run on Windows
 
@@ -281,10 +286,6 @@ Do:
   accepts a junction as well as a symlink.
 - Removing old versions skips a directory still in use (the running
   `docflow.exe`) with one warning line instead of failing.
-- `expandUser` in `internal/skills` splits `~/...` on `filepath.Separator`
-  only, so on Windows `~/.docflow` reads as user `/.docflow` and
-  `install-skills` fails with `user "/.docflow" does not exist`: accept
-  `/` as well, with a test.
 - Remove the `windows: P040.3.1` skips.
 - Tests on Windows, without Developer Mode: activate twice (switch
   `current`), update cleanup with a locked file, skills linking and

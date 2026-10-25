@@ -46,6 +46,17 @@ peer_docflow() {
     run_docflow "$parity_peer" "$@"
 }
 
+# Native Windows programs find only .exe/.cmd on PATH: front a fake agent script
+# "$HOME/bin/<name>" with a .cmd that runs it through Git Bash. No-op elsewhere.
+parity_shim() {
+    case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ;; *) return 0 ;; esac
+    local name bash_path
+    bash_path="$(cygpath -m "$(command -v bash)")"
+    for name in "$@"; do
+        printf '@"%s" "%%~dp0%s" %%*\r\n' "$bash_path" "$name" >"$HOME/bin/$name.cmd"
+    done
+}
+
 # Call once at the beginning of every scenario; add fixtures with shell/git.
 parity_repo() {
     git -c init.templateDir= init -q -b main

@@ -11,6 +11,7 @@ bash tools/parity/run.sh bin/docflow bin/docflow      # e2e-прогон одн�
 bash tools/parity/run.sh bin/docflow bin/docflow-old  # сравнение двух сборок
 bash tools/parity/run.sh bin/docflow-old              # против свежесобранного bin/docflow-go
 PARITY_SKIP='help' bash tools/parity/run.sh bin/docflow bin/docflow
+bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe  # Windows, Git Bash
 ```
 
 Аргументы — пути к исполняемым файлам. `PARITY_SKIP` содержит имена сценариев
@@ -50,6 +51,15 @@ docflow status || [ "$?" -eq 1 ]
 и прогон останавливается. Временные каталоги удаляются при выходе.
 
 ## E2E-сценарии
+
+**Windows (Git Bash).** Бинарник собирается как `bin/docflow.exe`. Харнесс
+передаёт в чистое окружение `SYSTEMROOT`, `COMSPEC`, `PATHEXT`, `WINDIR`,
+`GOCACHE`, а `USERPROFILE`, `TMP` и `TEMP` направляет в песочницу. Fake-агенты
+(`claude`, `codex`) — bash-скрипты; `parity_shim` кладёт рядом `.cmd`,
+который запускает их через Git Bash, иначе `exec.LookPath` их не найдёт и
+сценарий вызовет реальный агент с PATH. Сценарии `install-dev.sh` создают
+символьные ссылки (`MSYS=winsymlinks:nativestrict`): нужен Developer Mode или
+права администратора, иначе `ln` завершится ошибкой, а не скопирует файл.
 
 Перенесённые acceptance-сюиты используют имена
 `test_<suite>__<Class>__test_<case>.sh`. Каждый файл воспроизводит шаги

@@ -145,7 +145,8 @@ func expandUser(path string) (string, error) {
 	if path == "" || path[0] != '~' {
 		return path, nil
 	}
-	separator := strings.IndexRune(path, filepath.Separator)
+	// "/" separates on every OS: Windows reads "~/.docflow" as ~ plus a path.
+	separator := strings.IndexAny(path, "/"+string(filepath.Separator))
 	userPart, rest := path[1:], ""
 	if separator >= 0 {
 		userPart, rest = path[1:separator], path[separator+1:]

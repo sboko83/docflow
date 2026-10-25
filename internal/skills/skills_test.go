@@ -726,3 +726,16 @@ func TestSkillsWarningsMissingStaleAgentAndDisableSwitch(t *testing.T) {
 		t.Fatalf("StaleHint(claude) = %q", got)
 	}
 }
+
+func TestExpandUserAcceptsSlashAfterTilde(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	got, err := expandUser("~/.docflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".docflow"); got != want {
+		t.Fatalf("expandUser(~/.docflow) = %q, want %q", got, want)
+	}
+}
