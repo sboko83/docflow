@@ -209,7 +209,7 @@ Handoff:
 - Поток JSONL v1 реализован; схема и совместимость описаны в runner.md, CHANGELOG обновлён.
 - На macOS прошли полный docflow verify P038.3.1, gate go test ./... и git diff --check. Коммит оставлен раннеру.
 
-### [ ] P038.3.2 Close a ready plan with run --close
+### [x] P038.3.2 Close a ready plan with run --close
 Read:
 - cmd/docflow/main.go:L125-145
 - cmd/docflow/main.go:L295-310
@@ -253,6 +253,8 @@ runner never runs `docflow close` itself — the agent does, by the skill.
 Depends: P038.3.1
 Role: heavy
 Commit: P038.3.2: add run --close
+Handoff:
+- На macOS полный verify прошёл вне песочницы; внутри неё существующие signal-тесты сообщают выживших detached-потомков. Коммит оставлен раннеру.
 
 ## Phase 4: Acceptance
 

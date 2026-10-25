@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docflow run --close` asks an agent to archive a ready plan, checks the
+  documentation changes and lint, and commits the closure. Dry runs show
+  the close route; call logs and a `close` event record the operation.
 - `docflow run` writes a versioned JSONL event stream beside its call logs,
   covering attempts, quota, route switches, replans, verification and commits;
   stream failures warn once without stopping the run.

@@ -97,13 +97,17 @@ func runDir(root string) (string, error) {
 }
 
 func nextRunCallLog(logs, uid string, replan bool) (string, error) {
-	entries, err := os.ReadDir(logs)
-	if err != nil {
-		return "", err
-	}
 	prefix := uid + "."
 	if replan {
 		prefix += "replan"
+	}
+	return nextCallLog(logs, prefix)
+}
+
+func nextCallLog(logs, prefix string) (string, error) {
+	entries, err := os.ReadDir(logs)
+	if err != nil {
+		return "", err
 	}
 	max := 0
 	for _, entry := range entries {
@@ -116,10 +120,7 @@ func nextRunCallLog(logs, uid string, replan bool) (string, error) {
 			max = number
 		}
 	}
-	if replan {
-		return filepath.Join(logs, fmt.Sprintf("%s.replan%d.out", uid, max+1)), nil
-	}
-	return filepath.Join(logs, fmt.Sprintf("%s.%d.out", uid, max+1)), nil
+	return filepath.Join(logs, fmt.Sprintf("%s%d.out", prefix, max+1)), nil
 }
 
 func stopFile(root string) (string, error) {

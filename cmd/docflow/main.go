@@ -134,6 +134,7 @@ func runArguments() []argument {
 		integer("--max-units", "N", "stop after N units", nil),
 		flag("--no-wait", "stop instead of waiting out a usage limit"),
 		flag("--no-notify", "skip the end-of-run desktop notification"),
+		flag("--close", "ask an agent to close the plan when ready"),
 		flag("--dry-run", "show the next unit and the agent command"),
 		flag("--all", "with --dry-run: the agent, model and effort of every unit still to do"),
 		option("--plan", "ID", "with --dry-run: read this draft, active or frozen plan instead of the Queue"),
@@ -302,7 +303,7 @@ func handleRun(parsed *parsedArgs, stdout, stderr io.Writer) error {
 	if n, ok := v["--max-units"].(int); ok {
 		maxUnits = &n
 	}
-	args := runner.Args{RunArgs: agents.RunArgs{Config: str("--config"), Agent: str("--agent"), Model: str("--model"), Effort: str("--effort"), Plan: str("--plan")}, Attempts: attempts, Replans: replans, MaxUnits: maxUnits, NoWait: flag("--no-wait"), NoNotify: flag("--no-notify"), DryRun: flag("--dry-run"), All: flag("--all"), PrintConfig: flag("--print-config"), Yes: flag("--yes"), Verbose: flag("-v --verbose"), Stop: flag("--stop")}
+	args := runner.Args{RunArgs: agents.RunArgs{Config: str("--config"), Agent: str("--agent"), Model: str("--model"), Effort: str("--effort"), Plan: str("--plan")}, Attempts: attempts, Replans: replans, MaxUnits: maxUnits, NoWait: flag("--no-wait"), NoNotify: flag("--no-notify"), Close: flag("--close"), DryRun: flag("--dry-run"), All: flag("--all"), PrintConfig: flag("--print-config"), Yes: flag("--yes"), Verbose: flag("-v --verbose"), Stop: flag("--stop")}
 	root := ""
 	if !args.PrintConfig {
 		var err error

@@ -26,9 +26,9 @@ import (
 
 type Args struct {
 	agents.RunArgs
-	Attempts, Replans                                              int
-	MaxUnits                                                       *int
-	NoWait, NoNotify, DryRun, All, PrintConfig, Yes, Verbose, Stop bool
+	Attempts, Replans                                                     int
+	MaxUnits                                                              *int
+	NoWait, NoNotify, DryRun, All, PrintConfig, Yes, Verbose, Stop, Close bool
 }
 
 type unitRow struct {
@@ -118,7 +118,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 			return 2, runError("run: --" + flag.name + " needs --dry-run; a run takes the current unit of the Queue")
 		}
 	}
-	sel, err := agents.RunSelection(root, args.RunArgs)
+	sel, err := runSelection(root, args)
 	if err != nil {
 		return 2, err
 	}
@@ -162,7 +162,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		return 2, err
 	}
 	_ = os.Remove(stop)
-	if sel.Kind == "unit" {
+	if sel.Kind == "unit" || sel.Kind == "close" {
 		warnings, err := skills.SkillsWarnings(skillDirectory, root, agents.PlanAgents(config, sel.Plan, args.RunArgs))
 		if err != nil {
 			return 2, err
@@ -228,21 +228,19 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 	planID, done := "", 0
 	replans := map[string]int{}
 	unavailable := make(map[string]time.Time)
+	end := func(id, why string) (int, error) {
+		return runEnd(ctx, root, id, args, config, p, totals, why, unavailable)
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		sel, err := agents.RunSelection(root, agents.RunArgs{})
+		selectionArgs := args
+		selectionArgs.RunArgs = agents.RunArgs{}
+		selectionArgs.Close = args.Close && planID == ""
+		sel, err := runSelection(root, selectionArgs)
 		if err != nil {
 			return 2, err
-		}
-		maxed := args.MaxUnits != nil && done >= *args.MaxUnits
-		if planID != "" && (sel.Plan == nil || sel.Plan.Meta["id"] != planID || sel.Kind == "nothing" || maxed) {
-			why := "plan finished"
-			if maxed {
-				why = fmt.Sprintf("--max-units %d", *args.MaxUnits)
-			}
-			return runEnd(root, planID, p, totals, why)
 		}
 		stop, err := stopFile(root)
 		if err != nil {
@@ -250,7 +248,15 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 		}
 		if _, err := os.Stat(stop); planID != "" && err == nil {
 			p.line("run: stopped on request", false, "")
-			return runEnd(root, planID, p, totals, "stopped on request")
+			return end(planID, "stopped on request")
+		}
+		maxed := args.MaxUnits != nil && done >= *args.MaxUnits
+		if planID != "" && (sel.Plan == nil || sel.Plan.Meta["id"] != planID || sel.Kind == "nothing" || maxed) {
+			why := "plan finished"
+			if maxed {
+				why = fmt.Sprintf("--max-units %d", *args.MaxUnits)
+			}
+			return end(planID, why)
 		}
 		if sel.Kind == "blocked" {
 			p.line(sel.Unit.ID+" is blocked", true, "")
@@ -260,7 +266,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 			}
 			return 3, nil
 		}
-		if sel.Kind == "nothing" || (args.MaxUnits != nil && *args.MaxUnits == 0) {
+		if sel.Kind == "nothing" || (sel.Kind != "close" && args.MaxUnits != nil && *args.MaxUnits == 0) {
 			p.line("nothing to do", true, "")
 			totals.notification = "nothing to do"
 			return 1, nil
@@ -273,6 +279,9 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 				return 2, err
 			}
 			p.close()
+		}
+		if sel.Kind == "close" {
+			return end(planID, "plan finished")
 		}
 		totals.mu.Lock()
 		totals.unit = sel.Unit.ID
@@ -365,6 +374,16 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 			add(quotaName(route))
 		}
 	}
+	if args.Close {
+		chain, err := closeExecutorChain(config, plan, args.RunArgs, unavailable)
+		if err != nil {
+			return err
+		}
+		routes = append(routes, chain.routes...)
+		for _, route := range chain.routes {
+			add(quotaName(route))
+		}
+	}
 	// The replan agent runs only after a block, but its quota still matters
 	// for the run; a bad replan route is reported when replan starts.
 	if len(units) > 0 && plan.Meta["replan"] != "" && args.Replans >= 1 {
@@ -410,25 +429,24 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 	return nil
 }
 
-func runEnd(root, id string, p *Progress, totals *runTotals, why string) (int, error) {
+func runEnd(ctx context.Context, root, id string, args Args, config map[string]any, p *Progress, totals *runTotals, why string, unavailable map[string]time.Time) (int, error) {
 	plan, err := cycle.FindPlan(root, id)
 	if err != nil {
 		return 2, err
 	}
-	ready := true
-	for _, u := range plan.Units {
-		pending, err := cycle.CommitPending(root, plan, u)
-		if err != nil {
-			return 2, err
-		}
-		if !doneStatus(u.Status) || pending {
-			ready = false
-			break
-		}
+	ready, err := planReady(root, plan)
+	if err != nil {
+		return 2, err
 	}
 	if ready {
+		stopped := why == "stopped on request"
 		why = id + ": ready to close"
 		p.line(why, false, "")
+		if args.Close && !stopped {
+			code, err := runClose(ctx, root, args, config, plan, p, totals, unavailable)
+			runSummary(p, totals)
+			return code, err
+		}
 	}
 	totals.notification = why
 	runSummary(p, totals)
@@ -1046,8 +1064,16 @@ func unitDetail(root string, p *Progress, totals *runTotals) error {
 }
 
 func dryRun(root string, args Args, config map[string]any, sel cycle.Selection, stdout, stderr io.Writer) (int, error) {
+	if sel.Kind == "close" {
+		fmt.Fprintf(stdout, "plan: %s %s (ready to close)\npermissions: %s\n", sel.Plan.Meta["id"], sel.Plan.Meta["title"], format.PlanPermissions(sel.Plan))
+		return 0, closeRouteLine(args, config, sel.Plan, stdout)
+	}
 	if args.All {
-		return dryRunAll(args, config, sel.Plan, stdout, stderr)
+		code, err := dryRunAll(args, config, sel.Plan, stdout, stderr)
+		if code == 0 && err == nil {
+			err = closeRouteLine(args, config, sel.Plan, stdout)
+		}
+		return code, err
 	}
 	if sel.Kind == "blocked" {
 		fmt.Fprintln(stderr, sel.Unit.ID+" is blocked")
@@ -1087,7 +1113,7 @@ func dryRun(root string, args Args, config map[string]any, sel cycle.Selection, 
 		text = "prompt " + marker
 	}
 	fmt.Fprintln(stdout, "stdin: "+text)
-	return 0, nil
+	return 0, closeRouteLine(args, config, sel.Plan, stdout)
 }
 
 func dryRunAll(args Args, config map[string]any, plan *format.Plan, stdout, stderr io.Writer) (int, error) {

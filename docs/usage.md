@@ -580,6 +580,20 @@ trusted = true                 # claude уходит в запас acceptance и
 
 ## Закрытие
 
+`docflow run --close` поручает агенту закрыть план после последнего юнита
+или сразу, если план уже `ready to close` при старте. Используется цепочка
+`cheap:`, без неё — `executor:` + `fallback:`; маршрут виден в
+`docflow run --dry-run --close`. Без `--close` раннер оставляет готовый план
+для отдельного закрытия.
+
+Агент следует `bsv-docflow-close` и сам выполняет шаги ниже. Раннер проверяет
+удаление файла плана, наличие архивной записи, `docflow lint` и допустимые
+пути изменений (`docs/`, `CHANGELOG.md`, `README.md`, `README.ru.md`), затем
+коммитит `<id>: close plan`. Провал проверки — код 2 со списком причин;
+изменения сохраняются для исправления. Вызовы записаны в
+`<git-dir>/docflow/run/<id>.close<N>.out`, результат — в событии `close`
+[потока JSONL](design/runner.md).
+
 1. `docflow status` пишет `ready to close` — все юниты `[x]`/`[-]`.
 2. Ссылки на `docs/plans/Pxxx…` переводятся на будущую архивную запись.
 3. `docflow close Pxxx` — архивная запись с перенесёнными `## Decisions`;
