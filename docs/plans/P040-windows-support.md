@@ -27,8 +27,10 @@ comments and `CHANGELOG.md` are in English.
 ## Constraints
 
 - Go standard library only; no new dependencies. Windows API calls only
-  through `os/exec` of system tools (`taskkill`, `powershell`), no
-  `syscall` DLL loading.
+  through `os/exec` of system tools (`taskkill`, `powershell`,
+  `cmd /c mklink /J`), no `syscall` DLL loading.
+- Installing and running docflow on Windows needs no Developer Mode and
+  no administrator rights.
 - macOS and Linux behavior stays unchanged; `go test ./...` keeps passing
   there.
 - Plan format stays `docflow: 3`.
@@ -44,8 +46,6 @@ comments and `CHANGELOG.md` are in English.
   `C:\Windows\System32\bash.exe` (WSL): `bash -c "uname -s | grep -q MINGW"`
 - The checkout is cloned with `core.autocrlf=false` and P039 is closed:
   `test -f docs/archive/P039-e2e-and-live-checks.md`
-- Developer Mode is on (Settings → System → For developers): unprivileged
-  symlinks for `~/.docflow/current` and skill links
 - `claude` and `codex` are installed and logged in on the subscription;
   units P040.2.1 and P040.4.1 spend a few tiny Haiku and Codex calls
 
@@ -67,9 +67,14 @@ comments and `CHANGELOG.md` are in English.
   Git for Windows `bash -c` — plans are written in POSIX sh by agents on
   any OS — `cmd.exe` as the only shell was rejected; it stays the fallback
   when Git Bash is not found.
-- The Windows layout keeps `versions/`, the `current` symlink and
-  `bin/docflow.exe`, and requires Developer Mode — one layout for all OS —
-  junctions or binary copies were rejected as a second code path.
+- On Windows `current` and personal skill links are directory junctions
+  (`cmd /c mklink /J`, absolute target), and the user `Path` holds
+  `%USERPROFILE%\.docflow\current` instead of `bin/` — junctions need no
+  privilege, and `Path` through `current` needs no executable link — file
+  and directory symlinks were rejected: unprivileged ones need Developer
+  Mode, a system setting no CLI install should require; a copied
+  `bin/docflow.exe` was rejected: replacing a running executable needs a
+  rename-aside step that `current` makes unnecessary.
 - `install.sh` runs in Git Bash and stays the only installer — Git for
   Windows is required anyway — a separate `install.ps1` was rejected.
 - Release archives stay `.tar.gz` on Windows — one extractor in Go,
@@ -177,29 +182,40 @@ Read:
 - internal/release/release.go:L1-60
 - internal/release/release.go:L376-500
 - cmd/docflow/release.go:L1-120
-- internal/skills/skills.go:L470-510
+- internal/skills/skills.go:L445-510
+- cmd/docflow/release.go:L290-320
 - docs/design/cli.md:L55-95
 Do:
 - `tools/release.sh`: add `windows/amd64` and `windows/arm64`; the archive
   `docflow_windows_<arch>.tar.gz` holds `docflow.exe`, `LICENSE`,
   `skills/`.
 - `internal/release`: the binary name is `docflow` + `.exe` on Windows
-  everywhere (`Activate`, `bin/` link `..\current\docflow.exe`, the
-  extract check, `InstalledExecutable`).
-- `Activate` on Windows: replace `current` by removing the old link and
-  creating the new one (a rename over a directory link fails there);
-  a symlink privilege error → an error naming Developer Mode.
+  everywhere (`Activate`, the extract check, `InstalledExecutable`).
+- One link helper for directory links: Unix `os.Symlink` as now; Windows
+  `cmd /c mklink /J <link> <absolute target>`. `Activate` and
+  `install-skills` use it.
+- `Activate` on Windows: replace `current` by removing the old junction
+  and creating the new one (a rename over a directory link fails there);
+  no `bin/` link — `Path` points at `current` (P040.3.2).
+- Every place that recognizes docflow's own links (`Activate`'s check of
+  `current`, `install-skills` re-linking, `uninstall` removing skill
+  links, `update`'s check that the running binary is under `versions/`)
+  accepts a junction as well as a symlink.
 - Removing old versions skips a directory still in use (the running
   `docflow.exe`) with one warning line instead of failing.
-- `install-skills`: a symlink privilege error → the same Developer Mode
-  error; remove the `windows: P040.3.1` skips.
-- Tests on Windows: activate twice (switch `current`), update cleanup with
-  a locked file, skills linking in a temporary `USERPROFILE`.
+- Remove the `windows: P040.3.1` skips.
+- Tests on Windows, without Developer Mode: activate twice (switch
+  `current`), update cleanup with a locked file, skills linking and
+  uninstall in a temporary `USERPROFILE`.
 - Update `docs/design/cli.md`: the platforms list and the Windows layout
-  with the Developer Mode requirement.
+  (junctions, no `bin/`, no Developer Mode).
 Verify: `go test ./internal/release ./internal/skills ./cmd/docflow && bash tools/release.sh 0.0.1 bin/release-test && test -f bin/release-test/docflow_windows_amd64.tar.gz`
 Traps: `tools/release.sh` arguments and output layout are described in
 `docs/design/cli.md`; check them before calling it, `bin/` is gitignored.
+Since Go 1.23 `os.Lstat` reports a junction as `ModeIrregular`, not
+`ModeSymlink`; check `os.Readlink` and `filepath.EvalSymlinks` on a
+junction in a test before relying on them. `os.Remove` on a junction
+removes the link, not its target — keep a test for that.
 Commit: P040.3.1: ship and activate Windows releases
 
 ### [ ] P040.3.2 Install, update and uninstall from Git Bash
@@ -216,7 +232,7 @@ Do:
 - `install.sh`: `MINGW*`, `MSYS*`, `CYGWIN*` from `uname -s` → `windows`;
   check and run `docflow.exe` from the unpacked archive.
 - `EnsurePath`/`RemovePath` on Windows: add or remove
-  `%USERPROFILE%\.docflow\bin` in the user `Path` through
+  `%USERPROFILE%\.docflow\current` in the user `Path` through
   `powershell -NoProfile -Command` with
   `[Environment]::GetEnvironmentVariable('Path','User')` and
   `SetEnvironmentVariable(..., 'User')`; never `setx` (it truncates at
@@ -227,8 +243,8 @@ Do:
 - CI: drop the `if: runner.os != 'Windows'` from the `test-install.sh`
   step; in `release.yml` add `windows-latest` to the smoke matrix with
   `shell: bash`.
-- README.md and README.ru.md: the install command for Windows (Git Bash)
-  and the Developer Mode requirement; `CHANGELOG.md` `### Added` entry.
+- README.md and README.ru.md: the install command for Windows (Git Bash);
+  `CHANGELOG.md` `### Added` entry.
 Verify: `bash -n install.sh && bash -n tools/test-install.sh && bash tools/test-install.sh && go test ./internal/release ./cmd/docflow`
 Traps: the test override for the user `Path` must be an environment
 variable read only by `EnsurePath`/`RemovePath`, so a test run never
