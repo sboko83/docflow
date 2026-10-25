@@ -1,5 +1,5 @@
 ---
-docflow: 2
+docflow: 3
 read_budget: 40000
 start_read: README.md, docs/design/README.md
 start_budget: 4000
@@ -34,8 +34,6 @@ start_budget: 4000
 - Составить план холодным агентом по `bsv-docflow-plan` с ростером:
   удаляет ли `replan:` после `roster apply`, ставит ли `Role: acceptance`
   и ревью после фаз провайдера с `check` ([P036](archive/P036-roster.md)).
-- Перевести `docs/docflow.md` этого репозитория на `docflow: 3` после
-  выпуска ([P036](archive/P036-roster.md)).
 - База диффа фазы в `prompt` юнита ревью: сейчас `Do:` вычисляет её
   `git log --grep='^Pxxx\.N\.'` ([P036](archive/P036-roster.md)).
 - Передача контекста при смене маршрута: новая сессия получает только
