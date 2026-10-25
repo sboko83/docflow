@@ -20,6 +20,7 @@ internal/agents/agents_test.go:email
 internal/cycle/commit_test.go:email
 internal/cycle/cycle_test.go:email
 internal/cycle/verify_test.go:email
+internal/roster/apply_test.go:email
 internal/runner/run_test.go:email
 tools/parity/driver.sh:email
 tools/parity/e2e.sh:email
