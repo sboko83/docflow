@@ -203,6 +203,10 @@ Do:
   accepts a junction as well as a symlink.
 - Removing old versions skips a directory still in use (the running
   `docflow.exe`) with one warning line instead of failing.
+- `expandUser` in `internal/skills` splits `~/...` on `filepath.Separator`
+  only, so on Windows `~/.docflow` reads as user `/.docflow` and
+  `install-skills` fails with `user "/.docflow" does not exist`: accept
+  `/` as well, with a test.
 - Remove the `windows: P040.3.1` skips.
 - Tests on Windows, without Developer Mode: activate twice (switch
   `current`), update cleanup with a locked file, skills linking and
