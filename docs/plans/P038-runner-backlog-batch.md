@@ -17,8 +17,7 @@ replan: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
 
 `install-dev.sh` switches skills over a release install, the gate loses its
 60-second test, a route switch and a review unit get the context they now
-recompute, the run summary tells subscription from API spend, the runner
-writes an event stream, and `docflow run --close` closes a ready plan
+recompute, the runner writes an event stream, and `docflow run --close` closes a ready plan
 through an agent.
 
 ## Context
@@ -31,8 +30,7 @@ code, comments and `CHANGELOG.md` are in English.
 
 - Go standard library only; no new dependencies.
 - Plan format stays `docflow: 3`: no new plan header keys or unit fields.
-  New CLI flags and agent-config keys are allowed; the agent-config key
-  changes `docs/usage.md#конфиг-агентов` in the same unit.
+  New CLI flags are allowed.
 - A changed decision is edited in its `docs/design/` topic in the same
   unit; the "why" of a new decision goes to `## Decisions` of this plan.
 - Tests never touch the real `~/.docflow`, `~/.claude`, `~/.codex` or
@@ -96,7 +94,7 @@ Depends: -
 Role: cheap
 Commit: P038.1.1: relink release skills, shorten timeout test
 
-## Phase 2: Prompt context and spend
+## Phase 2: Prompt context
 
 ### [ ] P038.2.1 Carry work context across a route switch
 Read:
@@ -159,43 +157,6 @@ Traps: the subject prefix match must be anchored (`P038.2.` must not
 match `P038.21.` or a `P038: replan` commit).
 Depends: -
 Commit: P038.2.2: add phase diff base to review prompt
-
-### [ ] P038.2.3 Tell subscription spend from API spend
-Read:
-- internal/agentio/usage.go
-- internal/agents/agents.go:L40-140
-- internal/runner/run.go:L30-90
-- internal/runner/run.go:L405-445
-- internal/runner/progress.go:L641-667
-- internal/agentio/testdata/claude.jsonl
-- docs/design/runner.md:L315-370
-- docs/usage.md:L420-493
-Do:
-- Add a billing value per route: kind `subscription`, `api` or unknown,
-  plus a display name.
-- Claude: read `apiKeySource` from the stream `init` event of each call —
-  `none` → subscription named `Claude`, any other value → API.
-- Codex: run `codex login status` once per run per codex route, cached in
-  the run; "ChatGPT" in its output → subscription named `ChatGPT`, an API
-  key → API; a failing or unparsable command → unknown.
-- pi: add the optional agent-config preset key `subscription = "<name>"`;
-  present → subscription with that name, absent → API. Register the key
-  in the config schema next to `timeout`.
-- Run summary and unit rows: print `$<sum>` only for API rows; a
-  subscription row prints its name instead of the sum; unknown keeps
-  today's `$` output. The run total sums API rows only.
-- Tests: a fake claude init event with `apiKeySource: "none"` and with a
-  key source; a fake `codex` binary answering `login status` both ways; a
-  pi preset with and without `subscription`; the summary line for each.
-- Update `docs/design/runner.md` (summary format) and the agent-config
-  reference in `docs/usage.md`.
-Verify: `go test -count=1 ./internal/agentio ./internal/agents ./internal/runner`
-Traps: `codex login status` must run with the run's environment
-(`CODEX_HOME`), not a fixed home; in tests it is the fake binary on
-`PATH`.
-Depends: -
-Role: heavy
-Commit: P038.2.3: show subscription instead of cost for subscription routes
 
 ## Phase 3: Event stream and close
 
@@ -296,8 +257,6 @@ Do:
     the last message of the refused agent;
   - a review unit's prompt from `docflow prompt` carries `## Phase diff`
     with the base before the phase's first commit;
-  - the run summary prints the subscription name for a claude route with
-    `apiKeySource: "none"` and `$` for an API route;
   - the run writes `<run-id>.events.jsonl` with `run_start` … `run_end`
     and a `route_switch` between them;
   - `run --close` on a plan with every unit done ends with the plan in
@@ -312,6 +271,6 @@ Do:
 Verify: `go test -count=1 ./... && bash tools/test-install.sh`
 Traps: a failing scenario is fixed inside this unit when the fix is
 small; otherwise block with the reason.
-Depends: P038.1.1, P038.2.1, P038.2.2, P038.2.3, P038.3.1, P038.3.2
+Depends: P038.1.1, P038.2.1, P038.2.2, P038.3.1, P038.3.2
 Role: acceptance
 Commit: P038.4.1: accept runner backlog batch
