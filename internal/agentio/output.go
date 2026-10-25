@@ -247,10 +247,19 @@ func StreamEvent(agent map[string]any, value any) map[string]any {
 	kind := obj["type"]
 	if agent["stream"] == "codex" {
 		item := table(obj["item"])
-		if kind != "item.started" || item == nil {
+		if item == nil {
 			return nil
 		}
 		what := str(item["type"])
+		if kind == "item.completed" && what == "agent_message" {
+			if text := str(item["text"]); text != "" {
+				return map[string]any{"assistant_text": text}
+			}
+			return nil
+		}
+		if kind != "item.started" {
+			return nil
+		}
 		activity := ""
 		switch what {
 		case "command_execution":
@@ -275,6 +284,27 @@ func StreamEvent(agent map[string]any, value any) map[string]any {
 		}
 		return map[string]any{"activity": activity}
 	}
+	if agent["stream"] == "pi" {
+		if kind != "message_end" {
+			return nil
+		}
+		message := table(obj["message"])
+		if message == nil || message["role"] != "assistant" {
+			return nil
+		}
+		content, _ := message["content"].([]any)
+		var text strings.Builder
+		for _, value := range content {
+			item := table(value)
+			if item["type"] == "text" {
+				text.WriteString(str(item["text"]))
+			}
+		}
+		if text.Len() == 0 {
+			return nil
+		}
+		return map[string]any{"assistant_text": text.String()}
+	}
 	if agent["stream"] != "claude" {
 		return nil
 	}
@@ -294,9 +324,15 @@ func StreamEvent(agent map[string]any, value any) map[string]any {
 	}
 	if kind == "assistant" {
 		content, _ := table(obj["message"])["content"].([]any)
+		var text strings.Builder
+		activity := ""
 		for _, v := range content {
 			item := table(v)
-			if item["type"] != "tool_use" || item["name"] == "StructuredOutput" {
+			if item["type"] == "text" {
+				text.WriteString(str(item["text"]))
+				continue
+			}
+			if item["type"] != "tool_use" || item["name"] == "StructuredOutput" || activity != "" {
 				continue
 			}
 			args := table(item["input"])
@@ -311,7 +347,17 @@ func StreamEvent(agent map[string]any, value any) map[string]any {
 			if item["name"] != nil {
 				name = fmt.Sprint(item["name"])
 			}
-			return map[string]any{"activity": strings.TrimRight(name+" "+Clip(arg, 60), " ")}
+			activity = strings.TrimRight(name+" "+Clip(arg, 60), " ")
+		}
+		event := map[string]any{}
+		if text.Len() > 0 {
+			event["assistant_text"] = text.String()
+		}
+		if activity != "" {
+			event["activity"] = activity
+		}
+		if len(event) > 0 {
+			return event
 		}
 	}
 	return nil
@@ -332,7 +378,31 @@ func AgentText(agent map[string]any, data any, stdout string) string {
 	if text, ok := JSONPath(data, str(agent["text"])).(string); ok {
 		return text
 	}
+	if text, ok := JSONPath(data, "json:assistant_text").(string); ok {
+		return text
+	}
 	return stdout
+}
+
+// AssistantMessages extracts assistant text messages from a line-oriented
+// agent stream using the same event and text decoders as live output.
+func AssistantMessages(agent map[string]any, stdout string) []string {
+	var messages []string
+	for _, line := range strings.Split(stdout, "\n") {
+		obj := ParseLine(line)
+		if obj == nil {
+			continue
+		}
+		streamed := StreamEvent(agent, Event{Data: obj, Raw: line})
+		if streamed == nil {
+			continue
+		}
+		text := strings.TrimSpace(AgentText(agent, streamed, ""))
+		if text != "" {
+			messages = append(messages, text)
+		}
+	}
+	return messages
 }
 
 func ExtractResult(agent map[string]any, stdout string) map[string]any {

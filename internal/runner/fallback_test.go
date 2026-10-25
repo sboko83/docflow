@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +79,46 @@ func TestRunFallbackOnLimit(t *testing.T) {
 	}
 	if got := f.read("partial.txt"); got != "partial" {
 		t.Fatalf("work from the refused attempt was lost: %q", got)
+	}
+}
+
+func piContextLimitStep(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "agentio", "testdata", "pi-limit-zai.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refusalMessage := "Weekly/Monthly Limit Exhausted."
+	dataText := strings.Replace(string(data), `"content":[]`, `"content":[{"type":"text","text":"`+refusalMessage+`"}]`, 1)
+	assistant, err := json.Marshal(map[string]any{"type": "message_end", "message": map[string]any{
+		"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "I modified tracked.txt and confirmed the local work."}}, "stopReason": "stop",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "printf changed > tracked.txt\nprintf '%s\\n' " + shellQuote(`{"type":"session","id":"pi-session"}`) +
+		"\nprintf '%s' " + shellQuote(string(assistant)+"\n"+dataText) + "\n"
+}
+
+func TestRunFallbackCarriesRefusedAttemptContext(t *testing.T) {
+	f := fallbackExecutorRunFixture(t)
+	f.write("tracked.txt", "before\n")
+	f.commit("seed tracked file")
+	f.steps(piContextLimitStep(t), codexFallbackSuccessStep(f))
+	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
+	f.check(r, 0, "P001.1.1 done:", "switching to codex gpt-5.5")
+	calls := f.calls()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want pi refusal then codex success\n%s", len(calls), r.out)
+	}
+	previous := calls[1].Stdin
+	for _, want := range []string{"## Previous attempt", "### Working tree", "tracked.txt", "### Last messages", "I modified tracked.txt and confirmed the local work."} {
+		if !strings.Contains(previous, want) {
+			t.Fatalf("fallback prompt missing %q:\n%s", want, previous)
+		}
+	}
+	if strings.Contains(previous, "Weekly/Monthly Limit Exhausted.") {
+		t.Fatalf("fallback prompt contains the refusal message:\n%s", previous)
 	}
 }
 

@@ -99,7 +99,7 @@ Handoff:
 
 ## Phase 2: Prompt context
 
-### [ ] P038.2.1 Carry work context across a route switch
+### [x] P038.2.1 Carry work context across a route switch
 Read:
 - internal/runner/run.go:L440-460
 - internal/runner/run.go:L560-760
@@ -126,6 +126,9 @@ Do:
 Verify: `go test -count=1 ./internal/runner ./internal/agentio`
 Depends: -
 Commit: P038.2.1: pass diff and last messages on route switch
+Handoff:
+- Fallback and replan prompts share the same context block; its Git snapshot covers the root repository, not configured nested repositories.
+- Package tests and full `docflow verify P038.2.1` passed. The runner can proceed with `done` and `commit`.
 
 ### [ ] P038.2.2 Put the phase diff base into the review prompt
 Read:

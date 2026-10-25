@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `docflow install-skills` relinks personal skill links that still point
   into `~/.docflow/` when installing from another source; foreign paths remain conflicts.
+- `docflow run` gives a fallback executor the previous attempt's diff
+  summary, untracked paths, and recent assistant messages, excluding the refusal.
 
 ## [0.11.0] - 2026-10-25
 

@@ -80,6 +80,48 @@ func TestStreamQuotaAndActivity(t *testing.T) {
 	equal(t, StreamEvent(agent, obj(`{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"x":{"utilization":true}}}}`)), map[string]any(nil))
 }
 
+func TestAssistantMessages(t *testing.T) {
+	tests := []struct {
+		name   string
+		agent  string
+		stdout string
+		want   []string
+	}{
+		{
+			name:   "Claude",
+			agent:  "claude",
+			stdout: lines(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{map[string]any{"type": "text", "text": "claude message"}}}}),
+			want:   []string{"claude message"},
+		},
+		{
+			name:   "Codex",
+			agent:  "codex",
+			stdout: lines(map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "codex message"}}),
+			want:   []string{"codex message"},
+		},
+		{
+			name:   "Pi",
+			agent:  "pi",
+			stdout: lines(map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "pi message"}}}}),
+			want:   []string{"pi message"},
+		},
+		{
+			name:   "unknown format",
+			agent:  "",
+			stdout: `{"type":"assistant","text":"not decoded"}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var agent map[string]any
+			if test.agent != "" {
+				agent = profile(t, test.agent)
+			}
+			equal(t, AssistantMessages(agent, test.stdout), test.want)
+		})
+	}
+}
+
 func TestStreamQuotaSourceOrder(t *testing.T) {
 	raw := `{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"seven_day":{"utilization":0.1},"five_hour":{"utilization":0.2},"other":{"utilization":0.3}}}}`
 	equal(t, StreamEvent(profile(t, "claude"), Event{ParseLine(raw), raw}), map[string]any{"quota": Quota{{"seven_day", 0.1, nil}, {"five_hour", 0.2, nil}, {"other", 0.3, nil}}})

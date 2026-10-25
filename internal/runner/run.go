@@ -19,6 +19,7 @@ import (
 	"bsv-docflow/internal/clierrors"
 	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
+	"bsv-docflow/internal/gitx"
 	"bsv-docflow/internal/lint"
 	"bsv-docflow/internal/skills"
 )
@@ -444,8 +445,53 @@ func feedback(problem string) string {
 	return "Runner: " + problem + "\nFix it and finish with the result JSON.\nFix source issues; do not disable hooks, signing or checks, or change Git configuration to bypass a failure.\n"
 }
 
-func previousExecutorAttempt(route agents.Route, refusal *agentio.Refusal) string {
-	return fmt.Sprintf("\n## Previous attempt\n\nThe previous executor %s stopped after a provider %s refusal. The working tree may contain uncommitted work; continue it.\n", routeName(route), refusal.Kind)
+func previousExecutorAttempt(root string, route agents.Route, agent map[string]any, refusal *agentio.Refusal, run agentio.AgentRun) (string, error) {
+	diff, err := gitx.Git(root, "diff", "--stat", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	status, err := gitx.Git(root, "status", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	var tree []string
+	if text := strings.TrimRight(string(diff), "\r\n"); text != "" {
+		tree = append(tree, strings.Split(text, "\n")...)
+	}
+	for _, line := range strings.Split(strings.TrimRight(string(status), "\r\n"), "\n") {
+		if strings.HasPrefix(line, "?? ") {
+			tree = append(tree, line[3:])
+		}
+	}
+	if len(tree) == 0 {
+		tree = []string{"(no tracked diff or untracked paths)"}
+	}
+	if len(tree) > 40 {
+		more := len(tree) - 39
+		tree = append(tree[:39], fmt.Sprintf("… %d more", more))
+	}
+
+	var messages []string
+	for _, message := range agentio.AssistantMessages(agent, run.Stdout) {
+		refusalText := strings.TrimSpace(refusal.Text)
+		if refusalText != "" && (strings.Contains(refusalText, message) || strings.Contains(message, refusalText)) {
+			continue
+		}
+		messages = append(messages, message)
+	}
+	if len(messages) > 3 {
+		messages = messages[len(messages)-3:]
+	}
+
+	var prompt strings.Builder
+	fmt.Fprintf(&prompt, "\n## Previous attempt\n\nThe previous executor %s stopped after a provider %s refusal. The working tree may contain uncommitted work; continue it.\n\n### Working tree\n\n%s\n", routeName(route), refusal.Kind, strings.Join(tree, "\n"))
+	if len(messages) > 0 {
+		prompt.WriteString("\n### Last messages\n\n")
+		for _, message := range messages {
+			fmt.Fprintf(&prompt, "- %s\n", agentio.Clip(message, 600))
+		}
+	}
+	return prompt.String(), nil
 }
 
 func runUnit(ctx context.Context, root string, args Args, config map[string]any, chain *executorChain, uid string, p *Progress, totals *runTotals) (int, string, error) {
@@ -685,7 +731,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					totals.switches++
 					name, agent = route.Agent, profile(config, route.Agent)
 					timeout = agentCallTimeout(plan, agent)
-					prompt = runnerPrompt(root, plan, unit, agent, mode) + previousExecutorAttempt(previousRoute, refusal)
+					previous, err := previousExecutorAttempt(root, previousRoute, profile(config, previousRoute.Agent), refusal, run)
+					if err != nil {
+						return 2, "", err
+					}
+					prompt = runnerPrompt(root, plan, unit, agent, mode) + previous
 					session = ""
 					text, resume = prompt, ""
 					continue
@@ -719,7 +769,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 						totals.switches++
 						name, agent = route.Agent, profile(config, route.Agent)
 						timeout = agentCallTimeout(plan, agent)
-						prompt = runnerPrompt(root, plan, unit, agent, mode) + previousExecutorAttempt(previousRoute, refusal)
+						previous, err := previousExecutorAttempt(root, previousRoute, profile(config, previousRoute.Agent), refusal, run)
+						if err != nil {
+							return 2, "", err
+						}
+						prompt = runnerPrompt(root, plan, unit, agent, mode) + previous
 						session = ""
 						text, resume = prompt, ""
 					} else if session != "" {

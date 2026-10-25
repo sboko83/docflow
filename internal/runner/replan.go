@@ -354,7 +354,11 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 						if err != nil {
 							return 2, err
 						}
-						prompt += previousExecutorAttempt(previous, refusal)
+						previousAttempt, err := previousExecutorAttempt(root, previous, profile(config, previous.Agent), refusal, run)
+						if err != nil {
+							return stop(2, err.Error(), uid+": replan: "+err.Error()+"; the plan is restored", "")
+						}
+						prompt += previousAttempt
 						session = ""
 						text, resume = prompt, ""
 						totals.switches++
@@ -395,7 +399,11 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 							if err != nil {
 								return 2, err
 							}
-							prompt += previousExecutorAttempt(previous, refusal)
+							previousAttempt, err := previousExecutorAttempt(root, previous, profile(config, previous.Agent), refusal, run)
+							if err != nil {
+								return stop(2, err.Error(), uid+": replan: "+err.Error()+"; the plan is restored", "")
+							}
+							prompt += previousAttempt
 							session = ""
 							text, resume = prompt, ""
 							totals.switches++
