@@ -198,6 +198,15 @@ trusted = true                 # claude уходит в запас acceptance и
   и документный, P036.2.10 выполняет доверенный провайдер без `check`,
   итог проверяет приёмка P036.4.1, а бюджет replan фазы (3) уже
   исчерпан — отвергнут ещё один цикл «исправление → ревью».
+- Отказ от авто-replan при ростере сохраняет скилл, а не `roster apply`:
+  после каждого apply строка `replan:` удаляется из шапки, если
+  пользователь авто-replan не выбрал — apply печатает `replan: … → …`,
+  повторное включение видно — отвергнут флаг `--no-replan` у apply: фаза
+  3 — только скиллы, новый флаг потребовал бы кода, тестов и
+  `docs/usage.md` вне её (дефект 2 ревью P036.3.2).
+- Дефекты ревью фазы 3 исправляет P036.3.3, затем повторное ревью
+  P036.3.4 — как P036.2.4/P036.2.5; скиллы читает холодный агент, и их
+  дефекты не ловит ни один тест приёмки — отвергнута правка без ревью.
 
 ## Phase 1: Формат 3
 
@@ -703,7 +712,7 @@ Handoff:
 - Skills grew: plan skill +26 lines (Procedure renumbered to 11 steps, new Review section after Acceptance), run skill +11 lines — the plan's own Read: ranges L28-107/L164-225/L61-128 now point at shifted content; P036.3.2 and P036.4.1 read whole files, so no stale links
 - docs/usage.md «Ростер» is now linked via the Cyrillic anchor #ростер from README.md, README.ru.md and «Планирование» — same pattern as the existing #автозапуск links
 
-### [ ] P036.3.2 Ревью фазы 3
+### [-] P036.3.2 Ревью фазы 3
 Read:
 - skills/bsv-docflow-plan/SKILL.md
 Do:
@@ -717,6 +726,56 @@ Do:
 Verify: `go test ./...`
 Executor: codex | gpt-6.1-sol | high
 Commit: P036.3.2: review skills phase
+Handoff:
+- Blocked (plan): 1. skills/bsv-docflow-plan/SKILL.md:217-219: раздел Acceptance требует Executor: вместо Role: acceptance. Это противоречит новым критериям ролей и обходит цепочку acceptance ростера. 2. skills/bsv-docflow-plan/SKILL.md:65-67: обязательный roster apply безусловно записывает replan:, хотя строки 94-98 разрешают выключить авто-replan и запрещают включать его без выбора пользователя. Инструкция не сохраняет отказ после apply (docs/usage.md:557-559). 3. skills/bsv-docflow-run/SKILL.md:75-76: для ручного Executor: указан только его маршрут, а fallback: присоединён лишь к executor: шапки. По реализации internal/agents/agents.go:750 общий fallback добавляется в обоих случаях; текущая инструкция позволяет ошибочно блокировать подходящего запасного агента.
+
+### [ ] P036.3.3 Дефекты ревью фазы 3
+Read:
+- skills/bsv-docflow-plan/SKILL.md:L55-100
+- skills/bsv-docflow-plan/SKILL.md:L150-225
+- skills/bsv-docflow-run/SKILL.md:L60-80
+- docs/usage.md:L545-566
+- internal/agents/agents.go:L746-770
+Do:
+- `bsv-docflow-plan`, «Acceptance»: юнит приёмки — `Role: acceptance`
+  (цепочка `acceptance:` из шапки, её пишет `roster apply` или ручной
+  выбор); `Executor:` — только по явному выбору пользователя, как в
+  «Executor» (`Role:`/`Executor:`). Без `executor:`/`Executor:` в плане —
+  по-прежнему `Model: strong`.
+- `bsv-docflow-plan`, шаг 9 Procedure: после `docflow roster apply` —
+  если пользователь не выбрал авто-replan в опросе, удалить строку
+  `replan:` из шапки; так после каждого повторного apply (решение в
+  `## Decisions`). Пункт «Auto-replan» опроса — та же оговорка одной
+  фразой: ростер пишет `replan:`, отказ снимает его.
+- `bsv-docflow-run`, «Executor», ручная сессия: юнит без `Role:` — его
+  `Executor:` или `executor:` шапки, в обоих случаях вместе с
+  `fallback:` (как `UnitRoleRoutes` в `internal/agents/agents.go`).
+- Других правок нет: `CHANGELOG.md` `[Unreleased]` уже содержит запись
+  P036.3.1 о скиллах под ростер.
+Verify: `go test ./... && grep -q 'Role: acceptance' skills/bsv-docflow-plan/SKILL.md`
+Traps: код и `docs/usage.md` не править — apply пишет `replan:` всегда,
+это поведение остаётся. Строки 9 и опроса не противоречат: «Off unless
+the user opts in» сохраняется.
+Depends: P036.3.1
+Executor: claude | claude-opus-5-5 | high
+Commit: P036.3.3: fix skills review defects
+
+### [ ] P036.3.4 Повторное ревью фазы 3
+Read:
+- skills/bsv-docflow-plan/SKILL.md
+- skills/bsv-docflow-run/SKILL.md
+Do:
+- Получить дифф фазы: `git diff "$(git log --format=%H --grep='^P036\.3\.' | tail -1)^" HEAD -- . ':!docs/plans'`.
+- Сверить скиллы с `## Decisions`, форматом из P036.1.1 (`docs/design/format.md`)
+  и командами из фазы 2 (`docs/usage.md`): имена ключей, ролей, команд и
+  флагов совпадают; холодный агент по скиллу составит план с ролями и
+  ревью; три дефекта Handoff P036.3.2 закрыты.
+- Код и тексты не править. Дефект — `blocked`, `blocker: "plan"`, в
+  `reason` каждый с `file:line`. Прочее — Handoff `Unverified:`.
+Verify: `go test ./...`
+Depends: P036.3.3
+Executor: codex | gpt-6.1-sol | high
+Commit: P036.3.4: re-review skills phase
 
 ## Phase 4: Приёмка
 
@@ -757,6 +816,6 @@ Do:
 Verify: `go test ./...`
 Traps: упавший сценарий чинится в этом юните, если правка мала; иначе
 `blocked` с причиной.
-Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.2.6, P036.2.7, P036.2.8, P036.2.9, P036.2.10, P036.3.1, P036.3.2
+Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.2.6, P036.2.7, P036.2.8, P036.2.9, P036.2.10, P036.3.1, P036.3.2, P036.3.3, P036.3.4
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.4.1: accept roster and format 3
