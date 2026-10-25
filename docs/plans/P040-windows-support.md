@@ -2,7 +2,7 @@
 id: P040
 title: Windows support
 type: feature
-status: draft
+status: active
 created: 2026-10-25
 gate: go test ./...
 ---
