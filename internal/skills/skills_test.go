@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"bsv-docflow/internal/dirlink"
 )
 
 func sourceSkills(t *testing.T) string {
@@ -170,9 +172,6 @@ func TestSkillNameAndTreeComparison(t *testing.T) {
 }
 
 func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	source := sourceSkills(t)
 	home := t.TempDir()
 	setHome(t, home)
@@ -187,7 +186,7 @@ func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
 		}
 		for _, name := range sourceNames(t, source) {
 			destination := filepath.Join(target, name)
-			if info, err := os.Lstat(destination); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			if _, err := os.Readlink(destination); err != nil {
 				t.Fatalf("%s was not linked for %s: %v", destination, agent, err)
 			}
 			if !sameResolvedPath(destination, filepath.Join(source, name)) {
@@ -202,9 +201,6 @@ func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
 }
 
 func TestInstallSkillsRelinksDocflowReleaseAndRejectsForeignLink(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	home := t.TempDir()
 	setHome(t, home)
 	oldRelease := filepath.Join(home, ".docflow", "versions", "old")
@@ -212,7 +208,7 @@ func TestInstallSkillsRelinksDocflowReleaseAndRejectsForeignLink(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(oldRelease, "skills"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(oldRelease, current); err != nil {
+	if err := dirlink.Create(oldRelease, current); err != nil {
 		t.Fatal(err)
 	}
 	oldSource := filepath.Join(current, "skills")
@@ -229,14 +225,14 @@ func TestInstallSkillsRelinksDocflowReleaseAndRejectsForeignLink(t *testing.T) {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(oldSource, "bsv-docs"), filepath.Join(target, "bsv-docs")); err != nil {
+	if err := dirlink.Create(filepath.Join(oldSource, "bsv-docs"), filepath.Join(target, "bsv-docs")); err != nil {
 		t.Fatal(err)
 	}
 	foreign := filepath.Join(home, "foreign")
 	if err := os.MkdirAll(foreign, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(foreign, filepath.Join(target, "bsv-changelog")); err != nil {
+	if err := dirlink.Create(foreign, filepath.Join(target, "bsv-changelog")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -260,9 +256,6 @@ func TestInstallSkillsRelinksDocflowReleaseAndRejectsForeignLink(t *testing.T) {
 }
 
 func TestInstallSkillsTargetAndPreflightConflicts(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	source := sourceSkills(t)
 	root := t.TempDir()
 	target := filepath.Join(root, "target")
@@ -288,11 +281,11 @@ func TestInstallSkillsTargetAndPreflightConflicts(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "foreign symlink":
-				if err := os.Symlink(root, destination); err != nil {
+				if err := dirlink.Create(root, destination); err != nil {
 					t.Fatal(err)
 				}
 			case "dangling symlink":
-				if err := os.Symlink(filepath.Join(root, "missing"), destination); err != nil {
+				if err := dirlink.Create(filepath.Join(root, "missing"), destination); err != nil {
 					t.Fatal(err)
 				}
 			}

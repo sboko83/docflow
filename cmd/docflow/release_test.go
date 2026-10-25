@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"bsv-docflow/internal/dirlink"
 	"bsv-docflow/internal/release"
 	docskills "bsv-docflow/internal/skills"
 )
@@ -37,10 +38,10 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("DOCFLOW_NO_UPDATE_CHECK", "")
 	f.home = filepath.Join(f.homeDir, ".docflow")
-	writeReleaseFile(t, filepath.Join(f.source, "docflow"), "binary", 0755)
+	writeReleaseFile(t, filepath.Join(f.source, release.BinaryName()), "binary", 0755)
 	writeReleaseFile(t, filepath.Join(f.source, "LICENSE"), "license", 0644)
 	writeReleaseFile(t, filepath.Join(f.source, "skills", "sample", "SKILL.md"), "---\nname: sample\n---\nversion one\n", 0644)
-	f.executable = filepath.Join(f.source, "docflow")
+	f.executable = filepath.Join(f.source, release.BinaryName())
 	oldExecutable, oldTerminal, oldVersion, oldSkills := currentExecutable, stderrIsTerminal, version, currentSkillDirectory
 	currentExecutable = func() (string, error) { return f.executable, nil }
 	currentSkillDirectory = func() (string, error) { return docskills.SkillDirFromExecutable(f.executable) }
@@ -72,8 +73,18 @@ func runRelease(t *testing.T, wantCode int, args ...string) (string, string) {
 	return stdout.String(), stderr.String()
 }
 
+func releaseAgentPath(dir, agent string) string {
+	if runtime.GOOS == "windows" {
+		agent += ".cmd"
+	}
+	return filepath.Join(dir, agent)
+}
+
 func releaseLink(t *testing.T, name, want string) {
 	t.Helper()
+	if runtime.GOOS == "windows" && strings.HasPrefix(want, "versions/") {
+		want = filepath.Join(filepath.Dir(name), filepath.FromSlash(want))
+	}
 	if got, err := os.Readlink(name); err != nil || got != want {
 		t.Fatalf("Readlink(%s) = %q, %v; want %q", name, got, err, want)
 	}
@@ -96,9 +107,6 @@ func TestReleaseCommandsRefuseDevelopmentCheckout(t *testing.T) {
 }
 
 func TestInstallRequiresReleasePayload(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	for _, missing := range []string{"LICENSE", "skills"} {
 		t.Run(missing, func(t *testing.T) {
 			f := newReleaseFixture(t)
@@ -117,9 +125,6 @@ func TestInstallRequiresReleasePayload(t *testing.T) {
 }
 
 func TestInstallWithoutAgentsAndUnknownShell(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
 	t.Setenv("SHELL", "/bin/fish")
 	stdout, _ := runRelease(t, 0, "install")
@@ -134,11 +139,8 @@ func TestInstallWithoutAgentsAndUnknownShell(t *testing.T) {
 }
 
 func TestInstallPreservesForeignSkills(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
-	writeReleaseFile(t, filepath.Join(f.binDir, "codex"), "#!/bin/sh\nexit 0\n", 0755)
+	writeReleaseFile(t, releaseAgentPath(f.binDir, "codex"), "#!/bin/sh\nexit 0\n", 0755)
 	foreign := filepath.Join(f.homeDir, ".agents", "skills", "sample", "SKILL.md")
 	writeReleaseFile(t, foreign, "Ruleblend-owned", 0644)
 	_, stderr := runRelease(t, 2, "install")
@@ -159,7 +161,7 @@ func testReleaseArchive(t *testing.T, text string) []byte {
 		name, body string
 		mode       int64
 	}{
-		{"docflow", "new binary", 0755},
+		{release.BinaryName(), "new binary", 0755},
 		{"LICENSE", "license", 0644},
 		{"skills/sample/SKILL.md", text, 0644},
 	} {
@@ -180,13 +182,10 @@ func testReleaseArchive(t *testing.T, text string) []byte {
 }
 
 func TestReleaseInstallUpdateUninstall(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
 	var targets []string
 	for _, agent := range []string{"claude", "codex", "pi"} {
-		writeReleaseFile(t, filepath.Join(f.binDir, agent), "#!/bin/sh\nexit 0\n", 0755)
+		writeReleaseFile(t, releaseAgentPath(f.binDir, agent), "#!/bin/sh\nexit 0\n", 0755)
 		target, err := docskills.AgentSkillsDir(agent, "")
 		if err != nil {
 			t.Fatal(err)
@@ -200,16 +199,18 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	profile := filepath.Join(f.homeDir, ".zshrc")
 	writeReleaseFile(t, profile, "# personal configuration\n", 0644)
 	stdout, stderr := runRelease(t, 0, "install")
-	if !strings.Contains(stdout, "installed: 1.0.0") || !strings.Contains(stdout, filepath.Join(f.home, "bin", "docflow")) || !strings.Contains(stdout, "export PATH=") || stderr != "" {
+	if !strings.Contains(stdout, "installed: 1.0.0") || !strings.Contains(stdout, release.ExecutablePath(f.home)) || !strings.Contains(stdout, "export PATH=") || stderr != "" {
 		t.Fatalf("install stdout=%q stderr=%q", stdout, stderr)
 	}
-	releaseLink(t, filepath.Join(f.home, "bin", "docflow"), "../current/docflow")
+	if runtime.GOOS != "windows" {
+		releaseLink(t, release.ExecutablePath(f.home), "../current/docflow")
+	}
 	releaseLink(t, filepath.Join(f.home, "current"), "versions/1.0.0")
 	for _, target := range targets {
 		releaseLink(t, filepath.Join(target, "sample"), filepath.Join(f.home, "current", "skills", "sample"))
 	}
 	runRelease(t, 0, "install") // Repeat from the unpacked archive.
-	f.executable = filepath.Join(f.home, "bin", "docflow")
+	f.executable = release.ExecutablePath(f.home)
 	runRelease(t, 0, "install") // Repeat from the installed symlink.
 	if data, err := os.ReadFile(profile); err != nil || strings.Count(string(data), "# docflow\n") != 1 {
 		t.Fatalf("PATH duplicated: %q, %v", data, err)
@@ -288,7 +289,7 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("versions/1.1.0", link); err != nil {
+	if err := dirlink.Create(filepath.Join(f.home, "versions", "1.1.0"), link); err != nil {
 		t.Fatal(err)
 	}
 	version = "1.1.0"
@@ -319,7 +320,7 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	foreign := filepath.Join(f.homeDir, ".docflow-other", "skill")
 	writeReleaseFile(t, filepath.Join(foreign, "SKILL.md"), "foreign", 0644)
 	for _, target := range targets {
-		if err := os.Symlink(foreign, filepath.Join(target, "foreign")); err != nil {
+		if err := dirlink.Create(foreign, filepath.Join(target, "foreign")); err != nil {
 			t.Fatal(err)
 		}
 		writeReleaseFile(t, filepath.Join(target, "managed", "SKILL.md"), "managed", 0644)
@@ -327,7 +328,10 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(dangling, filepath.Join(target, "gone")); err != nil {
+		if runtime.GOOS == "windows" {
+			dangling = filepath.Join(target, dangling)
+		}
+		if err := dirlink.Create(dangling, filepath.Join(target, "gone")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -352,12 +356,9 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 }
 
 func TestDailyReleaseCheck(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
-	f.executable = filepath.Join(f.home, "bin", "docflow")
+	f.executable = release.ExecutablePath(f.home)
 	stderrIsTerminal = func(io.Writer) bool { return true }
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -388,14 +389,11 @@ func TestDailyReleaseCheck(t *testing.T) {
 }
 
 func TestDailyReleaseCheckGuards(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	for _, guard := range []string{"pipe", "disabled", "development", "install", "update", "uninstall"} {
 		t.Run(guard, func(t *testing.T) {
 			f := newReleaseFixture(t)
 			runRelease(t, 0, "install")
-			f.executable = filepath.Join(f.home, "bin", "docflow")
+			f.executable = release.ExecutablePath(f.home)
 			stderrIsTerminal = func(io.Writer) bool { return true }
 			command := "status"
 			switch guard {
@@ -404,7 +402,7 @@ func TestDailyReleaseCheckGuards(t *testing.T) {
 			case "disabled":
 				t.Setenv("DOCFLOW_NO_UPDATE_CHECK", "1")
 			case "development":
-				f.executable = filepath.Join(f.source, "docflow")
+				f.executable = filepath.Join(f.source, release.BinaryName())
 			default:
 				command = guard
 			}
@@ -427,12 +425,9 @@ func TestDailyReleaseCheckGuards(t *testing.T) {
 }
 
 func TestDailyReleaseCheckSilencesErrors(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
-	f.executable = filepath.Join(f.home, "bin", "docflow")
+	f.executable = release.ExecutablePath(f.home)
 	stderrIsTerminal = func(io.Writer) bool { return true }
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
@@ -447,12 +442,9 @@ func TestDailyReleaseCheckSilencesErrors(t *testing.T) {
 }
 
 func TestDailyReleaseCheckTimeout(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
-	f.executable = filepath.Join(f.home, "bin", "docflow")
+	f.executable = release.ExecutablePath(f.home)
 	stderrIsTerminal = func(io.Writer) bool { return true }
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -475,12 +467,9 @@ func TestDailyReleaseCheckTimeout(t *testing.T) {
 }
 
 func TestReleaseUpdateChecksumFailurePreservesCurrent(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
-	f.executable = filepath.Join(f.home, "bin", "docflow")
+	f.executable = release.ExecutablePath(f.home)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/latest/download/VERSION":
@@ -504,30 +493,27 @@ func TestReleaseUpdateChecksumFailurePreservesCurrent(t *testing.T) {
 }
 
 func TestReleaseModeUsesResolvedPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
-	outside := filepath.Join(f.home, "versions-other", "docflow")
+	outside := filepath.Join(f.home, "versions-other", release.BinaryName())
 	writeReleaseFile(t, outside, "outside", 0755)
 	escape := filepath.Join(f.home, "versions", "escape")
-	if err := os.Symlink(outside, escape); err != nil {
+	if err := dirlink.Create(filepath.Dir(outside), escape); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{f.executable, outside, escape, ""} {
+	for _, name := range []string{f.executable, outside, filepath.Join(escape, release.BinaryName()), ""} {
 		if release.InstalledExecutable(name) {
 			t.Fatalf("not an installed executable: %q", name)
 		}
 	}
 	// Resolve the home and executable consistently when HOME is a symlink.
 	homeLink := filepath.Join(t.TempDir(), "home")
-	if err := os.Symlink(f.homeDir, homeLink); err != nil {
+	if err := dirlink.Create(f.homeDir, homeLink); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", homeLink)
 	t.Setenv("USERPROFILE", homeLink)
-	if !release.InstalledExecutable(filepath.Join(f.home, "bin", "docflow")) {
+	if !release.InstalledExecutable(release.ExecutablePath(f.home)) {
 		t.Fatal("installed executable missed with symlinked HOME")
 	}
 }

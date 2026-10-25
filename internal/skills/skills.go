@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"bsv-docflow/internal/clierrors"
+	"bsv-docflow/internal/dirlink"
 	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/release"
 )
@@ -84,7 +85,7 @@ func SkillDirFromExecutable(executable string) (string, error) {
 		}
 		return filepath.Join(home, "current", "skills"), nil
 	}
-	resolved, err := filepath.EvalSymlinks(executable)
+	resolved, err := dirlink.Resolve(executable)
 	if err == nil {
 		executable = resolved
 	}
@@ -284,8 +285,8 @@ func existsOrSymlink(path string) bool {
 }
 
 func sameResolvedPath(a, b string) bool {
-	resolvedA, errA := filepath.EvalSymlinks(a)
-	resolvedB, errB := filepath.EvalSymlinks(b)
+	resolvedA, errA := dirlink.Resolve(a)
+	resolvedB, errB := dirlink.Resolve(b)
 	if errA == nil && errB == nil {
 		return resolvedA == resolvedB
 	}
@@ -449,18 +450,15 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 	if homeErr != nil {
 		return Result{}, homeErr
 	}
-	resolvedDocflowRoot, _ := filepath.EvalSymlinks(docflowRoot)
+	resolvedDocflowRoot, _ := dirlink.Resolve(docflowRoot)
 	for _, source := range sources {
 		destination := filepath.Join(target, filepath.Base(source))
-		if info, err := os.Lstat(destination); err == nil {
-			if info.Mode()&os.ModeSymlink != 0 && sameResolvedPath(destination, source) {
+		if _, err := os.Lstat(destination); err == nil {
+			oldTarget, linkErr := os.Readlink(destination)
+			if linkErr == nil && sameResolvedPath(destination, source) {
 				kept++
 				fmt.Fprintf(&stdout, "%s: already linked\n", filepath.Base(source))
-			} else if info.Mode()&os.ModeSymlink != 0 && resolvedDocflowRoot != "" && sameResolvedPathUnder(destination, resolvedDocflowRoot) {
-				oldTarget, err := os.Readlink(destination)
-				if err != nil {
-					return Result{}, err
-				}
+			} else if linkErr == nil && resolvedDocflowRoot != "" && sameResolvedPathUnder(destination, resolvedDocflowRoot) {
 				relink[destination] = oldTarget
 			} else {
 				conflicts = append(conflicts, destination)
@@ -482,7 +480,7 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 	}
 	for _, source := range plan {
 		destination := filepath.Join(target, filepath.Base(source))
-		if err := os.Symlink(source, destination); err != nil {
+		if err := dirlink.Create(source, destination); err != nil {
 			return Result{}, err
 		}
 		fmt.Fprintf(&stdout, "%s: linked %s -> %s\n", filepath.Base(source), destination, source)
@@ -499,7 +497,7 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 				break
 			}
 		}
-		if err := os.Symlink(source, destination); err != nil {
+		if err := dirlink.Create(source, destination); err != nil {
 			return Result{}, err
 		}
 		fmt.Fprintf(&stdout, "%s: relinked %s -> %s (was %s)\n", name, destination, source, oldTarget)
@@ -508,7 +506,7 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 }
 
 func sameResolvedPathUnder(path, root string) bool {
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := dirlink.Resolve(path)
 	if err != nil {
 		return false
 	}
@@ -842,7 +840,7 @@ func Doctor(sourceDir, cwd, executable string, options DoctorOptions) (Result, e
 }
 
 func resolveExistingPath(path string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := dirlink.Resolve(path)
 	if err != nil {
 		return "", err
 	}

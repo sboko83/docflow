@@ -264,7 +264,7 @@ Handoff:
 
 ## Phase 3: Install from release
 
-### [ ] P040.3.1 Ship Windows archives and activate them
+### [x] P040.3.1 Ship Windows archives and activate them
 Read:
 - tools/release.sh
 - internal/release/release.go:L1-60
@@ -297,7 +297,7 @@ Do:
   uninstall in a temporary `USERPROFILE`.
 - Update `docs/design/cli.md`: the platforms list and the Windows layout
   (junctions, no `bin/`, no Developer Mode).
-Verify: `go test ./internal/release ./internal/skills ./cmd/docflow && bash tools/release.sh 0.0.1 bin/release-test && test -f bin/release-test/docflow_windows_amd64.tar.gz`
+Verify: `go test ./internal/release ./internal/skills ./cmd/docflow && bash tools/release.sh 0.0.1 bin/release-test && test -f bin/release-test/download/v0.0.1/docflow_windows_amd64.tar.gz`
 Traps: `tools/release.sh` arguments and output layout are described in
 `docs/design/cli.md`; check them before calling it, `bin/` is gitignored.
 Since Go 1.23 `os.Lstat` reports a junction as `ModeIrregular`, not
@@ -305,6 +305,11 @@ Since Go 1.23 `os.Lstat` reports a junction as `ModeIrregular`, not
 junction in a test before relying on them. `os.Remove` on a junction
 removes the link, not its target — keep a test for that.
 Commit: P040.3.1: ship and activate Windows releases
+Handoff:
+- Blocked (plan): Verify checks bin/release-test/docflow_windows_amd64.tar.gz, but tools/release.sh writes bin/release-test/download/v0.0.1/docflow_windows_amd64.tar.gz as documented in docs/design/cli.md; correct the check path and keep the release URL layout.
+- Use dirlink.Resolve for junction paths: Go 1.23+ reports ModeIrregular and EvalSymlinks leaves junctions unresolved, including current and nested personal skill links.
+- Windows activation keeps current and previous versions; a running older executable delays cleanup with one warning and is removed on a later update after exit. Directory junctions require no privileged symlink creation.
+- P040.3.2 still owns install.sh, the Windows user Path, and real installed-binary uninstall: cmd/docflow tests simulate the executable path, so deleting the currently running Windows executable remains to be handled there.
 
 ### [ ] P040.3.2 Install, update and uninstall from Git Bash
 Read:

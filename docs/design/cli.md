@@ -29,7 +29,7 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | `thaw <id>` | план из Frozen в конец Queue, `status: active`; предупреждения ссылок плана в stderr; не коммитит |
 | `note <slug>` | архивная запись без плана |
 | `migrate` | формат предыдущих версий → текущая |
-| `install` | укладывает распакованный релиз (рядом с бинарником `skills/` и `LICENSE`) в `~/.docflow/versions/<X.Y.Z>`, переключает симлинк `current`, создаёт `bin/docflow`, настраивает PATH и ставит личные симлинки скиллов |
+| `install` | укладывает распакованный релиз (рядом с бинарником `skills/` и `LICENSE`) в `~/.docflow/versions/<X.Y.Z>`, переключает ссылку `current`, создаёт точку запуска, настраивает PATH и ставит личные ссылки скиллов; раскладка — [«Релизы»](#релизы) |
 | `update [--check]` | скачивает и активирует последний релиз (в `versions` остаются текущая и предыдущая версии; откат — ручное переключение `current`, следующий update ставит релиз поверх оставшегося каталога версии); `--check` — только проверить; в dev-checkout отказ |
 | `uninstall` | убирает `~/.docflow`, свой блок PATH из профилей оболочки и личные симлинки скиллов; в dev-checkout отказ |
 | `install-skills [--agent {claude,codex,pi}] [--target DIR]` | личные симлинки `skills/*` в `~/.claude/skills/` для Claude Code или `~/.agents/skills/` для Codex CLI или `~/.pi/agent/skills/` для Pi; default `claude`, `--target` явно заменяет личный каталог |
@@ -87,9 +87,19 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 
 - последняя версия: `<base>/latest/download/VERSION` (текст `X.Y.Z`);
 - архив: `<base>/download/vX.Y.Z/docflow_<os>_<arch>.tar.gz`, в корне
-  архива `docflow`, `LICENSE`, `skills/`;
+  архива `docflow` (`docflow.exe` на Windows), `LICENSE`, `skills/`;
 - суммы: `<base>/download/vX.Y.Z/checksums.txt` (формат `sha256sum`).
 
 `tools/release.sh VERSION OUTDIR` собирает ту же раскладку локально — для
-`python3 -m http.server` в тестах. Платформы: darwin и linux, amd64 и
-arm64; Windows не поддерживается.
+`python3 -m http.server` в тестах. Платформы: darwin, linux и windows,
+amd64 и arm64.
+
+На macOS и Linux `current` — симлинк на `versions/<X.Y.Z>`, точка
+запуска — `~/.docflow/bin/docflow`. На Windows `current` и личные ссылки
+скиллов — directory junction с абсолютной целью; точка запуска —
+`%USERPROFILE%\.docflow\current\docflow.exe`, каталога `bin/` нет,
+пользовательский `Path` указывает на `current`. Junction не требует
+Developer Mode или прав администратора. При обновлении Windows-ссылка
+`current` удаляется и создаётся заново; при неудаче переключения
+восстанавливается предыдущая ссылка. Если старая версия ещё исполняется,
+её очистка выдаёт предупреждение и откладывается до следующего обновления.

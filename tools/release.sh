@@ -17,7 +17,7 @@ usage() {
 Usage: bash tools/release.sh VERSION OUTDIR
 
 VERSION is bare SemVer (X.Y.Z). Builds docflow_<os>_<arch>.tar.gz for
-darwin/linux on amd64/arm64 from this checkout, plus checksums.txt and
+darwin/linux/windows on amd64/arm64 from this checkout, plus checksums.txt and
 VERSION, into OUTDIR with the release URL layout.
 EOF
 }
@@ -51,14 +51,16 @@ mkdir -p "$DLDIR" "$LATESTDIR" || fail "cannot create $DLDIR and $LATESTDIR"
 STAGE=$(mktemp -d) || fail 'cannot create staging directory'
 trap 'rm -rf "$STAGE"' EXIT
 
-for PLATFORM in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+for PLATFORM in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
     GOOS=${PLATFORM%/*}
     GOARCH=${PLATFORM#*/}
+    BINARY=docflow
+    [ "$GOOS" != windows ] || BINARY=docflow.exe
     STAGE_DIR="$STAGE/$GOOS-$GOARCH"
     mkdir -p "$STAGE_DIR"
     (cd "$REPO_DIR" \
         && CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" "$GO" build -trimpath \
-            -ldflags "-X main.version=$VERSION" -o "$STAGE_DIR/docflow" \
+            -ldflags "-X main.version=$VERSION" -o "$STAGE_DIR/$BINARY" \
             ./cmd/docflow) \
         || fail "go build failed for $GOOS/$GOARCH"
     cp -R "$REPO_DIR/skills" "$STAGE_DIR/skills"
@@ -67,7 +69,7 @@ for PLATFORM in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
     find "$STAGE_DIR" -name .DS_Store -delete
     # COPYFILE_DISABLE keeps macOS tar from adding ._ AppleDouble entries.
     COPYFILE_DISABLE=1 tar -C "$STAGE_DIR" -czf \
-        "$DLDIR/docflow_${GOOS}_${GOARCH}.tar.gz" docflow LICENSE skills
+        "$DLDIR/docflow_${GOOS}_${GOARCH}.tar.gz" "$BINARY" LICENSE skills
 done
 
 if command -v sha256sum >/dev/null 2>&1; then

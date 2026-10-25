@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"bsv-docflow/internal/clierrors"
+	"bsv-docflow/internal/dirlink"
 	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/release"
 	docskills "bsv-docflow/internal/skills"
@@ -34,7 +35,7 @@ func releaseCommand(handler handlerFunc) handlerFunc {
 }
 
 func releaseSource(executable string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(executable)
+	resolved, err := dirlink.Resolve(executable)
 	if err != nil {
 		return "", err
 	}
@@ -46,7 +47,7 @@ func releaseSource(executable string) (string, error) {
 }
 
 func validateReleaseSource(source string) error {
-	for _, name := range []string{"docflow", "LICENSE", "skills"} {
+	for _, name := range []string{release.BinaryName(), "LICENSE", "skills"} {
 		info, err := os.Lstat(filepath.Join(source, name))
 		if err != nil {
 			return fmt.Errorf("incomplete release: %w", err)
@@ -54,7 +55,7 @@ func validateReleaseSource(source string) error {
 		valid := info.Mode().IsRegular()
 		if name == "skills" {
 			valid = info.IsDir()
-		} else if name == "docflow" {
+		} else if name == release.BinaryName() && runtime.GOOS != "windows" {
 			valid = valid && info.Mode().Perm()&0111 != 0
 		}
 		if !valid {
@@ -67,7 +68,7 @@ func validateReleaseSource(source string) error {
 // Re-running install (including from an already installed binary) repairs
 // PATH and skill links without overwriting the immutable active version.
 func activateRelease(home, source, next string) error {
-	if target, err := os.Readlink(filepath.Join(home, "current")); err == nil && target == "versions/"+next {
+	if current, err := release.CurrentVersion(home); err == nil && current == next {
 		return validateReleaseSource(filepath.Join(home, "current"))
 	}
 	return release.Activate(home, source, next)
@@ -199,7 +200,7 @@ func handleInstall(_ *parsedArgs) error {
 	if filepath.IsAbs(profile) {
 		pathHint = fmt.Sprintf("PATH configured in %s; restart your shell or run:\nexport PATH=\"$HOME/.docflow/bin:$PATH\"", profile)
 	}
-	return commandResult{code: result.Code, stdout: fmt.Sprintf("installed: %s\npath: %s\n%s\n", version, filepath.Join(home, "bin", "docflow"), pathHint) + result.Stdout, stderr: result.Stderr}
+	return commandResult{code: result.Code, stdout: fmt.Sprintf("installed: %s\npath: %s\n%s\n", version, release.ExecutablePath(home), pathHint) + result.Stdout, stderr: result.Stderr}
 }
 
 func standaloneHome(command string) (string, error) {
@@ -308,11 +309,11 @@ func removeReleaseSkillLinks(target, home string) error {
 		}
 		// The lexical check also removes dangling links from an old release.
 		if !pathUnder(home, link) {
-			resolved, err := filepath.EvalSymlinks(name)
+			resolved, err := dirlink.Resolve(name)
 			if err != nil {
 				continue
 			}
-			root, err := filepath.EvalSymlinks(home)
+			root, err := dirlink.Resolve(home)
 			if err != nil || !pathUnder(root, resolved) {
 				continue
 			}

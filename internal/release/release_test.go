@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/dirlink"
 )
 
 func TestHomeAndBaseURL(t *testing.T) {
@@ -251,7 +253,7 @@ func TestFetchRejectsExistingSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(dir, "skills")); err != nil {
+	if err := dirlink.Create(outside, filepath.Join(dir, "skills")); err != nil {
 		t.Fatal(err)
 	}
 	archive := archiveBytes(t, []archiveEntry{{name: "skills/existing/escaped", body: "bad", mode: 0644}})
@@ -267,7 +269,7 @@ func TestFetchRejectsExistingSymlinks(t *testing.T) {
 
 func TestFetchInvalidInput(t *testing.T) {
 	for _, tc := range []struct{ version, goos, goarch string }{
-		{"../bad", "linux", "amd64"}, {"1.2.3", "windows", "amd64"},
+		{"../bad", "linux", "amd64"}, {"1.2.3", "freebsd", "amd64"},
 		{"1.2.3", "linux", "../amd64"},
 	} {
 		if err := Fetch(context.Background(), "http://invalid.invalid", tc.version, tc.goos, tc.goarch, t.TempDir()); err == nil {
@@ -291,13 +293,13 @@ func assertFile(t *testing.T, name, want string, mode os.FileMode) {
 func sourceTree(t *testing.T, version string) string {
 	t.Helper()
 	dir := t.TempDir()
-	for name, data := range map[string]string{"docflow": version, "LICENSE": "license", "skills/example/SKILL.md": "skill"} {
+	for name, data := range map[string]string{BinaryName(): version, "LICENSE": "license", "skills/example/SKILL.md": "skill"} {
 		full := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
 			t.Fatal(err)
 		}
 		mode := os.FileMode(0644)
-		if name == "docflow" {
+		if name == BinaryName() {
 			mode = 0755
 		}
 		if err := os.WriteFile(full, []byte(data), mode); err != nil {
@@ -308,23 +310,20 @@ func sourceTree(t *testing.T, version string) string {
 }
 
 func TestActivateRetainsPrevious(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows: P040.3.1")
-	}
 	home := filepath.Join(t.TempDir(), ".docflow")
 	for _, version := range []string{"1.0.0", "1.2.0", "1.1.0"} {
 		src := sourceTree(t, version)
 		if err := Activate(home, src, version); err != nil {
 			t.Fatal(err)
 		}
-		assertFile(t, filepath.Join(home, "bin", "docflow"), version, 0755)
+		assertFile(t, ExecutablePath(home), version, 0755)
 		assertFile(t, filepath.Join(home, "current", "LICENSE"), "license", 0644)
 		assertFile(t, filepath.Join(home, "current", "skills", "example", "SKILL.md"), "skill", 0644)
 		// A later edit to the source cannot change the installed tree.
-		if err := os.WriteFile(filepath.Join(src, "docflow"), []byte("changed"), 0755); err != nil {
+		if err := os.WriteFile(filepath.Join(src, BinaryName()), []byte("changed"), 0755); err != nil {
 			t.Fatal(err)
 		}
-		assertFile(t, filepath.Join(home, "bin", "docflow"), version, 0755)
+		assertFile(t, ExecutablePath(home), version, 0755)
 	}
 	entries, err := os.ReadDir(filepath.Join(home, "versions"))
 	if err != nil {
@@ -337,7 +336,14 @@ func TestActivateRetainsPrevious(t *testing.T) {
 	if !reflect.DeepEqual(names, []string{"1.1.0", "1.2.0"}) {
 		t.Fatalf("retained versions = %v", names)
 	}
-	for name, want := range map[string]string{"current": "versions/1.1.0", "bin/docflow": "../current/docflow"} {
+	links := map[string]string{"current": "versions/1.1.0", "bin/docflow": "../current/docflow"}
+	if runtime.GOOS == "windows" {
+		links = map[string]string{"current": filepath.Join(home, "versions", "1.1.0")}
+		if _, err := os.Lstat(filepath.Join(home, "bin")); !os.IsNotExist(err) {
+			t.Fatalf("Windows activation created bin: %v", err)
+		}
+	}
+	for name, want := range links {
 		got, err := os.Readlink(filepath.Join(home, name))
 		if err != nil || got != want {
 			t.Fatalf("%s link = %q, %v; want %q", name, got, err, want)
@@ -354,19 +360,57 @@ func TestActivateFailurePreservesCurrent(t *testing.T) {
 		t.Fatal("existing release overwritten")
 	}
 	src := sourceTree(t, "1.1.0")
-	if err := os.Symlink("docflow", filepath.Join(src, "unsupported-link")); err != nil {
+	if err := dirlink.Create(src, filepath.Join(src, "unsupported-link")); err != nil {
 		t.Fatal(err)
 	}
 	if err := Activate(home, src, "1.1.0"); err == nil {
 		t.Fatal("source symlink accepted")
 	}
-	assertFile(t, filepath.Join(home, "bin", "docflow"), "1.0.0", 0755)
+	assertFile(t, ExecutablePath(home), "1.0.0", 0755)
 	entries, err := os.ReadDir(filepath.Join(home, "versions"))
 	if err != nil || len(entries) != 1 || entries[0].Name() != "1.0.0" {
 		t.Fatalf("failed activation left files: %v, %v", entries, err)
 	}
 	if err := Activate(home, src, "../bad"); err == nil {
 		t.Fatal("invalid version accepted")
+	}
+}
+
+func TestActivateRejectsUnmanagedCurrent(t *testing.T) {
+	for _, kind := range []string{"directory", "foreign link", "invalid version"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			current := filepath.Join(home, "current")
+			target := t.TempDir()
+			switch kind {
+			case "directory":
+				target = current
+				if err := os.Mkdir(target, 0755); err != nil {
+					t.Fatal(err)
+				}
+			case "invalid version":
+				target = filepath.Join(home, "versions", "invalid")
+				if err := os.MkdirAll(target, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			marker := filepath.Join(target, "keep")
+			if err := os.WriteFile(marker, []byte("foreign"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if kind != "directory" {
+				if err := dirlink.Create(target, current); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := Activate(home, sourceTree(t, "1.0.0"), "1.0.0"); err == nil {
+				t.Fatal("unmanaged current replaced")
+			}
+			assertFile(t, marker, "foreign", 0644)
+			if _, err := os.Lstat(current); err != nil {
+				t.Fatalf("unmanaged current removed: %v", err)
+			}
+		})
 	}
 }
 
