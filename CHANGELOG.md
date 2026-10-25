@@ -34,8 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docflow roster show` prints the route chains per plan role picked from
   the personal roster (`~/.config/docflow/roster.toml`): a spend summary
   line plus the plan-header `executor:`, `fallback:` and role-key lines;
-  `--profile NAME` applies a `[profile.NAME]` override of the spend order
-  and provider flags. The runner never reads the roster.
+  `--profile NAME` applies a `[profile.NAME]` override of the spend list
+  and provider flags; a profile may drop a provider, whose routes are then
+  skipped. The runner never reads the roster.
 - `docflow roster apply PLAN [--profile NAME] [--roster PATH]` writes the
   picked chains into a plan header in `docs/plans/` (`executor:`,
   `fallback:`, `replan:` and the role keys of the unit `Role:` fields;

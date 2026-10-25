@@ -519,9 +519,8 @@ run  = "pi | zai/glm-5.3-flash | high"   # тройка, как у Executor
 tier = "cheap"
 
 [profile.save-claude]          # необязательно: заменяет spend и флаги
-spend = ["zai", "codex"]       # перечисленных провайдеров; выбор --profile NAME
-[profile.save-claude.provider.codex]
-trusted = true
+[profile.save-claude.provider.codex]   # перечисленных провайдеров; --profile NAME
+trusted = true                 # claude уходит в запас acceptance и replan
 ```
 
 Провайдер маршрута: для `pi` — префикс модели до `/` (`zai/glm-5.3` →
@@ -535,13 +534,21 @@ trusted = true
 порядке `spend`. Цепочка короче двух маршрутов разных провайдеров — код 2:
 без запаса лимит единственного провайдера останавливает прогон до сброса.
 
+Профиль `[profile.<name>]` выбирается `--profile NAME` и заменяет `spend`
+и флаги перечисленных провайдеров; маршруты и требования ролей общие.
+`spend` профиля может сократить список: маршруты выпавшего провайдера
+подбор пропускает, а правило двух провайдеров на роль действует и в
+профиле. Поэтому «беречь claude» при `check` у zai — не `spend = ["zai",
+"codex"]` (review остался бы из одного codex), а `trusted` у codex, как в
+примере: acceptance и replan идут через codex, claude — запас.
+
 `roster show` печатает строку `spend: … · check: … · trusted: …` и шапку
 плана: `executor:` — первый маршрут роли executor, `fallback:` — её
 остальные маршруты, `cheap:`, `heavy:`, `review:`, `acceptance:`,
 `replan:` — полные цепочки. Неизвестный ключ, неразбираемая тройка `run`,
 ступень вне `cheap|standard|strong`, требование роли вне
 `cheap|standard|strong|trusted`, неизвестная роль, провайдер маршрута вне
-`spend`, повтор в `spend`, неизвестный профиль — код 2 с файлом и строкой.
+верхнего `spend`, повтор в `spend`, неизвестный профиль — код 2 с файлом и строкой.
 
 `roster apply Pxxx [--profile NAME]` пишет тот же блок в шапку плана из
 `docs/plans/`: `executor:`, `fallback:`, `replan:` и ключи ролей, на

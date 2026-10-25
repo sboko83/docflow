@@ -569,7 +569,7 @@ Commit: P036.2.7: re-review roster phase
 Handoff:
 - Blocked (plan): [P2] docs/usage.md:522 — пример профиля save-claude исключает claude из spend, сохраняя его маршруты. На эталонном ростере команда roster show --profile save-claude воспроизводимо возвращает код 2: «route haiku: provider claude is not in spend» (internal/roster/roster.go:345). Нужно согласовать пример с принятым решением о проверке маршрутов против эффективного spend.
 
-### [ ] P036.2.8 Профиль сокращает spend, валидный пример профиля
+### [x] P036.2.8 Профиль сокращает spend, валидный пример профиля
 Read:
 - internal/roster/roster.go:L84-100
 - internal/roster/roster.go:L340-349
@@ -595,6 +595,10 @@ Traps: таблицу эталонных цепочек и `TestProfileReplacesS
 Depends: P036.2.6
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.2.8: let roster profiles drop providers
+Handoff:
+- Маршруты сверяются с верхним spend до применения профиля (roster.go Load): профиль может выкинуть провайдера, его маршруты подбор пропускает; опечатка в провайдере маршрута ловится и при --profile
+- Пример save-claude в docs/usage.md и ## Context — без spend, codex trusted; проверен на ~/.config/docflow/roster.toml: roster show --profile save-claude код 0, acceptance/replan: codex, claude
+- internal/roster/lines.go отформатирован gofmt; логика не менялась
 
 ### [ ] P036.2.9 Четвёртое ревью фазы 2
 Read:

@@ -394,6 +394,64 @@ func TestProfileReplacesSpendAndFlags(t *testing.T) {
 	}
 }
 
+func TestProfileDropsProvider(t *testing.T) {
+	text := profileRoster + `[profile.no-zai]
+spend = ["codex", "claude", "local"]
+`
+	r, err := loadText(t, text, "no-zai")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	for _, role := range Roles {
+		if chain := chainOf(r, role); strings.Contains(chain, "zai/") {
+			t.Errorf("%s chain keeps the dropped provider: %q", role, chain)
+		}
+	}
+	if got, want := chainOf(r, "cheap"), "codex | c | high; claude | l | -; pi | local/n | high"; got != want {
+		t.Errorf("cheap chain = %q, want %q", got, want)
+	}
+}
+
+func TestRouteProviderCheckedAgainstTopLevelSpend(t *testing.T) {
+	text := draft + `
+[route.other]
+run  = "pi | other/m | high"
+tier = "cheap"
+
+[profile.with-other]
+spend = ["zai", "codex", "claude", "other"]
+`
+	for _, profile := range []string{"", "with-other"} {
+		_, err := loadText(t, text, profile)
+		if err == nil || !strings.Contains(err.Error(), "route other: provider other is not in spend") {
+			t.Errorf("profile %q: error = %v, want route other not in spend", profile, err)
+			continue
+		}
+		if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
+			t.Errorf("profile %q: exit code = %v, want %d", profile, err, clierrors.EXIT_FORMAT)
+		}
+	}
+}
+
+// The save-claude example of docs/usage.md keeps claude as the reserve of
+// the trusted roles.
+func TestSaveClaudeExample(t *testing.T) {
+	text := draft + `
+[profile.save-claude]
+[profile.save-claude.provider.codex]
+trusted = true
+`
+	r, err := loadText(t, text, "save-claude")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	for _, role := range []string{"acceptance", "replan"} {
+		if got, want := chainOf(r, role), "codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high"; got != want {
+			t.Errorf("%s chain = %q, want %q", role, got, want)
+		}
+	}
+}
+
 func TestProfileProviderOfAnyType(t *testing.T) {
 	// A profile provider of a non-table type fails with the line of the
 	// provider key instead of passing as a missing override.

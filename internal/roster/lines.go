@@ -60,14 +60,14 @@ func scanLines(text string) *lineIndex {
 		}
 		if strings.HasPrefix(line, "[") {
 			if end := strings.Index(line, "]"); end > 0 {
-			segments := headerSegments(line[1:end])
-			table = strings.Join(segments, ".")
-			index.set(table, "", n+1)
-			// A dotted header [a.b.c] also answers lookups of each
-			// segment as a key of its parent table.
-			for i := 1; i < len(segments); i++ {
-				index.set(strings.Join(segments[:i], "."), segments[i], n+1)
-			}
+				segments := headerSegments(line[1:end])
+				table = strings.Join(segments, ".")
+				index.set(table, "", n+1)
+				// A dotted header [a.b.c] also answers lookups of each
+				// segment as a key of its parent table.
+				for i := 1; i < len(segments); i++ {
+					index.set(strings.Join(segments[:i], "."), segments[i], n+1)
+				}
 			}
 			continue
 		}

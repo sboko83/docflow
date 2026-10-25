@@ -89,10 +89,12 @@ func Load(path, profileName string) (*Roster, error) {
 	if err := r.parse(index, root); err != nil {
 		return nil, err
 	}
-	if err := applyProfile(r, index, root, profileName); err != nil {
+	// Routes are checked against the top-level spend: a profile may drop a
+	// provider, and selection then skips that provider's routes.
+	if err := r.checkRoutes(index); err != nil {
 		return nil, err
 	}
-	if err := r.checkRoutes(index); err != nil {
+	if err := applyProfile(r, index, root, profileName); err != nil {
 		return nil, err
 	}
 	if r.Chains, err = r.pickChains(index); err != nil {
@@ -337,7 +339,7 @@ func applyProfile(r *Roster, index *lineIndex, root map[string]any, name string)
 	return nil
 }
 
-// checkRoutes refuses routes whose provider is not in the effective spend
+// checkRoutes refuses routes whose provider is not in the top-level spend
 // order: such a route is never picked and only hides a typo.
 func (r *Roster) checkRoutes(index *lineIndex) error {
 	for _, rt := range r.Routes {
