@@ -5,6 +5,7 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
+- P039
 
 ## Frozen
 
@@ -13,20 +14,9 @@ start_budget: 4000
   Codex по лимиту, проверить возврат к основному исполнителю после сброса
   на живом прогоне — при случае на рабочем прогоне, подписку ради проверки
   не тратить ([P032](archive/P032-runner-fallback.md)).
-- Проверить глазами показ уведомления `docflow run` на macOS: `osascript` возвращает 0, но показ зависит от настроек уведомлений системы ([P025](archive/P025-autonomous-run.md)).
-- Реальный юнит на Codex в Gradle/Xcode-проекте: эскалация записи вне
-  репозитория, спиннер из живого потока, `--approve-for-me` после `resume`
-  ([P015](archive/P015-multi-agent-runner.md)).
-- RMG: прогон `prompt`/`verify`/`commit`/`run` с `repos: modules/*, projects/*`
-  в его `docs/docflow.md` (P016 проверен только на временных репо,
-  [P016](archive/P016-nested-repos-freeze.md)).
 - Windows: `install.sh`, `docflow update`/`uninstall` (сейчас только macOS и
   Linux), `go test ./...` и паритет-сценарии на реальной машине — проверена
-  только кросс-сборка ([P024](archive/P024-go-cli.md)). Паритет-сценарии
-  на Linux не прогонялись ([P029](archive/P029-github-release.md)).
-- Составить план холодным агентом по `bsv-docflow-plan` с ростером:
-  удаляет ли `replan:` после `roster apply`, ставит ли `Role: acceptance`
-  и ревью после фаз провайдера с `check` ([P036](archive/P036-roster.md)).
+  только кросс-сборка ([P024](archive/P024-go-cli.md)).
 - Бенчмарк накладных расходов docflow: эталонный план из юнитов разной
   тяжести на временном репо, прогон на маршрутах ростера; мерить стену,
   время модели, инструментов и гейта, токены (proxy промпта против
