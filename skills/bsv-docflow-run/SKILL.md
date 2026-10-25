@@ -70,9 +70,12 @@ and effort: do not check them and do not block over them. A model's own
 idea of its name or version is unreliable.
 
 In a manual session check only the agent (Claude, Codex, Pi), never the
-model or effort. When the agent does not match the unit's `Executor:`,
-block the unit with that reason (`block`); fixing the assignment is a
-replan. Do not create an auxiliary config and do not edit the plan
+model or effort. The agent fits when it is in the unit's route chain:
+the chain of the unit's `Role:` role from the plan header, and for a
+unit without `Role:` — its `Executor:` triple, or the header
+`executor:` together with `fallback:`. When the agent is in none of
+them, block the unit with that reason (`block`); fixing the assignment
+is a replan. Do not create an auxiliary config and do not edit the plan
 yourself.
 
 ## Handoff
@@ -118,6 +121,11 @@ premise, a missing step or unit; under the runner this triggers the
 auto-replan. `human` when the unblock is not a plan edit — a login, a
 secret, a device or simulator step, a decision. In runner mode the
 `blocker` field of the result JSON replaces `docflow block`.
+
+A unit with `Role: review` reviews and fixes nothing: it edits no
+files. A defect it finds is a block with `--needs plan` — the plan's
+`replan:` schedules the fix; observations without a defect go to the
+Handoff as `Unverified:` items.
 
 Outside the runner — `bsv-docflow-plan` in replan mode next, not this
 skill.

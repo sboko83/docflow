@@ -662,7 +662,7 @@ Handoff:
 
 ## Phase 3: Скиллы
 
-### [ ] P036.3.1 Скиллы и README под ростер
+### [x] P036.3.1 Скиллы и README под ростер
 Read:
 - skills/bsv-docflow-plan/SKILL.md:L28-107
 - skills/bsv-docflow-plan/SKILL.md:L164-225
@@ -699,6 +699,9 @@ Do:
 Verify: `go test ./... && grep -q 'roster apply' skills/bsv-docflow-plan/SKILL.md && grep -q 'Role: review' skills/bsv-docflow-run/SKILL.md`
 Depends: P036.2.10
 Commit: P036.3.1: plan with the roster
+Handoff:
+- Skills grew: plan skill +26 lines (Procedure renumbered to 11 steps, new Review section after Acceptance), run skill +11 lines — the plan's own Read: ranges L28-107/L164-225/L61-128 now point at shifted content; P036.3.2 and P036.4.1 read whole files, so no stale links
+- docs/usage.md «Ростер» is now linked via the Cyrillic anchor #ростер from README.md, README.ru.md and «Планирование» — same pattern as the existing #автозапуск links
 
 ### [ ] P036.3.2 Ревью фазы 3
 Read:

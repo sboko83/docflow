@@ -43,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   role keys without units are removed, other keys keep their place),
   lints the plan and restores it on lint errors; refuses while a run is
   in progress.
+- The `bsv-docflow-plan` skill plans with the roster: the survey starts
+  from `docflow roster show` (roster / profile / manual triples, with a
+  fallback route per role on a manual choice), units get `Role:` by the
+  cheap/heavy/review/acceptance criteria, a phase whose units run on a
+  `check` provider ends with a review unit, and `docflow roster apply`
+  runs after the units, before `lint` and the dry run.
+- The `bsv-docflow-run` skill: a `Role: review` unit edits no files and
+  blocks with `--needs plan` on a defect; in a manual session the agent
+  fits when it is in the unit's route chain (its `Role:` chain, else
+  `Executor:` or the header `executor:` with `fallback:`).
 
 ### Fixed
 - `docflow run` shows the quota delta for a window that was at 0% before

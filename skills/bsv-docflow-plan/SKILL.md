@@ -62,8 +62,11 @@ otherwise — work without a plan.
 8. Cold-agent check: reread every unit as if the chat never happened.
    Any "as we discussed", "see above", a reference to an unnamed file —
    rewrite.
-9. `docflow lint`. No script — check against the sample manually.
-10. Show the plan to the user, apply edits. Leave `status: draft`; the
+9. Routes: on the roster choice of the survey — `docflow roster apply
+   <id>` (plus `--profile NAME` when chosen) writes the role chains into
+   the plan header; manual triples — the header keys by hand.
+10. `docflow lint`. No script — check against the sample manually.
+11. Show the plan to the user, apply edits. Leave `status: draft`; the
    project's rules and the commission decide the commit and its message.
    If a commit is due, delete the Backlog line taken into work in the same
    commit. The last line of the reply is "activate:
@@ -75,9 +78,12 @@ One block of questions to the user in every plan, before units are
 written — not drip-fed, nothing assigned on the user's behalf. A choice
 the user has already stated is recorded mechanically and not asked again.
 
-- Executors: the plan's `executor: agent | model | effort`, plus separate
-  `Executor:` triples for heavy units and for acceptance. The rules are
-  in "Executor".
+- Executors: first run `docflow roster show`. It succeeds — ask which
+  source fills the routes: the roster (the chains it shows) / a roster
+  `--profile` / manual triples. Manual selection of triples — only on
+  that answer or on a roster error, and then ask for a fallback route of
+  every role too: a plan without a fallback — only on the user's
+  explicit refusal. The rules are in "Executor".
 - Permissions: `permissions: auto|full` in the frontmatter. `full` runs
   the agents without their sandbox and approvals for the whole run; the
   plan file itself runs nothing, but the runner asks one
@@ -147,7 +153,13 @@ the user has already stated is recorded mechanically and not asked again.
   plan only.
 - `Executor:` — `agent | model | effort`, the unit's full triple; it
   replaces the plan's triple whole, there is no partial inheritance.
-  See "Executor".
+  Only for the user's explicit choice. See "Executor".
+- `Role: cheap|heavy|review|acceptance` — the unit runs along its role's
+  chain from the plan header instead of the shared `fallback:` (format
+  3; `docflow roster apply` writes the keys). Criteria: `cheap` —
+  mechanics, docs, renames, config; `heavy` — design across several
+  modules, concurrency, format and state; `acceptance` and `review` —
+  see "Acceptance" and "Review". An ordinary unit has no field.
 - `Model:` — legacy, only in a plan without `executor:`/`Executor:`: the
   model tier for the runner: `fast` — mechanics (docs, renames, config),
   `strong` — design work and tricky logic, `max` — the heaviest units
@@ -222,6 +234,22 @@ acceptance pass is set up.
   `-only-testing` of one suite.
 - In `Traps:` — a failing scenario is fixed inside this same unit when the
   fix is small; otherwise — `blocked` with the reason.
+
+## Review
+
+A provider with `check = true` in the roster does not verify its own
+work: every phase whose units run on that provider (their primary
+routes — visible in `docflow roster show`) ends with a review unit.
+
+- One unit at the end of the phase, `Role: review` — its chain holds no
+  `check` provider.
+- `Do:` template — review the phase diff, the commits with the phase's
+  commit prefix, against `Goal`, `Constraints`, `## Decisions`, and each
+  unit's `Do:`. The reviewer edits nothing.
+- A defect — `blocked` with `blocker: "plan"` (outside the runner,
+  `docflow block --needs plan`): the plan's `replan:` schedules the fix.
+  Everything else worth noting — an `Unverified:` item in the Handoff.
+- `Verify:` — the plan's `gate:`.
 
 ## Sample
 

@@ -29,7 +29,10 @@ state in the repository instead of the agent's memory.
   without a human: prompts the agent, verifies, commits, retries a
   failed unit with the failure tail, switches to the plan's fallback
   executor on a provider limit or outage and waits only when all of them
-  are unavailable, and stops safely on a timeout or a soft stop. Claude Code, Codex
+  are unavailable, and stops safely on a timeout or a soft stop. A
+  personal roster picks the executor and fallback chains per role
+  (`docflow roster show`, `docflow roster apply`); the runner reads the
+  plan, not the roster. Claude Code, Codex
   CLI and Pi are built in, one run can mix them, and the plan routes each unit
   to its own assistant, model, and reasoning effort
   ([details](docs/usage.md#автозапуск), in Russian).
