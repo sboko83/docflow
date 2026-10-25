@@ -5,13 +5,20 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P040
 - P039
 - P041
 
 ## Frozen
 
 ## Backlog
+- Проверить Go-тесты и e2e на Linux и macOS после Windows-изменений
+  ([P040](archive/P040-windows-support.md)).
+- Перенести Unix shell fixtures `internal/runner` и `internal/agentio`
+  на Windows, где они пока пропускаются
+  ([P040](archive/P040-windows-support.md)).
+- Проверить релизную установку, обновление, ссылки скиллов и удаление
+  на Windows без Developer Mode и прав администратора
+  ([P040](archive/P040-windows-support.md)).
 - `docflow run`: сверить классификатор отказов с живыми отказами Claude и
   Codex по лимиту, проверить возврат к основному исполнителю после сброса
   на живом прогоне — при случае на рабочем прогоне, подписку ради проверки
