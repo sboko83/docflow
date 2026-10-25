@@ -140,7 +140,7 @@ Handoff:
 - internal/release assertFile and the skills dir check compare permission bits only outside Windows: Windows has no Unix modes.
 - Unverified: go test ./... on Linux and macOS after this change — runs in CI only after a push.
 
-### [ ] P040.1.2 Revive the e2e scenarios
+### [x] P040.1.2 Revive the e2e scenarios
 Read:
 - tools/parity/README.md
 - tools/parity/run.sh
@@ -190,6 +190,13 @@ scenario alone with `PARITY_SKIP` listing all the others. `Verify:` only
 checks that the harness runs; the full pass is P040.1.3's check, and CI on
 Linux and macOS runs only after a push — record it as `Unverified:`.
 Commit: P040.1.2: revive e2e scenarios in CI
+Handoff:
+- On Windows the e2e fakes claude/codex in $HOME/bin (extensionless bash scripts) are not found by exec.LookPath, so the runner takes the real claude.exe/codex.exe from PATH: the first run here made 8 real Claude Opus calls (~$1.2). Until P040.1.3 fixes it, run the harness on Windows only with claude, codex and pi removed from PATH.
+- 31 of 68 scenarios fail on Windows, all for Windows causes (P040.1.3). (1) run.sh env -i drops TMP/TEMP, Go os.TempDir falls back to C:\WINDOWS: 'mkdir C:\WINDOWS\docflow-commit-N: Access is denied' — commit_after_other_binary_verify, commit_nested_repo, finish_after_verify, test_repos__ReposCommitTest__* (4); they pass once TMP, TEMP and USERPROFILE are passed.
+- (2) Fake agents do not start: 'run: cannot start claude|codex' — run_replan, p021 CodexPlan and MixedPlan, p025 FullPermissions test_yes, HumanBlock, ReplanAccept (2), ReplanGuard (2), StaleRead; 'run: cannot start /bin/bash' from agents.toml cmd ['/bin/bash', fake] — p016 FrozenRun and MultiRepoRun test_units_commit_across_repos.
+- (3) checkout_fixture links MSYS tools into 'isolated path', they fail with '<tool>: error while loading shared libraries' — all 3 p020 and all 7 bootstrap scenarios. (4) skills_doctor: 'install-skills --agent claude' -> 'user "/.docflow" does not exist' (expandUser, P040.3.1). (5) stats: the transcript dir comes from POSIX 'pwd -P' and HOME, Claude on Windows names projects from the Windows path and env -i drops USERPROFILE, so stats prints source '-'.
+- The OS-neutral fixes were docflow: 2 -> 3 only: no fixture has fallback:, so the 2 -> 3 migration changes only the marker. MigrateLegacy downgrades with 's/^docflow: [0-9]*$/docflow: 1/' because init now writes docflow: 3.
+- Unverified: the e2e run on Linux and macOS — CI runs it only after a push; the scenarios blocked by Windows causes (agents, bootstrap) may still hide OS-neutral failures.
 
 ### [ ] P040.1.3 Pass the e2e scenarios and add Windows to CI
 Read:

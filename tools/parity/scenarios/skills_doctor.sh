@@ -17,6 +17,6 @@ docflow doctor --agent claude || [ "$?" -eq 6 ]
 HOME="$HOME/empty-home" docflow doctor --agent claude || [ "$?" -eq 6 ]
 
 mkdir -p "$HOME/no-project/docs"
-printf '%s\n' '---' 'docflow: 2' '---' >"$HOME/no-project/docs/docflow.md"
+printf '%s\n' '---' 'docflow: 3' '---' >"$HOME/no-project/docs/docflow.md"
 cd "$HOME/no-project"
 HOME="$HOME/empty-home" docflow doctor --agent claude || [ "$?" -eq 6 ]

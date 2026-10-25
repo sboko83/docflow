@@ -63,6 +63,7 @@ run_scenario() {
 }
 
 passed=0
+failed=0
 skipped=0
 for scenario in "$source_root"/tools/parity/scenarios/*.sh; do
     [ -f "$scenario" ] || continue
@@ -81,20 +82,28 @@ for scenario in "$source_root"/tools/parity/scenarios/*.sh; do
     fi
     baseline="$work/reference/$name"
     actual="$work/candidate/$name"
+    # A failed scenario does not stop the run: report it and go on.
     if ! run_scenario "$reference" "$scenario" "$baseline" '' "$candidate"; then
         echo "parity: FAIL $name (reference scenario)" >&2
-        exit 1
+        failed=$((failed + 1))
+        continue
     fi
     if ! run_scenario "$candidate" "$scenario" "$actual" "$baseline" "$reference"; then
         echo "parity: FAIL $name (candidate scenario)" >&2
-        exit 1
+        failed=$((failed + 1))
+        continue
     fi
     echo "parity: OK $name ($(cat "$baseline/count") calls)"
     passed=$((passed + 1))
 done
 
-if [ "$passed" -eq 0 ]; then
+total=$((passed + failed))
+if [ "$total" -eq 0 ]; then
     echo "parity: no scenarios ran ($skipped skipped)" >&2
     exit 2
+fi
+if [ "$failed" -gt 0 ]; then
+    echo "parity: $failed of $total failed" >&2
+    exit 1
 fi
 echo "parity: $passed scenarios passed, $skipped skipped"

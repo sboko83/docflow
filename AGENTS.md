@@ -28,7 +28,9 @@ explicitly instead.
   `internal/`; standard library only, no external dependencies.
 - Tests live with their Go packages; run `go test ./...` — it is also the
   plans' `gate:`. CI also runs `bash tools/test-install.sh` (installer and
-  update against a local release layout).
+  update against a local release layout) and the e2e scenarios
+  `bash tools/parity/run.sh bin/docflow bin/docflow` after
+  `go build -o bin/docflow ./cmd/docflow`.
 - Format spec, `templates/` and `lint` change together. Bumping `docflow: N`
   requires a migration path.
 

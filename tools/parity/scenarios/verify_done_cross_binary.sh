@@ -3,7 +3,7 @@ parity_repo
 mkdir -p docs/plans deps/module
 cat >docs/docflow.md <<'EOF'
 ---
-docflow: 2
+docflow: 3
 read_budget: 40000
 repos: deps/*
 ---

@@ -6,7 +6,7 @@ accept_fixture p021
 unit_route 1 'Model: fast'
 activate_fixture
 printf '[tiers]\nfast = {agent = "codex", model = "gpt-5.5", effort = "low"}\n' >"$XDG_CONFIG_HOME/docflow/agents.toml"
-edit docs/docflow.md 's/docflow: 2/docflow: 1/'
+edit docs/docflow.md 's/^docflow: [0-9]*$/docflow: 1/'
 save_fixture 'format 1'
 e2e_cli 2 run --dry-run
 e2e_cli 0 migrate

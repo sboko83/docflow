@@ -3,7 +3,7 @@ parity_repo
 mkdir -p docs/plans "$HOME/bin"
 cat >docs/docflow.md <<'EOF'
 ---
-docflow: 2
+docflow: 3
 read_budget: 40000
 ---
 ## Queue

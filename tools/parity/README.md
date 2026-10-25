@@ -1,18 +1,24 @@
 # Паритет CLI
 
-Запускать из checkout. Нужны bash 3.2+, git и Go 1.24+.
+Харнесс гоняет end-to-end сценарии CLI: каждый сценарий — цепочка вызовов
+`docflow` в свежем репозитории. С одним бинарником на обеих сторонах
+(`run.sh bin/docflow bin/docflow`) это e2e-прогон текущей сборки, его
+запускает CI. С двумя разными сборками харнесс сравнивает их вывод вызов за
+вызовом. Запускать из checkout. Нужны bash 3.2+, git и Go 1.24+.
 
 ```bash
-bash tools/parity/run.sh bin/docflow              # bin/docflow против свежесобранного bin/docflow-go
-bash tools/parity/run.sh bin/docflow bin/docflow-go   # два готовых бинарника
-bash tools/parity/run.sh bin/docflow bin/docflow      # самопроверка одного бинарника
-PARITY_SKIP='help' bash tools/parity/run.sh bin/docflow
+bash tools/parity/run.sh bin/docflow bin/docflow      # e2e-прогон одной сборки
+bash tools/parity/run.sh bin/docflow bin/docflow-old  # сравнение двух сборок
+bash tools/parity/run.sh bin/docflow-old              # против свежесобранного bin/docflow-go
+PARITY_SKIP='help' bash tools/parity/run.sh bin/docflow bin/docflow
 ```
 
 Аргументы — пути к исполняемым файлам. `PARITY_SKIP` содержит имена сценариев
-без `.sh`, разделённые пробельными символами. Если не запущено ни одного
-сценария, харнесс завершается с кодом 2. Расхождение или ошибка сценария
-дают код 1; полный паритет — 0.
+без `.sh`, разделённые пробельными символами. Упавший сценарий не
+останавливает прогон: на каждый печатается `parity: FAIL <name> (<side>
+scenario)`, в конце — `parity: N of M failed`. Если не запущено ни одного
+сценария, харнесс завершается с кодом 2. Расхождение или ошибка хотя бы
+одного сценария дают код 1; все сценарии прошли — 0.
 
 ## Формат сценария
 

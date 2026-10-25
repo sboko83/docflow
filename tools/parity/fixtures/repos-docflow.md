@@ -1,5 +1,5 @@
 ---
-docflow: 2
+docflow: 3
 read_budget: 40000
 repos: projects/*
 ---

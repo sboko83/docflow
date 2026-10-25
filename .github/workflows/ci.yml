@@ -19,4 +19,6 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
+      - run: go build -o bin/docflow ./cmd/docflow
+      - run: bash tools/parity/run.sh bin/docflow bin/docflow
       - run: bash tools/test-install.sh

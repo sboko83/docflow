@@ -3,7 +3,7 @@ parity_repo
 mkdir -p docs .git/docflow/stats
 cat >docs/docflow.md <<'EOF'
 ---
-docflow: 2
+docflow: 3
 ---
 ## Queue
 
