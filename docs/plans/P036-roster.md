@@ -188,6 +188,16 @@ trusted = true                 # claude уходит в запас acceptance и
   исключить провайдера (решение пользователя, дефект ревью P036.2.7).
 - Дефект третьего ревью исправляет P036.2.8, затем ревью P036.2.9 — как
   P036.2.4/P036.2.5.
+- Неизвестный профиль — ошибка аргумента `--profile`, а не файла: код 2,
+  путь ростера и список определённых профилей, без строки; `docs/usage.md`
+  исправляется под код, «строка» из `Do:` P036.2.1 к нему не относится —
+  в файле нет строки, где ошибка; ближайший заголовок `[profile.*]` или
+  строка 1 указывали бы мимо — отвергнута синтетическая строка (дефект
+  ревью P036.2.9).
+- После P036.2.10 пятого ревью фазы 2 нет — дефект P036.2.9 единственный
+  и документный, P036.2.10 выполняет доверенный провайдер без `check`,
+  итог проверяет приёмка P036.4.1, а бюджет replan фазы (3) уже
+  исчерпан — отвергнут ещё один цикл «исправление → ревью».
 
 ## Phase 1: Формат 3
 
@@ -600,7 +610,7 @@ Handoff:
 - Пример save-claude в docs/usage.md и ## Context — без spend, codex trusted; проверен на ~/.config/docflow/roster.toml: roster show --profile save-claude код 0, acceptance/replan: codex, claude
 - internal/roster/lines.go отформатирован gofmt; логика не менялась
 
-### [ ] P036.2.9 Четвёртое ревью фазы 2
+### [-] P036.2.9 Четвёртое ревью фазы 2
 Read:
 - docs/usage.md:L418-530
 Do:
@@ -620,6 +630,30 @@ Verify: `go test ./... && go vet ./...`
 Depends: P036.2.8
 Executor: codex | gpt-6.1-sol | high
 Commit: P036.2.9: re-review roster phase
+Handoff:
+- Blocked (plan): [P2] internal/roster/roster.go:298 — неизвестный профиль возвращает код 2 и путь без номера строки. Воспроизведено командой roster show --profile missing на эталонном ростере. Это противоречит Do P036.2.1 и docs/usage.md:551. Требуется исправление диагностики либо явное решение об исключении для неизвестного профиля.
+
+### [ ] P036.2.10 Неизвестный профиль — ошибка аргумента
+Read:
+- internal/roster/roster.go:L288-303
+- docs/usage.md:L545-552
+Do:
+- `docs/usage.md` «Ростер»: убрать «неизвестный профиль» из перечня
+  ошибок «код 2 с файлом и строкой»; отдельной фразой — неизвестный
+  `--profile NAME` даёт код 2 с путём ростера и списком определённых
+  профилей, без строки (решение в `## Decisions`).
+- Тест неизвестного профиля (найти: `grep -n 'unknown profile'
+  internal/roster/*_test.go cmd/docflow/*_test.go`; нет — добавить в
+  `internal/roster`): ростер с двумя профилями, `Load` с `missing` — код
+  2, сообщение содержит путь ростера и `(defined: <оба профиля в порядке
+  файла>)`, позиции `путь:N:` нет.
+Verify: `env XDG_CONFIG_HOME="$(mktemp -d)" go test -count=1 ./internal/roster/ ./cmd/docflow/ && ! grep -q 'неизвестный профиль — код 2 с файлом и строкой' docs/usage.md`
+Traps: код `applyProfile` и тексты ошибок не менять — исправляется
+документ, тест закрепляет текущее поведение. Таблицу эталонных цепочек и
+`TestProfileReplacesSpendAndFlags` не менять.
+Depends: P036.2.8
+Executor: claude | claude-opus-5-5 | high
+Commit: P036.2.10: document unknown roster profile
 
 ## Phase 3: Скиллы
 
@@ -658,7 +692,7 @@ Do:
   `fallback`; `docs/usage.md` «Планирование» — ссылка на «Ростер».
 - `CHANGELOG.md` `[Unreleased]`: скиллы под ростер.
 Verify: `go test ./... && grep -q 'roster apply' skills/bsv-docflow-plan/SKILL.md && grep -q 'Role: review' skills/bsv-docflow-run/SKILL.md`
-Depends: P036.2.9
+Depends: P036.2.10
 Commit: P036.3.1: plan with the roster
 
 ### [ ] P036.3.2 Ревью фазы 3
@@ -715,6 +749,6 @@ Do:
 Verify: `go test ./...`
 Traps: упавший сценарий чинится в этом юните, если правка мала; иначе
 `blocked` с причиной.
-Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.2.6, P036.2.7, P036.2.8, P036.2.9, P036.3.1, P036.3.2
+Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.2.6, P036.2.7, P036.2.8, P036.2.9, P036.2.10, P036.3.1, P036.3.2
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.4.1: accept roster and format 3
