@@ -25,7 +25,10 @@ explicitly instead.
 
 ## Code
 - Go module `bsv-docflow`: CLI entry point `cmd/docflow`, implementation in
-  `internal/`; standard library only, no external dependencies.
+  `internal/`. Third-party Go libraries are allowed where the standard
+  library falls short; add one deliberately — each is permanent maintenance.
+  The build stays a self-contained binary: the user installs nothing beyond
+  it.
 - Tests live with their Go packages; run `go test ./...` — it is also the
   plans' `gate:`. CI also runs `bash tools/test-install.sh` (installer and
   update against a local release layout) and the e2e scenarios

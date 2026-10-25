@@ -6,8 +6,8 @@ bsv-docflow runs software work with AI agents as a small spec-driven
 process. A task is written up as a plan, the plan splits into one-session
 units, each unit is executed, verified, and committed on its own, and the
 closed plan collapses into an archive entry that keeps the decisions.
-The CLI is a single Go binary, standard library only, installed with one
-command; a Go toolchain is needed only for development.
+The CLI is a single self-contained Go binary installed with one command;
+a Go toolchain is needed only for development.
 
 ## Why
 
