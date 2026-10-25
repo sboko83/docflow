@@ -227,8 +227,9 @@ WANT=versions/0.0.3
     || fail "current after a failed update: got '$GOT', want '$WANT'"
 
 echo '== development build refuses update'
-DEV_REPO=$WORK/repo
-mkdir -p "$DEV_REPO"
+mkdir -p "$WORK/repo"
+# install-dev.sh links the physical checkout path (macOS TMPDIR is under /var).
+DEV_REPO=$(cd "$WORK/repo" && pwd -P) || fail 'cannot resolve the development checkout'
 git init -q "$DEV_REPO"
 # install-dev must not rebuild the binary currently running docflow verify.
 for item in cmd internal templates skills tools go.mod LICENSE; do

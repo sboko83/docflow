@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - On Windows, `install-skills` no longer fails with `user "/.docflow" does not
   exist`: `~/` paths split on `/` as well as ``.
 - On Windows, `tools/install-dev.sh` builds and links `docflow.exe`, so
-  `doctor` finds it on `PATH`.
+  `doctor` finds it on `PATH`; without symlink rights it fails instead of
+  silently copying the binary.
 
 ## [0.12.0] - 2026-10-25
 

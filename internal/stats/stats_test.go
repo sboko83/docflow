@@ -272,7 +272,8 @@ func TestClaudeProjectsDir(t *testing.T) {
 	if got, want := ClaudeProjectsDir("/tmp/project"), filepath.Join(home, "transcripts"); got != want {
 		t.Fatalf("ClaudeProjectsDir() = %q, want %q", got, want)
 	}
-	if strings.Contains(ClaudeProjectsDir("/tmp/project"), "~") {
+	// A prefix check: Windows 8.3 home paths such as RUNNER~1 contain "~".
+	if strings.HasPrefix(ClaudeProjectsDir("/tmp/project"), "~") {
 		t.Fatal("configured home prefix was not expanded")
 	}
 }

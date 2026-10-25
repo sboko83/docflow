@@ -7,7 +7,12 @@ import (
 )
 
 func TestDirectoryLink(t *testing.T) {
-	root := t.TempDir()
+	// Resolve returns a canonical path: macOS TMPDIR sits under the /var
+	// symlink, and Windows runners use 8.3 names such as RUNNER~1.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(root, "target & %PATH%")
 	link := filepath.Join(root, "link & %PATH%")
 	if err := os.Mkdir(target, 0755); err != nil {

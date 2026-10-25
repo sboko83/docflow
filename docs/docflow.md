@@ -11,8 +11,8 @@ start_budget: 4000
 ## Frozen
 
 ## Backlog
-- Проверить Go-тесты и e2e на Linux и macOS после Windows-изменений
-  ([P040](archive/P040-windows-support.md)).
+- Проверить Go-тесты и e2e на Linux и Windows в CI после push: на macOS
+  проходят ([P040](archive/P040-windows-support.md)).
 - Перенести Unix shell fixtures `internal/runner` и `internal/agentio`
   на Windows, где они пока пропускаются
   ([P040](archive/P040-windows-support.md)).

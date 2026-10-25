@@ -51,6 +51,8 @@ REPO_DIR=$(cd "$SCRIPT_DIR/.." && pwd -P) \
 # Windows executables carry .exe: LookPath and doctor need it on PATH.
 EXE=
 case "${OSTYPE:-}" in msys*|cygwin*) EXE=.exe ;; esac
+# Plain Git Bash may copy a file instead of linking it; fail loudly instead.
+case "${OSTYPE:-}" in msys*) export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict" ;; esac
 SOURCE="$REPO_DIR/bin/docflow$EXE"
 GO_MOD="$REPO_DIR/go.mod"
 MAIN_SOURCE="$REPO_DIR/cmd/docflow/main.go"
