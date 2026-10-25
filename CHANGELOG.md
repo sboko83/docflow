@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docflow run` writes a versioned JSONL event stream beside its call logs,
+  covering attempts, quota, route switches, replans, verification and commits;
+  stream failures warn once without stopping the run.
+
 ### Changed
 - `docflow prompt` and `docflow run` give review units the phase's commit
   subjects, diff base, and command to inspect the diff.

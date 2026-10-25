@@ -111,4 +111,16 @@ func TestAcceptanceAgentVerifyReused(t *testing.T) {
 	if err != nil || string(count) != "x" {
 		t.Fatalf("gate count = %q, %v; want one run", count, err)
 	}
+	var verifies int
+	for _, record := range fixtureEvents(t, f) {
+		if record["event"] == "verify" {
+			verifies++
+			if record["reused"] != true || record["exit_code"] != float64(0) {
+				t.Fatalf("reused verify event = %v", record)
+			}
+		}
+	}
+	if verifies != 1 {
+		t.Fatalf("verify events = %d, want 1", verifies)
+	}
 }

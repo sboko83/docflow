@@ -300,6 +300,18 @@ func TestReplanFallback(t *testing.T) {
 	if strings.Contains(r.out+r.err, "gpt-6-luna") {
 		t.Fatalf("replan used the plan fallback:\n%s%s", r.out, r.err)
 	}
+	var replanEvents []string
+	for _, record := range fixtureEvents(t, f) {
+		if record["replan"] == true || record["event"] == "replan" {
+			replanEvents = append(replanEvents, record["event"].(string))
+		}
+		if record["event"] == "replan" && (record["result"] != "done" || record["route"].(map[string]any)["agent"] != "codex") {
+			t.Fatalf("replan result = %v", record)
+		}
+	}
+	if got := strings.Join(replanEvents, ","); got != "attempt,route_switch,attempt,commit,replan" {
+		t.Fatalf("replan events = %s", got)
+	}
 }
 
 func TestReplanChainExhaustedSkipsFallback(t *testing.T) {

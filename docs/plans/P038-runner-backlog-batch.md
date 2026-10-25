@@ -170,7 +170,7 @@ Handoff:
 
 ## Phase 3: Event stream and close
 
-### [ ] P038.3.1 Write the runner event stream
+### [x] P038.3.1 Write the runner event stream
 Read:
 - internal/runner/run.go:L91-460
 - internal/runner/run.go:L451-935
@@ -205,6 +205,9 @@ directory; do not change their naming.
 Depends: -
 Role: heavy
 Commit: P038.3.1: write runner event stream
+Handoff:
+- Поток JSONL v1 реализован; схема и совместимость описаны в runner.md, CHANGELOG обновлён.
+- На macOS прошли полный docflow verify P038.3.1, gate go test ./... и git diff --check. Коммит оставлен раннеру.
 
 ### [ ] P038.3.2 Close a ready plan with run --close
 Read:

@@ -165,7 +165,11 @@ func unitPhase(uid string) string {
 	return uid
 }
 
-func replanUnit(ctx context.Context, root string, args Args, config map[string]any, uid, trigger string, p *Progress, totals *runTotals, unavailable map[string]time.Time) (int, error) {
+func replanUnit(ctx context.Context, root string, args Args, config map[string]any, uid, trigger string, p *Progress, totals *runTotals, unavailable map[string]time.Time) (code int, runErr error) {
+	var route agents.Route
+	defer func() {
+		totals.events.emit("replan", uid, map[string]any{"route": eventRoute(route), "result": eventStatus(code, runErr), "exit_code": code})
+	}()
 	plan, _, err := cycle.FindUnit(root, uid)
 	if err != nil {
 		return 2, err
@@ -299,6 +303,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			}
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("replan attempt %d, log %s", attempt, rel))
+			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel, "replan": true})
 			p.spin(func() string { return uid + " replan " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
 			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid)})
 			p.stop()
@@ -341,6 +346,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 					next, available := chain.pick(now)
 					if available && routeIdentity(next) != routeIdentity(route) {
 						previous := route
+						totals.events.emit("route_switch", uid, map[string]any{"from": eventRoute(route), "to": eventRoute(next), "kind": refusal.Kind, "replan": true})
 						p.line(fmt.Sprintf("%s: replan %s: %s until %s; switching to %s", uid, routeName(route), refusal.Kind, until.Local().Format("15:04"), routeName(next)), false, "")
 						p.executor(next)
 						route = next
@@ -386,6 +392,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 						}
 						if routeIdentity(next) != routeIdentity(route) {
 							previous := route
+							totals.events.emit("route_switch", uid, map[string]any{"from": eventRoute(route), "to": eventRoute(next), "kind": refusal.Kind, "replan": true})
 							p.line(uid+": replan switching to "+routeName(next)+" after the provider refusal wait", false, "")
 							p.executor(next)
 							route = next
@@ -498,6 +505,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			return 2, err
 		}
 		new, _ := format.ParsePlan(string(after), plan.Path)
+		totals.events.emit("commit", uid, map[string]any{"sha": sha, "replan": true})
 		p.result(uid, "replanned", fmt.Sprintf("%s (+%d units)", sha, len(new.Units)-beforeUnits))
 		totals.replans++
 		return 0, nil

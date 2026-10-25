@@ -51,12 +51,18 @@ type runTotals struct {
 	unit, activity             string
 	quota, quotaStart          map[string]agentio.Quota
 	names                      []string
+	events                     *eventStream
 }
 
 func (t *runTotals) mergeQuota(name string, quota agentio.Quota) {
 	if len(quota) == 0 {
 		return
 	}
+	windows := make([]map[string]any, 0, len(quota))
+	for _, w := range quota {
+		windows = append(windows, map[string]any{"label": w.Label, "used": w.Used, "reset": w.Reset})
+	}
+	t.events.emit("quota", t.unit, map[string]any{"name": name, "windows": windows})
 	if _, ok := t.quota[name]; !ok {
 		t.names = append(t.names, name)
 	}
@@ -89,7 +95,7 @@ func (t *runTotals) namedQuotas() []NamedQuota {
 
 // Run drives only the current plan. Cycle commands run as subprocesses of this
 // binary so their order checks and persisted state stay identical to manual use.
-func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string) (int, error) {
+func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string) (code int, runErr error) {
 	if args.PrintConfig {
 		_, err := io.WriteString(stdout, agents.DefaultAgents)
 		return 0, err
@@ -172,6 +178,26 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 			return code, nil
 		}
 	}
+	totals.events = newEventStream(root, now, stderr)
+	fields := map[string]any{"plan": "", "units": 0}
+	if sel.Plan != nil {
+		fields["plan"], fields["units"] = sel.Plan.Meta["id"], len(sel.Plan.Units)
+	}
+	totals.events.emit("run_start", "", fields)
+	defer func() {
+		reason := totals.stop
+		if reason == "" {
+			reason = totals.notification
+		}
+		if runErr != nil {
+			reason = runErr.Error()
+		}
+		if reason == "" {
+			reason = fmt.Sprintf("exit %d", code)
+		}
+		totals.events.emit("run_end", "", map[string]any{"reason": reason, "exit_code": eventExitCode(code, runErr)})
+		totals.events.close()
+	}()
 	if isTerminal(os.Stdin) {
 		p.line("run: s + Enter stops after the current unit; Ctrl-C stops now", false, "")
 		restore := noEcho(os.Stdin)
@@ -179,11 +205,12 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		go watchKeys(root, os.Stdin, p, nil, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.unit })
 	}
 	defer os.Remove(stop)
-	code, err := runLoop(ctx, root, args, config, p, totals)
+	code, err = runLoop(ctx, root, args, config, p, totals)
 	signalMu.Lock()
 	s := stopped
 	signalMu.Unlock()
 	if s != nil {
+		totals.stop = "stopped by " + signalName(s)
 		p.stop()
 		p.line("run: stopped by "+signalName(s)+"; the current unit stays [~]", true, "")
 		if totals.planID != "" {
@@ -494,12 +521,20 @@ func previousExecutorAttempt(root string, route agents.Route, agent map[string]a
 	return prompt.String(), nil
 }
 
-func runUnit(ctx context.Context, root string, args Args, config map[string]any, chain *executorChain, uid string, p *Progress, totals *runTotals) (int, string, error) {
+func runUnit(ctx context.Context, root string, args Args, config map[string]any, chain *executorChain, uid string, p *Progress, totals *runTotals) (code int, trigger string, runErr error) {
 	plan, unit, err := cycle.FindUnit(root, uid)
 	if err != nil {
 		return 2, "", err
 	}
 	start := time.Now()
+	var cost *float64
+	defer func() {
+		fields := map[string]any{"status": eventStatus(code, runErr), "seconds": time.Since(start).Seconds()}
+		if cost != nil {
+			fields["cost"] = *cost
+		}
+		totals.events.emit("unit_end", uid, fields)
+	}()
 	route, ok := chain.pick(time.Now())
 	for !ok {
 		until, found := chain.earliest()
@@ -523,6 +558,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	}
 	name := route.Agent
 	agent := profile(config, name)
+	totals.events.emit("unit_start", uid, map[string]any{"route": eventRoute(route)})
 	p.unit(uid, unit.Title, route)
 	defer func() { p.elapsed(uid, time.Since(start).Seconds()) }()
 	committing, err := cycle.CommitPending(root, plan, unit)
@@ -535,6 +571,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		var result cycle.Result
 		for _, step := range []string{"verify", "commit"} {
 			result = cycle.Self(root, step, uid)
+			if step == "verify" {
+				totals.events.emit("verify", uid, map[string]any{"exit_code": result.Code})
+			} else if result.Code == 0 {
+				totals.events.emit("commit", uid, map[string]any{"sha": firstWord(result.Stdout)})
+			}
 			if result.Code != 0 {
 				if result.Code != 4 {
 					writeFailure(p, result)
@@ -619,7 +660,6 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		}
 	}
 	session, last := "", "agent"
-	var cost *float64
 	var unitIn, unitOut *int
 	timeout := agentCallTimeout(plan, agent)
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
@@ -643,6 +683,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("attempt %d, log %s", attempt, rel))
+			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel})
 			p.spin(func() string { return uid + " " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
 			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid)})
 			p.stop()
@@ -728,6 +769,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				next, available := chain.pick(now)
 				if available && routeIdentity(next) != routeIdentity(route) {
 					previousRoute := route
+					totals.events.emit("route_switch", uid, map[string]any{"from": eventRoute(route), "to": eventRoute(next), "kind": refusal.Kind})
 					p.line(fmt.Sprintf("%s: %s: %s until %s; switching to %s", uid, routeName(route), refusal.Kind, until.Local().Format("15:04"), routeName(next)), false, "")
 					p.executor(next)
 					route = next
@@ -770,6 +812,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					}
 					if routeIdentity(next) != routeIdentity(route) {
 						previousRoute := route
+						totals.events.emit("route_switch", uid, map[string]any{"from": eventRoute(route), "to": eventRoute(next), "kind": refusal.Kind})
 						p.line(uid+": switching to "+routeName(next)+" after the provider refusal wait", false, "")
 						p.executor(next)
 						route = next
@@ -868,11 +911,13 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			return 2, "", err
 		}
 		if verified {
+			totals.events.emit("verify", uid, map[string]any{"exit_code": 0, "reused": true})
 			p.line(uid+": verify reused (tree unchanged since the agent's verify)", false, "")
 		} else {
 			p.spin(uid+" verify", nil)
 			res = cycle.Self(root, "verify", uid)
 			p.stop()
+			totals.events.emit("verify", uid, map[string]any{"exit_code": res.Code})
 			if res.Code == 4 {
 				last, problem = "verify", "docflow verify failed:\n"+strings.TrimSpace(res.Stdout)
 				kind := "verify"
@@ -929,6 +974,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			return res.Code, "", nil
 		}
 		seconds := time.Since(start).Seconds()
+		totals.events.emit("commit", uid, map[string]any{"sha": firstWord(res.Stdout)})
 		summary := fmt.Sprintf("%d attempt%s", attempt, plural(attempt))
 		if !p.fancy {
 			summary += ", " + agentio.Summary(seconds, cost)

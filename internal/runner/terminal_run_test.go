@@ -191,6 +191,11 @@ func TestRunStopSignalsKillAgent(t *testing.T) {
 				t.Fatal("signal did not stop runner")
 			}
 			f.check(runResult{c.ProcessState.ExitCode(), out.String(), errOut.String()}, 128+int(s), "stopped by "+signalName(s), "run: 0 units,")
+			records := fixtureEvents(t, f)
+			end := records[len(records)-1]
+			if end["event"] != "run_end" || end["exit_code"] != float64(128+int(s)) || end["reason"] != "stopped by "+signalName(s) {
+				t.Fatalf("signal run_end = %v", end)
+			}
 			if strings.Count(out.String(), "P001.1.1 time: ") != 1 {
 				t.Fatalf("interrupted unit did not report duration once:\n%s", out.String())
 			}
