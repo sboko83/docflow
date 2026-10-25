@@ -72,8 +72,8 @@ idea of its name or version is unreliable.
 In a manual session check only the agent (Claude, Codex, Pi), never the
 model or effort. The agent fits when it is in the unit's route chain:
 the chain of the unit's `Role:` role from the plan header, and for a
-unit without `Role:` — its `Executor:` triple, or the header
-`executor:` together with `fallback:`. When the agent is in none of
+unit without `Role:` — its `Executor:` triple or the header
+`executor:`, either one together with `fallback:`. When the agent is in none of
 them, block the unit with that reason (`block`); fixing the assignment
 is a replan. Do not create an auxiliary config and do not edit the plan
 yourself.

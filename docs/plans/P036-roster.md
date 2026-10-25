@@ -729,7 +729,7 @@ Commit: P036.3.2: review skills phase
 Handoff:
 - Blocked (plan): 1. skills/bsv-docflow-plan/SKILL.md:217-219: раздел Acceptance требует Executor: вместо Role: acceptance. Это противоречит новым критериям ролей и обходит цепочку acceptance ростера. 2. skills/bsv-docflow-plan/SKILL.md:65-67: обязательный roster apply безусловно записывает replan:, хотя строки 94-98 разрешают выключить авто-replan и запрещают включать его без выбора пользователя. Инструкция не сохраняет отказ после apply (docs/usage.md:557-559). 3. skills/bsv-docflow-run/SKILL.md:75-76: для ручного Executor: указан только его маршрут, а fallback: присоединён лишь к executor: шапки. По реализации internal/agents/agents.go:750 общий fallback добавляется в обоих случаях; текущая инструкция позволяет ошибочно блокировать подходящего запасного агента.
 
-### [ ] P036.3.3 Дефекты ревью фазы 3
+### [x] P036.3.3 Дефекты ревью фазы 3
 Read:
 - skills/bsv-docflow-plan/SKILL.md:L55-100
 - skills/bsv-docflow-plan/SKILL.md:L150-225
@@ -759,6 +759,10 @@ the user opts in» сохраняется.
 Depends: P036.3.1
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.3.3: fix skills review defects
+Handoff:
+- Fixed all three P036.3.2 review defects in skills only: plan skill Acceptance (Role: acceptance; Executor: only on explicit choice; Model: strong without executor mode), plan skill Procedure step 9 + Auto-replan survey item (delete replan: after every roster apply unless the user opted in), run skill manual-session Executor check (Executor: or header executor:, either with fallback:)
+- No code, docs/usage.md or CHANGELOG.md changes; P036.3.4 re-review should read skills/bsv-docflow-plan/SKILL.md Acceptance and Procedure step 9 and skills/bsv-docflow-run/SKILL.md Executor section
+- Unverified: Skill wording is prose read by a cold agent: no test checks that an agent following the plan skill actually removes replan: after roster apply or writes Role: acceptance — only the grep in Verify checks the text exists
 
 ### [ ] P036.3.4 Повторное ревью фазы 3
 Read:

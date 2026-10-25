@@ -64,7 +64,9 @@ otherwise — work without a plan.
    rewrite.
 9. Routes: on the roster choice of the survey — `docflow roster apply
    <id>` (plus `--profile NAME` when chosen) writes the role chains into
-   the plan header; manual triples — the header keys by hand.
+   the plan header; manual triples — the header keys by hand. When the
+   user did not opt in to auto-replan, delete the `replan:` line apply
+   wrote — after every repeated apply too.
 10. `docflow lint`. No script — check against the sample manually.
 11. Show the plan to the user, apply edits. Leave `status: draft`; the
    project's rules and the commission decide the commit and its message.
@@ -95,7 +97,8 @@ the user has already stated is recorded mechanically and not asked again.
   executor that fixes a plan-class block or a stale `Read:` link and lets
   the run continue (see "Replan under the runner"). Without the key a
   block stops the run. Off unless the user opts in; executor mode only,
-  `lint` enforces it.
+  `lint` enforces it. `roster apply` writes `replan:`; a refusal removes
+  it.
 - What only a human provides: a login, a test account — name where the
   credentials live (an environment variable, a file outside the
   repository), never their value — a device or simulator step, a secret,
@@ -214,9 +217,11 @@ A unit's `Verify` checks its slice, and its test is written by the same
 agent that wrote the code. Nobody checks the Goal as a whole unless an
 acceptance pass is set up.
 
-- A separate unit (or phase), last in the plan, `Model: strong` (in
-  executor mode — an `Executor:` with a strong model of the user's
-  choice).
+- A separate unit (or phase), last in the plan, `Role: acceptance`: it
+  runs along the header `acceptance:` chain, which `roster apply` or the
+  manual choice writes. `Executor:` instead — only on the user's explicit
+  choice, as in "Executor". A plan without `executor:`/`Executor:` —
+  `Model: strong`.
 - `Depends:` — every unit of the plan: this pulls their Handoffs with
   `Unverified:` items into the acceptance prompt.
 - `Read:` — the existing e2e/UI tests and fixtures; from the
