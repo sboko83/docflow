@@ -190,6 +190,61 @@ func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
 	}
 }
 
+func TestInstallSkillsRelinksDocflowReleaseAndRejectsForeignLink(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	oldRelease := filepath.Join(home, ".docflow", "versions", "old")
+	current := filepath.Join(home, ".docflow", "current")
+	if err := os.MkdirAll(filepath.Join(oldRelease, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(oldRelease, current); err != nil {
+		t.Fatal(err)
+	}
+	oldSource := filepath.Join(current, "skills")
+	newSource := t.TempDir()
+	for _, name := range []string{"bsv-docs", "bsv-changelog"} {
+		if err := os.MkdirAll(filepath.Join(oldRelease, "skills", name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(newSource, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join(home, ".agents", "skills")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(oldSource, "bsv-docs"), filepath.Join(target, "bsv-docs")); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(home, "foreign")
+	if err := os.MkdirAll(foreign, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(foreign, filepath.Join(target, "bsv-changelog")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := InstallSkills(newSource, t.TempDir(), InstallOptions{Agent: "codex", Target: target})
+	if err != nil || result.Code != 2 || !strings.Contains(result.Stderr, "exists and is not a link") {
+		t.Fatalf("mixed relink install = %#v, %v", result, err)
+	}
+	if !sameResolvedPath(filepath.Join(target, "bsv-docs"), filepath.Join(oldSource, "bsv-docs")) {
+		t.Fatal("preflight conflict changed the managed link")
+	}
+	if err := os.Remove(filepath.Join(target, "bsv-changelog")); err != nil {
+		t.Fatal(err)
+	}
+	result, err = InstallSkills(newSource, t.TempDir(), InstallOptions{Agent: "codex", Target: target})
+	if err != nil || result.Code != 0 || !strings.Contains(result.Stdout, "bsv-docs: relinked "+filepath.Join(target, "bsv-docs")+" -> "+filepath.Join(newSource, "bsv-docs")+" (was "+filepath.Join(oldSource, "bsv-docs")+")") {
+		t.Fatalf("managed link relink = %#v, %v", result, err)
+	}
+	if !sameResolvedPath(filepath.Join(target, "bsv-docs"), filepath.Join(newSource, "bsv-docs")) {
+		t.Fatal("managed link does not resolve to new source")
+	}
+}
+
 func TestInstallSkillsTargetAndPreflightConflicts(t *testing.T) {
 	source := sourceSkills(t)
 	root := t.TempDir()

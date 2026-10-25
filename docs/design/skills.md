@@ -64,8 +64,10 @@ docflow-жизненный цикл. Политики коммитов и рел
 - Ruleblend и симлинки сочетаются по агентам: агент, чьи скиллы снял
   Ruleblend, получает симлинки `install-skills` (Pi видит их в
   `~/.pi/agent/skills/`) ([P027](../archive/P027-skills-check-symlinks.md)).
-- Нет Ruleblend — `docflow install-skills` ставит личные симлинки; отказ,
-  если на месте уже лежит чужое. `--agent claude|codex|pi` выбирает каталоги
+- Нет Ruleblend — `docflow install-skills` ставит личные симлинки; симлинк,
+  ведущий внутрь `~/.docflow/`, при установке из другого источника
+  перенаправляется на новый источник, а чужой существующий путь вызывает отказ.
+  `--agent claude|codex|pi` выбирает каталоги
   `~/.claude/skills/`, `~/.agents/skills/` и `~/.pi/agent/skills/`
   соответственно; default — Claude.
   Явный `--target DIR` заменяет личный каталог.

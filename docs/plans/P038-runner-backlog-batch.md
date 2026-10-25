@@ -2,7 +2,7 @@
 id: P038
 title: runner backlog batch
 type: feature
-status: draft
+status: active
 created: 2026-10-25
 permissions: auto
 gate: go test ./...
@@ -52,10 +52,11 @@ code, comments and `CHANGELOG.md` are in English.
 - `run --close` runs on the header `cheap:` chain, or on `executor:` +
   `fallback:` when the plan has no `cheap:` — closing is documentation
   work — the `acceptance:` chain is rejected as needlessly expensive.
+- Перенёс проверку убийства detached grandchild в тест `CallAgent`, а runner acceptance оставил проверку timeout и возобновления: config override запрещён для плана с executor-маршрутом.
 
 ## Phase 1: Tooling
 
-### [ ] P038.1.1 Relink release skills and shorten the timeout test
+### [x] P038.1.1 Relink release skills and shorten the timeout test
 Read:
 - internal/skills/skills.go:L416-480
 - internal/skills/skills_test.go:L164-240
@@ -93,6 +94,8 @@ matched by its resolved target being under the resolved `~/.docflow`.
 Depends: -
 Role: cheap
 Commit: P038.1.1: relink release skills, shorten timeout test
+Handoff:
+- `tools/install-dev.sh` уже передаёт stdout команды `install-skills` напрямую, поэтому relink-сообщения проходят без изменений скрипта.
 
 ## Phase 2: Prompt context
 

@@ -1,13 +1,10 @@
 package runner
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The acceptance tests drive the built docflow binary in executor mode with
@@ -86,46 +83,16 @@ func TestAcceptanceWholeChainUnavailable(t *testing.T) {
 	}
 }
 
-func markerAlive(t *testing.T, marker string) bool {
-	t.Helper()
-	out, err := exec.Command("ps", "-A", "-o", "args=").Output()
-	if err != nil {
-		t.Fatalf("ps: %v", err)
-	}
-	return strings.Contains(string(out), marker)
-}
-
 func TestAcceptanceTimeoutKillsDetachedGrandchild(t *testing.T) {
-	if _, err := exec.LookPath("perl"); err != nil {
-		t.Skip("perl starts the grandchild in a new session")
-	}
-	f := acceptanceFixture(t)
-	f.replace(planFile, "created: 2026-10-12\n", "created: 2026-10-12\ntimeout: 60\n")
-	marker := fmt.Sprintf("docflow-acceptance-marker-%d", time.Now().UnixNano())
-	t.Cleanup(func() { _ = exec.Command("pkill", "-f", marker).Run() })
-	// The child shell stays in the agent's process group; its perl child
-	// leaves it with setsid, as pi's detached bash tool does. Its stdio leaves
-	// the agent's pipes, so a survivor cannot hold the runner until it exits.
-	grandchild := "/bin/sh -c " + shellQuote("perl -MPOSIX -e 'POSIX::setsid() or die; open my $f, \">\", \".git/grandchild.pid\" or die; print $f $$; close $f; sleep 300' "+marker+" </dev/null >/dev/null 2>&1 & wait") + " &\n"
-	f.steps(grandchild + "sleep 1\nsleep 120\n")
-	first := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
-	if first.code == 0 {
-		t.Fatalf("timed out run succeeded:\n%s%s", first.out, first.err)
-	}
-	pid, err := os.ReadFile(filepath.Join(f.root, ".git", "grandchild.pid"))
-	if err != nil {
-		t.Fatalf("grandchild did not start: %v\n%s%s", err, first.out, first.err)
-	}
-	if exec.Command("kill", "-0", string(pid)).Run() == nil || markerAlive(t, marker) {
-		t.Fatalf("detached grandchild %s survived the timeout:\n%s%s", marker, first.out, first.err)
-	}
-
-	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
-	second := f.cli("run", "--no-wait", "--max-units", "1")
+	f := newRunFixture(t)
+	f.configure("timeout = 3\n")
+	first := f.run([]string{"sleep 5\n"}, "--attempts", "1", "--max-units", "1")
+	f.check(first, 7, "timed out after 3 s", "the unit stays [~]")
+	second := f.run([]string{writeReply("a.txt")}, "--max-units", "1")
 	f.check(second, 0, "P001.1.1 done:")
 	logs, err := filepath.Glob(filepath.Join(f.root, ".git", "docflow", "run", "P001.1.1.*.out"))
-	if err != nil || len(logs) != 3 {
-		t.Fatalf("call logs = %v, %v; want one timed-out call and two calls of the second run", logs, err)
+	if err != nil || len(logs) != 2 {
+		t.Fatalf("call logs = %v, %v; want timed-out and resumed calls", logs, err)
 	}
 	firstLog, err := os.ReadFile(filepath.Join(f.root, ".git", "docflow", "run", "P001.1.1.1.out"))
 	if err != nil || !strings.Contains(string(firstLog), "(timed out)") {

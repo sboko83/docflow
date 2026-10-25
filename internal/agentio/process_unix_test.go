@@ -82,3 +82,41 @@ func TestCallAgentReturnsDespiteOrphanHoldingPipes(t *testing.T) {
 		})
 	}
 }
+
+func TestCallAgentTimeoutKillsDetachedGrandchild(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("perl starts the grandchild in a new session")
+	}
+	root, argv := fakeScenario(t, `perl -MPOSIX -e 'POSIX::setsid() or die; open my $f, ">", "detached.pid" or die; print $f $$; close $f; sleep 300' </dev/null >/dev/null 2>&1 &
+wait
+`)
+	pidFile := filepath.Join(root, "detached.pid")
+	var pid int
+	t.Cleanup(func() {
+		if pid > 1 {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	started := time.Now()
+	run, err := CallAgent(root, argv, nil, filepath.Join(root, "log"), CallOptions{Timeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !run.TimedOut {
+		t.Fatal("CallAgent did not report a timeout")
+	}
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatalf("detached grandchild did not start: %v", err)
+	}
+	pid, err = strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("invalid detached pid %q: %v", data, err)
+	}
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Fatalf("detached grandchild %d survived timeout", pid)
+	}
+	if elapsed := time.Since(started); elapsed >= 15*time.Second {
+		t.Fatalf("timeout and cleanup took %s, want under 15s", elapsed)
+	}
+}

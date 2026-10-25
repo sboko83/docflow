@@ -443,12 +443,24 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 	var plan []string
 	var conflicts []string
 	kept := 0
+	relink := make(map[string]string)
+	docflowRoot, homeErr := expandUser("~/.docflow")
+	if homeErr != nil {
+		return Result{}, homeErr
+	}
+	resolvedDocflowRoot, _ := filepath.EvalSymlinks(docflowRoot)
 	for _, source := range sources {
 		destination := filepath.Join(target, filepath.Base(source))
 		if info, err := os.Lstat(destination); err == nil {
 			if info.Mode()&os.ModeSymlink != 0 && sameResolvedPath(destination, source) {
 				kept++
 				fmt.Fprintf(&stdout, "%s: already linked\n", filepath.Base(source))
+			} else if info.Mode()&os.ModeSymlink != 0 && resolvedDocflowRoot != "" && sameResolvedPathUnder(destination, resolvedDocflowRoot) {
+				oldTarget, err := os.Readlink(destination)
+				if err != nil {
+					return Result{}, err
+				}
+				relink[destination] = oldTarget
 			} else {
 				conflicts = append(conflicts, destination)
 			}
@@ -474,7 +486,33 @@ func InstallSkills(sourceDir, cwd string, options InstallOptions) (Result, error
 		}
 		fmt.Fprintf(&stdout, "%s: linked %s -> %s\n", filepath.Base(source), destination, source)
 	}
+	for destination, oldTarget := range relink {
+		if err := os.Remove(destination); err != nil {
+			return Result{}, err
+		}
+		name := filepath.Base(destination)
+		var source string
+		for _, candidate := range sources {
+			if filepath.Base(candidate) == name {
+				source = candidate
+				break
+			}
+		}
+		if err := os.Symlink(source, destination); err != nil {
+			return Result{}, err
+		}
+		fmt.Fprintf(&stdout, "%s: relinked %s -> %s (was %s)\n", name, destination, source, oldTarget)
+	}
 	return Result{Code: clierrors.EXIT_OK, Stdout: stdout.String(), Kept: kept, Added: len(plan)}, nil
+}
+
+func sameResolvedPathUnder(path, root string) bool {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(root, resolved)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func staleHint(agent string, target *string) string {
