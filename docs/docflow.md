@@ -5,7 +5,6 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P038
 
 ## Frozen
 
@@ -34,7 +33,9 @@ start_budget: 4000
   время модели, инструментов и гейта, токены (proxy промпта против
   фактических), долю ревью и replan, качество (гейт, дефекты ревью).
   Данные уже есть в `<git-dir>/docflow/run/*.out` (у pi — `durationMs` на
-  вызов модели и инструмента) и `docflow stats`.
+  вызов модели и инструмента), `<run-id>.events.jsonl` (`unit_end` —
+  секунды и стоимость юнита, [P038](archive/P038-runner-backlog-batch.md))
+  и `docflow stats`.
 - GLM на pi медленный: в P036 юнит 7–33 мин, 70–90 % стены — ожидание
   модели (30–84 вызова, ~50 ток/с, reasoning ~65 % вывода, вызовы > 60 с —
   до 47 % времени модели), остальное — `go test ./...`. Сравнить
@@ -49,4 +50,8 @@ start_budget: 4000
   плана. До плана решить: stdlib-only не даёт даже `x/term` — отдельный
   бинарь `docflow-tui` с зависимостями, `docflow ui` на `net/http` (SSE,
   только stdlib) или снять ограничение. Конфиги правятся в `$EDITOR` +
-  `lint`. Зависит от потока событий.
+  `lint`. Поток событий уже есть
+  ([P038](archive/P038-runner-backlog-batch.md)).
+- Прогнать `docflow run --close` с живым агентом по `bsv-docflow-close` на
+  реальном плане — проверено только на fake-агенте
+  ([P038](archive/P038-runner-backlog-batch.md)).

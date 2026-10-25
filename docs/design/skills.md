@@ -66,7 +66,8 @@ docflow-жизненный цикл. Политики коммитов и рел
   `~/.pi/agent/skills/`) ([P027](../archive/P027-skills-check-symlinks.md)).
 - Нет Ruleblend — `docflow install-skills` ставит личные симлинки; симлинк,
   ведущий внутрь `~/.docflow/`, при установке из другого источника
-  перенаправляется на новый источник, а чужой существующий путь вызывает отказ.
+  перенаправляется на новый источник, а чужой существующий путь вызывает отказ
+  ([P038](../archive/P038-runner-backlog-batch.md)).
   `--agent claude|codex|pi` выбирает каталоги
   `~/.claude/skills/`, `~/.agents/skills/` и `~/.pi/agent/skills/`
   соответственно; default — Claude.
