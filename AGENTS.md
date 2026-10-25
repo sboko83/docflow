@@ -50,6 +50,9 @@ explicitly instead.
 
 ## Skills
 - Sources live only in `skills/`. Never edit installed skill directories.
+- The installed CLI is the GitHub release (`install.sh`):
+  `~/.docflow/bin/docflow` -> `~/.docflow/current`. `tools/install-dev.sh`
+  is only for developing docflow itself; do not expect `~/.local/bin/docflow`.
 - `bash tools/install-dev.sh` builds the CLI, links `~/.local/bin/docflow`
   to `bin/docflow`, and installs skills for agent CLIs found in `PATH`
   (`claude`, `codex`, `pi`) and in `~/.zcode/skills` when `~/.zcode` exists;
