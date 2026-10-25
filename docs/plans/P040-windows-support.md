@@ -20,7 +20,11 @@ real Claude and Codex unit, with timeouts killing the whole process tree;
 Units run on a Windows machine, by hand: an agent session in the checkout
 does the next unit by `bsv-docflow-run` (`docflow prompt` → work →
 `docflow verify` → `done` → `commit`); `docflow` is the checkout binary
-`bin/docflow.exe`, rebuilt after every Go change. Every unit with a
+`bin/docflow.exe`, rebuilt after every Go change. No docflow skills are
+installed on this machine until P040.3.1 fixes `install-skills`: read
+`skills/bsv-docflow-run/SKILL.md` and `skills/bsv-changelog/SKILL.md`
+from the checkout, and do not copy them into personal skill directories
+(a copy is a conflict for `install-skills` later). Every unit with a
 user-visible change adds its entry to `CHANGELOG.md` under
 `## [Unreleased]` (bsv-changelog rules). `docs/` is in Russian; code,
 comments and `CHANGELOG.md` are in English.
