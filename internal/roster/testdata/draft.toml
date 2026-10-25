@@ -1,0 +1,54 @@
+spend = ["zai", "codex", "claude"]
+
+[provider.zai]
+check = true
+
+[provider.claude]
+trusted = true
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "strong"
+acceptance = "trusted"
+replan     = "trusted"
+
+[route.glm-flash-high]
+run  = "pi | zai/glm-5.3-flash | high"
+tier = "cheap"
+
+[route.glm-flash-max]
+run  = "pi | zai/glm-5.3-flash | max"
+tier = "standard"
+
+[route.glm-max]
+run  = "pi | zai/glm-5.3 | max"
+tier = "strong"
+
+[route.luna-high]
+run  = "codex | gpt-6-luna | high"
+tier = "cheap"
+
+[route.luna-max]
+run  = "codex | gpt-6-luna | max"
+tier = "standard"
+
+[route.sol-high]
+run  = "codex | gpt-6.1-sol | high"
+tier = "strong"
+
+[route.haiku]
+run  = "claude | claude-haiku-5-5 | -"
+tier = "cheap"
+
+[route.sonnet]
+run  = "claude | claude-sonnet-5-5 | high"
+tier = "standard"
+
+[route.opus]
+run  = "claude | claude-opus-5-5 | high"
+tier = "strong"
+
+[profile.codex-first]
+spend = ["codex", "zai", "claude"]

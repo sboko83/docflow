@@ -75,6 +75,9 @@ func TestTerminalLayoutAgentBadgesAndReasoningColors(t *testing.T) {
 	if agentName("pi") != "Pi" {
 		t.Errorf("pi display name: %q", agentName("pi"))
 	}
+	if agentName(zaiQuota) != "Z.ai" {
+		t.Errorf("z.ai display name: %q", agentName(zaiQuota))
+	}
 	for _, item := range []struct{ agent, label, effort, colour string }{
 		{"codex", "Codex", "low", "90"},
 		{"codex", "Codex", "medium", "1;34"},

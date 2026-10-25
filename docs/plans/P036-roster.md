@@ -207,6 +207,7 @@ trusted = true                 # claude уходит в запас acceptance и
 - Дефекты ревью фазы 3 исправляет P036.3.3, затем повторное ревью
   P036.3.4 — как P036.2.4/P036.2.5; скиллы читает холодный агент, и их
   дефекты не ловит ни один тест приёмки — отвергнута правка без ревью.
+- Draft roster for acceptance lives in internal/roster/testdata/draft.toml, read by relative path from cmd/docflow and internal/runner — one fixture checked against the ## Context table by scenario 1 — rejected a copied TOML const in each test package
 
 ## Phase 1: Формат 3
 
@@ -787,7 +788,7 @@ Handoff:
 
 ## Phase 4: Приёмка
 
-### [ ] P036.4.1 Приёмка ростера и формата 3
+### [x] P036.4.1 Приёмка ростера и формата 3
 Read:
 - internal/runner/fallback_test.go:L1-60
 - internal/runner/fallback_test.go:L100-160
@@ -827,3 +828,10 @@ Traps: упавший сценарий чинится в этом юните, е
 Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.2.6, P036.2.7, P036.2.8, P036.2.9, P036.2.10, P036.3.1, P036.3.2, P036.3.3, P036.3.4
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.4.1: accept roster and format 3
+Handoff:
+- Acceptance tests: cmd/docflow/roster_acceptance_test.go (scenarios 1-3, 5-7, in-process CLI, roster in temp XDG_CONFIG_HOME) and internal/runner/role_acceptance_test.go (scenario 4: built binary runs roster apply, then run with pi/codex/claude stubs)
+- Shared roster fixture internal/roster/testdata/draft.toml = the ## Context draft plus [profile.codex-first] spend = [codex, zai, claude]; roster_test.go keeps its own draft const unchanged
+- roster apply writes a role key only when a unit references that role, so the scenario-2 plan (no Role: cheap) gets no cheap: key; roster apply on a docflow: 2 project succeeds by design (P036.2.2), so the unmigrated-project refusal is checked with lint, status and run --dry-run
+- Closed Unverified items: single-unit dry-run 'from: role heavy' (P036.1.2/P036.1.5), agentName(zaiQuota) == Z.ai (progress_test.go), P036.2.10 TestUnknownProfileIsArgumentError ran green in go test ./...
+- docs/plans/P036-roster.md was already modified in the working tree before this unit; not touched by it
+- Unverified: Skills prose from P036.3.3/P036.3.4: no cold-agent planning run checks that an agent removes replan: after roster apply or writes Role: acceptance; only static review exists
