@@ -28,6 +28,7 @@ func rosterEnv(t *testing.T, roster string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", home)
 	t.Setenv("DOCFLOW_AGENTS", filepath.Join(home, "missing.toml"))
 	t.Setenv("DOCFLOW_RUNNER_UNIT", "")

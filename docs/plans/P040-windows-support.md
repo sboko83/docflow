@@ -93,10 +93,11 @@ comments and `CHANGELOG.md` are in English.
   `tar.exe` ships with Windows 10+ — `.zip` was rejected.
 - The process tree is killed with `taskkill /T /F /PID` — stdlib only —
   Job Objects were rejected: they need `syscall` DLL calls.
+- Git root for bash.exe is one or two levels above the directory of git.exe from PATH — inside Git Bash PATH yields <root>\mingw64\bin\git.exe, so a cmd\|bin-only rule falls back to cmd.exe in the most common launch — checking only <root>\cmd and <root>\bin was rejected.
 
 ## Phase 1: Tests on Windows
 
-### [ ] P040.1.1 Run plan commands through Git Bash and pass go test
+### [x] P040.1.1 Run plan commands through Git Bash and pass go test
 Read:
 - internal/cycle/verify_shell_unix.go
 - internal/cycle/verify_shell_windows.go
@@ -132,6 +133,12 @@ Do:
   shell per OS.
 Verify: `go test ./...`
 Commit: P040.1.1: run plan commands through Git Bash on Windows
+Handoff:
+- Test fixtures set USERPROFILE next to HOME: on Windows os.UserHomeDir reads USERPROFILE, and before this fix go test wrote skill copies into the real ~/.pi/agent/skills. A new test that sets HOME must set USERPROFILE too.
+- 87 tests in internal/runner and internal/agentio still skip on Windows (shell integration fixtures / fake agent / fake pi require Unix): fake agents are sh scripts executed directly. On Windows the runner and agent I/O are covered only by tools/smoke-run.sh (P040.2.1).
+- Skips 'windows: P040.3.1': 10 install/update tests in cmd/docflow/release_test.go (installed binary is looked up as 'docflow' without .exe), 3 install-skills tests in internal/skills (expandUser and skill links), TestActivateRetainsPrevious (current link 'versions\1.0.0' rejected). No P040.2.1 or P040.3.2 skips: EnsurePath tests pass on Windows because they exercise shell profiles only.
+- internal/release assertFile and the skills dir check compare permission bits only outside Windows: Windows has no Unix modes.
+- Unverified: go test ./... on Linux and macOS after this change — runs in CI only after a push.
 
 ### [ ] P040.1.2 Revive the e2e scenarios
 Read:

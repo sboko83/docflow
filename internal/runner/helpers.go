@@ -265,7 +265,8 @@ func runPrerequisitesWithTimeout(root string, plan *format.Plan, progress *Progr
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		command := exec.CommandContext(ctx, "/bin/sh", "-c", *prerequisite.Command)
+		argv := cycle.PlanShell(*prerequisite.Command)
+		command := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		command.Dir = root
 		command.Stdin = strings.NewReader("")
 		var stdout, stderr bytes.Buffer

@@ -267,6 +267,7 @@ func TestMedian(t *testing.T) {
 func TestClaudeProjectsDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("DOCFLOW_CLAUDE_PROJECTS", "~/transcripts")
 	if got, want := ClaudeProjectsDir("/tmp/project"), filepath.Join(home, "transcripts"); got != want {
 		t.Fatalf("ClaudeProjectsDir() = %q, want %q", got, want)

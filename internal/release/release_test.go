@@ -21,6 +21,7 @@ import (
 func TestHomeAndBaseURL(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("DOCFLOW_RELEASE_URL", "")
 	got, err := Home()
 	if err != nil || got != filepath.Join(home, ".docflow") {
@@ -34,6 +35,7 @@ func TestHomeAndBaseURL(t *testing.T) {
 		t.Fatalf("override BaseURL = %q", BaseURL())
 	}
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	if _, err := Home(); err == nil {
 		t.Fatal("empty HOME accepted")
 	}
@@ -190,7 +192,7 @@ func TestFetch(t *testing.T) {
 		assertFile(t, filepath.Join(dir, tc.name), tc.content, tc.mode)
 	}
 	info, err := os.Stat(filepath.Join(dir, "skills"))
-	if err != nil || info.Mode().Perm() != 0750 {
+	if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0750 {
 		t.Fatalf("skills directory mode: %v, %v", info, err)
 	}
 }
@@ -281,7 +283,7 @@ func assertFile(t *testing.T, name, want string, mode os.FileMode) {
 		t.Fatalf("%s = %q, %v; want %q", name, data, err, want)
 	}
 	info, err := os.Stat(name)
-	if err != nil || info.Mode().Perm() != mode {
+	if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != mode {
 		t.Fatalf("%s mode = %v, %v; want %o", name, info, err, mode)
 	}
 }
@@ -306,6 +308,9 @@ func sourceTree(t *testing.T, version string) string {
 }
 
 func TestActivateRetainsPrevious(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	home := filepath.Join(t.TempDir(), ".docflow")
 	for _, version := range []string{"1.0.0", "1.2.0", "1.1.0"} {
 		src := sourceTree(t, version)
@@ -370,6 +375,7 @@ func TestEnsureAndRemovePath(t *testing.T) {
 		t.Run(shell, func(t *testing.T) {
 			homeDir := t.TempDir()
 			t.Setenv("HOME", homeDir)
+			t.Setenv("USERPROFILE", homeDir)
 			profile := filepath.Join(homeDir, profileName(shell, runtime.GOOS))
 			initial := "# user settings\nexport EDITOR=vi\n"
 			if err := os.WriteFile(profile, []byte(initial), 0600); err != nil {

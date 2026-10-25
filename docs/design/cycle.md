@@ -27,6 +27,11 @@ prompt → работа → verify* → finish   (finish = verify → done → c
   [P009](../archive/P009-docflow-retro-fixes.md).
 - `verify` годится и для промежуточных итераций: при успехе — одна строка,
   экономит контекст против полного вывода сборки.
+- Команды плана (`Verify:`, `gate:`, `preflight:`, prerequisites раннера) —
+  POSIX sh на любой ОС: на Unix `/bin/sh -c`, на Windows `bash.exe -c` из
+  Git for Windows (`<корень git>\bin\bash.exe`, корень — на один-два уровня
+  выше `git.exe` из `PATH`; `System32\bash.exe` (WSL) — никогда), без Git
+  Bash — `%COMSPEC% /c` — [P040](../archive/P040-windows-support.md).
 - Команды `Verify:`, `gate:` и `preflight:` идут в отдельной сессии без
   терминала; Ctrl-C и сигналы остановки убивают всю их группу —
   [P029](../archive/P029-github-release.md).

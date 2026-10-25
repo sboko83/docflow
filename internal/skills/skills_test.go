@@ -41,6 +41,7 @@ func setHome(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", path)
+	t.Setenv("USERPROFILE", path)
 }
 
 func copyAllSkills(t *testing.T, source, target string) {
@@ -68,10 +69,17 @@ func makeProject(t *testing.T) string {
 func makePathCommand(t *testing.T, dir, name, body string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
+	script := "#!/bin/sh\n" + body
+	if runtime.GOOS == "windows" {
+		// exec.LookPath needs a PATHEXT extension; the bodies used here
+		// (exit, echo) are valid cmd as well.
+		path += ".cmd"
+		script = "@echo off\r\n" + strings.ReplaceAll(body, "\n", "\r\n")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -162,6 +170,9 @@ func TestSkillNameAndTreeComparison(t *testing.T) {
 }
 
 func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	source := sourceSkills(t)
 	home := t.TempDir()
 	setHome(t, home)
@@ -191,6 +202,9 @@ func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
 }
 
 func TestInstallSkillsRelinksDocflowReleaseAndRejectsForeignLink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	home := t.TempDir()
 	setHome(t, home)
 	oldRelease := filepath.Join(home, ".docflow", "versions", "old")
@@ -246,6 +260,9 @@ func TestInstallSkillsRelinksDocflowReleaseAndRejectsForeignLink(t *testing.T) {
 }
 
 func TestInstallSkillsTargetAndPreflightConflicts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	source := sourceSkills(t)
 	root := t.TempDir()
 	target := filepath.Join(root, "target")
@@ -565,7 +582,7 @@ func TestDoctorChecksProjectCopiesAndUsesProjectHint(t *testing.T) {
 	t.Setenv("PATH", tools)
 	setHome(t, t.TempDir())
 	result := doctor(t, source, filepath.Join(root, "docs"), executable, filepath.Join(t.TempDir(), "personal"), "claude")
-	if result.Code != 0 || !strings.Contains(result.Stdout, name+": ok ") || !strings.Contains(result.Stdout, "/.claude/skills/"+name) || strings.Contains(result.Stdout, ProjectStaleHint) {
+	if result.Code != 0 || !strings.Contains(result.Stdout, name+": ok ") || !strings.Contains(result.Stdout, filepath.FromSlash("/.claude/skills/"+name)) || strings.Contains(result.Stdout, ProjectStaleHint) {
 		t.Fatalf("doctor project copy = %#v", result)
 	}
 	if strings.Count(result.Stdout, ": not installed") != len(sourceNames(t, source)) {
@@ -613,10 +630,10 @@ func TestDoctorPiVersionAndHints(t *testing.T) {
 	copyAllSkills(t, source, personal)
 	tools := t.TempDir()
 	executable := makePathCommand(t, tools, "docflow", "exit 0\n")
-	makePathCommand(t, tools, "pi", "echo pi-version-1.3\n")
+	pi := makePathCommand(t, tools, "pi", "echo pi-version-1.3\n")
 	t.Setenv("PATH", tools)
 	result := doctor(t, source, t.TempDir(), executable, "", "pi")
-	if result.Code != 0 || !strings.Contains(result.Stdout, "pi: pi-version-1.3 "+filepath.Join(tools, "pi")) {
+	if result.Code != 0 || !strings.Contains(result.Stdout, "pi: pi-version-1.3 "+pi) {
 		t.Fatalf("doctor pi = %#v", result)
 	}
 	t.Setenv("PATH", t.TempDir())

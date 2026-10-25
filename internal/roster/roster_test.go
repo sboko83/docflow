@@ -698,7 +698,7 @@ func TestMissingFile(t *testing.T) {
 
 func TestDefaultPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
-	if got, want := DefaultPath(), "/xdg/docflow/roster.toml"; got != want {
+	if got, want := DefaultPath(), filepath.Join("/xdg", "docflow", "roster.toml"); got != want {
 		t.Errorf("DefaultPath() = %q, want %q", got, want)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -754,6 +754,7 @@ func TestLoadExpandsUserPath(t *testing.T) {
 	dir := t.TempDir()
 	// os.UserHomeDir under t.TempDir churn: point HOME at the temp dir.
 	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 	if err := os.MkdirAll(filepath.Join(dir, "cfg"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -230,7 +231,8 @@ func TestConfigPath(t *testing.T) {
 		t.Fatalf("default config = %q", got)
 	}
 	account, err := user.Current()
-	if err == nil {
+	// Windows account names are DOMAIN\user: no ~user form to expand.
+	if err == nil && runtime.GOOS != "windows" {
 		if got := ConfigPath("~" + account.Username); got != account.HomeDir {
 			t.Fatalf("expanded named home = %q, want %q", got, account.HomeDir)
 		}

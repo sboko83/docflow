@@ -149,6 +149,7 @@ func TestRefPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	got, err = RefPath(root, ReadRef{Path: "~/x.md"})
 	if err != nil || got != filepath.Join(home, "x.md") {
 		t.Fatalf("RefPath home = %q, %v", got, err)

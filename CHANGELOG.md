@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- On Windows, plan commands (`Verify:`, `gate:`, `preflight:`, runner
+  prerequisites) run through Git for Windows `bash -c` instead of `cmd.exe`,
+  so plans written in POSIX sh work on every OS; without Git Bash they fall
+  back to `cmd.exe`.
+
 ## [0.12.0] - 2026-10-25
 
 ### Added

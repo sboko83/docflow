@@ -80,6 +80,7 @@ func newRunFixture(t *testing.T) *runFixture {
 	t.Setenv("DOCFLOW_AGENTS", "")
 	t.Setenv("DOCFLOW_RUNNER_UNIT", "")
 	t.Setenv("HOME", f.tmp)
+	t.Setenv("USERPROFILE", f.tmp)
 	t.Setenv("XDG_CONFIG_HOME", f.tmp)
 	t.Setenv("CODEX_HOME", filepath.Join(f.tmp, "codex"))
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)

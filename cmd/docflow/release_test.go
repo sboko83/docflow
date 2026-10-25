@@ -32,6 +32,7 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	t.Helper()
 	f := &releaseFixture{homeDir: t.TempDir(), binDir: t.TempDir(), source: t.TempDir()}
 	t.Setenv("HOME", f.homeDir)
+	t.Setenv("USERPROFILE", f.homeDir)
 	t.Setenv("PATH", f.binDir)
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("DOCFLOW_NO_UPDATE_CHECK", "")
@@ -95,6 +96,9 @@ func TestReleaseCommandsRefuseDevelopmentCheckout(t *testing.T) {
 }
 
 func TestInstallRequiresReleasePayload(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	for _, missing := range []string{"LICENSE", "skills"} {
 		t.Run(missing, func(t *testing.T) {
 			f := newReleaseFixture(t)
@@ -113,6 +117,9 @@ func TestInstallRequiresReleasePayload(t *testing.T) {
 }
 
 func TestInstallWithoutAgentsAndUnknownShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	t.Setenv("SHELL", "/bin/fish")
 	stdout, _ := runRelease(t, 0, "install")
@@ -127,6 +134,9 @@ func TestInstallWithoutAgentsAndUnknownShell(t *testing.T) {
 }
 
 func TestInstallPreservesForeignSkills(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	writeReleaseFile(t, filepath.Join(f.binDir, "codex"), "#!/bin/sh\nexit 0\n", 0755)
 	foreign := filepath.Join(f.homeDir, ".agents", "skills", "sample", "SKILL.md")
@@ -170,6 +180,9 @@ func testReleaseArchive(t *testing.T, text string) []byte {
 }
 
 func TestReleaseInstallUpdateUninstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	var targets []string
 	for _, agent := range []string{"claude", "codex", "pi"} {
@@ -339,6 +352,9 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 }
 
 func TestDailyReleaseCheck(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
 	f.executable = filepath.Join(f.home, "bin", "docflow")
@@ -372,6 +388,9 @@ func TestDailyReleaseCheck(t *testing.T) {
 }
 
 func TestDailyReleaseCheckGuards(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	for _, guard := range []string{"pipe", "disabled", "development", "install", "update", "uninstall"} {
 		t.Run(guard, func(t *testing.T) {
 			f := newReleaseFixture(t)
@@ -408,6 +427,9 @@ func TestDailyReleaseCheckGuards(t *testing.T) {
 }
 
 func TestDailyReleaseCheckSilencesErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
 	f.executable = filepath.Join(f.home, "bin", "docflow")
@@ -425,6 +447,9 @@ func TestDailyReleaseCheckSilencesErrors(t *testing.T) {
 }
 
 func TestDailyReleaseCheckTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
 	f.executable = filepath.Join(f.home, "bin", "docflow")
@@ -450,6 +475,9 @@ func TestDailyReleaseCheckTimeout(t *testing.T) {
 }
 
 func TestReleaseUpdateChecksumFailurePreservesCurrent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
 	f.executable = filepath.Join(f.home, "bin", "docflow")
@@ -476,6 +504,9 @@ func TestReleaseUpdateChecksumFailurePreservesCurrent(t *testing.T) {
 }
 
 func TestReleaseModeUsesResolvedPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows: P040.3.1")
+	}
 	f := newReleaseFixture(t)
 	runRelease(t, 0, "install")
 	outside := filepath.Join(f.home, "versions-other", "docflow")
@@ -495,6 +526,7 @@ func TestReleaseModeUsesResolvedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", homeLink)
+	t.Setenv("USERPROFILE", homeLink)
 	if !release.InstalledExecutable(filepath.Join(f.home, "bin", "docflow")) {
 		t.Fatal("installed executable missed with symlinked HOME")
 	}
