@@ -229,7 +229,7 @@ Handoff:
 
 ## Phase 2: Live run on Windows
 
-### [ ] P040.2.1 Kill process trees and run real agents
+### [x] P040.2.1 Kill process trees and run real agents
 Read:
 - internal/procgroup/procgroup.go
 - internal/procgroup/procgroup_windows.go
@@ -256,6 +256,11 @@ Verify: `go test ./internal/procgroup ./internal/agentio ./internal/runner && ba
 Traps: each `smoke-run.sh` spends a few Haiku calls; `--mixed` also
 spends Codex — run it once in `Do:`, not in a loop.
 Commit: P040.2.1: kill process trees and run agents on Windows
+Handoff:
+- procgroup_windows.go: Kill runs taskkill /T /F /PID, falls back to Process.Kill, waits for done up to grace; procgroup_windows_test.go re-executes the test binary as parent+grandchild and checks via tasklist that the grandchild is gone (test fails with taskkill disabled). No windows: P040.2.1 skips existed.
+- smoke-run.sh passes on Windows for claude and --mixed (claude haiku + codex): fixed docflow.exe path, BSD sed -i, plan format 3 (was 2), core.autocrlf=false in the temp repo. claude.exe and codex.exe are found by exec.LookPath, prompt via stdin and Cyrillic output work, run.lock works, no notification and no error.
+- Product bug found live (not Windows-specific): Claude Code 2.1.310 writes system/task_summary after the result event, ParseJSON took the last line and every unit lost attempts to "no result JSON in the reply"; AgentOutput now takes the last type=result object for the claude stream (test added).
+- Not covered: the agent does not see docflow on PATH in smoke (units end with an unverified note about docflow verify); .cmd shim agents and a real runner timeout against Claude were not run; runner and agentio shell fixtures still skip on Windows.
 
 ## Phase 3: Install from release
 

@@ -15,7 +15,7 @@ case "${1:-}" in
 esac
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-docflow="$repo/bin/docflow"
+docflow="$repo/bin/docflow$(cd "$repo" && go env GOEXE)"
 work="$(mktemp -d)"
 
 fail() {
@@ -26,13 +26,14 @@ fail() {
 
 cd "$work"
 git init -q
+git config core.autocrlf false
 git config user.name smoke
 git config user.email smoke@example.invalid
 "$docflow" init >/dev/null
 
 cat > docs/docflow.md <<'EOF'
 ---
-docflow: 2
+docflow: 3
 read_budget: 40000
 ---
 ## Queue
@@ -82,11 +83,12 @@ Commit: P001.1.2: write bye
 EOF
 
 if [ "$mixed" -eq 1 ]; then
-    sed -i '' 's/^EXECUTOR$/Executor: codex | gpt-6-luna | low/' \
-        docs/plans/P001-smoke.md
+    sed 's/^EXECUTOR$/Executor: codex | gpt-6-luna | low/' \
+        docs/plans/P001-smoke.md > plan.tmp
 else
-    sed -i '' '/^EXECUTOR$/d' docs/plans/P001-smoke.md
+    sed '/^EXECUTOR$/d' docs/plans/P001-smoke.md > plan.tmp
 fi
+mv plan.tmp docs/plans/P001-smoke.md
 
 git add -A
 git commit -qm init

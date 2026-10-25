@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back to `cmd.exe`.
 
 ### Fixed
+- On Windows, `docflow run` kills the whole agent process tree on a timeout
+  or stop (`taskkill /T /F`), not only the agent process.
+- `docflow run` reads the Claude result even when Claude Code writes events
+  after it (`task_summary`); the unit no longer spends attempts on "no
+  result JSON in the reply".
+- `tools/smoke-run.sh` uses the plan format 3, portable `sed` and
+  `docflow.exe` on Windows.
 - On Windows, `install-skills` no longer fails with `user "/.docflow" does not
   exist`: `~/` paths split on `/` as well as ``.
 - On Windows, `tools/install-dev.sh` builds and links `docflow.exe`, so

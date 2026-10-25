@@ -134,6 +134,15 @@ func AgentOutput(agent map[string]any, stdout string) any {
 	if agent["stream"] == "pi" {
 		return PiOutput(stdout)
 	}
+	if agent["stream"] == "claude" {
+		// Claude Code 2.1+ writes system events (task_summary) after the result.
+		lines := strings.Split(stdout, "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if obj := ParseLine(lines[i]); obj != nil && obj["type"] == "result" {
+				return obj
+			}
+		}
+	}
 	if agent["stream"] != "codex" {
 		return ParseJSON(stdout)
 	}

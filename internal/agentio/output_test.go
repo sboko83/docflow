@@ -63,6 +63,13 @@ func TestStreamParseJSON(t *testing.T) {
 	equal(t, ParseLine("[]"), map[string]any(nil))
 }
 
+func TestClaudeOutputSkipsEventsAfterResult(t *testing.T) {
+	agent := profile(t, "claude")
+	stdout := "{\"type\":\"assistant\"}\n{\"type\":\"result\",\"structured_output\":{\"status\":\"done\"}}\n{\"type\":\"system\",\"subtype\":\"task_summary\"}\n"
+	equal(t, AgentOutput(agent, stdout), obj(`{"type":"result","structured_output":{"status":"done"}}`))
+	equal(t, AgentOutput(agent, "{\"a\":1}\nnoise"), obj(`{"a":1}`))
+}
+
 func TestStreamQuotaAndActivity(t *testing.T) {
 	agent := profile(t, "claude")
 	events := strings.Split(fixture(t, "claude"), "\n")
