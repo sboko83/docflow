@@ -52,9 +52,8 @@ tier = "cheap"
 # ... route.<name> на каждый маршрут
 
 [profile.save-claude]          # необязательно: переопределяет spend и
-spend = ["zai", "codex"]       # флаги провайдеров, выбор --profile NAME
-[profile.save-claude.provider.codex]
-trusted = true
+[profile.save-claude.provider.codex]   # флаги провайдеров, выбор --profile NAME
+trusted = true                 # claude уходит в запас acceptance и replan
 ```
 
 Провайдер маршрута: для `pi` — префикс модели до `/` (`zai/glm-5.3` →
@@ -179,6 +178,16 @@ trusted = true
 - Локализация не-табличного provider вынесена в parseProviders через разрез пути таблицы по последней точке — ошибка называет строку ключа provider и в профиле, и на верхнем уровне, где она раньше указывала в начало файла — отвергнут предварительный контроль типа только в applyProfile: верхнеуровневый случай остался бы без позиции
 - Ошибки `spend` локализуются строкой ключа `spend` в его таблице, отсутствующая позиция в `failAt` — строка 1; дефекты повторного ревью исправляет P036.2.6, затем третье ревью P036.2.7 — как P036.2.4/P036.2.5 — отвергнута позиция элемента массива: сканер строк позиций элементов не знает, а строка ключа уже выполняет требование P036.2.1
 - Второй кейс без записи в индексе — инлайн-таблица profile = { x = { spend = 1 } }: ParseTOML разбирает её в карту, а scanLines не видит ключей внутри — покрыто расхождение парсер/сканер, а не только отсутствующий заголовок — отвергнут единственный пример profile = 1
+- Провайдер маршрута сверяется с верхним `spend`, профиль может сократить
+  `spend` — маршруты выпавшего провайдера пропускаются подбором; пример
+  профиля — `save-claude` без `spend`, с `trusted` у codex: claude уходит
+  в запас — профиль `spend = ["zai", "codex"]` при `check` у zai не
+  собирает review из двух провайдеров ни при какой проверке маршрутов.
+  Заменяет решение «профиль в тесте переупорядочивает spend… а не
+  сокращает» — отвергнута правка только примера: профиль не мог бы
+  исключить провайдера (решение пользователя, дефект ревью P036.2.7).
+- Дефект третьего ревью исправляет P036.2.8, затем ревью P036.2.9 — как
+  P036.2.4/P036.2.5.
 
 ## Phase 1: Формат 3
 
@@ -537,7 +546,7 @@ Handoff:
 - Тексты ошибок spend асимметричны: не-массив — «profile x must be an array…» (метка — подлежащее), повтор/элемент — «profile x: duplicate…»; тексты заморожены юнитом, ревью не должно их «выравнивать»
 - Top-level ключ profile = 1 в тестах вставляется после spend до первого заголовка таблицы: в конце файла TOML относит его к последней таблице ([route.cs]) и ошибка становится unknown key, а не ошибкой типа
 
-### [ ] P036.2.7 Третье ревью фазы 2
+### [-] P036.2.7 Третье ревью фазы 2
 Read:
 - docs/usage.md:L418-520
 Do:
@@ -557,6 +566,56 @@ Verify: `go test ./... && go vet ./...`
 Depends: P036.2.6
 Executor: codex | gpt-6.1-sol | high
 Commit: P036.2.7: re-review roster phase
+Handoff:
+- Blocked (plan): [P2] docs/usage.md:522 — пример профиля save-claude исключает claude из spend, сохраняя его маршруты. На эталонном ростере команда roster show --profile save-claude воспроизводимо возвращает код 2: «route haiku: provider claude is not in spend» (internal/roster/roster.go:345). Нужно согласовать пример с принятым решением о проверке маршрутов против эффективного spend.
+
+### [ ] P036.2.8 Профиль сокращает spend, валидный пример профиля
+Read:
+- internal/roster/roster.go:L84-100
+- internal/roster/roster.go:L340-349
+- internal/roster/roster_test.go:L300-396
+- docs/usage.md:L500-528
+Do:
+- `Load`: `checkRoutes` до `applyProfile` — провайдер маршрута
+  сверяется с верхним `spend`; провайдер вне `spend` профиля подбором
+  пропускается.
+- Тесты: профиль со `spend` без одного провайдера при достаточном запасе
+  — код 0, маршрутов выпавшего провайдера нет ни в одной цепочке;
+  маршрут провайдера вне верхнего `spend` — код 2 и при `--profile`;
+  пример профиля из `## Context` на эталонном черновике — код 0,
+  `acceptance` и `replan` начинаются с codex, claude — второй.
+- `docs/usage.md` «Ростер»: пример профиля из `## Context`; профиль
+  заменяет `spend` (может сократить — маршруты выпавших провайдеров
+  пропускаются) и флаги перечисленных провайдеров, цепочка каждой роли
+  по-прежнему не короче двух провайдеров.
+- `gofmt -w internal/roster/lines.go` (Handoff P036.2.6).
+Verify: `env XDG_CONFIG_HOME="$(mktemp -d)" go test -count=1 ./internal/roster/ ./cmd/docflow/ && go vet ./internal/roster/ && test -z "$(gofmt -l internal/roster)"`
+Traps: таблицу эталонных цепочек и `TestProfileReplacesSpendAndFlags` не
+менять; тексты ошибок не менять.
+Depends: P036.2.6
+Executor: claude | claude-opus-5-5 | high
+Commit: P036.2.8: let roster profiles drop providers
+
+### [ ] P036.2.9 Четвёртое ревью фазы 2
+Read:
+- docs/usage.md:L418-530
+Do:
+- Получить дифф фазы: `git diff "$(git log --format=%H --grep='^P036\.2\.' | tail -1)^" HEAD -- . ':!docs/plans'`.
+- Сверить с `## Goal`, `## Context` (формат, правило подбора, таблица
+  цепочек), `## Decisions` и каждым пунктом `Do:` P036.2.1, P036.2.2,
+  P036.2.4, P036.2.6 и P036.2.8; дефекты Handoff P036.2.3, P036.2.5 и
+  P036.2.7 закрыты или сняты решением в `## Decisions`.
+- Каждый пример TOML в «Ростер» `docs/usage.md` проходит `roster show`
+  (с `--profile` для профиля) на эталонном черновике.
+- Прогнать `env XDG_CONFIG_HOME="$(mktemp -d)" go test -count=1 ./...` и
+  `go vet ./...`.
+- Код не править. Дефект — ответ `blocked`, `blocker: "plan"`, в
+  `reason` каждый дефект с `file:line`. Замечания без дефекта — Handoff
+  `Unverified:`.
+Verify: `go test ./... && go vet ./...`
+Depends: P036.2.8
+Executor: codex | gpt-6.1-sol | high
+Commit: P036.2.9: re-review roster phase
 
 ## Phase 3: Скиллы
 
@@ -595,7 +654,7 @@ Do:
   `fallback`; `docs/usage.md` «Планирование» — ссылка на «Ростер».
 - `CHANGELOG.md` `[Unreleased]`: скиллы под ростер.
 Verify: `go test ./... && grep -q 'roster apply' skills/bsv-docflow-plan/SKILL.md && grep -q 'Role: review' skills/bsv-docflow-run/SKILL.md`
-Depends: P036.2.7
+Depends: P036.2.9
 Commit: P036.3.1: plan with the roster
 
 ### [ ] P036.3.2 Ревью фазы 3
@@ -652,6 +711,6 @@ Do:
 Verify: `go test ./...`
 Traps: упавший сценарий чинится в этом юните, если правка мала; иначе
 `blocked` с причиной.
-Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.2.6, P036.2.7, P036.3.1, P036.3.2
+Depends: P036.1.1, P036.1.2, P036.1.4, P036.1.5, P036.2.1, P036.2.2, P036.2.3, P036.2.4, P036.2.5, P036.2.6, P036.2.7, P036.2.8, P036.2.9, P036.3.1, P036.3.2
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.4.1: accept roster and format 3
