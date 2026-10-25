@@ -764,7 +764,7 @@ Handoff:
 - No code, docs/usage.md or CHANGELOG.md changes; P036.3.4 re-review should read skills/bsv-docflow-plan/SKILL.md Acceptance and Procedure step 9 and skills/bsv-docflow-run/SKILL.md Executor section
 - Unverified: Skill wording is prose read by a cold agent: no test checks that an agent following the plan skill actually removes replan: after roster apply or writes Role: acceptance — only the grep in Verify checks the text exists
 
-### [ ] P036.3.4 Повторное ревью фазы 3
+### [x] P036.3.4 Повторное ревью фазы 3
 Read:
 - skills/bsv-docflow-plan/SKILL.md
 - skills/bsv-docflow-run/SKILL.md
@@ -780,6 +780,10 @@ Verify: `go test ./...`
 Depends: P036.3.3
 Executor: codex | gpt-6.1-sol | high
 Commit: P036.3.4: re-review skills phase
+Handoff:
+- Повторное ревью фазы 3: три дефекта P036.3.2 закрыты, новых дефектов не обнаружено. Скиллы соответствуют решениям, формату и командам ростера.
+- На macOS arm64 полный docflow verify P036.3.4 прошёл: Verify и gate — go test ./.... Файлы не менялись.
+- Unverified: Отдельный прогон планирования холодным агентом не проводился; инструкции проверены статическим ревью.
 
 ## Phase 4: Приёмка
 
