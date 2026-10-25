@@ -108,7 +108,8 @@ docs/archive/P007-cache.md  Outcome · Decisions · Gotchas · Follow-ups
 
 ## Быстрый старт
 
-Требования: macOS или Linux, amd64 или arm64. Go не нужен:
+Требования: macOS, Linux или Windows 10/11 с Git for Windows;
+amd64 или arm64. На Windows выполните команду в Git Bash. Go не нужен:
 
 ~~~bash
 curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | sh
@@ -116,8 +117,12 @@ curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | s
 
 Установщик скачивает последний релиз, сверяет sha256 и запускает
 `docflow install`: бинарник, скиллы и LICENSE попадают в `~/.docflow`
-(`bin/docflow` → `current` → `versions/<version>`), PATH настраивается в
-профиле zsh/bash, личные симлинки скиллов ставятся агентам, чьи CLI найдены
+(`bin/docflow` → `current` → `versions/<version>` на macOS/Linux).
+На Windows точка запуска — `%USERPROFILE%\.docflow\current\docflow.exe`,
+ссылки — directory junction, Developer Mode и права администратора не нужны.
+PATH настраивается в профиле zsh/bash на macOS/Linux или в пользовательском
+`Path` Windows; после установки перезапустите терминал. Личные ссылки
+скиллов ставятся агентам, чьи CLI найдены
 в PATH. `DOCFLOW_VERSION=X.Y.Z` ставит конкретный релиз.
 
 ~~~bash

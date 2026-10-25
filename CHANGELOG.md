@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows amd64 and arm64 release archives include `docflow.exe`.
   Release activation and personal skill links use directory junctions
   without requiring Developer Mode or administrator rights.
+- Windows installation from Git Bash configures the user `Path`;
+  `docflow update` and `docflow uninstall` work from the installed executable.
 
 ### Changed
 - On Windows, plan commands (`Verify:`, `gate:`, `preflight:`, runner

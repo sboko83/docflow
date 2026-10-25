@@ -110,7 +110,8 @@ docflow planning cycle.
 
 ## Quick start
 
-Requirements: macOS or Linux, amd64 or arm64. No Go toolchain needed:
+Requirements: macOS, Linux, or Windows 10/11 with Git for Windows;
+amd64 or arm64. On Windows, run this command in Git Bash. No Go toolchain needed:
 
 ~~~bash
 curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | sh
@@ -118,8 +119,12 @@ curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | s
 
 The installer downloads the latest release, verifies its sha256 checksum,
 and runs `docflow install`: the binary, skills, and LICENSE land under
-`~/.docflow` (`bin/docflow` → `current` → `versions/<version>`), PATH is
-configured in the zsh/bash profile, and personal skill links are installed
+`~/.docflow` (`bin/docflow` → `current` → `versions/<version>` on macOS/Linux).
+Windows uses `%USERPROFILE%\.docflow\current\docflow.exe` and directory
+junctions, without Developer Mode or administrator rights. PATH is
+configured in the zsh/bash profile on macOS/Linux or the Windows user
+`Path`; restart your terminal after installation. Personal skill links are
+installed
 for agent CLIs found in `PATH`. `DOCFLOW_VERSION=X.Y.Z` installs a specific
 release.
 

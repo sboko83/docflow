@@ -414,7 +414,7 @@ func TestActivateRejectsUnmanagedCurrent(t *testing.T) {
 	}
 }
 
-func TestEnsureAndRemovePath(t *testing.T) {
+func TestEnsureAndRemoveProfilePath(t *testing.T) {
 	for _, shell := range []string{"/bin/zsh", "/bin/bash"} {
 		t.Run(shell, func(t *testing.T) {
 			homeDir := t.TempDir()
@@ -426,14 +426,14 @@ func TestEnsureAndRemovePath(t *testing.T) {
 				t.Fatal(err)
 			}
 			for i := 0; i < 2; i++ {
-				got, err := EnsurePath(filepath.Join(homeDir, ".docflow"), shell, homeDir)
+				got, err := ensureProfilePath(filepath.Join(homeDir, ".docflow"), shell, homeDir)
 				if err != nil || got != profile {
 					t.Fatalf("EnsurePath = %q, %v", got, err)
 				}
 			}
 			assertFile(t, profile, initial+pathBlock, 0600)
 			for i := 0; i < 2; i++ {
-				if err := RemovePath(homeDir); err != nil {
+				if err := removeProfilePath(homeDir); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -454,7 +454,7 @@ func TestPathProfiles(t *testing.T) {
 	}
 	homeDir := t.TempDir()
 	home := filepath.Join(homeDir, ".docflow")
-	got, err := EnsurePath(home, "/usr/bin/fish", homeDir)
+	got, err := ensureProfilePath(home, "/usr/bin/fish", homeDir)
 	if err != nil || !strings.Contains(got, filepath.Join(home, "bin")) {
 		t.Fatalf("manual instruction = %q, %v", got, err)
 	}
@@ -468,7 +468,7 @@ func TestPathProfiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := RemovePath(homeDir); err != nil {
+	if err := removeProfilePath(homeDir); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{".zshrc", ".bashrc", ".bash_profile"} {
@@ -478,7 +478,7 @@ func TestPathProfiles(t *testing.T) {
 
 func TestEnsurePathCreatesProfile(t *testing.T) {
 	homeDir := t.TempDir()
-	profile, err := EnsurePath(filepath.Join(homeDir, ".docflow"), "zsh", homeDir)
+	profile, err := ensureProfilePath(filepath.Join(homeDir, ".docflow"), "zsh", homeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestEnsurePathCreatesProfile(t *testing.T) {
 	if err := os.WriteFile(profile, []byte("user-setting"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := EnsurePath(filepath.Join(homeDir, ".docflow"), "zsh", homeDir); err != nil {
+	if _, err := ensureProfilePath(filepath.Join(homeDir, ".docflow"), "zsh", homeDir); err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, profile, "user-setting\n"+pathBlock, 0644)

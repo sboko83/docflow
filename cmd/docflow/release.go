@@ -281,7 +281,7 @@ func handleUninstall(_ *parsedArgs) error {
 	if err := release.RemovePath(homeDir); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(home); err != nil {
+	if err := release.RemoveInstallation(home); err != nil {
 		return err
 	}
 	return commandResult{stdout: "uninstalled: " + home + "\n"}

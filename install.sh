@@ -1,7 +1,7 @@
 #!/bin/sh
 # Standalone docflow installer. Downloads a release archive, verifies its
 # sha256 checksum, unpacks it, and runs `docflow install` from the unpacked
-# binary. macOS and Linux, amd64 and arm64; no Go toolchain needed.
+# binary. macOS, Linux and Windows (Git Bash), amd64 and arm64; no Go needed.
 #
 #   curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | sh
 #
@@ -22,8 +22,11 @@ OS=$(uname -s) || fail 'cannot detect the operating system'
 case $OS in
     Darwin) OS=darwin ;;
     Linux) OS=linux ;;
-    *) fail "unsupported operating system: $OS (supported: macOS, Linux)" ;;
+    MINGW* | MSYS* | CYGWIN*) OS=windows ;;
+    *) fail "unsupported operating system: $OS (supported: macOS, Linux, Windows with Git Bash)" ;;
 esac
+BINARY=docflow
+[ "$OS" != windows ] || BINARY=docflow.exe
 
 ARCH=$(uname -m) || fail 'cannot detect the CPU architecture'
 case $ARCH in
@@ -86,6 +89,6 @@ WANT=$(sed -n 's/^\([0-9a-fA-F]*\) [ *]'"$NAME_RE"'$/\1/p' \
 
 mkdir "$TMP/release" || fail 'cannot create the unpack directory'
 tar -xzf "$TMP/$NAME" -C "$TMP/release" || fail "cannot unpack $NAME"
-[ -x "$TMP/release/docflow" ] || fail "archive has no docflow binary: $NAME"
+[ -x "$TMP/release/$BINARY" ] || fail "archive has no $BINARY binary: $NAME"
 
-"$TMP/release/docflow" install
+"$TMP/release/$BINARY" install

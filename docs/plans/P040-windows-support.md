@@ -95,6 +95,7 @@ comments and `CHANGELOG.md` are in English.
   Job Objects were rejected: they need `syscall` DLL calls.
 - Git root for bash.exe is one or two levels above the directory of git.exe from PATH — inside Git Bash PATH yields <root>\mingw64\bin\git.exe, so a cmd\|bin-only rule falls back to cmd.exe in the most common launch — checking only <root>\cmd and <root>\bin was rejected.
 - The harness exports MSYS=winsymlinks:nativestrict on Windows — a silent file copy instead of a link made the install-dev scenarios fail far from the cause — a skip of those scenarios on Windows was rejected.
+- Windows uninstall relocates its running executable to a sibling temporary directory and deletes it after exit through PowerShell — loaded executables cannot be deleted, and a sibling keeps rename on the same volume — deferred deletion of the whole installation was rejected because uninstall could not confirm its removal before returning.
 
 ## Phase 1: Tests on Windows
 
@@ -311,7 +312,7 @@ Handoff:
 - Windows activation keeps current and previous versions; a running older executable delays cleanup with one warning and is removed on a later update after exit. Directory junctions require no privileged symlink creation.
 - P040.3.2 still owns install.sh, the Windows user Path, and real installed-binary uninstall: cmd/docflow tests simulate the executable path, so deleting the currently running Windows executable remains to be handled there.
 
-### [ ] P040.3.2 Install, update and uninstall from Git Bash
+### [x] P040.3.2 Install, update and uninstall from Git Bash
 Read:
 - install.sh
 - tools/test-install.sh
@@ -343,6 +344,10 @@ Traps: the test override for the user `Path` must be an environment
 variable read only by `EnsurePath`/`RemovePath`, so a test run never
 writes the real registry; check it in the test before any write.
 Commit: P040.3.2: install docflow from Git Bash on Windows
+Handoff:
+- DOCFLOW_TEST_USER_PATH must point to an existing absolute regular file before Windows EnsurePath or RemovePath: invalid overrides fail closed without falling back to the real registry. Installer tests set both HOME and native USERPROFILE.
+- Windows uninstall moves its running executable beside .docflow on the same volume, removes the installation synchronously, and starts hidden PowerShell cleanup of only that executable and its empty directory after exit. The installer e2e waits for cleanup too.
+- The installer e2e runs install-dev from a temporary Git checkout so it cannot overwrite docflow.exe while verify is running. Its dev-only file link uses MSYS=winsymlinks:nativestrict; release and skill directory links use junctions.
 
 ## Phase 4: Acceptance
 

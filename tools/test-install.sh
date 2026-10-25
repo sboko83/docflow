@@ -9,6 +9,12 @@
 set -euo pipefail
 
 SH_BIN=${DOCFLOW_TEST_SH:-sh}
+WINDOWS=0
+EXE=
+PYTHON=python3
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) WINDOWS=1; EXE=.exe; PYTHON=python ;;
+esac
 
 fail() {
     printf 'test-install: %s\n' "$1" >&2
@@ -16,7 +22,7 @@ fail() {
 }
 
 command -v go >/dev/null 2>&1 || fail 'go is required'
-command -v python3 >/dev/null 2>&1 || fail 'python3 is required'
+command -v "$PYTHON" >/dev/null 2>&1 || fail "$PYTHON is required"
 command -v curl >/dev/null 2>&1 || fail 'curl is required'
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P) || fail 'cannot locate tools'
@@ -44,31 +50,78 @@ mkdir "$HOME_DIR" "$STUB_BIN" "$TOOL_BIN" "$DIST"
 for agent in claude codex pi; do
     printf '#!/bin/sh\nexit 0\n' > "$STUB_BIN/$agent"
     chmod +x "$STUB_BIN/$agent"
+    if [ "$WINDOWS" = 1 ]; then
+        printf '@exit /b 0\r\n' > "$STUB_BIN/$agent.cmd"
+    fi
 done
 
 # Keep the Go build cache when HOME moves to the sandbox.
 GO_CACHE=$(go env GOCACHE 2>/dev/null) || fail 'cannot read go env GOCACHE'
-[ -n "$GO_CACHE" ] && export GOCACHE
+[ -n "$GO_CACHE" ] && export GOCACHE="$GO_CACHE"
 
 export HOME="$HOME_DIR"
+if [ "$WINDOWS" = 1 ]; then
+    export USERPROFILE
+    USERPROFILE=$(cygpath -w "$HOME_DIR")
+    # The override must exist before the first install: an invalid override
+    # fails closed in Go rather than falling back to the real registry.
+    printf 'C:\\test-tools' > "$WORK/user-path"
+    export DOCFLOW_TEST_USER_PATH
+    DOCFLOW_TEST_USER_PATH=$(cygpath -w "$WORK/user-path")
+    export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
+fi
 mkdir "$HOME/.zcode"
 export SHELL=/bin/zsh
 # Real agent CLIs and a development docflow on the inherited PATH would mask
 # the stubs: keep only the tools the test needs plus the system directories.
-for tool in go python3 curl "$SH_BIN" zsh; do
+TOOL_PATH=
+for tool in go "$PYTHON" curl "$SH_BIN" zsh git; do
     found=$(command -v "$tool" 2>/dev/null) || continue
-    ln -sf "$found" "$TOOL_BIN/$(basename "$tool")"
+    if [ "$WINDOWS" = 1 ]; then
+        TOOL_PATH="$TOOL_PATH:$(dirname "$found")"
+    else
+        ln -sf "$found" "$TOOL_BIN/$(basename "$tool")"
+    fi
 done
-export PATH="$STUB_BIN:$TOOL_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$STUB_BIN:$TOOL_BIN:/usr/bin:/bin:/usr/sbin:/sbin$TOOL_PATH"
 
 docflow() {
-    "$HOME/.docflow/bin/docflow" "$@"
+    if [ "$WINDOWS" = 1 ]; then
+        "$HOME/.docflow/current/docflow.exe" "$@"
+    else
+        "$HOME/.docflow/bin/docflow" "$@"
+    fi
+}
+
+read_link() {
+    if [ "$WINDOWS" = 1 ]; then
+        local target
+        target=$("$PYTHON" -c 'import os,sys; sys.stdout.write(os.readlink(sys.argv[1]))' "$1") || return 1
+        cygpath -u "$target"
+    else
+        readlink "$1"
+    fi
+}
+
+remove_skill_link() {
+    if [ "$WINDOWS" = 1 ]; then
+        "$PYTHON" -c 'import os,sys; os.rmdir(sys.argv[1])' "$1"
+    else
+        rm "$1"
+    fi
 }
 
 PATH_LINE='export PATH="$HOME/.docflow/bin:$PATH"'
 SKILL_DIRS='.claude/skills .agents/skills .pi/agent/skills .zcode/skills'
 
 path_line_count() {
+    if [ "$WINDOWS" = 1 ]; then
+        "$PYTHON" -c 'import ntpath,os,pathlib
+entry = ntpath.normcase(ntpath.join(os.environ["USERPROFILE"], ".docflow", "current"))
+value = pathlib.Path(os.environ["DOCFLOW_TEST_USER_PATH"]).read_text()
+print(sum(ntpath.normcase(p.rstrip("\\")) == entry for p in value.split(";")))' | tr -d '\r'
+        return
+    fi
     # grep -c prints 0 and exits 1 when nothing matches.
     grep -cF "$PATH_LINE" "$HOME/.zshrc" || true
 }
@@ -77,15 +130,15 @@ build_release() {
     bash "$REPO_DIR/tools/release.sh" "$1" "$DIST" >/dev/null
 }
 
-PORT=$(python3 -c 'import socket
+PORT=$("$PYTHON" -c 'import socket
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
 print(sock.getsockname()[1])
-sock.close()') || fail 'cannot pick a free port'
+sock.close()' | tr -d '\r') || fail 'cannot pick a free port'
 
 build_release 0.0.1
 
-python3 -m http.server --bind 127.0.0.1 "$PORT" --directory "$DIST" \
+"$PYTHON" -m http.server --bind 127.0.0.1 "$PORT" --directory "$DIST" \
     >"$WORK/http.log" 2>&1 &
 SERVER_PID=$!
 
@@ -108,13 +161,17 @@ GOT=$(docflow --version)
 [ "$GOT" = 0.0.1 ] || fail "docflow --version: got '$GOT', want '0.0.1'"
 WANT_LINK=$HOME/.docflow/current/skills/bsv-docs
 for dir in $SKILL_DIRS; do
-    GOT=$(readlink "$HOME/$dir/bsv-docs") || fail "no skill link in ~/$dir"
+    GOT=$(read_link "$HOME/$dir/bsv-docs") || fail "no skill link in ~/$dir"
     [ "$GOT" = "$WANT_LINK" ] \
         || fail "readlink ~/$dir/bsv-docs: got '$GOT', want '$WANT_LINK'"
 done
 COUNT=$(path_line_count)
 [ "$COUNT" = 1 ] || fail "PATH lines in ~/.zshrc: got $COUNT, want 1"
-if [ -e "$TOOL_BIN/zsh" ]; then
+if [ "$WINDOWS" = 1 ]; then
+    GOT=$(PATH="$HOME/.docflow/current:$PATH" bash -c 'docflow --version') \
+        || fail 'Git Bash does not find docflow on the configured Path'
+    [ "$GOT" = 0.0.1 ] || fail "Git Bash docflow --version: $GOT"
+elif [ -e "$TOOL_BIN/zsh" ]; then
     # Only the PATH line in ~/.zshrc puts docflow on the hermetic PATH.
     # +m: without job control zsh does not take over the caller's terminal.
     GOT=$(env -u ZDOTDIR zsh -i +m -c 'command -v docflow' 2>/dev/null) \
@@ -163,17 +220,24 @@ fi
 GOT=$(docflow --version)
 [ "$GOT" = 0.0.3 ] \
     || fail "version changed after a failed update: got '$GOT', want '0.0.3'"
-GOT=$(readlink "$HOME/.docflow/current")
-[ "$GOT" = versions/0.0.3 ] \
-    || fail "current after a failed update: got '$GOT', want 'versions/0.0.3'"
+GOT=$(read_link "$HOME/.docflow/current")
+WANT=versions/0.0.3
+[ "$WINDOWS" = 0 ] || WANT=$HOME/.docflow/versions/0.0.3
+[ "$GOT" = "$WANT" ] \
+    || fail "current after a failed update: got '$GOT', want '$WANT'"
 
 echo '== development build refuses update'
 DEV_REPO=$WORK/repo
-mkdir -p "$DEV_REPO/.git"
-(cd "$REPO_DIR" && go build -o "$DEV_REPO/bin/docflow" ./cmd/docflow) \
+mkdir -p "$DEV_REPO"
+git init -q "$DEV_REPO"
+# install-dev must not rebuild the binary currently running docflow verify.
+for item in cmd internal templates skills tools go.mod LICENSE; do
+    cp -R "$REPO_DIR/$item" "$DEV_REPO/"
+done
+(cd "$DEV_REPO" && go build -o "bin/docflow$EXE" ./cmd/docflow) \
     || fail 'cannot build the development binary'
 RC=0
-"$DEV_REPO/bin/docflow" update >"$WORK/dev-update.log" 2>&1 || RC=$?
+"$DEV_REPO/bin/docflow$EXE" update >"$WORK/dev-update.log" 2>&1 || RC=$?
 [ "$RC" = 1 ] || fail "development update: got exit $RC, want 1"
 grep -qF 'bash tools/install-dev.sh' "$WORK/dev-update.log" \
     || fail "development update: no install-dev.sh hint in '$(cat "$WORK/dev-update.log")'"
@@ -182,15 +246,15 @@ GOT=$(docflow --version)
     || fail "version changed after a development update: got '$GOT', want '0.0.3'"
 
 echo '== install-dev.sh relinks release skills to the checkout'
-bash "$REPO_DIR/tools/install-dev.sh" >"$WORK/install-dev.log" 2>&1 \
+bash "$DEV_REPO/tools/install-dev.sh" >"$WORK/install-dev.log" 2>&1 \
     || { cat "$WORK/install-dev.log" >&2; fail 'install-dev.sh failed'; }
 grep -qF 'relinked' "$WORK/install-dev.log" \
     || fail "install-dev.sh: no relink message in '$(cat "$WORK/install-dev.log")'"
 for dir in $SKILL_DIRS; do
-    for skill in "$REPO_DIR"/skills/*/; do
+    for skill in "$DEV_REPO"/skills/*/; do
         name=$(basename "$skill")
-        GOT=$(readlink "$HOME/$dir/$name") || fail "no skill link ~/$dir/$name"
-        WANT=$REPO_DIR/skills/$name
+        GOT=$(read_link "$HOME/$dir/$name") || fail "no skill link ~/$dir/$name"
+        WANT=$DEV_REPO/skills/$name
         [ "$GOT" = "$WANT" ] \
             || fail "readlink ~/$dir/$name after install-dev.sh: got '$GOT', want '$WANT'"
     done
@@ -198,10 +262,10 @@ done
 # Put the release links back so uninstall below checks its own links.
 for dir in $SKILL_DIRS; do
     for skill in "$REPO_DIR"/skills/*/; do
-        rm "$HOME/$dir/$(basename "$skill")"
+        remove_skill_link "$HOME/$dir/$(basename "$skill")"
     done
 done
-rm "$HOME/.local/bin/docflow"
+rm "$HOME/.local/bin/docflow$EXE"
 for agent in claude codex pi; do
     docflow install-skills --agent "$agent" >/dev/null \
         || fail "release install-skills --agent $agent failed"
@@ -212,8 +276,17 @@ docflow install-skills --target "$HOME/.zcode/skills" >/dev/null \
 echo '== uninstall'
 docflow uninstall >/dev/null || fail 'docflow uninstall failed'
 [ ! -e "$HOME/.docflow" ] || fail '~/.docflow still exists after uninstall'
+if [ "$WINDOWS" = 1 ]; then
+    for _ in $(seq 1 100); do
+        GOT=$(find "$HOME" -maxdepth 1 -name '.docflow-uninstall-*' -print)
+        [ -z "$GOT" ] && break
+        sleep 0.1
+    done
+    [ -z "$GOT" ] || fail "uninstall did not clean up its moved executable: $GOT"
+fi
 for dir in $SKILL_DIRS; do
     [ ! -L "$HOME/$dir/bsv-docs" ] || fail "skill link still exists: ~/$dir/bsv-docs"
+    [ ! -e "$HOME/$dir/bsv-docs" ] || fail "skill directory still exists: ~/$dir/bsv-docs"
 done
 COUNT=$(path_line_count)
 [ "$COUNT" = 0 ] || fail "PATH lines in ~/.zshrc after uninstall: got $COUNT, want 0"

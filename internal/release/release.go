@@ -561,9 +561,7 @@ func profileName(shell, goos string) string {
 	}
 }
 
-// EnsurePath returns the profile path it updated (or already found configured).
-// For unsupported shells it writes nothing and returns a manual instruction.
-func EnsurePath(home, shell, homeDir string) (string, error) {
+func ensureProfilePath(home, shell, homeDir string) (string, error) {
 	profile := profileName(shell, runtime.GOOS)
 	if profile == "" {
 		return fmt.Sprintf("Add %s to your shell's PATH.", filepath.Join(home, "bin")), nil
@@ -600,8 +598,7 @@ func removePathBlock(text string) string {
 	return result.String()
 }
 
-// RemovePath removes only the managed two-line block from supported profiles.
-func RemovePath(homeDir string) error {
+func removeProfilePath(homeDir string) error {
 	for _, profile := range []string{".zshrc", ".bashrc", ".bash_profile"} {
 		name := filepath.Join(homeDir, profile)
 		data, err := os.ReadFile(name)

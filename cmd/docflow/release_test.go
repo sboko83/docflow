@@ -37,6 +37,11 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	t.Setenv("PATH", f.binDir)
 	t.Setenv("SHELL", "/bin/zsh")
 	t.Setenv("DOCFLOW_NO_UPDATE_CHECK", "")
+	if runtime.GOOS == "windows" {
+		testPath := filepath.Join(f.homeDir, "user-path")
+		writeReleaseFile(t, testPath, `C:\personal-tools`, 0600)
+		t.Setenv("DOCFLOW_TEST_USER_PATH", testPath)
+	}
 	f.home = filepath.Join(f.homeDir, ".docflow")
 	writeReleaseFile(t, filepath.Join(f.source, release.BinaryName()), "binary", 0755)
 	writeReleaseFile(t, filepath.Join(f.source, "LICENSE"), "license", 0644)
@@ -128,7 +133,11 @@ func TestInstallWithoutAgentsAndUnknownShell(t *testing.T) {
 	f := newReleaseFixture(t)
 	t.Setenv("SHELL", "/bin/fish")
 	stdout, _ := runRelease(t, 0, "install")
-	if !strings.Contains(stdout, "Add "+filepath.Join(f.home, "bin")+" to your shell's PATH.") {
+	want := "Add " + filepath.Join(f.home, "bin") + " to your shell's PATH."
+	if runtime.GOOS == "windows" {
+		want = "User Path configured"
+	}
+	if !strings.Contains(stdout, want) {
 		t.Fatalf("stdout = %q", stdout)
 	}
 	for _, dir := range []string{".claude", ".agents", ".pi", ".zcode"} {
@@ -199,7 +208,11 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	profile := filepath.Join(f.homeDir, ".zshrc")
 	writeReleaseFile(t, profile, "# personal configuration\n", 0644)
 	stdout, stderr := runRelease(t, 0, "install")
-	if !strings.Contains(stdout, "installed: 1.0.0") || !strings.Contains(stdout, release.ExecutablePath(f.home)) || !strings.Contains(stdout, "export PATH=") || stderr != "" {
+	wantHint := "export PATH="
+	if runtime.GOOS == "windows" {
+		wantHint = "User Path configured"
+	}
+	if !strings.Contains(stdout, "installed: 1.0.0") || !strings.Contains(stdout, release.ExecutablePath(f.home)) || !strings.Contains(stdout, wantHint) || stderr != "" {
 		t.Fatalf("install stdout=%q stderr=%q", stdout, stderr)
 	}
 	if runtime.GOOS != "windows" {
@@ -212,7 +225,11 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	runRelease(t, 0, "install") // Repeat from the unpacked archive.
 	f.executable = release.ExecutablePath(f.home)
 	runRelease(t, 0, "install") // Repeat from the installed symlink.
-	if data, err := os.ReadFile(profile); err != nil || strings.Count(string(data), "# docflow\n") != 1 {
+	wantBlocks := 1
+	if runtime.GOOS == "windows" {
+		wantBlocks = 0
+	}
+	if data, err := os.ReadFile(profile); err != nil || strings.Count(string(data), "# docflow\n") != wantBlocks {
 		t.Fatalf("PATH duplicated: %q, %v", data, err)
 	}
 	if got, err := docskills.SkillDirFromExecutable(f.executable); err != nil || got != filepath.Join(f.home, "current", "skills") {

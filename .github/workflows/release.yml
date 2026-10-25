@@ -37,8 +37,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Install with curl | sh
         run: >-
@@ -49,6 +52,9 @@ jobs:
         run: |
           set -eu
           bin=$HOME/.docflow/bin/docflow
+          case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) bin="$(cygpath -u "$USERPROFILE")/.docflow/current/docflow.exe" ;;
+          esac
           want=${GITHUB_REF_NAME#v}
           "$bin" --version | grep -F "$want"
           "$bin" update --check | grep -Fx "up to date: $want"
