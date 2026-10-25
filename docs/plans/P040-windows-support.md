@@ -8,8 +8,9 @@ gate: go test ./...
 ---
 ## Goal
 
-On Windows 10/11 with Git for Windows: `go test ./...` and the e2e
-scenarios pass, CI runs them on `windows-latest`; `docflow run` drives a
+On Windows 10/11 with Git for Windows: `go test ./...` and the 68 e2e
+scenarios in `tools/parity/` pass, CI runs both on Linux, macOS and
+Windows; `docflow run` drives a
 real Claude and Codex unit, with timeouts killing the whole process tree;
 `install.sh` in Git Bash installs a release, and `docflow update`,
 `uninstall` and `install-skills` work.
@@ -75,6 +76,13 @@ comments and `CHANGELOG.md` are in English.
   Mode, a system setting no CLI install should require; a copied
   `bin/docflow.exe` was rejected: replacing a running executable needs a
   rename-aside step that `current` makes unnecessary.
+- Reviving the e2e scenarios moved here from P039 — one plan runs on one
+  machine, P040 runs before P039, and the Windows e2e unit would block on
+  failures common to every OS — leaving it in P039 was rejected. The
+  revival is an OS-neutral unit; Windows failures stay in their own unit.
+- The harness keeps its name and layout and runs one binary against
+  itself — the Python version it compared against is gone, the scenarios
+  remain the only end-to-end runs of the CLI — deleting it was rejected.
 - `install.sh` runs in Git Bash and stays the only installer — Git for
   Windows is required anyway — a separate `install.ps1` was rejected.
 - Release archives stay `.tar.gz` on Windows — one extractor in Go,
@@ -121,7 +129,58 @@ Do:
 Verify: `go test ./...`
 Commit: P040.1.1: run plan commands through Git Bash on Windows
 
-### [ ] P040.1.2 Pass the e2e scenarios and add Windows to CI
+### [ ] P040.1.2 Revive the e2e scenarios
+Read:
+- tools/parity/README.md
+- tools/parity/run.sh
+- tools/parity/driver.sh
+- tools/parity/e2e.sh
+- tools/parity/fixtures/repos-docflow.md
+- tools/parity/scenarios/commit_after_other_binary_verify.sh
+- docs/design/format.md:L1-120
+- docs/design/format.md:L257-300
+- .github/workflows/ci.yml
+- AGENTS.md
+Do:
+- Make `tools/parity/run.sh` run every scenario instead of stopping at the
+  first failure: print `parity: FAIL <name> (<side> scenario)` per failure,
+  a final `parity: N of M failed` line, and exit 1 when any failed; exit
+  codes 0 and 2 keep their meaning.
+- Build `bin/docflow.exe` and run
+  `bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe`; 29 of 68
+  scenarios failed on macOS before this unit, mostly plans and fixtures
+  written in `docflow: 2`.
+- Fix each failing scenario and fixture to the current format and the
+  behavior described in `docs/design/`: `docflow: 3` headers, unit fields
+  and command output as the current binary documents them.
+- A scenario whose subject is the legacy format or migration (names with
+  `migrate` or `legacy`) keeps its `docflow: 2` input and checks the
+  current migration behavior instead.
+- A failure where the binary contradicts `docs/design/` is a bug, not a
+  scenario fix: block with `blocker: "plan"` naming the scenario and the
+  design line.
+- A failure caused by Windows (binary name, `.exe`, path separators, line
+  endings, temp directories, Unix-only tools) is left to P040.1.3: list
+  each such scenario with its error in the Handoff.
+- Rewrite the purpose paragraph of `tools/parity/README.md`: the harness
+  runs end-to-end scenarios of one binary (`run.sh bin/docflow
+  bin/docflow`) or compares two builds; drop mentions of the Python
+  version.
+- In `.github/workflows/ci.yml` add to the `test` job, after `go test`,
+  the steps `go build -o bin/docflow ./cmd/docflow` and
+  `bash tools/parity/run.sh bin/docflow bin/docflow`, for both matrix OS.
+- In `AGENTS.md` extend the sentence "CI also runs `bash
+  tools/test-install.sh`" with the e2e run command.
+Verify: `go build -o bin/docflow.exe ./cmd/docflow && { bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe; test $? -le 1; } && grep -q 'tools/parity/run.sh' .github/workflows/ci.yml`
+Traps: scenarios run with `set -euo pipefail` and system/user git config
+disabled; a scenario that expects a non-zero exit code writes
+`cmd || [ "$?" -eq N ]`, as `README.md` shows — keep that form. Run one
+scenario alone with `PARITY_SKIP` listing all the others. `Verify:` only
+checks that the harness runs; the full pass is P040.1.3's check, and CI on
+Linux and macOS runs only after a push — record it as `Unverified:`.
+Commit: P040.1.2: revive e2e scenarios in CI
+
+### [ ] P040.1.3 Pass the e2e scenarios and add Windows to CI
 Read:
 - tools/parity/README.md
 - tools/parity/run.sh
@@ -130,7 +189,8 @@ Read:
 - .github/workflows/ci.yml
 Do:
 - Build `bin/docflow.exe` and run
-  `bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe` in Git Bash.
+  `bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe` in Git Bash;
+  start from the Windows failures listed in P040.1.2's Handoff.
 - Fix harness portability (binary name, `.exe`, path separators in
   compared output, temp directories); a product failure → fix the code
   when it stays within ~4 files, otherwise block with
@@ -142,7 +202,7 @@ Do:
   `if: runner.os != 'Windows'` until P040.3.2.
 - Update the run command in `tools/parity/README.md` with the `.exe` form.
 Verify: `go build -o bin/docflow.exe ./cmd/docflow && bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe && grep -q windows-latest .github/workflows/ci.yml`
-Commit: P040.1.2: pass e2e scenarios on Windows, add Windows CI
+Commit: P040.1.3: pass e2e scenarios on Windows, add Windows CI
 
 ## Phase 2: Live run on Windows
 
@@ -281,5 +341,5 @@ Do:
 Verify: `go test ./... && bash tools/test-install.sh && go build -o bin/docflow.exe ./cmd/docflow && bash tools/parity/run.sh bin/docflow.exe bin/docflow.exe`
 Traps: a failing scenario is fixed inside this unit when the fix is
 small; otherwise block with the reason.
-Depends: P040.1.1, P040.1.2, P040.2.1, P040.3.1, P040.3.2
+Depends: P040.1.1, P040.1.2, P040.1.3, P040.2.1, P040.3.1, P040.3.2
 Commit: P040.4.1: accept Windows support

@@ -13,11 +13,11 @@ replan: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
 ---
 ## Goal
 
-The 68 end-to-end scenarios in `tools/parity/` pass against the current
-binary and run in CI on Linux and macOS; `tools/check-plan-skill.sh` checks
-that a cold agent plans by `bsv-docflow-plan` with the roster; the Codex
-runs recorded in RMG confirm or refute escalation, the spinner and
-`--approve-for-me` after `resume`.
+The e2e scenarios revived in P040 pass on macOS;
+`tools/check-plan-skill.sh` checks that a cold agent plans by
+`bsv-docflow-plan` with the roster; the Codex runs recorded in RMG
+confirm or refute escalation, the spinner and `--approve-for-me` after
+`resume`.
 
 ## Context
 
@@ -39,6 +39,8 @@ runs recorded in RMG confirm or refute escalation, the spinner and
 - The personal roster has the `check` provider zai and pi/zai as the
   default executor: `"$HOME/.docflow/bin/docflow" roster show | grep -q 'check: zai'`
 - RMG run logs exist: `test -d "$HOME/Developer/RMG/.git/docflow/run"`
+- P040 is closed (it revives the e2e scenarios):
+  `test -f docs/archive/P040-windows-support.md`
 
 ## Traps
 
@@ -51,64 +53,13 @@ runs recorded in RMG confirm or refute escalation, the spinner and
 
 ## Decisions
 
-- The harness keeps its name and layout and runs one binary against
-  itself — the Python version it compared against is gone, the scenarios
-  remain the only end-to-end runs of the CLI — deleting it was rejected.
 - Codex runs in RMG (Xcode) stand for Gradle too — the mechanism, a write
   outside the repository through escalation, is the same — a separate
   Gradle run was rejected.
 
-## Phase 1: End-to-end scenarios
+## Phase 1: Live agent checks
 
-### [ ] P039.1.1 Revive the e2e scenarios and run them in CI
-Read:
-- tools/parity/README.md
-- tools/parity/run.sh
-- tools/parity/driver.sh
-- tools/parity/e2e.sh
-- tools/parity/fixtures/repos-docflow.md
-- tools/parity/scenarios/commit_after_other_binary_verify.sh
-- docs/design/format.md:L1-120
-- docs/design/format.md:L257-300
-- .github/workflows/ci.yml
-- AGENTS.md
-Do:
-- Make `tools/parity/run.sh` run every scenario instead of stopping at the
-  first failure: print `parity: FAIL <name> (<side> scenario)` per failure,
-  a final `parity: N of M failed` line, and exit 1 when any failed; exit
-  codes 0 and 2 keep their meaning.
-- Build `bin/docflow` and run
-  `bash tools/parity/run.sh bin/docflow bin/docflow`; 29 of 68 scenarios
-  failed before this unit, mostly plans and fixtures written in
-  `docflow: 2`.
-- Fix each failing scenario and fixture to the current format and the
-  behavior described in `docs/design/`: `docflow: 3` headers, unit fields
-  and command output as the current binary documents them.
-- A scenario whose subject is the legacy format or migration (names with
-  `migrate` or `legacy`) keeps its `docflow: 2` input and checks the
-  current migration behavior instead.
-- A failure where the binary contradicts `docs/design/` is a bug, not a
-  scenario fix: block with `blocker: "plan"` naming the scenario and the
-  design line.
-- Rewrite the purpose paragraph of `tools/parity/README.md`: the harness
-  runs end-to-end scenarios of one binary (`run.sh bin/docflow
-  bin/docflow`) or compares two builds; drop mentions of the Python
-  version.
-- In `.github/workflows/ci.yml` add to the `test` job, after `go test`,
-  the steps `go build -o bin/docflow ./cmd/docflow` and
-  `bash tools/parity/run.sh bin/docflow bin/docflow`, for both matrix OS.
-- In `AGENTS.md` extend the sentence "CI also runs `bash
-  tools/test-install.sh`" with the e2e run command.
-Verify: `go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow && grep -q 'tools/parity/run.sh bin/docflow bin/docflow' .github/workflows/ci.yml`
-Traps: scenarios run with `set -euo pipefail` and system/user git config
-disabled; a scenario that expects a non-zero exit code writes
-`cmd || [ "$?" -eq N ]`, as `README.md` shows — keep that form. Run one
-scenario alone with `PARITY_SKIP` listing all the others.
-Commit: P039.1.1: revive e2e scenarios in CI
-
-## Phase 2: Live agent checks
-
-### [ ] P039.2.1 Check cold planning and Codex runs
+### [ ] P039.1.1 Check cold planning and Codex runs
 Read:
 - skills/bsv-docflow-plan/SKILL.md
 - internal/agents/agents.go:L40-110
@@ -175,11 +126,11 @@ in the Codex sandbox request escalation for it, and run it in the
 background with output to a file if the shell tool limits command time.
 macOS has no `timeout`; kill the call from a background watchdog.
 Depends: -
-Commit: P039.2.1: add live plan-skill check
+Commit: P039.1.1: add live plan-skill check
 
-## Phase 3: Acceptance
+## Phase 2: Acceptance
 
-### [ ] P039.3.1 Accept the e2e and live checks
+### [ ] P039.2.1 Accept the e2e and live checks
 Read:
 - tools/parity/README.md
 - tools/check-plan-skill.sh
@@ -188,16 +139,16 @@ Read:
 Do:
 - Run `bash tools/parity/run.sh bin/docflow bin/docflow` on a fresh
   `go build -o bin/docflow ./cmd/docflow`: all 68 scenarios pass.
-- Check that the e2e step in `.github/workflows/ci.yml` runs on both
+- Check that the e2e step in `.github/workflows/ci.yml` runs on every
   matrix OS (no `if:` excluding one).
 - Run `bash tools/check-plan-skill.sh` in full once more (a fresh cold
-  session) when unit P039.2.1 changed `skills/bsv-docflow-plan/SKILL.md`
+  session) when unit P039.1.1 changed `skills/bsv-docflow-plan/SKILL.md`
   or left an `Unverified:` item; otherwise run `--check-only`.
 - Close every `Unverified:` item from earlier Handoffs with a check, or
   keep it as `Unverified:` in this Handoff.
 Verify: `go test ./... && go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow && bash tools/check-plan-skill.sh --check-only`
 Traps: a failing check is fixed inside this unit when the fix is small;
 otherwise block with the reason.
-Depends: P039.1.1, P039.2.1
+Depends: P039.1.1
 Role: acceptance
-Commit: P039.3.1: accept e2e and live checks
+Commit: P039.2.1: accept e2e and live checks
