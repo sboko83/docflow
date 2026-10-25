@@ -130,7 +130,7 @@ func runArguments() []argument {
 		option("--model", "M", "model id or tier for every unit; plans without executors only"),
 		option("--effort", "E", "reasoning effort for every unit; plans without executors only"),
 		integer("--attempts", "N", "agent calls per unit (default 3)", intValue(3)),
-		integer("--replans", "N", "auto-replan calls per run (default 3, at most 2 per unit; 0 disables)", intValue(3)),
+		integer("--replans", "N", "auto-replan calls per phase (default 3, at most 2 per unit; 0 disables)", intValue(3)),
 		integer("--max-units", "N", "stop after N units", nil),
 		flag("--no-wait", "stop instead of waiting out a usage limit"),
 		flag("--no-notify", "skip the end-of-run desktop notification"),

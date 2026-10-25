@@ -329,6 +329,29 @@ func TestReplanRun(t *testing.T) {
 	}
 }
 
+func TestReplanAllowed(t *testing.T) {
+	cases := []struct {
+		name    string
+		replans map[string]int
+		uid     string
+		limit   int
+		want    bool
+	}{
+		{"first", map[string]int{}, "P036.2.7", 3, true},
+		{"unit limit", map[string]int{"P036.2.7": 2}, "P036.2.7", 3, false},
+		{"phase limit", map[string]int{"P036.2.3": 1, "P036.2.5": 1, "P036.2.6": 1}, "P036.2.7", 3, false},
+		// P036 stopped here: one replan in phase 1, two in phase 2.
+		{"other phase", map[string]int{"P036.1.3": 1, "P036.2.3": 1, "P036.2.5": 1}, "P036.2.7", 3, true},
+		{"next phase fresh", map[string]int{"P036.2.3": 1, "P036.2.5": 1, "P036.2.7": 1}, "P036.3.2", 3, true},
+		{"disabled", map[string]int{}, "P036.1.1", 0, false},
+	}
+	for _, c := range cases {
+		if got := replanAllowed(c.replans, c.uid, c.limit); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestRestorePlan(t *testing.T) {
 	for _, text := range []string{"snapshot\n", "snapshot\r\nwithout final newline"} {
 		path := filepath.Join(t.TempDir(), "plan.md")

@@ -291,8 +291,8 @@ options:
   --effort E      reasoning effort for every unit; plans without executors
                   only
   --attempts N    agent calls per unit (default 3)
-  --replans N     auto-replan calls per run (default 3, at most 2 per unit; 0
-                  disables)
+  --replans N     auto-replan calls per phase (default 3, at most 2 per unit;
+                  0 disables)
   --max-units N   stop after N units
   --no-wait       stop instead of waiting out a usage limit
   --no-notify     skip the end-of-run desktop notification

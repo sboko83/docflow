@@ -131,17 +131,38 @@ func runReplan(ctx context.Context, root string, args Args, config map[string]an
 	if trigger == "" || plan.Meta["replan"] == "" || args.Replans < 1 {
 		return nil, nil
 	}
-	count := 0
-	for _, n := range replans {
-		count += n
-	}
-	if replans[uid] >= 2 || count >= args.Replans {
+	if !replanAllowed(replans, uid, args.Replans) {
 		p.line(uid+": replan limit reached", true, "")
 		return nil, nil
 	}
 	replans[uid]++
 	code, err := replanUnit(ctx, root, args, config, uid, trigger, p, totals, unavailable)
 	return &code, err
+}
+
+// replanAllowed applies the run's replan limits: at most two per unit and
+// perPhase per phase. A phase review that finds a defect spends a replan by
+// design, so a run-wide budget would stop a long plan on its review rounds;
+// the phase budget still stops a review loop that does not converge.
+func replanAllowed(replans map[string]int, uid string, perPhase int) bool {
+	if replans[uid] >= 2 {
+		return false
+	}
+	count := 0
+	for id, n := range replans {
+		if unitPhase(id) == unitPhase(uid) {
+			count += n
+		}
+	}
+	return count < perPhase
+}
+
+// unitPhase returns the phase part of a unit id: P001.2.3 -> P001.2.
+func unitPhase(uid string) string {
+	if i := strings.LastIndex(uid, "."); i > 0 {
+		return uid[:i]
+	}
+	return uid
 }
 
 func replanUnit(ctx context.Context, root string, args Args, config map[string]any, uid, trigger string, p *Progress, totals *runTotals, unavailable map[string]time.Time) (int, error) {

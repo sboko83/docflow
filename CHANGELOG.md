@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `docflow run --replans N` limits auto-replans per plan phase instead of
+  per run (default 3, still at most 2 per unit): phase review rounds no
+  longer exhaust the budget of a long plan.
 - `docflow run` spells the Pi agent as `Pi` and paints its badge in the
   pi.dev logo colours; the documentation follows the same spelling.
 - `docflow run` displays the quota provider name as `Z.ai` in terminal output.
