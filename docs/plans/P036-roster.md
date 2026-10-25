@@ -633,7 +633,7 @@ Commit: P036.2.9: re-review roster phase
 Handoff:
 - Blocked (plan): [P2] internal/roster/roster.go:298 — неизвестный профиль возвращает код 2 и путь без номера строки. Воспроизведено командой roster show --profile missing на эталонном ростере. Это противоречит Do P036.2.1 и docs/usage.md:551. Требуется исправление диагностики либо явное решение об исключении для неизвестного профиля.
 
-### [ ] P036.2.10 Неизвестный профиль — ошибка аргумента
+### [x] P036.2.10 Неизвестный профиль — ошибка аргумента
 Read:
 - internal/roster/roster.go:L288-303
 - docs/usage.md:L545-552
@@ -654,6 +654,11 @@ Traps: код `applyProfile` и тексты ошибок не менять — 
 Depends: P036.2.8
 Executor: claude | claude-opus-5-5 | high
 Commit: P036.2.10: document unknown roster profile
+Handoff:
+- Unknown --profile is documented as an argument error (code 2, roster path, defined profiles, no line) in docs/usage.md «Ростер»; TestUnknownProfileIsArgumentError in internal/roster/roster_test.go pins the current applyProfile message
+- The older unknown-profile assertion inside TestProfileReplacesSpendAndFlags is left untouched per Traps; the new test is separate
+- Unverified: Unit Verify (go test ./internal/roster/ ./cmd/docflow/ and the grep on docs/usage.md) was not run: every Bash call failed with an auto-mode classifier error, so the new test has not been compiled or executed
+- Unverified: docflow verify P036.2.10 (preflight and gate) was not run for the same reason; the runner's own verify is the first real check
 
 ## Phase 3: Скиллы
 

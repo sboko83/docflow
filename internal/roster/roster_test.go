@@ -3,6 +3,7 @@ package roster
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -409,6 +410,34 @@ spend = ["codex", "claude", "local"]
 	}
 	if got, want := chainOf(r, "cheap"), "codex | c | high; claude | l | -; pi | local/n | high"; got != want {
 		t.Errorf("cheap chain = %q, want %q", got, want)
+	}
+}
+
+// An unknown --profile is an argument error: the file has no line to blame,
+// so the message names the roster path and the defined profiles only.
+func TestUnknownProfileIsArgumentError(t *testing.T) {
+	text := profileRoster + `[profile.no-zai]
+spend = ["codex", "claude", "local"]
+`
+	path := filepath.Join(t.TempDir(), "roster.toml")
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path, "missing")
+	if err == nil {
+		t.Fatal("Load() = nil error, want unknown profile")
+	}
+	if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
+		t.Errorf("exit code of %v is not %d", err, clierrors.EXIT_FORMAT)
+	}
+	message := err.Error()
+	for _, want := range []string{path, "unknown profile 'missing'", "(defined: codex-trusted, no-zai)"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("error = %q, want it to contain %q", message, want)
+		}
+	}
+	if regexp.MustCompile(regexp.QuoteMeta(path) + `:\d+:`).MatchString(message) {
+		t.Errorf("error = %q, want no line position", message)
 	}
 }
 
