@@ -44,8 +44,8 @@ comments and `CHANGELOG.md` are in English.
 - Go 1.24+ installed: `go version`
 - Git for Windows; its `bash` comes first in `PATH`, not
   `C:\Windows\System32\bash.exe` (WSL): `bash -c "uname -s | grep -q MINGW"`
-- The checkout is cloned with `core.autocrlf=false` and P039 is closed:
-  `test -f docs/archive/P039-e2e-and-live-checks.md`
+- The checkout is cloned with `core.autocrlf=false`:
+  `test "$(git config --get core.autocrlf)" = false`
 - `claude` and `codex` are installed and logged in on the subscription;
   units P040.2.1 and P040.4.1 spend a few tiny Haiku and Codex calls
 
@@ -271,7 +271,7 @@ Do:
   - `bash tools/smoke-run.sh --mixed` passes, and a unit whose agent
     exceeds `timeout:` leaves no child process (`tasklist`);
   - `bash tools/test-install.sh` passes; then a real install from a local
-    release layout into a temporary `USERPROFILE`: `docflow version`,
+    release layout into a temporary `USERPROFILE`: `docflow --version`,
     `docflow update` to a newer local version, `docflow install-skills
     --agent claude`, `docflow uninstall`.
 - Check that `ci.yml` and `release.yml` run on `windows-latest` with no
