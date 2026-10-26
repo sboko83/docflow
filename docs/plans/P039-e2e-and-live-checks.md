@@ -2,7 +2,7 @@
 id: P039
 title: e2e and live checks
 type: feature
-status: draft
+status: active
 created: 2026-10-25
 permissions: auto
 gate: go test ./...
@@ -61,10 +61,12 @@ confirm or refute escalation, the spinner and `--approve-for-me` after
 - Локальная модель выполняет обычную и дешёвую работу; Codex проверяет
   фазу и делает replan, Claude проводит финальную приёмку — маршруты и
   обоснование в [P043](../archive/P043-local-worker.md).
+- --check-only runs only the checks and skips build, preconditions, fixture and the agent call — the unit's Verify command runs it repeatedly and must not spend a subscription session; rejected: re-calling the agent on --check-only
+- The three header keys are reported as three ok/FAIL lines (header-executor/review/acceptance) instead of one — keeps failures diagnosable without rerunning the agent; rejected: a single combined header check
 
 ## Phase 1: Live agent checks
 
-### [ ] P039.1.1 Check cold planning
+### [x] P039.1.1 Check cold planning
 Read:
 - skills/bsv-docflow-plan/SKILL.md
 - internal/agents/agents.go:L40-110
@@ -116,6 +118,11 @@ background with output to a file if the shell tool limits command time.
 macOS has no `timeout`; kill the call from a background watchdog.
 Depends: -
 Commit: P039.1.1: add live plan-skill check
+Handoff:
+- tools/check-plan-skill.sh exists but is intentionally not in the gate or CI: a full run calls claude on the subscription (first live run took minutes, capped at 20 by a background watchdog since macOS has no timeout); --check-only reuses the work dir ${TMPDIR:-/tmp}/docflow-plan-skill-check and re-runs only the checks, so it needs a prior full run
+- First live run passed all 10 checks with no skill fix: a cold claude session produced a 2-phase, 3-unit plan (ordinary unit, Role: review closing phase 1, Role: acceptance last) with roster routes, no replan: line, no commits — bsv-docflow-plan rules are unambiguous enough as written
+- Fixture repo and agent.log stay in TMPDIR; no run content (code, paths, messages) was copied into this repository
+- Unverified: Watchdog kill verified with a 5-second copy of the script (sleep 1200 → 5) against a hanging stub agent; the committed 20-minute value itself was not exercised live
 
 ### [ ] P039.1.2 Проверить сохранённые прогоны Codex
 Read:
