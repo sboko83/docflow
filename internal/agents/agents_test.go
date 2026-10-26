@@ -552,7 +552,7 @@ func TestRunRouteModeFixedForRun(t *testing.T) {
 }
 
 func TestStrictRunnerSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(RunnerCycle))); got != "49c5cd1fe9461ad7ca6d670c045461e156b272139961f3140004c17d98e5c4a2" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(RunnerCycle))); got != "b25fcc9fd39619e8d746f4121a03e48a3eaaa4d200ac0a2eb722b2fa8ebedcf1" {
 		t.Fatalf("RunnerCycle SHA-256 = %s", got)
 	}
 	if !strings.Contains(RunnerCycle, `"reason": ""`) || !strings.Contains(RunnerCycle, `"blocker": "plan"`) {

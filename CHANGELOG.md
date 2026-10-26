@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without model calls.
 
 ### Changed
+- The cycle text in every unit prompt — `## Cycle` and `## Cycle (runner
+  mode)` — tells the agent how to treat a resumed unit: when its Handoff has
+  `Unblocked:` after the latest `Blocked (human)`, it checks that condition
+  with a command before the rest of `Do:`; not met — block again with
+  `human`, naming what is still missing. The `bsv-docflow-run` skill names
+  the command that lifts each block; `bsv-docflow-plan` puts a human-only
+  step at the head of the unit it gates.
 - `docflow status` names who lifts a block: the `blocked:` line ends with
   `(needs human)` and is followed by a line with the
   `docflow unblock <id> --note "…"` command, or ends with `(needs plan)`.

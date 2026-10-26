@@ -112,7 +112,12 @@ the user has already stated is recorded mechanically and not asked again.
   conditions, such as access, devices, and tools, are checked on every run.
   An item without a command is shown in the same start confirmation. A
   scenario needing what only a human provides is a prerequisite, never a
-  `Do:` step.
+  `Do:` step. When that step only makes sense after the plan's earlier
+  work — installing a build on a device, clicking through a fresh release —
+  it opens the unit it gates: the step comes first in that unit's `Do:`,
+  before its long work, so the `--needs human` block arrives before the
+  cost of the unit. The person lifts it with `docflow unblock <id> --note
+  "…"` (`bsv-docflow-run` re-checks the condition on the resumed unit).
 
 ## Unit
 

@@ -76,6 +76,10 @@ goes on.
 - cycle.BlockedNeeds принимает *format.Unit, а не (root, unitID) — selection уже содержит юнита, повторное чтение плана лишнее, разбор остаётся в cycle — rejected: BlockedNeeds(root, unitID) и копия разбора в internal/runner.
 - Строка подсказки — одна функция unblockHint на все точки остановки — rejected: три литерала, разъезжающиеся при правке формата.
 - Ответ `y|yes` разбирает общий answeredYes, его использует и confirmRunStartWithIO — rejected: вторая копия правила.
+- The rule is prompt text only — no Go code path, no runner-side re-check — why: the condition of a human block (a login, a device, an access) is not knowable in code, the agent is the one who can run its command — rejected: an automatic re-check in the runner after unblock.
+- One sentinel phrase ("check that condition with a command first") in both cycle texts, asserted in both packages' tests — why: it is the only anchor that keeps the CLI and runner texts aligned — rejected: per-text assertions with divergent wording, which drift silently.
+- In RunnerCycle the not-met branch is a `blocked` reply with `blocker: "human"`; in cycleText it is `docflow block {id} --needs human --reason "<what is still missing>"` — why: each text names the action its mode allows (under the runner `block` refuses with code 5) — rejected: naming `docflow block` in the runner text.
+- Re-pin the RunnerCycle golden hash instead of loosening TestStrictRunnerSchema — why: the pin's point is that prompt drift is a deliberate, reviewable act — rejected: dropping the hash comparison.
 
 ## Phase 1: Unblock
 
@@ -178,7 +182,7 @@ Handoff:
 - Unverified: Ветка интерактивного вопроса на консоли Windows (terminal_windows.go, isTerminal/noEcho): PTY-тесты собраны под darwin||linux — нет ни одного прогона вопроса на Windows.
 - Unverified: Путь `y` в настоящем терминале с живым агентом: ручной прогон в pty отвечал `n` (не тратить квоту модели), снятие блока живым прогоном проверено только fake-агентом в PTY-тесте.
 
-### [ ] P041.1.3 Re-check the condition after unblock
+### [x] P041.1.3 Re-check the condition after unblock
 Read:
 - internal/cycle/commands.go:L17-50
 - internal/agents/agents.go:L135-176
@@ -210,6 +214,16 @@ Traps: Skill sources live only in `skills/`; never edit the installed
 copies under `~/.claude/skills/` or other agent directories.
 Role: cheap
 Commit: P041.1.3: re-check blocked condition after unblock
+Handoff:
+- internal/agents/agents_test.go:555 (TestStrictRunnerSchema) pins sha256 of the whole RunnerCycle text; any edit to the runner prompt fails that test until the hash is re-pasted (go test ./internal/agents prints the new value). P041.1.3 set it to b25fcc9fd39619e8d746f4121a03e48a3eaaa4d200ac0a2eb722b2fa8ebedcf1. The pin is documented nowhere in docs/design — grep 'SHA-256' --include='*_test.go'.
+- The two cycle texts share the sentinel phrase "check that condition with a command first", asserted in TestPromptTextAndReadBudget (cycle_test.go:476 parts list) and TestRunnerPromptInstructions (start_test.go:32). Assertions match the rendered text, so a word wrapped across a source line breaks the assertion: the first run failed on `blocker: "human" naming what is still missing` for exactly that reason — keep asserted phrases on one source line.
+- Installed skills on this machine are symlinks to the release tree (~/.pi/agent/skills/* and ~/.claude/skills/* → ~/.docflow/current → versions/0.13.0/skills), not the working tree: grep 'docflow unblock' in the installed bsv-docflow-run/SKILL.md returns 0. The AGENTS.md promise that working-tree skill edits are live at once holds only for the tools/install-dev.sh layout; agent CLIs read the new rule after a release. I did not run the installer.
+- docs/design/cycle.md and docs/usage.md already state the re-check (added by P041.1.1): cycle.md lines 51-56, usage.md line 604. The doc line in Do: is satisfied — nothing added. docs/design/skills.md describes skills in one line each and lists no rules, so it stayed untouched, as Do: allowed.
+- Prompt grew ~5 lines per unit prompt (cycle proxy: bytes/4, TestPromptTextAndReadBudget recomputes tokens from its own output, so it tracks automatically). No parity scenario pins the cycle text: grep '## Cycle' in tools/parity/ hits only repo-fixture names.
+- Full verify (unit Verify + plan gate go test ./...) is green; parity was not run — this unit's Verify does not include it and no scenario covers the cycle text (P041.1.2 reported 68 scenarios green).
+- Unverified: Behaviour of a real agent on a resumed unblocked unit: no check drives an agent against the new rule. TestTerminalUnblockAtRunStart drives the unblock flow with a fake agent only; the re-check is unmeasurable in the current suite (no live run through unblock + re-check).
+- Unverified: Skill text is not active for installed agent CLIs (they read the 0.13.0 release tree) — nothing checks that an agent CLI ever sees the new rule; the unit's Verify only greps the source files in skills/.
+- Unverified: Windows console path: the change is platform-neutral prompt text, no Windows run performed; the PTY tests of P041.1.2 remain darwin/linux only.
 
 ### [ ] P041.1.4 Review the unblock phase
 Read:

@@ -19,6 +19,9 @@ This skill covers only running a docflow unit.
 1. `docflow prompt` — the next unit, or `docflow prompt <id>`. It sets
    `[~]`. The unit is already `[~]` (an interrupted session) — the same
    prompt again; the work continues from the current state of the tree.
+   The Handoff has `Unblocked:` after the latest `Blocked (human)` — the
+   person claims their step is done: check it with a command before the
+   `Do:` work, see "When to block".
    Right after the output — one line to the user, before reading any
    files: `Taking up <id> <title> — plan <plan id> <plan title>`
    (from the prompt's first two lines); when the stderr line of
@@ -56,7 +59,9 @@ secret, a device or a decision — with `reason` saying what exactly to
 do. A reply without the field counts as `human`. With the plan's
 `replan:` key a `"plan"` block is replanned automatically and the unit
 is re-prompted; `"human"`, or no `replan:` key, stops the run and
-notifies.
+notifies. On a resumed unit — Handoff `Unblocked:` after the latest
+`Blocked (human)` — a `blocked` reply for a step the person claimed as
+done is the answer too: name in `reason` what is still missing.
 
 ## Executor
 
@@ -121,6 +126,17 @@ premise, a missing step or unit; under the runner this triggers the
 auto-replan. `human` when the unblock is not a plan edit — a login, a
 secret, a device or simulator step, a decision. In runner mode the
 `blocker` field of the result JSON replaces `docflow block`.
+
+Who lifts each block: `human` — the person, with
+`docflow unblock <id> --note "…"`: the unit goes back to `[~]`, the note
+becomes an `Unblocked:` Handoff item, the command does not commit; the
+run asks about such a block at its start in a terminal and stops with the
+command everywhere else. `plan` — `bsv-docflow-plan` in replan mode. A
+resumed unit checks the blocked condition with a command (does the file
+exist, is the session logged in, is the device attached) before it does
+any more of `Do:`: the note is a claim, not evidence. Met — continue;
+not met — block again with `human`, naming what is still missing, and do
+not spend the unit on the rest of `Do:`.
 
 A unit with `Role: review` reviews and fixes nothing: it edits no
 files. A defect it finds is a block with `--needs plan` — the plan's

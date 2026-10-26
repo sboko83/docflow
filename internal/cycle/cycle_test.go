@@ -473,7 +473,7 @@ func TestPromptTextAndReadBudget(t *testing.T) {
 	if strings.Join(headings, "\n") != strings.Join(wantHeadings, "\n") {
 		t.Fatalf("headings = %#v", headings)
 	}
-	for _, part := range []string{"Цель плана.", "- Симулятор запущен", "- решение — почему — альтернатива", "### [~] P001.1.3 Third\nRead:\n- a.py\nDo:\n- c\n", "### P001.1.2\n- от второго\n", "docflow verify P001.1.3", "docflow finish P001.1.3 --handoff", "--decision", "docflow block P001.1.3 --reason"} {
+	for _, part := range []string{"Цель плана.", "- Симулятор запущен", "- решение — почему — альтернатива", "### [~] P001.1.3 Third\nRead:\n- a.py\nDo:\n- c\n", "### P001.1.2\n- от второго\n", "docflow verify P001.1.3", "docflow finish P001.1.3 --handoff", "--decision", "docflow block P001.1.3 --reason", "Handoff `Unblocked:` after the latest `Blocked (human)`", "check that condition with a command first", "docflow block P001.1.3 --needs human --reason"} {
 		if !strings.Contains(result.Stdout, part) {
 			t.Errorf("prompt does not contain %q", part)
 		}
