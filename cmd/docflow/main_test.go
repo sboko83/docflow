@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -85,6 +86,60 @@ func TestParseArgsHelp(t *testing.T) {
 	}
 	if stdout.String() != rootHelp {
 		t.Fatalf("help output differs from the Python CLI contract\n%s", stdout.String())
+	}
+}
+
+// rootHelpEntry matches a command entry line of the root help: four spaces,
+// the command name, then the padding that starts the description column.
+var rootHelpEntry = regexp.MustCompile(`^    (\S+)  `)
+
+// rootHelpCommands returns the command names in the order the root help
+// renders them. Wrapped description lines are indented to the description
+// column, so they are not entries; the options section is not scanned.
+func rootHelpCommands(t *testing.T, help string) []string {
+	t.Helper()
+	var names []string
+	inCommands := false
+	for _, line := range strings.Split(help, "\n") {
+		switch {
+		case line == "positional arguments:":
+			inCommands = true
+		case inCommands && line == "options:":
+			inCommands = false
+		case inCommands:
+			if m := rootHelpEntry.FindStringSubmatch(line); m != nil {
+				names = append(names, m[1])
+			}
+		}
+	}
+	return names
+}
+
+// TestRootHelpListsRegisteredCommands guards the command list of the root
+// help: it is written by hand, so a new command in `commands` goes missing
+// from it silently. TestParseArgsHelp compares the output with rootHelp
+// itself and cannot see that; this test compares the rendered entries with
+// the registration.
+func TestRootHelpListsRegisteredCommands(t *testing.T) {
+	want := make([]string, len(commands))
+	for i, spec := range commands {
+		want[i] = spec.name
+	}
+	for _, flag := range []string{"-h", "--help"} {
+		t.Run(flag, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			parsed, code := parseArgs([]string{flag}, &stdout, &stderr)
+			if parsed != nil || code != 0 {
+				t.Fatalf("parseArgs(%q) = (%v, %d), want (nil, 0)", flag, parsed, code)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("help %q wrote to stderr: %q", flag, stderr.String())
+			}
+			got := rootHelpCommands(t, stdout.String())
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("root help command entries = %#v, want %#v in the registered order", got, want)
+			}
+		})
 	}
 }
 

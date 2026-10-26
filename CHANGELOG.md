@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer stands in for it.
 
 ### Fixed
+- `docflow -h` lists `unblock` between `block` and `lint`: the general help
+  kept its own copy of the command list and had not been updated for the new
+  command, so `docflow unblock -h` worked while no general help mentioned it.
 - `docflow run` stops on Ctrl-C while it asks about a human block: at both
   `done? [y/N] ` and `note: ` the signal ends the run with its exit code
   (130), leaving the unit `[!]`, the plan untouched and the agent unstarted.

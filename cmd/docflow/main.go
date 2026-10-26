@@ -176,6 +176,7 @@ positional arguments:
     finish          verify, done and commit the current unit in one call
     stats           token use per unit: context proxy against the real figures
     block           mark the current unit blocked
+    unblock         resume a unit blocked for a human
     lint            check structure, ids, Depends and the Read budget
     new             create a plan from the template and add it to the Queue
     activate        make a draft plan active after a clean lint of it
