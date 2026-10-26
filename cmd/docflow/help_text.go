@@ -147,6 +147,22 @@ options:
   --reason REASON
   --needs {human,plan}  who unblocks the unit (default: human)
 `,
+	"unblock": `usage: docflow unblock [-h] [--note NOTE] id
+
+resume a unit blocked for a human
+
+The unit goes back to [~] and the note lands in its Handoff as
+Unblocked: ...; the resumed agent checks the blocked condition first.
+A block raised with --needs plan is lifted by replanning, not here.
+The runner runs this command itself; the person confirms the step.
+
+positional arguments:
+  id
+
+options:
+  -h, --help   show this help message and exit
+  --note NOTE  what the person did to lift the block
+`,
 	"lint": `usage: docflow lint [-h]
 
 check structure, ids, Depends and the Read budget

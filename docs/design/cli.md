@@ -20,9 +20,9 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | Команда | Что делает |
 |---|---|
 | `init [--agent {claude,codex,pi}] [--skills]` | `docs/docflow.md`, `plans/`, `archive/`, строка в AGENTS.md; `--skills` — ещё копии скиллов в каталоге проекта выбранного агента; default `claude` |
-| `status` | очередь, текущий план, прогресс |
+| `status` | очередь, текущий план, прогресс; при блоке — класс (`needs human` / `needs plan`) и для человека строка `unblock:` с командой |
 | `next` | id следующего доступного юнита |
-| `prompt`, `verify`, `done`, `commit`, `block [--needs human\|plan]` | цикл юнита, см. [«Цикл юнита»](cycle.md#цикл-юнита) |
+| `prompt`, `verify`, `done`, `commit`, `block [--needs human\|plan]`, `unblock [--note NOTE]` | цикл юнита, см. [«Цикл юнита»](cycle.md#цикл-юнита) |
 | `stats [Pxxx]` | расход токенов по юнитам, см. [«Учёт токенов»](cycle.md#учёт-токенов) |
 | `lint` | структура, id и их уникальность, Depends, бюджет `Read:` |
 | `new <slug>` | план из шаблона со следующим id, строка в Queue |

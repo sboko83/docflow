@@ -295,7 +295,15 @@ func Status(root, lintLine string) (Result, error) {
 		}
 		lines = append(lines, fmt.Sprintf("current: %s %s%s", selection.Unit.ID, selection.Unit.Title, suffix))
 	case "blocked":
-		lines = append(lines, fmt.Sprintf("blocked: %s %s", selection.Unit.ID, selection.Unit.Title))
+		needs := blockNeeds(selection.Unit)
+		suffix := ""
+		if needs != "" {
+			suffix = " (needs " + needs + ")"
+		}
+		lines = append(lines, fmt.Sprintf("blocked: %s %s%s", selection.Unit.ID, selection.Unit.Title, suffix))
+		if needs == "human" {
+			lines = append(lines, fmt.Sprintf("unblock: docflow unblock %s --note \"…\"", selection.Unit.ID))
+		}
 	default:
 		lines = append(lines, "current: none")
 	}

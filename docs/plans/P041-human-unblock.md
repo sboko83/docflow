@@ -2,7 +2,7 @@
 id: P041
 title: Human unblock
 type: feature
-status: draft
+status: active
 created: 2026-10-25
 permissions: auto
 gate: go test ./...
@@ -69,10 +69,13 @@ goes on.
   clean tree.
 - The resumed agent checks the blocked condition before it continues —
   the note is a claim, not evidence — rejected: trusting the note.
+- Класс в `status` печатается только когда в Handoff есть пункт `Blocked` — чтобы не менять точный вывод parity-сценария cycle_status_prompt.sh на юните `[!]` без Handoff — rejected: печатать `(needs human)` по умолчанию для любого `[!]`.
+- Один парсер `Blocked (<needs>):` (blockNeeds) используется и Unblock, и Status — rejected: разбор по месту в каждой команде, две копии формата.
+- В parity-сценарий help.sh добавлен `docflow unblock -h`, хотя Do: этого не требовал — новый help текст покрывается e2e-набором, а не только Go-тестом — rejected: оставить список старых команд.
 
 ## Phase 1: Unblock
 
-### [ ] P041.1.1 Add docflow unblock
+### [x] P041.1.1 Add docflow unblock
 Read:
 - internal/cycle/verify.go:L570-606
 - internal/cycle/commands.go:L210-320
@@ -115,6 +118,13 @@ Traps: `cmd/docflow/main_test.go` pins the exact ordered command list; insert
 `unblock` right after `block` in both the table and the test.
 Depends: -
 Commit: P041.1.1: add docflow unblock
+Handoff:
+- Класс блока разбирает одна функция — blockNeeds в internal/cycle/verify.go (последний пункт Handoff `Blocked (<needs>): …`, legacy `Blocked:` = human); Status уже её использует. Раннеру (P041.1.2) она недоступна: неэкспортируемая — экспортируй обёртку в cycle (например BlockedNeeds(root, unitID)), а не дублируй разбор в internal/runner.
+- `unblock` добавлена в runnerOnly: под раннером (DOCFLOW_RUNNER_UNIT) команда отвечает код 5 — это проверено вручную. Раннер зовёт её через cycle.Self, как block; для ручной проверки CLI нужен `env -u DOCFLOW_RUNNER_UNIT bin/docflow …`.
+- Промпт снятого `[~]` юнита уже содержит его блок целиком, включая `Blocked (human): …` и `Unblocked: …` (проверено на temp-репо: `docflow prompt P001.1.1`); секция `## Handoff from Depends` — только про зависимости. Для P041.1.3 правило повторной проверки есть на что опереться, менять вывод prompt не нужно.
+- Юнит `[!]` без пункта `Blocked` в Handoff (заблокирован руками) печатается как раньше — `blocked: <id> <title>` без класса и без подсказки; на этом держится parity-сценарий tools/parity/scenarios/cycle_status_prompt.sh. Не ломай это при правке status.
+- Parity-набор: 68 сценариев зелёные (`bash tools/parity/run.sh bin/docflow bin/docflow`); tools/parity/scenarios/help.sh теперь вызывает и `docflow unblock -h` — при новых командах список сценария надо пополнять.
+- Unverified: Новые строки status (`(needs human)` + `unblock: …`) не имеют e2e/parity-сценария: проверка — юнит-тесты TestStatusReadinessAndBlocked и ручной прогон bin/docflow status в temp-репо; сценарий в tools/parity/scenarios/ не добавлен.
 
 ### [ ] P041.1.2 Ask to unblock at run start
 Read:

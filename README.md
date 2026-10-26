@@ -67,8 +67,9 @@ docs/archive/P007-cache.md  Outcome · Decisions · Gotchas · Follow-ups
 the Handoff of its dependencies, and marks it `[~]`. `verify` runs the
 unit's `Verify:` command and fingerprints the tree, `done` marks it `[x]`
 and writes Handoff, `commit` commits that exact tree under the `Commit:`
-subject. A unit that cannot proceed because its plan went stale is marked
-`[!]` by `block` and goes to replanning. `lint` checks the structure and the `Read:` budget;
+subject. A unit that cannot proceed is marked
+`[!]` by `block`: a plan that went stale goes to replanning, a step only a
+person can do is lifted by `docflow unblock <id> --note "…"`. `lint` checks the structure and the `Read:` budget;
 `docflow run` drives the same commands unit after unit.
 
 ## See it run

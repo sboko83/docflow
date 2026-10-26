@@ -28,6 +28,14 @@ func cycleUnit(id, status string, depends ...string) string {
 	return fmt.Sprintf("### [%s] %s Unit %s\nRead:\n- a.py\nDo:\n- b\nVerify: `true`\n%sCommit: %s: unit\n\n", status, id, id, dep, id)
 }
 
+func cycleHandoffUnit(id, status string, items ...string) string {
+	handoff := "Handoff:\n"
+	for _, item := range items {
+		handoff += "- " + item + "\n"
+	}
+	return strings.Replace(cycleUnit(id, status), "Commit: "+id+": unit\n", "Commit: "+id+": unit\n"+handoff, 1)
+}
+
 func cyclePlan(id, status string, units ...string) string {
 	return fmt.Sprintf("---\nid: %s\ntitle: Plan %s\ntype: feature\nstatus: %s\ncreated: 2026-10-12\n---\n", id, id, status) +
 		"## Goal\nЦель плана.\n\n## Context\n\n## Constraints\nОграничение.\n\n## Prerequisites\n- Симулятор запущен\n\n## Traps\nЛовушка плана.\n\n## Decisions\n- решение — почему — альтернатива\n\n## Phase 1: First\n\n" + strings.Join(units, "")
@@ -268,6 +276,39 @@ func TestStatusReadinessAndBlocked(t *testing.T) {
 			t.Fatalf("status = %q", result.Stdout)
 		}
 	})
+	t.Run("blocked without a class", func(t *testing.T) {
+		root := makeCycleProject(t, cycleDocflow("P001"), map[string]string{"P001": cyclePlan("P001", "active", cycleUnit("P001.1.1", "!"))}, nil)
+		result, err := Status(root, "lint: ok")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result.Stdout, "blocked: P001.1.1 Unit P001.1.1\n") || strings.Contains(result.Stdout, "unblock:") {
+			t.Fatalf("status = %q", result.Stdout)
+		}
+	})
+	for _, class := range []struct{ item, needs string }{
+		{"Blocked (human): нужен вход в аккаунт", "human"},
+		{"Blocked: устарел", "human"},
+		{"Blocked (plan): Do устарел", "plan"},
+	} {
+		t.Run("blocked needs "+class.needs, func(t *testing.T) {
+			root := makeCycleProject(t, cycleDocflow("P001"), map[string]string{"P001": cyclePlan("P001", "active", cycleHandoffUnit("P001.1.1", "!", class.item))}, nil)
+			result, err := Status(root, "lint: ok")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "blocked: P001.1.1 Unit P001.1.1 (needs " + class.needs + ")\n"
+			if class.needs == "human" {
+				want += "unblock: docflow unblock P001.1.1 --note \"…\"\n"
+			}
+			if !strings.Contains(result.Stdout, want) {
+				t.Fatalf("status = %q, want %q", result.Stdout, want)
+			}
+			if class.needs != "human" && strings.Contains(result.Stdout, "unblock:") {
+				t.Fatalf("plan block hints unblock: %q", result.Stdout)
+			}
+		})
+	}
 	t.Run("empty queue", func(t *testing.T) {
 		root := makeCycleProject(t, cycleDocflow(), nil, nil)
 		result, err := Status(root, "lint: ok")

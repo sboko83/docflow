@@ -8,12 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docflow unblock <id> --note "…"` resumes a unit blocked for a human:
+  the unit goes back to `[~]` and the note becomes an `Unblocked:` Handoff
+  item. A block raised with `--needs plan` is refused with a hint to
+  replan; the command does not commit.
 - Pi routes on `strata/…` display a light-grey `Local` badge with dark
   text. Local runs skip subscription quota probes and quota display.
 - Live smoke and demo scripts accept `--dry-run` to inspect their plans
   without model calls.
 
 ### Changed
+- `docflow status` names who lifts a block: the `blocked:` line ends with
+  `(needs human)` and is followed by a line with the
+  `docflow unblock <id> --note "…"` command, or ends with `(needs plan)`.
 - Live planning, smoke and demo scripts use Pi/GLM Flash and Codex,
   preserving Claude quota. The planning check accepts `--model` for
   Z.ai and Strata routes.

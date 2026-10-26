@@ -2,6 +2,7 @@ package cycle
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,6 +231,92 @@ func TestBlockReasonRequired(t *testing.T) {
 	}
 	if _, err := Block(root, "P001.1.1", " \t", "human"); err == nil || err.Error() != "--reason must not be empty" {
 		t.Fatalf("blank reason error = %v", err)
+	}
+}
+
+func TestUnblockResumesHumanBlock(t *testing.T) {
+	root := makeDoneProject(t, donePlan("~"))
+	if _, err := Block(root, "P001.1.1", "нужен вход в аккаунт", "human"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Unblock(root, "P001.1.1", "вошёл\nв аккаунт")
+	if err != nil || result.Code != clierrors.EXIT_OK || result.Stdout != "P001.1.1: unblocked\n" {
+		t.Fatalf("Unblock() = %#v, %v", result, err)
+	}
+	expected := strings.Replace(donePlan("~"), "Commit: P001.1.1: unit\n", "Commit: P001.1.1: unit\nHandoff:\n- Blocked (human): нужен вход в аккаунт\n- Unblocked: вошёл в аккаунт\n", 1)
+	if got := readPlanText(t, root); got != expected {
+		t.Fatalf("unblocked plan =\n%s\nwant =\n%s", got, expected)
+	}
+	next, err := Next(root)
+	if err != nil || next.Code != clierrors.EXIT_OK || next.Stdout != "P001.1.1\n" {
+		t.Fatalf("Next() after unblock = %#v, %v", next, err)
+	}
+}
+
+func TestUnblockEmptyNote(t *testing.T) {
+	root := makeDoneProject(t, donePlan("~"))
+	if _, err := Block(root, "P001.1.1", "нужен симулятор", "human"); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := Unblock(root, "P001.1.1", " \t"); err != nil || result.Code != clierrors.EXIT_OK {
+		t.Fatalf("Unblock() with a blank note = %#v, %v", result, err)
+	}
+	if got := readPlanText(t, root); !strings.Contains(got, "- Unblocked: the person reports the blocked step done\n") {
+		t.Fatalf("default note missing:\n%s", got)
+	}
+}
+
+func TestUnblockRefusesPlanBlock(t *testing.T) {
+	root := makeDoneProject(t, donePlan("~"))
+	if _, err := Block(root, "P001.1.1", "Do устарел", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	before := readPlanText(t, root)
+	result, err := Unblock(root, "P001.1.1", "сделал")
+	if err != nil || result.Code != clierrors.EXIT_ORDER ||
+		result.Stderr != "P001.1.1 is blocked (needs plan): replan it with bsv-docflow-plan\n" {
+		t.Fatalf("Unblock() on a plan block = %#v, %v", result, err)
+	}
+	if result.Stdout != "" {
+		t.Fatalf("stdout = %q", result.Stdout)
+	}
+	if got := readPlanText(t, root); got != before {
+		t.Fatalf("plan block changed the plan:\n%s\nwant =\n%s", got, before)
+	}
+}
+
+func TestUnblockLegacyBlockedItem(t *testing.T) {
+	root := makeDoneProject(t, donePlan("!"))
+	path := filepath.Join(root, "docs", "plans", "P001-plan.md")
+	text, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = []byte(strings.Replace(string(text), "Commit: P001.1.1: unit\n", "Commit: P001.1.1: unit\nHandoff:\n- Blocked: устарел\n", 1))
+	if err := os.WriteFile(path, text, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Unblock(root, "P001.1.1", "план обновлён")
+	if err != nil || result.Code != clierrors.EXIT_OK {
+		t.Fatalf("Unblock() on a legacy block = %#v, %v", result, err)
+	}
+	if got := readPlanText(t, root); !strings.Contains(got, "### [~] P001.1.1") ||
+		!strings.Contains(got, "Handoff:\n- Blocked: устарел\n- Unblocked: план обновлён\n") {
+		t.Fatalf("legacy block unblocked =\n%s", got)
+	}
+}
+
+func TestUnblockRejectsWrongStatus(t *testing.T) {
+	for _, status := range []string{" ", "~", "x"} {
+		root := makeDoneProject(t, donePlan(status))
+		result, err := Unblock(root, "P001.1.1", "готово")
+		if err != nil || result.Code != clierrors.EXIT_ORDER ||
+			result.Stderr != fmt.Sprintf("P001.1.1 is [%s], expected [!]\n", status) {
+			t.Fatalf("Unblock() on [%s] = %#v, %v", status, result, err)
+		}
+		if got := readPlanText(t, root); got != donePlan(status) {
+			t.Fatalf("Unblock() on [%s] changed the plan:\n%s", status, got)
+		}
 	}
 }
 

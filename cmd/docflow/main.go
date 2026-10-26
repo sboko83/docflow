@@ -39,6 +39,7 @@ var commands = []commandSpec{
 	{name: "finish", help: "verify, done and commit the current unit in one call", args: []argument{positional("id", "", true), requiredAppend("--handoff", "HANDOFF", "Handoff item; repeat per item"), appendOption("--decision", "DECISION", "item for ## Decisions; repeat per item"), option("--skip", "REASON", "record the fingerprint without running Verify")}},
 	{name: "stats", help: "token use per unit: context proxy against the real figures", args: []argument{positional("PLAN", "", false)}},
 	{name: "block", help: "mark the current unit blocked", args: []argument{positional("id", "", true), requiredOption("--reason", "REASON", ""), choiceOption("--needs", "", "who unblocks the unit (default: human)", "human", "human", "plan")}},
+	{name: "unblock", help: "resume a unit blocked for a human", args: []argument{positional("id", "", true), option("--note", "NOTE", "what the person did to lift the block")}},
 	{name: "lint", help: "check structure, ids, Depends and the Read budget"},
 	{name: "new", help: "create a plan from the template and add it to the Queue", args: []argument{positional("slug", "", true), option("--title", "TITLE", ""), choiceOption("--type", "", "", "feature", "feature", "bugfix", "perf", "module", "refactor")}},
 	{name: "activate", help: "make a draft plan active after a clean lint of it", args: []argument{positional("id", "", true)}},
@@ -272,6 +273,7 @@ func makeHandlers() map[string]handlerFunc {
 	out["commit"] = handleCommit
 	out["finish"] = handleFinish
 	out["block"] = handleBlock
+	out["unblock"] = handleUnblock
 	out["lint"] = handleLint
 	out["init"] = handleInit
 	out["new"] = handleNew
@@ -516,6 +518,20 @@ func handleBlock(parsed *parsedArgs) error {
 	return cycleResult(result)
 }
 
+func handleUnblock(parsed *parsedArgs) error {
+	root, err := projectRoot()
+	if err != nil {
+		return err
+	}
+	unitID, _ := parsed.values["id"].(string)
+	note, _ := parsed.values["--note"].(string)
+	result, err := cycle.Unblock(root, unitID, note)
+	if err != nil {
+		return err
+	}
+	return cycleResult(result)
+}
+
 func handleLint(_ *parsedArgs) error {
 	root, err := projectRoot()
 	if err != nil {
@@ -699,7 +715,7 @@ func handleDoctor(parsed *parsedArgs) error {
 }
 
 func runnerOnly(name string) bool {
-	return name == "finish" || name == "done" || name == "commit" || name == "block"
+	return name == "finish" || name == "done" || name == "commit" || name == "block" || name == "unblock"
 }
 
 func parseArgs(argv []string, stdout, stderr io.Writer) (*parsedArgs, int) {

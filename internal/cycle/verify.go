@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"bsv-docflow/internal/clierrors"
+	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/gitx"
 	"bsv-docflow/internal/procgroup"
 )
@@ -591,6 +592,61 @@ func Block(root, unitID, reason, needs string) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Code: clierrors.EXIT_OK, Stdout: fmt.Sprintf("%s: blocked (%s): %s\n", unit.ID, needs, reason)}, nil
+}
+
+// blockNeeds returns who lifts the block on the unit's latest `Blocked`
+// Handoff item: `plan`, `human` (a legacy item without a class counts as
+// human), or "" when the unit has no block item.
+func blockNeeds(unit *format.Unit) string {
+	field := unit.Field("Handoff")
+	if field == nil {
+		return ""
+	}
+	needs := ""
+	for _, item := range field.Items {
+		rest, ok := strings.CutPrefix(item.Text, "Blocked")
+		if !ok {
+			continue
+		}
+		needs = "human"
+		if tail, ok := strings.CutPrefix(rest, " ("); ok {
+			if class, _, ok := strings.Cut(tail, "):"); ok && class != "" {
+				needs = class
+			}
+		}
+	}
+	return needs
+}
+
+// Unblock resumes a unit that a person blocked for a human: the unit goes
+// back to [~] and reports in its Handoff what the person did. A `plan`
+// block is lifted by replanning, not here. The caller checks the blocked
+// condition; the note is a claim, not evidence.
+func Unblock(root, unitID, note string) (Result, error) {
+	plan, unit, err := findUnit(root, unitID)
+	if err != nil {
+		return Result{}, err
+	}
+	if unit.Status != "!" {
+		return Result{Code: clierrors.EXIT_ORDER, Stderr: fmt.Sprintf("%s is [%s], expected [!]\n", unit.ID, unit.Status)}, nil
+	}
+	if needs := blockNeeds(unit); needs == "plan" {
+		return Result{Code: clierrors.EXIT_ORDER, Stderr: fmt.Sprintf("%s is blocked (needs plan): replan it with bsv-docflow-plan\n", unit.ID)}, nil
+	}
+	note = oneLine(note)
+	if note == "" {
+		note = "the person reports the blocked step done"
+	}
+	if err := plan.SetStatus(unit.ID, "~"); err != nil {
+		return Result{}, err
+	}
+	if err := plan.AppendItems(unit.ID, "Handoff", []string{"Unblocked: " + note}); err != nil {
+		return Result{}, err
+	}
+	if err := plan.Save(filepath.Join(root, filepath.FromSlash(plan.Path))); err != nil {
+		return Result{}, err
+	}
+	return Result{Code: clierrors.EXIT_OK, Stdout: unit.ID + ": unblocked\n"}, nil
 }
 
 func oneLine(text string) string { return strings.Join(strings.Fields(text), " ") }

@@ -212,6 +212,31 @@ func TestBlockNeedsDefaultsToHuman(t *testing.T) {
 	}
 }
 
+func TestUnblockNoteIsOptional(t *testing.T) {
+	parsed, code := parseArgs([]string{"unblock", "P001.1.2"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != 0 || parsed == nil || parsed.values["id"] != "P001.1.2" {
+		t.Fatalf("unblock without --note = %#v, %d", parsed, code)
+	}
+	if note, _ := parsed.values["--note"].(string); note != "" {
+		t.Fatalf("unblock default note = %#v, want empty", parsed.values["--note"])
+	}
+	parsed, code = parseArgs([]string{"unblock", "P001.1.2", "--note", "вошёл в аккаунт"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != 0 || parsed == nil || parsed.values["--note"] != "вошёл в аккаунт" {
+		t.Fatalf("unblock with --note = %#v, %d", parsed, code)
+	}
+}
+
+func TestUnblockRefusesInRunner(t *testing.T) {
+	t.Setenv(runnerEnv, "P041.1.1")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"unblock", "P041.1.1", "--note", "готово"}, &stdout, &stderr); code != 5 {
+		t.Fatalf("run() = %d, want 5", code)
+	}
+	if !strings.Contains(stderr.String(), "the runner drives P041.1.1") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestPreflightAndGateKeysLintClean(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"docs/plans", "docs/archive"} {
@@ -289,7 +314,7 @@ func TestVerifyFindsProjectRootFromSubdirectory(t *testing.T) {
 }
 
 func TestCommandsMatchDesign(t *testing.T) {
-	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "install", "update", "uninstall"}
+	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "unblock", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "install", "update", "uninstall"}
 	got := make([]string, len(commands))
 	for i, spec := range commands {
 		got[i] = spec.name
