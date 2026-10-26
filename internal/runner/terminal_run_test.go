@@ -81,6 +81,101 @@ func runInTerminal(t *testing.T, f *runFixture, args ...string) (int, string, st
 	return c.ProcessState.ExitCode(), text, output
 }
 
+func TestTerminalUnblockAtRunStart(t *testing.T) {
+	note := "вошёл в аккаунт"
+	for _, mode := range []string{"yes", "empty", "no", "plan"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newRunFixture(t)
+			needs, keys, want := "human", "y\n"+note+"\n", 0
+			if mode == "empty" {
+				keys = "y\n\n"
+			}
+			if mode == "no" {
+				keys, want = "n\n", 3
+			}
+			if mode == "plan" {
+				needs, keys, want = "plan", "y\n", 3
+			}
+			f.replace(planFile, "[ ] P001.1.1", "[!] P001.1.1")
+			f.replace(planFile, "Commit: P001.1.1: first unit\n", "Commit: P001.1.1: first unit\nHandoff:\n- Blocked ("+needs+"): нужен вход\n")
+			f.steps(writeReply("a.txt"), writeReply("b.txt"))
+			code, out, tty := runInTerminalWithInput(t, f, keys, "--max-units", "1")
+			if code != want {
+				t.Fatalf("exit %d, want %d\n%s%s", code, want, out, tty)
+			}
+			asked := strings.Contains(out, "done? [y/N] ")
+			if (mode != "plan") != asked {
+				t.Fatalf("%q asked=%v:\n%s", mode, asked, out)
+			}
+			if mode == "plan" {
+				if !strings.Contains(out, "P001.1.1 is blocked") || strings.Contains(out, "unblock:") {
+					t.Fatal(out)
+				}
+			}
+			if mode == "no" && !strings.Contains(out, `unblock: docflow unblock P001.1.1 --note "…", then docflow run`) {
+				t.Fatal(out)
+			}
+			plan := f.read(planFile)
+			if mode == "yes" {
+				if !strings.Contains(out, "P001.1.1: unblocked") || !strings.Contains(tty, note) {
+					t.Fatalf("note is not visible in the terminal:\n%s\n%s", out, tty)
+				}
+				if !strings.Contains(plan, "- Unblocked: "+note+"\n") || !strings.Contains(plan, "[x] P001.1.1") {
+					t.Fatal(plan)
+				}
+			}
+			if mode == "empty" && !strings.Contains(plan, "- Unblocked: the person reports the blocked step done\n") {
+				t.Fatal(plan)
+			}
+			if (mode == "no" || mode == "plan") && (strings.Contains(plan, "Unblocked:") || !strings.Contains(plan, "[!] P001.1.1")) {
+				t.Fatal(plan)
+			}
+			if calls := len(f.calls()); calls != map[string]int{"yes": 1, "empty": 1, "no": 0, "plan": 0}[mode] {
+				t.Fatal(calls)
+			}
+		})
+	}
+}
+
+// runInTerminalWithInput runs `docflow run` on a PTY, types `keys` as the
+// person, and returns the exit code, the captured stdout+stderr and the
+// normalized terminal screen — the echo of the typed text lands there.
+func runInTerminalWithInput(t *testing.T, f *runFixture, keys string, args ...string) (int, string, string) {
+	t.Helper()
+	master, slave := openPTY(t)
+	c := f.command(append([]string{"run", "--config", f.config, "--no-wait"}, args...)...)
+	c.Stdin = slave
+	var out, errOut bytes.Buffer
+	c.Stdout, c.Stderr = &out, &errOut
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = slave.Close()
+	if _, err := io.WriteString(master, keys); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan string, 1)
+	go func() { b, _ := io.ReadAll(master); done <- string(b) }()
+	finished := make(chan error, 1)
+	go func() { finished <- c.Wait() }()
+	select {
+	case <-finished:
+	case <-time.After(30 * time.Second):
+		_ = c.Process.Kill()
+		<-finished
+		t.Fatal("TTY run timed out")
+	}
+	var tty string
+	select {
+	case tty = <-done:
+	case <-time.After(3 * time.Second):
+		master.Close()
+		tty = <-done
+	}
+	text := strings.ReplaceAll(regexp.MustCompile(`\x1b\[[\d;]*[mK]`).ReplaceAllString(tty, ""), "\r", "")
+	return c.ProcessState.ExitCode(), out.String() + errOut.String(), text
+}
+
 func TestTerminalStartConfirmation(t *testing.T) {
 	for _, answer := range []string{"y", "n"} {
 		t.Run(answer, func(t *testing.T) {

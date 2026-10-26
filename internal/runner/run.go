@@ -162,6 +162,19 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		return 2, err
 	}
 	_ = os.Remove(stop)
+	if sel.Kind == "blocked" {
+		needs, reason := cycle.BlockedNeeds(sel.Unit)
+		if askUnblock(root, sel.Unit.ID, needs, reason, args.Yes, p, os.Stdin, stdout) {
+			sel, err = runSelection(root, args)
+			if err != nil {
+				return 2, err
+			}
+			config, err = agents.RunConfig(sel.Plan, &args.RunArgs)
+			if err != nil {
+				return 2, err
+			}
+		}
+	}
 	if sel.Kind == "unit" || sel.Kind == "close" {
 		warnings, err := skills.SkillsWarnings(skillDirectory, root, agents.PlanAgents(config, sel.Plan, args.RunArgs))
 		if err != nil {
@@ -260,6 +273,9 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 		}
 		if sel.Kind == "blocked" {
 			p.line(sel.Unit.ID+" is blocked", true, "")
+			if needs, _ := cycle.BlockedNeeds(sel.Unit); needs == "human" {
+				p.line(unblockHint(sel.Unit.ID), false, "")
+			}
 			totals.notification = sel.Unit.ID + " is blocked"
 			if planID != "" {
 				runSummary(p, totals)
@@ -920,6 +936,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 			totals.stop = uid + ": blocked (needs " + needs + "): " + reason
 			p.line(totals.stop, false, "red")
+			if needs == "human" {
+				p.line(unblockHint(uid), false, "")
+			}
 			trigger := ""
 			if needs == "plan" {
 				trigger = totals.stop

@@ -356,12 +356,74 @@ func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, stdi
 	if err != nil && !errors.Is(err, io.EOF) {
 		answer = ""
 	}
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	if answer == "y" || answer == "yes" {
+	if answeredYes(answer) {
 		return clierrors.EXIT_OK
 	}
 	progress.line("run: not confirmed; nothing ran", true, "")
 	return clierrors.EXIT_NOTHING
+}
+
+// unblockHint is the command that lifts a human block. Every place a run
+// stops on one prints it: the person does the step, the command resumes the
+// unit, the run continues.
+func unblockHint(uid string) string {
+	return "unblock: docflow unblock " + uid + ` --note "…", then docflow run`
+}
+
+// answeredYes accepts the affirmative answers of the run's prompts.
+func answeredYes(answer string) bool {
+	switch strings.TrimSpace(strings.ToLower(answer)) {
+	case "y", "yes":
+		return true
+	}
+	return false
+}
+
+// askUnblock offers to lift a human block at the start of a run: the person is
+// present exactly when they start it, while a run that goes unattended for
+// hours cannot wait on stdin. On `y` it reads a one-line note and lifts the
+// block through the `unblock` command, the way it calls `block`. Any other
+// answer leaves the run to stop on the block as usual. The note is a claim,
+// not evidence: the resumed unit checks the blocked step first.
+//
+// A terminal run starts the key watcher and turns echo off only after the
+// start confirmation, so stdin is quiet here: one reader takes both answers
+// and the typed note stays visible.
+func askUnblock(root, uid, needs, reason string, yes bool, progress *Progress, stdin io.Reader, stdout io.Writer) bool {
+	if needs != "human" || yes || !isTerminal(stdin) {
+		return false
+	}
+	line := uid + " is blocked (needs human)"
+	if reason != "" {
+		line += ": " + reason
+	}
+	if _, err := io.WriteString(stdout, line+"\ndone? [y/N] "); err != nil {
+		return false
+	}
+	flushWriter(stdout)
+	reader := bufio.NewReader(stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false
+	}
+	if !answeredYes(answer) {
+		return false
+	}
+	if _, err := io.WriteString(stdout, "note: "); err != nil {
+		return false
+	}
+	flushWriter(stdout)
+	note, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		note = ""
+	}
+	res := cycle.Self(root, "unblock", uid, "--note="+strings.TrimSpace(note))
+	if res.Code != 0 {
+		writeFailure(progress, res)
+		return false
+	}
+	progress.line(uid+": unblocked; the unit resumes and checks the blocked step first", false, "green")
+	return true
 }
 
 func applescript(text string) string {

@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the unit goes back to `[~]` and the note becomes an `Unblocked:` Handoff
   item. A block raised with `--needs plan` is refused with a hint to
   replan; the command does not commit.
+- `docflow run` prints `unblock: docflow unblock <id> --note "…", then
+  docflow run` wherever it stops on a human block. When a run starts on such
+  a unit in a terminal without `--yes`, it prints the reason and asks
+  `done? [y/N] `, then takes a one-line note: `y` lifts the block and the run
+  continues with the usual start; any other answer, `--yes` or no terminal
+  stop the run with code 3 and the command.
 - Pi routes on `strata/…` display a light-grey `Local` badge with dark
   text. Local runs skip subscription quota probes and quota display.
 - Live smoke and demo scripts accept `--dry-run` to inspect their plans

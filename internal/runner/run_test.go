@@ -460,6 +460,10 @@ func TestRunLoopFailures(t *testing.T) {
 			}
 			r := f.run(steps, "--attempts", fmt.Sprint(tc.attempts))
 			f.check(r, tc.code, tc.text, "run: 0 units,")
+			hint := `unblock: docflow unblock P001.1.1 --note "…", then docflow run`
+			if (tc.name == "blocked") != strings.Contains(r.out+r.err, hint) {
+				t.Fatalf("%q hint:\n%s%s", tc.name, r.out, r.err)
+			}
 			if tc.name == "auth" || tc.name == "limit" {
 				if len(f.calls()) != 1 {
 					t.Fatal(f.calls())
@@ -754,6 +758,9 @@ func TestRunStopsAndLock(t *testing.T) {
 			}
 			r := f.run(steps, args...)
 			f.check(r, code, text)
+			if mode == "blocked" && strings.Contains(r.out+r.err, "unblock:") {
+				t.Fatal(r.out + r.err)
+			}
 			if mode == "soft-stop" || mode == "max-units" {
 				if len(f.calls()) != 1 {
 					t.Fatal(f.calls())
@@ -763,6 +770,31 @@ func TestRunStopsAndLock(t *testing.T) {
 				if _, err := os.Stat(filepath.Join(f.root, ".git/docflow/run/run.lock")); err == nil {
 					t.Fatal("lock left behind")
 				}
+			}
+		})
+	}
+}
+
+func TestRunStopsOnHumanBlock(t *testing.T) {
+	for _, mode := range []string{"plain", "yes"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newRunFixture(t)
+			args := []string{}
+			if mode == "yes" {
+				args = []string{"--yes"}
+			}
+			f.replace(planFile, "[ ] P001.1.1", "[!] P001.1.1")
+			f.replace(planFile, "Commit: P001.1.1: first unit\n", "Commit: P001.1.1: first unit\nHandoff:\n- Blocked (human): нужен вход\n")
+			r := f.run([]string{writeReply("a.txt")}, args...)
+			f.check(r, 3, "P001.1.1 is blocked", `unblock: docflow unblock P001.1.1 --note "…", then docflow run`)
+			if strings.Contains(r.out+r.err, "done?") {
+				t.Fatal(r.out + r.err)
+			}
+			if plan := f.read(planFile); strings.Contains(plan, "Unblocked:") || !strings.Contains(plan, "[!] P001.1.1") {
+				t.Fatal(plan)
+			}
+			if len(f.calls()) != 0 {
+				t.Fatal(f.calls())
 			}
 		})
 	}

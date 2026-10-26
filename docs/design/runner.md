@@ -44,7 +44,17 @@ flowchart TD
    ждёт её 10 минут и отвечает без result JSON
    ([P019](../archive/P019-runner-background-tasks.md)).
 2. Result JSON `blocked` → `docflow block --needs <класс> --reason`, код 3
-   (`blocker: plan` — триггер авто-replan, см. ниже). `done` →
+   (`blocker: plan` — триггер авто-replan, см. ниже). После красной строки
+   остановки на `needs human` — строка с командой `docflow unblock <id>
+   --note "…", then docflow run`. Если первый выбор прогона — юнит `[!]` с
+   блоком `needs human`, то в терминале и без `--yes` прогон печатает причину
+   и спрашивает `done? [y/N] `: на `y` читает одну строку заметки, снимает
+   блок командой `unblock` (она не коммитит), выбирает юнита заново и
+   продолжается обычный старт — prerequisites, подтверждение, квоты; на `n`,
+   без терминала или с `--yes` — тот же стоп с кодом 3 и командой. Спрашивается
+   только первый выбор: блок в середине прогона останавливает его, а человек
+   присутствует ровно когда запускает `run`
+   ([P041](../archive/P041-human-unblock.md)). `done` →
    `verify`; зелёный → `done` с handoff и decisions из JSON → `commit`.
    Для итераций агент запускает `Verify:` юнита или `docflow verify <id>
    --no-gate`; перед ответом выполняет один полный `docflow verify <id>`.

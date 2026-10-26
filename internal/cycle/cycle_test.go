@@ -285,11 +285,16 @@ func TestStatusReadinessAndBlocked(t *testing.T) {
 		if !strings.Contains(result.Stdout, "blocked: P001.1.1 Unit P001.1.1\n") || strings.Contains(result.Stdout, "unblock:") {
 			t.Fatalf("status = %q", result.Stdout)
 		}
+		if _, unit, err := findUnit(root, "P001.1.1"); err != nil {
+			t.Fatal(err)
+		} else if needs, reason := BlockedNeeds(unit); needs != "" || reason != "" {
+			t.Fatalf("BlockedNeeds = %q, %q, want none", needs, reason)
+		}
 	})
-	for _, class := range []struct{ item, needs string }{
-		{"Blocked (human): нужен вход в аккаунт", "human"},
-		{"Blocked: устарел", "human"},
-		{"Blocked (plan): Do устарел", "plan"},
+	for _, class := range []struct{ item, needs, reason string }{
+		{"Blocked (human): нужен вход в аккаунт", "human", "нужен вход в аккаунт"},
+		{"Blocked: устарел", "human", "устарел"},
+		{"Blocked (plan): Do устарел", "plan", "Do устарел"},
 	} {
 		t.Run("blocked needs "+class.needs, func(t *testing.T) {
 			root := makeCycleProject(t, cycleDocflow("P001"), map[string]string{"P001": cyclePlan("P001", "active", cycleHandoffUnit("P001.1.1", "!", class.item))}, nil)
@@ -306,6 +311,13 @@ func TestStatusReadinessAndBlocked(t *testing.T) {
 			}
 			if class.needs != "human" && strings.Contains(result.Stdout, "unblock:") {
 				t.Fatalf("plan block hints unblock: %q", result.Stdout)
+			}
+			_, unit, err := findUnit(root, "P001.1.1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if needs, reason := BlockedNeeds(unit); needs != class.needs || reason != class.reason {
+				t.Fatalf("BlockedNeeds = %q, %q, want %q, %q", needs, reason, class.needs, class.reason)
 			}
 		})
 	}

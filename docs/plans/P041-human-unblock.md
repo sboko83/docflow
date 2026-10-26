@@ -72,6 +72,10 @@ goes on.
 - Класс в `status` печатается только когда в Handoff есть пункт `Blocked` — чтобы не менять точный вывод parity-сценария cycle_status_prompt.sh на юните `[!]` без Handoff — rejected: печатать `(needs human)` по умолчанию для любого `[!]`.
 - Один парсер `Blocked (<needs>):` (blockNeeds) используется и Unblock, и Status — rejected: разбор по месту в каждой команде, две копии формата.
 - В parity-сценарий help.sh добавлен `docflow unblock -h`, хотя Do: этого не требовал — новый help текст покрывается e2e-набором, а не только Go-тестом — rejected: оставить список старых команд.
+- Вопрос ставится в Run до подтверждения старта, а не в runLoop — клавиатура watchKeys и noEcho включаются позже; проверено на настоящем PTY — rejected: спрашивать в ветке blocked внутри runLoop.
+- cycle.BlockedNeeds принимает *format.Unit, а не (root, unitID) — selection уже содержит юнита, повторное чтение плана лишнее, разбор остаётся в cycle — rejected: BlockedNeeds(root, unitID) и копия разбора в internal/runner.
+- Строка подсказки — одна функция unblockHint на все точки остановки — rejected: три литерала, разъезжающиеся при правке формата.
+- Ответ `y|yes` разбирает общий answeredYes, его использует и confirmRunStartWithIO — rejected: вторая копия правила.
 
 ## Phase 1: Unblock
 
@@ -126,7 +130,7 @@ Handoff:
 - Parity-набор: 68 сценариев зелёные (`bash tools/parity/run.sh bin/docflow bin/docflow`); tools/parity/scenarios/help.sh теперь вызывает и `docflow unblock -h` — при новых командах список сценария надо пополнять.
 - Unverified: Новые строки status (`(needs human)` + `unblock: …`) не имеют e2e/parity-сценария: проверка — юнит-тесты TestStatusReadinessAndBlocked и ручной прогон bin/docflow status в temp-репо; сценарий в tools/parity/scenarios/ не добавлен.
 
-### [ ] P041.1.2 Ask to unblock at run start
+### [x] P041.1.2 Ask to unblock at run start
 Read:
 - internal/runner/run.go:L150-280
 - internal/runner/run.go:L895-925
@@ -164,6 +168,15 @@ the key watcher eating it, and the typed note must be visible — follow how
 with a `bytes.Buffer` only.
 Role: heavy
 Commit: P041.1.2: ask to unblock at run start
+Handoff:
+- Вопрос снят не в runLoop, а в Run: сразу после runLock/stop-file и до prerequisites, confirmRunStart и запуска watchKeys/noEcho. Лювый новый промпт внутри runLoop обязан разбираться с клавиатурой watchKeys и выключенным echo — там это ловушка; перенос вопроса в цикл её вернёт.
+- Класс и причину блока раннер берёт из cycle.BlockedNeeds(unit *format.Unit) (needs, reason) — сигнатура принимает юнит, а не (root, unitID), как предлагал P041.1.1: selection раннера уже несёт разобранного юнита, чтение плана не нужно. Парсер один: blockedItem + blockedClass в internal/cycle/verify.go, blockNeeds (status) — обёртка.
+- Текст подсказки `unblock: docflow unblock <id> --note "…", then docflow run` живёт в одной функции unblockHint (internal/runner/helpers.go) и печатается в трёх точках: блок посреди юнита (runUnit), остановка на выборе (runLoop), отказ от вопроса. Юнит `[!]` без пункта `Blocked` подсказки не даёт — это держат TestRunStopsAndLock/blocked и parity-сценарий cycle_status_prompt.sh.
+- На старте прогона по os.Stdin работает два последовательных bufio.Reader (вопрос про unblock, затем confirmRunStartWithIO): заранее нажатую Enter-строку первый может проглотить. Общий читатель на весь старт — незакрытый follow-up, сейчас поведение как в старом коде подтверждения.
+- Parity после правки зелёные: 68 сценариев (bash tools/parity/run.sh bin/docflow bin/docflow). Строки раннера в parity нет: набор покрывает CLI-цикл, а не run; подсказка и вопрос покрыты Go-тестами TestRunStopsOnHumanBlock и TestTerminalUnblockAtRunStart.
+- Новый хелпер PTY-тестов runInTerminalWithInput (terminal_run_test.go) возвращает код, stdout+stderr и нормализованный экран терминала — на экране видно эхо введённой заметки; следующие TTY-тесты (P041.1.3) могут брать его.
+- Unverified: Ветка интерактивного вопроса на консоли Windows (terminal_windows.go, isTerminal/noEcho): PTY-тесты собраны под darwin||linux — нет ни одного прогона вопроса на Windows.
+- Unverified: Путь `y` в настоящем терминале с живым агентом: ручной прогон в pty отвечал `n` (не тратить квоту модели), снятие блока живым прогоном проверено только fake-агентом в PTY-тесте.
 
 ### [ ] P041.1.3 Re-check the condition after unblock
 Read:

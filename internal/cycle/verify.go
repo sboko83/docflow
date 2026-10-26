@@ -594,28 +594,54 @@ func Block(root, unitID, reason, needs string) (Result, error) {
 	return Result{Code: clierrors.EXIT_OK, Stdout: fmt.Sprintf("%s: blocked (%s): %s\n", unit.ID, needs, reason)}, nil
 }
 
-// blockNeeds returns who lifts the block on the unit's latest `Blocked`
-// Handoff item: `plan`, `human` (a legacy item without a class counts as
-// human), or "" when the unit has no block item.
-func blockNeeds(unit *format.Unit) string {
+// blockedItem returns the text of the unit's latest `Blocked` Handoff item,
+// "" when the unit has none.
+func blockedItem(unit *format.Unit) string {
 	field := unit.Field("Handoff")
 	if field == nil {
 		return ""
 	}
-	needs := ""
-	for _, item := range field.Items {
-		rest, ok := strings.CutPrefix(item.Text, "Blocked")
-		if !ok {
-			continue
-		}
-		needs = "human"
-		if tail, ok := strings.CutPrefix(rest, " ("); ok {
-			if class, _, ok := strings.Cut(tail, "):"); ok && class != "" {
-				needs = class
-			}
+	item := ""
+	for _, entry := range field.Items {
+		if _, ok := strings.CutPrefix(entry.Text, "Blocked"); ok {
+			item = entry.Text
 		}
 	}
+	return item
+}
+
+// blockedClass splits a `Blocked (<needs>): <reason>` Handoff item into who
+// lifts the block and the reason it recorded. A legacy `Blocked: <reason>`
+// item without a class counts as `human`; an item without a reason records an
+// empty one. Both are "" when the text is not a block item.
+func blockedClass(item string) (needs, reason string) {
+	rest, ok := strings.CutPrefix(item, "Blocked")
+	if !ok {
+		return "", ""
+	}
+	if tail, ok := strings.CutPrefix(rest, " ("); ok {
+		if class, tail, ok := strings.Cut(tail, "):"); ok && class != "" {
+			return class, strings.TrimSpace(tail)
+		}
+	}
+	return "human", strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(rest), ":"))
+}
+
+// blockNeeds returns who lifts the block on the unit's latest `Blocked`
+// Handoff item: `plan`, `human` (a legacy item without a class counts as
+// human), or "" when the unit has no block item.
+func blockNeeds(unit *format.Unit) string {
+	needs, _ := blockedClass(blockedItem(unit))
 	return needs
+}
+
+// BlockedNeeds reports who lifts the block on the unit — `plan` or `human` —
+// and the reason that block recorded; both are "" when the unit has no
+// `Blocked` Handoff item, the case of a unit blocked by hand. An `Unblocked:`
+// item does not lift the class: the block item decides it until the unit runs
+// again.
+func BlockedNeeds(unit *format.Unit) (needs, reason string) {
+	return blockedClass(blockedItem(unit))
 }
 
 // Unblock resumes a unit that a person blocked for a human: the unit goes
