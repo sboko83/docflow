@@ -369,6 +369,40 @@ func TestTerminalStartConfirmation(t *testing.T) {
 	}
 }
 
+// A line typed right after the start answer reaches the key watcher: the
+// terminal hands the start reader one line per read, so `s` is not lost in its
+// buffer.
+func TestTerminalTypeaheadReachesKeyWatcher(t *testing.T) {
+	f := newRunFixture(t)
+	f.replace(planFile, "status: active", "status: active\npermissions: full")
+	f.configure("[agents.fake.permissions]\nfull = [\"--no-sandbox\"]\n")
+	f.steps("sleep 1\n"+writeReply("a.txt"), writeReply("b.txt"))
+	master, slave := openPTY(t)
+	c := f.command("run", "--config", f.config, "--no-wait")
+	c.Stdin = slave
+	var out, errOut bytes.Buffer
+	c.Stdout, c.Stderr = &out, &errOut
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(master, "y\ns\n")
+	done := make(chan error, 1)
+	go func() { done <- c.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err, out.String(), errOut.String())
+		}
+	case <-time.After(30 * time.Second):
+		_ = c.Process.Kill()
+		<-done
+		t.Fatal("run timed out", out.String())
+	}
+	if strings.Count(out.String(), "s + Enter received") != 1 || !strings.Contains(out.String(), "run: stopped on request") || len(f.calls()) != 1 {
+		t.Fatal(out.String(), errOut.String())
+	}
+}
+
 func TestTerminalSoftStopAndEcho(t *testing.T) {
 	f := newRunFixture(t)
 	pid := filepath.Join(f.tmp, "pid")
