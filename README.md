@@ -73,9 +73,10 @@ subject. A unit that cannot proceed because its plan went stale is marked
 
 ## See it run
 
-A real `docflow run` of a small demo plan: a Go `slug` command built in
-three phases by Codex, Pi, and Claude. `bash tools/demo-run.sh`
-reproduces it in a throwaway repository and spends agent quota.
+A recorded `docflow run` of a small demo plan: a Go `slug` command built in
+three phases by Codex, Pi, and Claude. `bash tools/demo-run.sh` runs the
+same scenario with Codex and Pi/GLM Flash in a throwaway repository and
+spends their quota. Add `--dry-run` to inspect routes without model calls.
 
 ![docflow run: start and the first units](docs/img/demo-run.svg)
 

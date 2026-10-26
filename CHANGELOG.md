@@ -10,11 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Pi routes on `strata/…` display a light-grey `Local` badge with dark
   text. Local runs skip subscription quota probes and quota display.
+- Live smoke and demo scripts accept `--dry-run` to inspect their plans
+  without model calls.
 
 ### Changed
+- Live planning, smoke and demo scripts use Pi/GLM Flash and Codex,
+  preserving Claude quota. The planning check accepts `--model` for
+  Z.ai and Strata routes.
 - The `bsv-docflow-plan` skill ends every plan that changes a UI, CLI or
   API with an acceptance unit, a one-unit plan included; a review unit no
   longer stands in for it.
+
+### Fixed
+- The live planning check rejects failed or timed-out agent calls,
+  cleans up its watchdog, and checks the requested default roster routes
+  against the snapshot saved for that call.
 
 ## [0.13.0] - 2026-10-25
 

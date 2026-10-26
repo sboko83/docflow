@@ -71,9 +71,10 @@ docs/archive/P007-cache.md  Outcome · Decisions · Gotchas · Follow-ups
 
 ## Как это выглядит
 
-Настоящий `docflow run` небольшого демо-плана: Go-команда `slug` в трёх
-фазах, которую пишут Codex, Pi и Claude. `bash tools/demo-run.sh`
-повторяет его в одноразовом репозитории и тратит квоту агентов.
+Запись настоящего `docflow run` небольшого демо-плана: Go-команда `slug`
+в трёх фазах, которую пишут Codex, Pi и Claude. `bash tools/demo-run.sh`
+запускает тот же сценарий с Codex и Pi/GLM Flash в одноразовом репозитории
+и тратит их квоту. `--dry-run` показывает маршруты без вызова моделей.
 
 ![docflow run: старт и первые юниты](docs/img/demo-run.svg)
 

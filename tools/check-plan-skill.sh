@@ -1,6 +1,6 @@
 #!/bin/bash
 # Live check of the planning skill: builds the checkout binary, creates a
-# fixture repository with one Backlog line, lets a cold claude session
+# fixture repository with one Backlog line, lets a cold agent session
 # plan it by skills/bsv-docflow-plan/SKILL.md, then checks the produced
 # plan against the skill's rules (roster routes in the header, no replan,
 # review and acceptance roles, dry-run).
@@ -11,16 +11,33 @@
 #                                    fixture, agent call, then the checks
 #   check-plan-skill.sh --check-only reuse the work directory of a full
 #                                    run and run only the checks
+#   check-plan-skill.sh --model strata/MODEL
+#                                    choose another Pi model
 set -euo pipefail
 
 CHECK_ONLY=0
-case "${1:-}" in
-    "") ;;
-    --check-only) CHECK_ONLY=1 ;;
-    *)
-        printf 'usage: %s [--check-only]\n' "$0" >&2
-        exit 2
-        ;;
+MODEL=zai/glm-5.3-flash
+MODEL_OPTIONS=0
+usage() {
+    printf 'usage: %s [--check-only | --model zai/MODEL|strata/MODEL]\n' "$0" >&2
+    exit 2
+}
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --check-only) CHECK_ONLY=1; shift ;;
+        --model)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || usage
+            MODEL=$2
+            MODEL_OPTIONS=1
+            shift 2
+            ;;
+        *) usage ;;
+    esac
+done
+[ "$CHECK_ONLY" -eq 0 ] || [ "$MODEL_OPTIONS" -eq 0 ] || usage
+case "$MODEL" in
+    zai/?*|strata/?*) ;;
+    *) usage ;;
 esac
 
 fail() {
@@ -40,6 +57,24 @@ SKILL="$REPO_DIR/skills/bsv-docflow-plan/SKILL.md"
 WORK=${TMPDIR:-/tmp}/docflow-plan-skill-check
 REPO="$WORK/repo"
 AGENT_LOG="$WORK/agent.log"
+AGENT_EXIT="$WORK/agent.exit"
+ROSTER_SNAPSHOT="$WORK/roster.expected"
+TIMED_OUT="$WORK/agent.timed-out"
+
+AGENT_PID=
+WATCHDOG_PID=
+cleanup_agent() {
+    if [ -n "$WATCHDOG_PID" ]; then
+        kill "$WATCHDOG_PID" 2>/dev/null || true
+        wait "$WATCHDOG_PID" 2>/dev/null || true
+        WATCHDOG_PID=
+    fi
+    if [ -n "$AGENT_PID" ]; then
+        kill "$AGENT_PID" 2>/dev/null || true
+        wait "$AGENT_PID" 2>/dev/null || true
+        AGENT_PID=
+    fi
+}
 
 FAILED=0
 ok() {
@@ -72,8 +107,8 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
     PATH="$WORK/bin:$PATH"
     export PATH
 
-    command -v claude >/dev/null 2>&1 \
-        || fail 'precondition not met: claude is not on PATH' 2
+    command -v pi >/dev/null 2>&1 \
+        || fail 'precondition not met: pi is not on PATH' 2
     ROSTER=$(docflow roster show) \
         || fail 'precondition not met: docflow roster show failed' 2
     printf '%s\n' "$ROSTER" | grep -Eq 'check:.*strata' \
@@ -87,6 +122,8 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
 
     progress "creating the fixture in $REPO"
     rm -rf "$REPO"
+    rm -f "$AGENT_EXIT" "$TIMED_OUT"
+    printf '%s\n' "$ROSTER" > "$ROSTER_SNAPSHOT"
     mkdir -p "$REPO/docs/design" "$REPO/docs/plans"
     cat > "$REPO/go.mod" <<'EOF'
 module example.com/greeter
@@ -137,23 +174,46 @@ EOF
     git -C "$REPO" -c user.name=docflow-check -c user.email=docflow-check@example.com \
         commit -qm 'initial commit'
 
-    progress "calling claude (up to 20 minutes); log: $AGENT_LOG"
+    progress "calling pi ($MODEL; up to 20 minutes); log: $AGENT_LOG"
     cd "$REPO"
+    trap cleanup_agent EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     PROMPT="Read and follow $SKILL and plan the Backlog line from docs/docflow.md as the skill says. The survey is already answered: routes come from the roster's default profile (docflow roster apply without --profile), permissions: auto, auto-replan off, there are no prerequisites. Ask nothing, do not activate the plan, do not commit."
-    claude -p "$PROMPT" --model claude-sonnet-5-5 \
-        --permission-mode auto --permission-prompts none \
-        > "$AGENT_LOG" 2>&1 &
+    # Explicit skill path in the prompt; no discovered extensions,
+    # MCP servers or context files enter this cold fixture session.
+    AGENT_COMMAND=(pi -p --model "$MODEL" --thinking high --no-session
+        --offline --no-extensions --no-mcp --no-skills
+        --no-prompt-templates --no-context-files --no-themes
+        --tools read,bash,edit,write "$PROMPT")
+    "${AGENT_COMMAND[@]}" > "$AGENT_LOG" 2>&1 &
     AGENT_PID=$!
     (
-        sleep 1200
-        kill "$AGENT_PID" 2>/dev/null
-        wait "$AGENT_PID" 2>/dev/null
+        TIMER_PID=
+        cleanup_timer() {
+            if [ -n "$TIMER_PID" ]; then
+                kill "$TIMER_PID" 2>/dev/null || true
+                wait "$TIMER_PID" 2>/dev/null || true
+            fi
+        }
+        trap cleanup_timer EXIT
+        trap 'exit 0' INT TERM
+        sleep 1200 &
+        TIMER_PID=$!
+        wait "$TIMER_PID"
+        TIMER_PID=
+        : > "$TIMED_OUT"
+        kill "$AGENT_PID" 2>/dev/null || true
     ) &
     WATCHDOG_PID=$!
     AGENT_RC=0
     wait "$AGENT_PID" || AGENT_RC=$?
-    kill "$WATCHDOG_PID" 2>/dev/null || true
-    wait "$WATCHDOG_PID" 2>/dev/null || true
+    AGENT_PID=
+    cleanup_agent
+    if [ -f "$TIMED_OUT" ]; then
+        AGENT_RC=124
+    fi
+    printf '%s\n' "$AGENT_RC" > "$AGENT_EXIT"
     cd "$REPO_DIR"
     progress "agent call finished with code $AGENT_RC"
 else
@@ -162,6 +222,13 @@ else
     PATH="$WORK/bin:$PATH"
     export PATH
 fi
+
+[ -f "$AGENT_EXIT" ] \
+    || fail 'no recorded agent exit status; run without --check-only first' 2
+[ "$(cat "$AGENT_EXIT")" = 0 ] \
+    || fail "agent call did not succeed (see $AGENT_LOG)"
+[ -s "$ROSTER_SNAPSHOT" ] \
+    || fail 'no recorded default roster; run without --check-only first' 2
 
 # Checks run in the fixture with the built binary first on PATH.
 cd "$REPO"
@@ -205,6 +272,29 @@ for key in executor review acceptance; do
         fail_check "header-$key" "plan frontmatter has no $key: chain"
     fi
 done
+
+# This fixture explicitly requests default roster routes. Reuse the
+# snapshot from that call: --check-only must not depend on today's roster.
+roster_routes_match() {
+    printf '%s\n' "$FRONT" | awk '
+        function route(line) {
+            sub(/^[^:]*:[ \t]*/, "", line)
+            gsub(/[ \t]*[|][ \t]*/, " | ", line)
+            gsub(/[ \t]*;[ \t]*/, "; ", line)
+            sub(/[ \t\r]+$/, "", line)
+            return line
+        }
+        NR == FNR { expected[$1] = route($0); next }
+        /^(executor|fallback|cheap|heavy|review|acceptance):/ {
+            if (route($0) != expected[$1]) {
+                print $1 " does not match the recorded default roster"
+                bad = 1
+            }
+        }
+        END { exit bad }
+    ' "$ROSTER_SNAPSHOT" -
+}
+run_check roster-routes roster_routes_match
 
 if [ -z "$PLAN_FILE" ]; then
     fail_check no-replan "no plan file in docs/plans/"

@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# Smoke test of `docflow run` against the real Claude Code CLI with the
+# Smoke test of `docflow run` against the real Pi CLI with the
 # built-in agent profile. Spends subscription quota: two tiny units on
-# Claude Haiku, assigned by `executor:` in the plan. Runs in a throwaway
+# GLM Flash, assigned by `executor:` in the plan. Runs in a throwaway
 # repository, never in this one; reads no agents config.
 # --mixed: the second unit on Codex CLI by its own `Executor:`; spends
-# Claude and Codex quota.
+# Z.ai and Codex quota. --dry-run checks the plan without agent calls.
 set -euo pipefail
 
 mixed=0
-case "${1:-}" in
-    --mixed) mixed=1 ;;
-    '') ;;
-    *) echo "usage: $0 [--mixed]" >&2; exit 2 ;;
-esac
+dry_run=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --mixed) mixed=1 ;;
+        --dry-run) dry_run=1 ;;
+        *) echo "usage: $0 [--mixed] [--dry-run]" >&2; exit 2 ;;
+    esac
+    shift
+done
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 docflow="$repo/bin/docflow$(cd "$repo" && go env GOEXE)"
@@ -30,7 +34,7 @@ git init -q
 git config core.autocrlf false
 git config user.name smoke
 git config user.email smoke@example.invalid
-"$docflow" init >/dev/null
+"$docflow" init --agent pi >/dev/null
 printf 'Use the absolute docflow executable path for verification: `%s`.\n' \
     "$docflow" > README.md
 
@@ -52,7 +56,7 @@ title: Smoke
 type: feature
 status: active
 created: 2026-10-12
-executor: claude | claude-haiku-5-5 | -
+executor: pi | zai/glm-5.3-flash | high
 ---
 ## Goal
 Two trivial files written by the runner's agent.
@@ -100,6 +104,12 @@ mv plan.tmp docs/plans/P001-smoke.md
 git add -A
 git commit -qm init
 "$docflow" run --dry-run --all
+if [ "$dry_run" -eq 1 ]; then
+    cd /
+    rm -rf "$work"
+    echo 'smoke-run: dry-run ok'
+    exit 0
+fi
 
 out="$work.out"
 code=0
@@ -114,8 +124,8 @@ done
 "$docflow" status | grep -q 'ready to close' || fail 'plan is not ready to close'
 
 if [ "$mixed" -eq 1 ]; then
-    for agent in claude codex; do
-        grep -q "^quota: $agent " "$out" || fail "no quota line for $agent"
+    for agent in zai codex; do
+        grep -Eq "^quota: (.*; )?$agent " "$out" || fail "no quota line for $agent"
     done
 fi
 

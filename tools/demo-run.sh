@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Demo of `docflow run` for the README screenshots. Builds a throwaway Go
 # project with an English plan of three phases, runs it with real agents
-# (Codex, pi, Claude) in a pseudo-terminal, and renders scenes of the
+# (Codex and Pi/GLM Flash) in a pseudo-terminal, and renders scenes of the
 # recording into SVG terminal windows with tools/term2svg.py.
-# Spends subscription quota of all three agents and a few cents of pi.
+# Spends Codex and Z.ai subscription quota.
 #
 # The plan is built to show the whole loop: unit 2.1 moves main.go, unit 2.2
 # still reads it, so its prompt is refused and the `replan:` agent fixes the
 # plan inside the same run.
 #
-# usage: tools/demo-run.sh [--out DIR]       run the demo, render scenes
+# usage: tools/demo-run.sh [--out DIR] [--dry-run]
+#                                            run the demo, or only check routes
 #        tools/demo-run.sh --render RAW [--out DIR]
 #                                            re-render a kept recording
 set -euo pipefail
@@ -19,12 +20,14 @@ docflow="$repo/bin/docflow"
 out="$repo/docs/img"
 raw=''
 cols=100
+dry_run=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) out="$2"; shift 2 ;;
         --render) raw="$2"; shift 2 ;;
-        *) echo "usage: $0 [--out DIR] [--render RAW]" >&2; exit 2 ;;
+        --dry-run) dry_run=1; shift ;;
+        *) echo "usage: $0 [--out DIR] [--render RAW] [--dry-run]" >&2; exit 2 ;;
     esac
 done
 
@@ -76,11 +79,11 @@ cat > README.md <<'EOF'
 Turns titles into URL slugs.
 EOF
 
-"$docflow" init >/dev/null
+"$docflow" init --agent pi >/dev/null
 
 cat > docs/docflow.md <<'EOF'
 ---
-docflow: 2
+docflow: 3
 read_budget: 40000
 start_read: README.md
 start_budget: 4000
@@ -99,7 +102,7 @@ type: feature
 status: active
 created: $(date +%F)
 executor: codex | gpt-6.1-sol | medium
-replan: claude | claude-opus-5-5 | high
+replan: codex | gpt-6.1-sol | high
 gate: go vet ./... && go test ./...
 ---
 ## Goal
@@ -136,7 +139,7 @@ Do:
   lookup table: \`é\` → \`e\`, \`ß\` → \`ss\`, \`ø\` → \`o\`, \`ł\` → \`l\`.
 - Tests: \`Crème Brûlée\` → \`creme-brulee\`, \`Straße\` → \`strasse\`.
 Verify: \`go test ./slug\`
-Executor: pi | zai/glm-5.3 | high
+Executor: pi | zai/glm-5.3-flash | high
 Commit: P001.1.2: transliterate latin diacritics
 
 ## Phase 2: Command
@@ -149,7 +152,7 @@ Do:
 - The command reads lines from stdin and prints one slug per line. Input
   may come from Windows with CRLF line endings.
 Verify: \`printf 'Hello, World!\r\n' | go run ./cmd/slug | grep -qx hello-world && test ! -e main.go\`
-Executor: claude | claude-sonnet-5-5 | medium
+Executor: pi | zai/glm-5.3-flash | high
 Commit: P001.2.1: move command under cmd
 
 ### [ ] P001.2.2 Flags
@@ -170,7 +173,7 @@ Do:
 - Document installation with \`go install example.com/slug/cmd/slug@latest\`
   and both flags, with examples whose output matches the real command.
 Verify: \`grep -q -- '-max' README.md\`
-Executor: claude | claude-haiku-5-5 | low
+Executor: pi | zai/glm-5.3-flash | low
 Commit: P001.3.1: document usage
 EOF
 
@@ -178,6 +181,12 @@ git add -A
 git commit -qm 'Initial slug skeleton'
 "$docflow" lint
 "$docflow" run --dry-run --all
+if [ "$dry_run" -eq 1 ]; then
+    cd /
+    rm -rf "${work%/slug}"
+    echo 'demo-run: dry-run ok'
+    exit 0
+fi
 
 rec="$work.raw"
 script -q "$rec" /bin/bash -c "stty cols $cols rows 50
