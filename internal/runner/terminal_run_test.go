@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -96,8 +97,7 @@ func TestTerminalUnblockAtRunStart(t *testing.T) {
 			if mode == "plan" {
 				needs, keys, want = "plan", "y\n", 3
 			}
-			f.replace(planFile, "[ ] P001.1.1", "[!] P001.1.1")
-			f.replace(planFile, "Commit: P001.1.1: first unit\n", "Commit: P001.1.1: first unit\nHandoff:\n- Blocked ("+needs+"): нужен вход\n")
+			f.blockUnit(needs)
 			f.steps(writeReply("a.txt"), writeReply("b.txt"))
 			code, out, tty := runInTerminalWithInput(t, f, keys, "--max-units", "1")
 			if code != want {
@@ -174,6 +174,158 @@ func runInTerminalWithInput(t *testing.T, f *runFixture, keys string, args ...st
 	}
 	text := strings.ReplaceAll(regexp.MustCompile(`\x1b\[[\d;]*[mK]`).ReplaceAllString(tty, ""), "\r", "")
 	return c.ProcessState.ExitCode(), out.String() + errOut.String(), text
+}
+
+// blockUnit turns the fixture's first unit into a blocked one, the way
+// `docflow block` writes it: the status plus the Handoff item of the class.
+func (f *runFixture) blockUnit(needs string) {
+	f.t.Helper()
+	f.replace(planFile, "[ ] P001.1.1", "[!] P001.1.1")
+	f.replace(planFile, "Commit: P001.1.1: first unit\n", "Commit: P001.1.1: first unit\nHandoff:\n- Blocked ("+needs+"): нужен вход\n")
+}
+
+// ttySession is a terminal run that the test drives as the person: it types
+// into the PTY, watches the run's output for a prompt, and sends the run a
+// signal. The keys go in only when the prompt the test waits for has appeared,
+// so a run that never asks — or never stops asking — fails loudly.
+type ttySession struct {
+	t      *testing.T
+	cmd    *exec.Cmd
+	master *os.File
+	out    syncBuffer
+	screen chan string
+	exited chan error
+}
+
+func startTerminalRun(t *testing.T, f *runFixture, args ...string) *ttySession {
+	t.Helper()
+	t.Setenv("TERM", "xterm")
+	t.Setenv("NO_COLOR", "")
+	master, slave := openPTY(t)
+	c := f.command(append([]string{"run", "--config", f.config, "--no-wait"}, args...)...)
+	c.Stdin = slave
+	s := &ttySession{t: t, cmd: c, master: master, screen: make(chan string, 1), exited: make(chan error, 1)}
+	c.Stdout, c.Stderr = &s.out, &s.out
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = slave.Close()
+	go func() {
+		raw, _ := io.ReadAll(master)
+		s.screen <- strings.ReplaceAll(regexp.MustCompile(`\x1b\[[\d;]*[mK]`).ReplaceAllString(string(raw), ""), "\r", "")
+	}()
+	go func() { s.exited <- c.Wait() }()
+	t.Cleanup(func() { _ = s.cmd.Process.Kill() })
+	return s
+}
+
+// typeKeys types into the terminal. It reports the write error instead of
+// failing: after the run has exited, the PTY has no reader left and the write
+// answers EIO — which is what a prompt-free stop looks like from the outside.
+func (s *ttySession) typeKeys(keys string) error {
+	_, err := io.WriteString(s.master, keys)
+	return err
+}
+
+func (s *ttySession) signal(sig os.Signal) {
+	s.t.Helper()
+	if err := s.cmd.Process.Signal(sig); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+// awaitExit reaps the run within the bound: a run that needs a keystroke to
+// finish, or that keeps reading stdin after the signal, fails here.
+func (s *ttySession) awaitExit(within time.Duration) int {
+	s.t.Helper()
+	select {
+	case <-s.exited:
+	case <-time.After(within):
+		_ = s.cmd.Process.Kill()
+		<-s.exited
+		s.t.Fatalf("the run did not exit within %s:\n%s", within, s.out.String())
+	}
+	return s.cmd.ProcessState.ExitCode()
+}
+
+func (s *ttySession) screenText(within time.Duration) string {
+	s.t.Helper()
+	select {
+	case text := <-s.screen:
+		return text
+	case <-time.After(within):
+		_ = s.master.Close()
+		select {
+		case text := <-s.screen:
+			return text
+		case <-time.After(3 * time.Second):
+			s.t.Fatal("the terminal screen was not captured")
+		}
+	}
+	return ""
+}
+
+// TestTerminalUnblockSignalCancels: Ctrl-C at the unblock question ends the run
+// with its signal code — no keystroke, within a bounded wait. The late answer
+// the person types after that finds no reader, the plan stays byte-for-byte as
+// it was and the agent never runs.
+func TestTerminalUnblockSignalCancels(t *testing.T) {
+	for _, stage := range []struct {
+		name     string
+		answered bool
+		late     string
+	}{
+		{name: "at done?", late: "y\nвошёл в аккаунт\n"},
+		{name: "at note:", answered: true, late: "вошёл в аккаунт\n"},
+	} {
+		t.Run(stage.name, func(t *testing.T) {
+			f := newRunFixture(t)
+			f.blockUnit("human")
+			f.steps(writeReply("a.txt"), writeReply("b.txt"))
+			before := f.read(planFile)
+			s := startTerminalRun(t, f, "--max-units", "1")
+			s.out.waitFor(t, "done? [y/N] ", 20*time.Second)
+			if stage.answered {
+				if err := s.typeKeys("y\n"); err != nil {
+					t.Fatal(err)
+				}
+				s.out.waitFor(t, "note: ", 20*time.Second)
+			}
+			s.signal(syscall.SIGINT)
+			// no keystroke: the signal alone ends the run, within the bound
+			if code := s.awaitExit(10 * time.Second); code != 128+int(syscall.SIGINT) {
+				t.Fatalf("exit %d, want %d:\n%s", code, 128+int(syscall.SIGINT), s.out.String())
+			}
+			// the person answers a moment too late: the run is gone, so the
+			// write finds no reader left on the terminal
+			if err := s.typeKeys(stage.late); err == nil {
+				t.Fatalf("the terminal still reads stdin after the signal:\n%s", s.out.String())
+			}
+			text := s.out.String()
+			if !strings.Contains(text, "stopped by "+signalName(syscall.SIGINT)) || strings.Count(text, "stopped by ") != 1 {
+				t.Fatalf("the signal is not reported once:\n%s", text)
+			}
+			if strings.Contains(text, "unblocked") {
+				t.Fatalf("the run unblocked the unit:\n%s", text)
+			}
+			if !stage.answered && strings.Contains(text, "note: ") {
+				t.Fatalf("the question kept going:\n%s", text)
+			}
+			plan := f.read(planFile)
+			if plan != before {
+				t.Fatalf("the plan changed:\n%s\nwas:\n%s", plan, before)
+			}
+			if strings.Contains(plan, "Unblocked:") || !strings.Contains(plan, "[!] P001.1.1") {
+				t.Fatalf("the unit is not blocked:\n%s", plan)
+			}
+			if calls := len(f.calls()); calls != 0 {
+				t.Fatalf("the agent ran %d times", calls)
+			}
+			if screen := s.screenText(5 * time.Second); stage.answered && !strings.Contains(screen, "y") {
+				t.Fatalf("the typed answer is not echoed on the terminal:\n%s", screen)
+			}
+		})
+	}
 }
 
 func TestTerminalStartConfirmation(t *testing.T) {

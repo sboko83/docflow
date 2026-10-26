@@ -90,6 +90,13 @@ goes on.
 - Replan P041.1.6: отмена контекста прерывает ожидание и ответа `done?`, и заметки `note:`; после отмены нельзя вызывать `unblock`, менять план или запускать агента — PTY-прогон ревью подтвердил зависание и позднее снятие блока после Enter. Rejected: проверять контекст только после блокирующего чтения или только перед первым вопросом.
 - На Windows терминал определяется и для настоящего `os.Stdin` (`*os.File`), а перенаправленный ввод остаётся неинтерактивным — иначе вопрос из Goal недостижим на поддерживаемой платформе. Rejected: считать тестовый `IsTerminal()` доказательством работы Windows-консоли; выдавать кросс-компиляцию за консольный прогон.
 - P041.1.6 заменён исправляющим P041.1.7 и повторным ревью P041.1.8; приёмка зависит от обоих и проверяет отмену на обеих строках ввода. Rejected: повторять ревью без исправления или менять завершённые юниты.
+- Отмена вопроса идёт через контекст прогона и общий эпилог signalStopCode, а не через собственный возврат 130 из askUnblock — why: хендлер ставит stopped до cancel(), поэтому тот же эпилог печатает сигнал ровно один раз и возвращает 128+signalNumber (на Windows тоже 130); rejected: захардкодить 130 в askUnblock (разъезжается с signalNumber) и разбирать сигналы в каждой ветке остановки.
+- Отменяемое чтение = горут + select по ctx.Done, без закрытия os.Stdin и без низкоуровневого прерывания — why: закрытие общего stdin процесса ломает все поздние читатели, а консольное чтение на Windows прервать нельзя в принципе; rejected: close(os.Stdin), ioctl-трюки, горут-читатель, переживающий вопрос (сразу за отменой Run завершает процесс).
+- ctx.Err() проверяется и в select, и перед вызовом unblockCommand — why: ответ может прийти ровно в момент отмены (select выбирает случайно), а претензия человека после остановки не имеет права менять план; rejected: полагаться только на select.
+- runInput (stream + reader) — один владелец stdin для всех промптов старта, передаётся и в askUnblock, и в confirmRunStartWithIO — why: требование 'не оставить ридер, съедающий позднее подтверждение' выполняется совместным ридером и снимается follow-up P041.1.2; rejected: два bufio.Reader над одним fd (как было) и передача *bufio.Reader туда, где нужен терминальный checks по потоку.
+- Терминал Windows — syscall.GetConsoleMode на Handle(Fd()) стандартного потока, только stdlib — why: Go отображает os.Stdin/Stdout/Stderr в стандартные консольные handles, GetConsoleMode — документированный признак консоли и отказывает pipe/редиректу/NUL; rejected: golang.org/x/sys/windows (запрещён планом) и проверка GetFileType == FILE_TYPE_CHAR (NUL — char device, ложные срабатывания).
+- PTY-приёмка 'отмена без Enter' = выход процесса до любого нажатия + обязательная ошибка позднего ввода; промпт ждём по буферу stdout процесса — why: stdout ребёнка перехвачен в буфер, на PTY попадает лишь эхо; rejected: писать клавиши сразу (flaky-форма P041.1.6) и читать промпты с экрана.
+- Документация: отмена и консоль Windows — одной фразой в п.2 цикла docs/design/runner.md, дваFixed в CHANGELOG — why: одно событие одно место, usage.md и README описывают команды, а не поведение сигнала; rejected: новый дизайн-топик про Windows и дублирование в usage.md.
 
 ## Phase 1: Unblock
 
@@ -323,7 +330,7 @@ Commit: P041.1.6: review corrected unblock phase
 Handoff:
 - Blocked (plan): Нужен исправляющий юнит для двух дефектов. [P2] internal/runner/helpers.go:405,416: чтение stdin не реагирует на отмену контекста; Ctrl-C оставляет процесс ждать, а последующий Enter на note: вызывает unblock уже после отмены. Подтверждено PTY-прогоном. [P2] internal/runner/helpers.go:393: вопрос недостижим на Windows — передаётся os.Stdin (*os.File), для которого internal/runner/terminal_windows.go:11 всегда возвращает false.
 
-### [ ] P041.1.7 Fix cancellable unblock input and Windows detection
+### [x] P041.1.7 Fix cancellable unblock input and Windows detection
 Read:
 - internal/runner/helpers.go:L315-435
 - internal/runner/run.go:L125-235
@@ -374,6 +381,22 @@ reachability. Keep the question before watchKeys/noEcho starts.
 Depends: P041.1.2, P041.1.5, P041.1.6
 Role: heavy
 Commit: P041.1.7: fix unblock input cancellation
+Handoff:
+- askUnblock теперь возвращает (unblocked, cancelled); точка остановки — общий signalStopCode(p, totals, &signalMu, &stopped, state), его последний аргумент называет состояние юнита: на старте 'P001.1.1 stays [!]' (prompt ещё не было, '[~]' было бы ложью), в цикле 'the current unit stays [~]'. Любая новая точка остановки обязана передать своё состояние, а не литерал.
+- readLineContext оставляет заблокированный читатель после отмены (fd нельзя прервать, не закрывая общий os.Stdin) — это легально только потому, что Run сразу возвращает код сигнала. Кто продолжит прогон после отменённого чтения, получит украденный ридер: после cancelled=true в Run нельзя делать ничего, кроме возврата.
+- Шов unblockCommand = cycle.Self: в тестовом бинаре cycle.Self перезапускает сам тест-бинарь с args 'unblock …' (то есть гоняет тесты). Любой тест, способный дойти до снятия блока, обязан взять recordUnblock(t). В пакете нет t.Parallel, поэтому шов гонке не подлежит.
+- PTY-тесты нового поколения: ttySession (startTerminalRun/typeKeys/signal/awaitExit/screenText) в terminal_run_test.go. typeKeys возвращает ошибку записи: после выхода процесса PTY отвечает EIO — тест требует именно этой ошибки как доказательства, что читателя не осталось. Промпты ждутся по буферу stdout процесса (syncBuffer.waitFor): stdout ребёнка — буфер, а не PTY, на экране только эхо клавиш.
+- Проверка мутацией: под формой P041.1.6 (чтение без ctx + без ctx.Err() перед снятием блока) unit-таблица TestAskUnblockCancels падает на стадиях done?/note:/before-the-side-effect, а TestTerminalUnblockSignalCancels — на 'the run did not exit within 10s'. Правка, убирающая только ctx-чувствительность чтения, ловится стадией 'at done?' + unit-стадией 'before the unblock side effect' (страж перед unblockCommand критичен: select при готовности обеих сторон выбирает случайно).
+- Windows: isTerminal(*os.File) = syscall.GetConsoleMode(Handle(Fd())). os.Stdin.Fd() — уже console handle (GOROOT: os/file.go Stdin = NewFile(uintptr(syscall.Stdin)), syscall/syscall_windows.go:584 Stdin = getStdHandle(STD_INPUT_HANDLE)); GetConsoleMode отказывает для файла, pipe и NUL. Не 'чинить' через GetStdHandle-маппинг fd 0/1/2 и не через GetFileType(FILE_TYPE_CHAR) — NUL является char device.
+- Windows-тесты: TestIsTerminalWindowsConsoleHandle пропускается, когда stdin не консоль, TestAskUnblockWindowsConsoleTyped требует DOCFLOW_WINDOWS_CONSOLE_ASK=1 (нужен человек за клавиатурой). Пропуск ≠ приёмка: рантайм-покрытие Windows вынесено в Unverified этого юнита отдельно от успешной кросс-компиляции.
+- runInput чинит follow-up P041.1.2 между вопросом про unblock и confirmRunStart (TestRunInputKeepsBufferedLines: вставленная одной строкой 'y\nзаметка\ny\n' доходит до подтверждения). watchKeys по-прежнему строит свой bufio.Reader поверх того же fd — строка, съеденная подтверждением старта, к 's'-наблюдателю не попадает; этот follow-up остаётся открытым.
+- Проверки финального дерева: docflow verify P041.1.7 (verify + gate passed), bash tools/parity/run.sh bin/docflow bin/docflow → 68 passed, 0 skipped, docflow lint rc 0, GOOS=windows GOARCH=amd64 go vet ./... rc 0, GOOS=windows go test -c ./internal/runner → PE32+ (console). Gate плана — go test ./...; parity и test-install — шаги CI, не gate.
+- Unverified: Windows runtime: TestIsTerminalWindowsRealHandles, TestIsTerminalWindowsStandardStreams, TestIsTerminalWindowsConsoleHandle, TestAskUnblockWindowsConsoleTyped — только скомпилированы под windows/amd64 (PE32+ console), ни одного прогона: нет Windows-машины и консоли. Кросс-компиляция — не прогон; skips в этих тестах не считаются приёмкой.
+- Unverified: Ветка интерактивного вопроса в настоящей консоли Windows (прохождение стража isTerminal(os.Stdin), эхо набранной заметки) — нет ни одного PTY/консольного прогона на Windows: PTY-хелперы собраны под darwin||linux.
+- Unverified: Эхо заметки на Windows: disableEcho в terminal_windows.go остаётся no-op (правка вне рамок юнита) — набранная заметка видна консоли, но прогона не было; отсутствие теста и прогона.
+- Unverified: watchKeys: строка, набранная на подтверждении старта, не доходит до 's'-наблюдателя (у него свой bufio.Reader над тем же fd) — нет теста на эту связку; общий runInput покрывает только пару 'вопрос → подтверждение'.
+- Unverified: Поведение живого агента на юните, снятом прогоном: правило повторной проверки — только текст промпта, ни один тест не гоняет агента через unblock → re-check (унаследовано от P041.1.5).
+- Unverified: Установленные копии навыков на этой машине — дерево релиза 0.13.0; новый текст навыка активен для agent CLI только после релиза, установщик не запускался (по Traps плана), проверка — только grep исходника в skills/.
 
 ### [ ] P041.1.8 Review cancellation and Windows unblock fixes
 Read:

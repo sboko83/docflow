@@ -1,0 +1,125 @@
+//go:build windows
+
+package runner
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"syscall"
+	"testing"
+	"time"
+)
+
+// consoleMode is the Windows oracle: the system accepts GetConsoleMode on a
+// console handle and refuses it on a redirected file, a pipe and NUL. isTerminal
+// must agree on the very handle the process was given.
+func consoleMode(handle uintptr) bool {
+	var mode uint32
+	return syscall.GetConsoleMode(syscall.Handle(handle), &mode) == nil
+}
+
+func TestIsTerminalWindowsRealHandles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input.txt")
+	if err := os.WriteFile(path, []byte("redirected\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if isTerminal(file) {
+		t.Fatal("a regular file reads as a console")
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	if isTerminal(reader) {
+		t.Fatal("a pipe reads as a console")
+	}
+	nul, err := os.OpenFile("NUL", os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nul.Close()
+	if isTerminal(nul) {
+		t.Fatal("NUL reads as a console")
+	}
+	if isTerminal(&plainStdin{}) {
+		t.Fatal("a stream with no handle reads as a console")
+	}
+}
+
+func TestIsTerminalWindowsStandardStreams(t *testing.T) {
+	for _, stream := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
+		name := stream.Name()
+		if isTerminal(stream) != consoleMode(stream.Fd()) {
+			t.Fatalf("%s: isTerminal=%v, GetConsoleMode accepts=%v", name, isTerminal(stream), consoleMode(stream.Fd()))
+		}
+		if isTerminal(stream) {
+			t.Logf("%s is a Windows console", name)
+		} else {
+			t.Logf("%s is redirected", name)
+		}
+	}
+}
+
+// TestIsTerminalWindowsConsoleHandle follows the handle, not the stream: a
+// duplicated console input handle is the same console.
+func TestIsTerminalWindowsConsoleHandle(t *testing.T) {
+	if !consoleMode(os.Stdin.Fd()) {
+		t.Skip("stdin is not a Windows console (run `go test` in a terminal); recorded as Unverified")
+	}
+	var duplicate syscall.Handle
+	process, err := syscall.GetCurrentProcess()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.DuplicateHandle(process, syscall.Handle(os.Stdin.Fd()), process, &duplicate, 0, false, syscall.DUPLICATE_SAME_ACCESS); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.CloseHandle(duplicate)
+	console := os.NewFile(uintptr(duplicate), "stdin-console")
+	if console == nil {
+		t.Fatal("os.NewFile rejected the duplicated console handle")
+	}
+	if !isTerminal(console) {
+		t.Fatal("a duplicated console handle is not a terminal")
+	}
+	calls := recordUnblock(t)
+	p, _ := newUnblockProgress(t)
+	// the question goes through the native console handle and stops on the
+	// cancellation: nothing is typed, no state is touched
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	unblocked, cancelled := askUnblock(ctx, t.TempDir(), "P001.1.1", "human", "нужен вход", false, p, newRunInput(console), os.Stdout)
+	if unblocked || !cancelled {
+		t.Fatalf("unblocked=%v cancelled=%v", unblocked, cancelled)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("unblock ran: %v", *calls)
+	}
+}
+
+// TestAskUnblockWindowsConsoleTyped is the interactive console run: the person
+// answers `done?` and types a note at the real console. Opt-in — it needs a
+// human at the keyboard.
+func TestAskUnblockWindowsConsoleTyped(t *testing.T) {
+	if os.Getenv("DOCFLOW_WINDOWS_CONSOLE_ASK") != "1" {
+		t.Skip("needs a person at the console: run with DOCFLOW_WINDOWS_CONSOLE_ASK=1 in a Windows terminal; recorded as Unverified")
+	}
+	if !isTerminal(os.Stdin) {
+		t.Skip("stdin is not a Windows console; recorded as Unverified")
+	}
+	calls := recordUnblock(t)
+	p, out := newUnblockProgress(t)
+	unblocked, cancelled := askWithin(t, 60*time.Second, context.Background(), t.TempDir(), "P001.1.1", "human", "нужен вход", false, p, newRunInput(os.Stdin), os.Stdout)
+	if cancelled {
+		t.Fatalf("the question was cancelled: unblocked=%v\n%s", unblocked, out)
+	}
+	t.Logf("unblocked=%v calls=%v output:\n%s", unblocked, *calls, out)
+}

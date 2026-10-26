@@ -313,11 +313,52 @@ func commandExitCode(err error) int {
 	return 1
 }
 
-func confirmRunStart(plan *format.Plan, yes bool, progress *Progress) int {
-	return confirmRunStartWithIO(plan, yes, progress, os.Stdin, os.Stdout)
+// runInput owns the run's stdin for the whole start. `stream` carries the
+// terminal checks (`isTerminal`, `noEcho`), `reader` is the one line reader
+// shared by the start's prompts: a line typed while one question waits reaches
+// the next question instead of being swallowed by a second reader over the
+// same descriptor. Nothing closes `stream` — the process owns it.
+type runInput struct {
+	stream io.Reader
+	reader *bufio.Reader
 }
 
-func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, stdin io.Reader, stdout io.Writer) int {
+func newRunInput(stream io.Reader) runInput {
+	return runInput{stream: stream, reader: bufio.NewReader(stream)}
+}
+
+// readLineContext reads one line and gives up when ctx is done: Ctrl-C reaches
+// a person who has not answered. The blocked read cannot be interrupted
+// without closing the process's shared os.Stdin, so the goroutine stays
+// blocked after a cancellation — which is why the run ends right away and
+// reads no more of this input. The answer that arrives late is dropped, not
+// applied: the caller checks the context before its side effect.
+func readLineContext(ctx context.Context, reader *bufio.Reader) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	type answer struct {
+		text string
+		err  error
+	}
+	lines := make(chan answer, 1)
+	go func() {
+		text, err := reader.ReadString('\n')
+		lines <- answer{text, err}
+	}()
+	select {
+	case got := <-lines:
+		return got.text, got.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func confirmRunStart(plan *format.Plan, yes bool, progress *Progress) int {
+	return confirmRunStartWithIO(plan, yes, progress, newRunInput(os.Stdin), os.Stdout)
+}
+
+func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, input runInput, stdout io.Writer) int {
 	mode := format.PlanPermissions(plan)
 	planStarted := format.PlanStarted(plan)
 	items := make([]string, 0)
@@ -344,7 +385,7 @@ func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, stdi
 	if yes {
 		return clierrors.EXIT_OK
 	}
-	if !isTerminal(stdin) {
+	if !isTerminal(input.stream) {
 		progress.line("run: no terminal to confirm the start; pass --yes", true, "")
 		return clierrors.EXIT_FORMAT
 	}
@@ -352,7 +393,7 @@ func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, stdi
 		return clierrors.EXIT_FORMAT
 	}
 	flushWriter(stdout)
-	answer, err := bufio.NewReader(stdin).ReadString('\n')
+	answer, err := input.reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		answer = ""
 	}
@@ -379,6 +420,10 @@ func answeredYes(answer string) bool {
 	return false
 }
 
+// unblockCommand runs docflow's own `unblock`; the runner is not an agent, so
+// it goes through the CLI, and the tests watch the call through this seam.
+var unblockCommand = cycle.Self
+
 // askUnblock offers to lift a human block at the start of a run: the person is
 // present exactly when they start it, while a run that goes unattended for
 // hours cannot wait on stdin. On `y` it reads a one-line note and lifts the
@@ -389,41 +434,47 @@ func answeredYes(answer string) bool {
 // A terminal run starts the key watcher and turns echo off only after the
 // start confirmation, so stdin is quiet here: one reader takes both answers
 // and the typed note stays visible.
-func askUnblock(root, uid, needs, reason string, yes bool, progress *Progress, stdin io.Reader, stdout io.Writer) bool {
-	if needs != "human" || yes || !isTerminal(stdin) {
-		return false
+//
+// Ctrl-C cancels ctx: the question stops where it stands, without running
+// `unblock` and without printing a second line — the caller reports the
+// signal. An answer typed after the cancellation changes nothing.
+func askUnblock(ctx context.Context, root, uid, needs, reason string, yes bool, progress *Progress, input runInput, stdout io.Writer) (unblocked, cancelled bool) {
+	if needs != "human" || yes || !isTerminal(input.stream) {
+		return false, false
 	}
 	line := uid + " is blocked (needs human)"
 	if reason != "" {
 		line += ": " + reason
 	}
 	if _, err := io.WriteString(stdout, line+"\ndone? [y/N] "); err != nil {
-		return false
+		return false, false
 	}
 	flushWriter(stdout)
-	reader := bufio.NewReader(stdin)
-	answer, err := reader.ReadString('\n')
+	answer, err := readLineContext(ctx, input.reader)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return false
+		return false, ctx.Err() != nil
 	}
 	if !answeredYes(answer) {
-		return false
+		return false, false
 	}
 	if _, err := io.WriteString(stdout, "note: "); err != nil {
-		return false
+		return false, ctx.Err() != nil
 	}
 	flushWriter(stdout)
-	note, err := reader.ReadString('\n')
+	note, err := readLineContext(ctx, input.reader)
 	if err != nil && !errors.Is(err, io.EOF) {
 		note = ""
 	}
-	res := cycle.Self(root, "unblock", uid, "--note="+strings.TrimSpace(note))
+	if ctx.Err() != nil {
+		return false, true
+	}
+	res := unblockCommand(root, "unblock", uid, "--note="+strings.TrimSpace(note))
 	if res.Code != 0 {
 		writeFailure(progress, res)
-		return false
+		return false, false
 	}
 	progress.line(uid+": unblocked; the unit resumes and checks the blocked step first", false, "green")
-	return true
+	return true, false
 }
 
 func applescript(text string) string {

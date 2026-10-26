@@ -162,9 +162,17 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		return 2, err
 	}
 	_ = os.Remove(stop)
+	input := newRunInput(os.Stdin)
 	if sel.Kind == "blocked" {
 		needs, reason := cycle.BlockedNeeds(sel.Unit)
-		if askUnblock(root, sel.Unit.ID, needs, reason, args.Yes, p, os.Stdin, stdout) {
+		unblocked, cancelled := askUnblock(ctx, root, sel.Unit.ID, needs, reason, args.Yes, p, input, stdout)
+		if cancelled {
+			if code := signalStopCode(p, totals, &signalMu, &stopped, sel.Unit.ID+" stays [!]"); code != 0 {
+				return code, nil
+			}
+			return clierrors.EXIT_NOTHING, nil
+		}
+		if unblocked {
 			sel, err = runSelection(root, args)
 			if err != nil {
 				return 2, err
@@ -187,7 +195,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 			notify("a prerequisite failed", args.NoNotify, stderr)
 			return code, nil
 		}
-		if code := confirmRunStartWithIO(sel.Plan, args.Yes, p, os.Stdin, stdout); code != 0 {
+		if code := confirmRunStartWithIO(sel.Plan, args.Yes, p, input, stdout); code != 0 {
 			return code, nil
 		}
 	}
@@ -211,30 +219,43 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		totals.events.emit("run_end", "", map[string]any{"reason": reason, "exit_code": eventExitCode(code, runErr)})
 		totals.events.close()
 	}()
-	if isTerminal(os.Stdin) {
+	if isTerminal(input.stream) {
 		p.line("run: s + Enter stops after the current unit; Ctrl-C stops now", false, "")
-		restore := noEcho(os.Stdin)
+		restore := noEcho(input.stream)
 		defer restore()
-		go watchKeys(root, os.Stdin, p, nil, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.unit })
+		go watchKeys(root, input.stream, p, nil, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.unit })
 	}
 	defer os.Remove(stop)
 	code, err = runLoop(ctx, root, args, config, p, totals)
-	signalMu.Lock()
-	s := stopped
-	signalMu.Unlock()
-	if s != nil {
-		totals.stop = "stopped by " + signalName(s)
-		p.stop()
-		p.line("run: stopped by "+signalName(s)+"; the current unit stays [~]", true, "")
-		if totals.planID != "" {
-			runSummary(p, totals)
-		}
-		return 128 + signalNumber(s), nil
+	if code := signalStopCode(p, totals, &signalMu, &stopped, "the current unit stays [~]"); code != 0 {
+		return code, nil
 	}
 	if totals.notification != "" {
 		notify(totals.notification, args.NoNotify, stderr)
 	}
 	return code, err
+}
+
+// signalStopCode is the runner's stop-by-signal ending, shared by the two
+// places a signal can reach the run: the unblock question at the start and the
+// unit loop. It reports the signal once, names the unit's state in that clause
+// (the start has not prompted it, the loop has), and returns the signal's exit
+// code (Ctrl-C: the 130 of SIGINT); 0 when no signal arrived and the run goes
+// on.
+func signalStopCode(p *Progress, totals *runTotals, signalMu *sync.Mutex, stopped *os.Signal, state string) int {
+	signalMu.Lock()
+	s := *stopped
+	signalMu.Unlock()
+	if s == nil {
+		return 0
+	}
+	totals.stop = "stopped by " + signalName(s)
+	p.stop()
+	p.line("run: stopped by "+signalName(s)+"; "+state, true, "")
+	if totals.planID != "" {
+		runSummary(p, totals)
+	}
+	return 128 + signalNumber(s)
 }
 
 func runLoop(ctx context.Context, root string, args Args, config map[string]any, p *Progress, totals *runTotals) (int, error) {

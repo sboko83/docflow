@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer stands in for it.
 
 ### Fixed
+- `docflow run` stops on Ctrl-C while it asks about a human block: at both
+  `done? [y/N] ` and `note: ` the signal ends the run with its exit code
+  (130), leaving the unit `[!]`, the plan untouched and the agent unstarted.
+  An answer or note typed after the stop is not applied.
+- The start-of-run question about a human block is reachable in a Windows
+  console: terminal detection now recognizes a real console input handle.
+  A redirected file, a pipe and NUL stay non-interactive.
 - A unit's block is read only from the exact Handoff forms
   `Blocked (human): …`, `Blocked (plan): …` and the legacy `Blocked: …`. A
   lookalike item (`Blocked by …`, `Blocked (plan)` without `:`, an unknown
