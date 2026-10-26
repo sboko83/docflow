@@ -76,6 +76,8 @@ request.
 - skills/bsv-docflow-run/SKILL.md синхронизирован, хотя `Do:` его не называет — ловушка плана требует держать текст раннер-цикла и скилл одинаковыми — отвергнуто: оставить скилл в старом смысле (агент увидит два разных правила).
 - Обновил цитаты `agentsLine` в docs/design/skills.md и docs/usage.md, хотя `Do:` их не называет — docs фиксируют текущее поведение и цитируют строку дословно, после смены константы они врали бы; план и его `Do:` в юните не правятся — отвергнуто: оставить docs устаревшими (правило проекта: затронутый doc в том же изменении) и править текст плана.
 - Запись CHANGELOG под [Unreleased] добавлена этим юнитом, а не отложена на закрытие — строка в AGENTS.md и тексты скиллов видны пользователю — отвергнуто: молчание до `docflow close` (bsv-changelog: user-visible правки попадают в [Unreleased] сразу).
+- Хвост `( … )` срезается, только когда это маркер наследования (начинается с `inherited` или содержит id юнита), и после обрезки знаков в конце — ревью P044.1.3 показало, что правило «один любой хвост» склеивает `layout on iPhone (small)` и `(large)` и не узнаёт копию с собственными скобками или точкой после хвоста; заменяет решение о «ровно одном хвосте» выше — отвергнуто: срезать все скобки и нечёткое сходство (по тем же причинам).
+- Запрет `docflow note` без явного запроса стоит в самом скилле закрытия, а не только в скилле плана — скилл закрытия вызывается сам по себе и обходит правило плана — отвергнуто: ссылка на правило скилла плана (агент в скилле закрытия его не читает).
 
 ## Phase 1: Rules
 
@@ -189,7 +191,7 @@ Handoff:
 - Unverified: Двойной маркер в AGENTS.md: `docflow init` на проекте, где уже стоит старая строка `Plans: docflow (run docflow status), not the bsv-docs PLAN genre`, дописывает новую — проверено вручную в песочнице, получилось 2 строки `Plans: docflow`. Missing check: нет теста на повторный `init` со старым маркером (`TestInitDoesNotDuplicateAgentsLine` пинит новую строку) и нет миграции маркера; ни `Verify`, ни `gate` этого сценария не исполняют.
 - Unverified: Поведение агента на новых формулировках скилла плана (вопрос «make a plan or do it now?» перед любым планом/`note`/`activate`, и «Verify covers Do») — missing check: живой `docflow run` по плану с юнитом, где `Do:` меняет наблюдаемое только UI/e2e поведение, и просмотр его `Verify:`/Handoff; текстовые проверки `Verify:` фиксируют наличие строк, а не применение правила.
 
-### [ ] P044.1.3 Review the rules phase
+### [-] P044.1.3 Review the rules phase
 Read:
 - docs/design/cycle.md:L60-76
 - docs/design/format.md:L96-106
@@ -203,6 +205,59 @@ Do:
 Verify: `go test ./...`
 Role: review
 Commit: P044.1.3: review unverified rules
+Handoff:
+- Blocked (plan): [P1] internal/runner/run.go:1291–1294: unverifiedKey удаляет смысловые уточнения. Go-проба подтвердила: «layout on iPhone (small)» и «layout on iPhone (large)» получают одинаковый ключ — самостоятельный риск исчезнет. При этом копия с собственными скобками или точкой после «(inherited from …)» не совпадает с оригиналом. Нужен fix-юнит: уточнить правило нормализации и добавить регрессионные тесты. [P2] skills/bsv-docflow-close/SKILL.md:100–104: сценарий Entry without a plan по-прежнему предписывает docflow note после небольшого изменения без требования явного запроса. Запрет добавлен только в скилл планирования, поэтому самостоятельный вызов скилла закрытия обходит его. Это незакрытое требование Goal; нужен guard непосредственно в скилле закрытия.
+
+### [ ] P044.1.4 Fix inherited-tail match and note guard
+Read:
+- internal/runner/run.go:L1284-1340
+- internal/runner/run_test.go:L930-990
+- docs/design/runner.md:L258-266
+- skills/bsv-docflow-close/SKILL.md:L98-104
+Do:
+- `unverifiedKey` (`internal/runner/run.go`): lower case, collapse
+  whitespace, trim trailing punctuation; then remove one trailing
+  parenthetical only when it is an inheritance marker — its text starts
+  with `inherited` or holds a unit id (`p\d+(\.\d+)+` after lower-casing);
+  then trim trailing punctuation again. Any other parenthetical stays in
+  the key on both sides. Update the doc comment.
+- Tests: a table test of `unverifiedKey` and run cases in
+  `internal/runner/run_test.go` — dependency item
+  `layout on iPhone (small)`, reply `layout on iPhone (large)` → kept;
+  dependency `layout on iPhone (small)`, reply
+  `Layout on iPhone (small) (inherited from P001.1.1).` → dropped;
+  dependency `X`, reply `X (inherited from P001.1.1).` → dropped;
+  dependency `X`, reply `X (унаследовано из P001.1.1)` → dropped.
+- `docs/design/runner.md`, the normalisation parenthesis: the tail is cut
+  only when it is an inheritance marker (Russian). Adjust the P044
+  `CHANGELOG.md` `## [Unreleased]` entry only if it states the rule.
+- `skills/bsv-docflow-close/SKILL.md`, section "Entry without a plan":
+  run `docflow note` only on an explicit request for an archive entry;
+  when a small change settled something and nobody asked, ask the user
+  once ("record it in the archive?") and do not write the entry yourself.
+Verify: `go test ./internal/runner/ && grep -q 'explicit request' skills/bsv-docflow-close/SKILL.md && go build -o bin/docflow ./cmd/docflow && bin/docflow lint`
+Traps: Keep one normalisation for both sides — P044.2.1 matches items with
+the same key (Handoff of P044.1.1). `bin/docflow lint` checks this plan
+file too; do not edit the plan.
+Depends: P044.1.1, P044.1.2
+Commit: P044.1.4: fix inherited-tail match and note guard
+
+### [ ] P044.1.5 Review the rules phase again
+Read:
+- docs/design/cycle.md:L60-76
+- docs/design/format.md:L96-106
+Do:
+- Review the diff named in the prompt's `## Phase diff` against `## Goal`,
+  `## Constraints`, `## Decisions` and each unit's `Do:`; check that both
+  findings in the Handoff of P044.1.3 are fixed. Check that the runner
+  prompt and the `bsv-docflow-run` skill state the same `unverified` rule.
+  Edit nothing.
+- A defect — reply `blocked` with `blocker: "plan"`; observations without
+  a defect — plain Handoff items.
+Verify: `go test ./...`
+Depends: P044.1.4
+Role: review
+Commit: P044.1.5: review unverified rules
 
 ## Phase 2: Acceptance
 
@@ -226,6 +281,6 @@ Do:
 Verify: `go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow && go test ./...`
 Traps: A failing scenario is fixed inside this unit when the fix is small;
 otherwise reply `blocked` with the reason.
-Depends: P044.1.1, P044.1.2, P044.1.3
+Depends: P044.1.1, P044.1.2, P044.1.4, P044.1.5
 Role: acceptance
 Commit: P044.2.1: accept unverified discipline
