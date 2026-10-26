@@ -296,11 +296,12 @@ func TestTerminalUnblockSignalCancels(t *testing.T) {
 			if code := s.awaitExit(10 * time.Second); code != 128+int(syscall.SIGINT) {
 				t.Fatalf("exit %d, want %d:\n%s", code, 128+int(syscall.SIGINT), s.out.String())
 			}
-			// the person answers a moment too late: the run is gone, so the
-			// write finds no reader left on the terminal
-			if err := s.typeKeys(stage.late); err == nil {
-				t.Fatalf("the terminal still reads stdin after the signal:\n%s", s.out.String())
-			}
+			// the person answers a moment too late: the run is gone. The write
+			// result is not asserted: macOS answers EIO on a PTY with no reader
+			// left, Linux accepts the bytes. The run's exit and the checks below
+			// (no unblock, plan unchanged, agent not run) prove the late answer
+			// had no effect.
+			_ = s.typeKeys(stage.late)
 			text := s.out.String()
 			if !strings.Contains(text, "stopped by "+signalName(syscall.SIGINT)) || strings.Count(text, "stopped by ") != 1 {
 				t.Fatalf("the signal is not reported once:\n%s", text)
