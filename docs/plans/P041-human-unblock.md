@@ -87,6 +87,9 @@ goes on.
 - Ассерты по навыку: нормализация пробелов + счётчик вхождений ≥3 — why: правило обязано быть во всех абзацах про снятый юнит, а проза переносится посреди фразы — rejected: ассерт подстроки по сырому тексту (ломается на переносе) и одиночное вхождение (молча пропускает потерю правила в абзаце).
 - Документация: правило точных форм — одной строкой в docs/design/cycle.md, запись `### Fixed` в CHANGELOG, правка существующей записи cycle-текста — why: одно событие одно место; usage.md и README описывают команды, а не формы разбора — rejected: дублировать формы в usage.md.
 - Переставить хеш TestStrictRunnerSchema, а не ослаблять тест — why: смысл пина в том, что правка промпта — осознанный и просматриваемый шаг (текст RunnerCycle прочитан перед пином) — rejected: убрать сравнение хеша.
+- Replan P041.1.6: отмена контекста прерывает ожидание и ответа `done?`, и заметки `note:`; после отмены нельзя вызывать `unblock`, менять план или запускать агента — PTY-прогон ревью подтвердил зависание и позднее снятие блока после Enter. Rejected: проверять контекст только после блокирующего чтения или только перед первым вопросом.
+- На Windows терминал определяется и для настоящего `os.Stdin` (`*os.File`), а перенаправленный ввод остаётся неинтерактивным — иначе вопрос из Goal недостижим на поддерживаемой платформе. Rejected: считать тестовый `IsTerminal()` доказательством работы Windows-консоли; выдавать кросс-компиляцию за консольный прогон.
+- P041.1.6 заменён исправляющим P041.1.7 и повторным ревью P041.1.8; приёмка зависит от обоих и проверяет отмену на обеих строках ввода. Rejected: повторять ревью без исправления или менять завершённые юниты.
 
 ## Phase 1: Unblock
 
@@ -301,7 +304,7 @@ Handoff:
 - Unverified: Установленные копии навыков на этой машине — дерево релиза 0.13.0 (symlinks), новый текст навыка активен для agent CLI только после релиза; установщик не запускался (по Traps юнита), проверка — только grep исходника в skills/.
 - Unverified: Консоль Windows: PTY-тесты раннера собраны под darwin||linux, прогона вопроса/снятия блока на Windows нет (правки юнита — платформенно-нейтральный текст, но прогона не было).
 
-### [ ] P041.1.6 Review the corrected unblock phase
+### [-] P041.1.6 Review the corrected unblock phase
 Read:
 - docs/design/cycle.md#цикл-юнита
 - docs/design/runner.md:L40-70
@@ -317,6 +320,83 @@ Do:
 Verify: `go test ./...`
 Role: review
 Commit: P041.1.6: review corrected unblock phase
+Handoff:
+- Blocked (plan): Нужен исправляющий юнит для двух дефектов. [P2] internal/runner/helpers.go:405,416: чтение stdin не реагирует на отмену контекста; Ctrl-C оставляет процесс ждать, а последующий Enter на note: вызывает unblock уже после отмены. Подтверждено PTY-прогоном. [P2] internal/runner/helpers.go:393: вопрос недостижим на Windows — передаётся os.Stdin (*os.File), для которого internal/runner/terminal_windows.go:11 всегда возвращает false.
+
+### [ ] P041.1.7 Fix cancellable unblock input and Windows detection
+Read:
+- internal/runner/helpers.go:L315-435
+- internal/runner/run.go:L125-235
+- internal/runner/terminal_unix.go
+- internal/runner/terminal_windows.go
+- internal/runner/signals_windows.go
+- internal/runner/terminal_run_test.go:L84-178
+- internal/runner/terminal_run_test.go:L220-300
+- docs/design/runner.md:L40-70
+Do:
+- Pass the run context into the unblock question and make both line reads
+  cancellable. On cancellation while waiting for `done?` or `note:`, stop
+  promptly without another newline; return the runner's signal exit code
+  (Ctrl-C: 130). Do not unblock, reselect, run prerequisites or launch an
+  agent after cancellation. Check cancellation before the unblock call
+  as well, so an answer delivered after cancellation cannot change state.
+- Keep ownership of stdin explicit: cancel or release pending reads when
+  the question ends, without closing the process's shared `os.Stdin` or
+  leaving a reader to consume the later start confirmation/watchKeys.
+  Preserve visible note echo, empty-note behavior and existing guards
+  (`--yes`, redirected stdin, a plan block, a block reached mid-run).
+- Implement Windows terminal detection for real `*os.File` console
+  handles with the standard library. Keep the `IsTerminal()` test hook;
+  redirected files and pipes must return false. Do not add dependencies
+  or change unrelated Windows console behavior.
+- Add deterministic regression coverage for cancellation before input,
+  during each read, and before the unblock side effect. Extend real PTY
+  coverage: wait for each prompt, send SIGINT, require exit 130 within
+  a bounded timeout without Enter; also deliver a late answer/note after
+  cancellation and prove the plan is byte-for-byte unchanged, the unit
+  stays `[!]`, no `Unblocked:` item appears and no agent is called.
+- Add Windows-specific tests using actual `*os.File` handles for console
+  detection and redirected input; exercise the unblock question through
+  native console stdin when available. Keep platform-neutral guard tests.
+  Record missing Windows runtime coverage as `Unverified`, separately
+  from successful cross-compilation; do not silently count skips as pass.
+- Update the existing runner decision topic for cancellation behavior
+  and add the user-visible fixes under `CHANGELOG.md` `[Unreleased]`.
+Verify: `go test ./internal/runner/ && GOOS=windows GOARCH=amd64 go test -c -o /tmp/docflow-p041-runner-windows.test.exe ./internal/runner/`
+Traps: The signal handler already cancels the run context before the
+question, but the usual signal result handling is later in Run. A detached
+goroutine around ReadString alone can leave a blocked reader behind;
+checking ctx.Err only after ReadString still waits for Enter. The PTY
+helper writes all keys immediately: extend it to synchronize on prompts
+and signal delivery. Existing PTY tests are darwin/linux only; fake
+IsTerminal streams and cross-compilation do not prove Windows-console
+reachability. Keep the question before watchKeys/noEcho starts.
+Depends: P041.1.2, P041.1.5, P041.1.6
+Role: heavy
+Commit: P041.1.7: fix unblock input cancellation
+
+### [ ] P041.1.8 Review cancellation and Windows unblock fixes
+Read:
+- docs/design/cycle.md#цикл-юнита
+- docs/design/runner.md:L40-70
+Do:
+- Review the complete phase diff named in the prompt's `## Phase diff`
+  against `## Goal`, `## Constraints`, `## Decisions` and each unit's
+  `Do:`, including P041.1.5 and P041.1.7. Edit nothing.
+- Confirm that cancellation interrupts both pending reads without Enter,
+  late input cannot lift a cancelled block, signal exit handling remains
+  correct, and no pending reader steals input from later startup steps.
+- Confirm Windows detection accepts actual console `*os.File` stdin and
+  rejects redirected input; distinguish native runtime evidence from
+  fake-stream tests, skipped tests and cross-compilation.
+- Retain the checks that lookalikes cannot hide a plan block and that
+  both cycle texts and the run skill require the legacy human re-check.
+- A defect — reply `blocked` with `blocker: "plan"`; anything else worth
+  noting, including unavailable Windows runtime evidence — `Unverified:`.
+Verify: `go test ./...`
+Depends: P041.1.7
+Role: review
+Commit: P041.1.8: review unblock input fixes
 
 ## Phase 2: Acceptance
 
@@ -324,6 +404,7 @@ Commit: P041.1.6: review corrected unblock phase
 Read:
 - internal/runner/terminal_run_test.go:L20-125
 - internal/runner/run_test.go:L440-450
+- internal/runner/terminal_windows.go
 Do:
 - One scenario per Goal statement, on a fixture plan with the fake agent,
   through the built CLI or the runner entry point the existing tests use:
@@ -345,11 +426,18 @@ Do:
   5. A `plan` block followed by unrelated `Blocked…` Handoff text:
      `status` still reports `needs plan`, `unblock` refuses without
      changing the plan, and `run` offers no human-unblock question.
+  6. Real TTY: on both `done?` and `note:`, Ctrl-C exits promptly with
+     code 130 without Enter; late input cannot change the plan, add
+     `Unblocked:` or launch an agent. The blocked unit stays `[!]`.
+  7. Native Windows console: real `os.Stdin` reaches the question and
+     `y` plus a note resumes the unit; redirected stdin, `--yes` and a
+     plan block never ask. If Windows is unavailable, retain this runtime
+     check as `Unverified`; cross-compilation does not close it.
 - Close every `Unverified:` item of earlier units with a test, or keep it
   as `Unverified:` in this Handoff.
 Verify: `go test ./...`
 Traps: A failing scenario is fixed inside this unit when the fix is small;
 otherwise reply `blocked` with the reason.
-Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4, P041.1.5, P041.1.6
+Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4, P041.1.5, P041.1.6, P041.1.7, P041.1.8
 Role: acceptance
 Commit: P041.2.1: accept human unblock
