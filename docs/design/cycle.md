@@ -56,7 +56,8 @@ prompt → работа → verify* → finish   (finish = verify → done → c
   считается `human`. Снятый юнит сначала проверяет условие блока: заметка —
   заявление, не доказательство. `status` по последнему пункту `Blocked`
   печатает `(needs human)` или `(needs plan)`, для человека — следующей
-  строкой команду `unblock`.
+  строкой команду `unblock`
+  ([P041](../archive/P041-human-unblock.md)).
 
 `status` последней строкой печатает итог `lint` (`lint: ok`, `N warnings`,
 `N errors — run docflow lint`); на код выхода он не влияет.

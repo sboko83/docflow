@@ -11,13 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docflow unblock <id> --note "…"` resumes a unit blocked for a human:
   the unit goes back to `[~]` and the note becomes an `Unblocked:` Handoff
   item. A block raised with `--needs plan` is refused with a hint to
-  replan; the command does not commit.
+  replan; the command does not commit. The block is read only from the
+  exact Handoff forms `Blocked (human): …`, `Blocked (plan): …` and the
+  legacy `Blocked: …`, so a lookalike item cannot hide a `plan` block.
 - `docflow run` prints `unblock: docflow unblock <id> --note "…", then
   docflow run` wherever it stops on a human block. When a run starts on such
   a unit in a terminal without `--yes`, it prints the reason and asks
   `done? [y/N] `, then takes a one-line note: `y` lifts the block and the run
   continues with the usual start; any other answer, `--yes` or no terminal
-  stop the run with code 3 and the command.
+  stop the run with code 3 and the command. A Windows console counts as a
+  terminal; redirected input does not. Ctrl-C at either prompt ends the run
+  with code 130 and leaves the unit blocked.
 - Pi routes on `strata/…` display a light-grey `Local` badge with dark
   text. Local runs skip subscription quota probes and quota display.
 - Live smoke and demo scripts accept `--dry-run` to inspect their plans
@@ -43,21 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer stands in for it.
 
 ### Fixed
-- `docflow -h` lists `unblock` between `block` and `lint`: the general help
-  kept its own copy of the command list and had not been updated for the new
-  command, so `docflow unblock -h` worked while no general help mentioned it.
-- `docflow run` stops on Ctrl-C while it asks about a human block: at both
-  `done? [y/N] ` and `note: ` the signal ends the run with its exit code
-  (130), leaving the unit `[!]`, the plan untouched and the agent unstarted.
-  An answer or note typed after the stop is not applied.
-- The start-of-run question about a human block is reachable in a Windows
-  console: terminal detection now recognizes a real console input handle.
-  A redirected file, a pipe and NUL stay non-interactive.
-- A unit's block is read only from the exact Handoff forms
-  `Blocked (human): …`, `Blocked (plan): …` and the legacy `Blocked: …`. A
-  lookalike item (`Blocked by …`, `Blocked (plan)` without `:`, an unknown
-  class) is no longer a block, so it cannot hide an earlier `plan` block and
-  let `docflow unblock` lift a block that needs replanning.
 - The live planning check rejects failed or timed-out agent calls,
   cleans up its watchdog, and checks the requested default roster routes
   against the snapshot saved for that call.

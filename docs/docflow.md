@@ -5,11 +5,19 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P041
 
 ## Frozen
 
 ## Backlog
+- Проверить в настоящей консоли Windows вопрос старта о human-блоке:
+  `y` и заметка снимают блок и прогон продолжается; перенаправленный stdin,
+  `--yes` и блок `plan` не спрашивают. Запустить `TestIsTerminalWindows*` и
+  `TestAskUnblockWindowsConsoleTyped` с `DOCFLOW_WINDOWS_CONSOLE_ASK=1`
+  ([P041](archive/P041-human-unblock.md)).
+- Проверить на живом агенте, что юнит после `docflow unblock` сначала
+  проверяет условие блока командой, а при невыполненном условии снова
+  блокируется с `human` — при случае на рабочем прогоне
+  ([P041](archive/P041-human-unblock.md)).
 - Перенести Unix shell fixtures `internal/runner` и `internal/agentio`
   на Windows, где они пока пропускаются
   ([P040](archive/P040-windows-support.md)).
