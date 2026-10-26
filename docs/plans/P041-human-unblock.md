@@ -97,6 +97,8 @@ goes on.
 - Терминал Windows — syscall.GetConsoleMode на Handle(Fd()) стандартного потока, только stdlib — why: Go отображает os.Stdin/Stdout/Stderr в стандартные консольные handles, GetConsoleMode — документированный признак консоли и отказывает pipe/редиректу/NUL; rejected: golang.org/x/sys/windows (запрещён планом) и проверка GetFileType == FILE_TYPE_CHAR (NUL — char device, ложные срабатывания).
 - PTY-приёмка 'отмена без Enter' = выход процесса до любого нажатия + обязательная ошибка позднего ввода; промпт ждём по буферу stdout процесса — why: stdout ребёнка перехвачен в буфер, на PTY попадает лишь эхо; rejected: писать клавиши сразу (flaky-форма P041.1.6) и читать промпты с экрана.
 - Документация: отмена и консоль Windows — одной фразой в п.2 цикла docs/design/runner.md, дваFixed в CHANGELOG — why: одно событие одно место, usage.md и README описывают команды, а не поведение сигнала; rejected: новый дизайн-топик про Windows и дублирование в usage.md.
+- Replan P041.1.8: общий help обязан перечислять все зарегистрированные команды ровно по одному разу и в порядке таблицы `commands`, включая `unblock` между `block` и `lint`; регрессионный тест сравнивает извлечённые имена с регистрацией — проверка вывода на равенство самому `rootHelp` не обнаруживает пропущенную команду. Rejected: проверить только `unblock -h` или добавить ещё один ручной список ожидаемых команд.
+- P041.1.8 заменён исправляющим P041.1.9 и повторным ревью P041.1.10; приёмка зависит от обоих — найденный дефект общего help устраняется до повторной проверки всей фазы, а требования по отмене и Windows остаются в ревью. Rejected: повторить заблокированное ревью без исправления или менять завершённые юниты.
 
 ## Phase 1: Unblock
 
@@ -398,7 +400,7 @@ Handoff:
 - Unverified: Поведение живого агента на юните, снятом прогоном: правило повторной проверки — только текст промпта, ни один тест не гоняет агента через unblock → re-check (унаследовано от P041.1.5).
 - Unverified: Установленные копии навыков на этой машине — дерево релиза 0.13.0; новый текст навыка активен для agent CLI только после релиза, установщик не запускался (по Traps плана), проверка — только grep исходника в skills/.
 
-### [ ] P041.1.8 Review cancellation and Windows unblock fixes
+### [-] P041.1.8 Review cancellation and Windows unblock fixes
 Read:
 - docs/design/cycle.md#цикл-юнита
 - docs/design/runner.md:L40-70
@@ -420,6 +422,67 @@ Verify: `go test ./...`
 Depends: P041.1.7
 Role: review
 Commit: P041.1.8: review unblock input fixes
+Handoff:
+- Blocked (plan): [P3] cmd/docflow/main.go:178: команда unblock зарегистрирована, но отсутствует в отдельном списке rootHelp. Воспроизведено собранным CLI: bin/docflow -h пропускает unblock между block и lint, хотя bin/docflow unblock -h работает. Нужен исправляющий юнит: дополнить общий help и проверить соответствие списка зарегистрированным командам.
+
+### [ ] P041.1.9 Fix root help command coverage
+Read:
+- cmd/docflow/main.go:L30-60
+- cmd/docflow/main.go:L161-202
+- cmd/docflow/main_test.go:L77-90
+- cmd/docflow/main_test.go:L316-326
+- CHANGELOG.md
+Do:
+- Add `unblock` to `rootHelp` between `block` and `lint`, with the
+  registered description `resume a unit blocked for a human`. Preserve
+  the existing help layout and command-specific help.
+- Add a regression test for both root `-h` and `--help`: extract command
+  entry names from the command section of the rendered output and
+  compare them with the ordered names in `commands`. Require every
+  registered command exactly once, with no extra names; ignore wrapped
+  description lines and the options section. Demonstrate that the test
+  fails on the missing `unblock` entry before the fix and passes after it.
+- Build the CLI and check that root help lists `unblock` and that
+  `unblock -h` still exposes `--note`.
+- Add the user-visible help correction under `CHANGELOG.md`
+  `## [Unreleased]` / `### Fixed`.
+Verify: `go test ./cmd/docflow/ && go build -o bin/docflow ./cmd/docflow && bin/docflow -h | grep -q '^    unblock[[:space:]]' && bin/docflow unblock -h | grep -q -- '--note'`
+Traps: TestParseArgsHelp compares output with rootHelp itself and cannot
+detect an omitted command. TestCommandsMatchDesign covers registration,
+not root help. Do not create a second expected command list or count
+mentions inside descriptions as command entries.
+Depends: P041.1.7, P041.1.8
+Commit: P041.1.9: fix root help command coverage
+
+### [ ] P041.1.10 Review complete unblock phase and help
+Read:
+- docs/design/cycle.md#цикл-юнита
+- docs/design/runner.md:L40-70
+- cmd/docflow/main.go:L30-60
+- cmd/docflow/main.go:L161-202
+- cmd/docflow/main_test.go
+Do:
+- Review the complete phase diff named in the prompt's `## Phase diff`
+  against `## Goal`, `## Constraints`, `## Decisions` and each unit's
+  `Do:`, including P041.1.5, P041.1.7 and P041.1.9. Edit nothing.
+- Confirm that cancellation interrupts both pending reads without Enter,
+  late input cannot lift a cancelled block, signal exit handling remains
+  correct, and no pending reader steals input from later startup steps.
+- Confirm Windows detection accepts actual console `*os.File` stdin and
+  rejects redirected input; distinguish native runtime evidence from
+  fake-stream tests, skipped tests and cross-compilation.
+- Retain the checks that lookalikes cannot hide a plan block and that
+  both cycle texts and the run skill require the legacy human re-check.
+- Confirm that built CLI root help lists `unblock` between `block` and
+  `lint`, command-specific help still works, and the regression test
+  checks all root help command entries against registration rather than
+  comparing the output with itself or another manual list.
+- A defect — reply `blocked` with `blocker: "plan"`; anything else worth
+  noting, including unavailable Windows runtime evidence — `Unverified:`.
+Verify: `go test ./...`
+Depends: P041.1.9
+Role: review
+Commit: P041.1.10: review unblock phase and help
 
 ## Phase 2: Acceptance
 
@@ -456,11 +519,13 @@ Do:
      `y` plus a note resumes the unit; redirected stdin, `--yes` and a
      plan block never ask. If Windows is unavailable, retain this runtime
      check as `Unverified`; cross-compilation does not close it.
+  8. Built CLI: root `-h` and `--help` list `unblock` between `block`
+     and `lint`; `unblock -h` still describes the command and `--note`.
 - Close every `Unverified:` item of earlier units with a test, or keep it
   as `Unverified:` in this Handoff.
 Verify: `go test ./...`
 Traps: A failing scenario is fixed inside this unit when the fix is small;
 otherwise reply `blocked` with the reason.
-Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4, P041.1.5, P041.1.6, P041.1.7, P041.1.8
+Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4, P041.1.5, P041.1.6, P041.1.7, P041.1.8, P041.1.9, P041.1.10
 Role: acceptance
 Commit: P041.2.1: accept human unblock
