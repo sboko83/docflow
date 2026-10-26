@@ -6,10 +6,12 @@ status: draft
 created: 2026-10-25
 permissions: auto
 gate: go test ./...
-executor: codex | gpt-6-luna | max
-fallback: pi | zai/glm-5.3-flash | high; claude | claude-sonnet-5-5 | high
+executor: pi | strata/swift-1.5-iq3_s | high
+fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | max; claude | claude-sonnet-5-5 | high
+cheap: pi | strata/swift-1.5-iq3_s | low; pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | high; claude | claude-haiku-5-5 | -
+review: codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
 acceptance: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
-replan: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
+replan: codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
 ---
 ## Goal
 
@@ -36,8 +38,8 @@ confirm or refute escalation, the spinner and `--approve-for-me` after
 
 - `claude` is installed and logged in on the subscription; one planning
   session per full run of `tools/check-plan-skill.sh`: `command -v claude`
-- The personal roster has the `check` provider zai and pi/zai as the
-  default executor: `"$HOME/.docflow/bin/docflow" roster show | grep -q 'check: zai'`
+- The personal roster marks strata for independent review and uses the
+  local worker: `docflow roster show | grep -q 'executor: pi | strata/swift-1.5-iq3_s | high' && docflow roster show | grep -Eq 'check:.*strata'`
 - RMG run logs exist: `test -d "$HOME/Developer/RMG/.git/docflow/run"`
 - P040 is closed (it revives the e2e scenarios):
   `test -f docs/archive/P040-windows-support.md`
@@ -56,10 +58,13 @@ confirm or refute escalation, the spinner and `--approve-for-me` after
 - Codex runs in RMG (Xcode) stand for Gradle too — the mechanism, a write
   outside the repository through escalation, is the same — a separate
   Gradle run was rejected.
+- Локальная модель выполняет обычную и дешёвую работу; Codex проверяет
+  фазу и делает replan, Claude проводит финальную приёмку — маршруты и
+  обоснование в [P043](../archive/P043-local-worker.md).
 
 ## Phase 1: Live agent checks
 
-### [ ] P039.1.1 Check cold planning and Codex runs
+### [ ] P039.1.1 Check cold planning
 Read:
 - skills/bsv-docflow-plan/SKILL.md
 - internal/agents/agents.go:L40-110
@@ -73,8 +78,9 @@ Do:
     to the agent call.
   - Build the checkout binary into `<work>/bin/docflow` and put
     `<work>/bin` first in `PATH`. Preconditions, exit 2 when unmet:
-    `claude` on `PATH`; `docflow roster show` prints `check: zai` and an
-    `executor: pi | zai/` line.
+    `claude` on `PATH`; `docflow roster show` lists strata among `check`
+    providers and prints `executor: pi | strata/swift-1.5-iq3_s | high`
+    and `cheap: pi | strata/swift-1.5-iq3_s | low`.
   - Fixture `<work>/repo`: a git repository with a tiny Go module
     (`go.mod`, `main.go`, `main_test.go`), `README.md`,
     `docs/design/README.md`, and `docs/docflow.md` in `docflow: 3` with an
@@ -103,6 +109,21 @@ Do:
 - Add one line to `docs/design/skills.md` next to the skill installation:
   `tools/check-plan-skill.sh` is the live check of the planning skill,
   outside CI because it spends a subscription session.
+Verify: `bash -n tools/check-plan-skill.sh && bash tools/check-plan-skill.sh --check-only`
+Traps: the `claude` call takes 5–15 minutes and writes to `~/.claude`:
+in the Codex sandbox request escalation for it, and run it in the
+background with output to a file if the shell tool limits command time.
+macOS has no `timeout`; kill the call from a background watchdog.
+Depends: -
+Commit: P039.1.1: add live plan-skill check
+
+### [ ] P039.1.2 Проверить сохранённые прогоны Codex
+Read:
+- internal/agents/agents.go:L65-95
+- internal/agentio/output.go
+- docs/design/runner.md:L365-420
+- docs/docflow.md
+Do:
 - Codex in RMG, with a throwaway script outside the repository over
   `$HOME/Developer/RMG/.git/docflow/run/*.out` (Codex logs hold a
   `"thread.started"` line):
@@ -120,13 +141,34 @@ Do:
   add one Backlog line to `docs/docflow.md` starting with `Codex:` that
   names only what stayed unconfirmed, ending with
   `([P015](archive/P015-multi-agent-runner.md))`.
-Verify: `bash -n tools/check-plan-skill.sh && bash tools/check-plan-skill.sh --check-only`
-Traps: the `claude` call takes 5–15 minutes and writes to `~/.claude`:
-in the Codex sandbox request escalation for it, and run it in the
-background with output to a file if the shell tool limits command time.
-macOS has no `timeout`; kill the call from a background watchdog.
-Depends: -
-Commit: P039.1.1: add live plan-skill check
+- Сохранить сводку скрипта вне репозитория в
+  `${TMPDIR:-/tmp}/docflow-p039-codex-audit.json`: объект с ключами
+  `escalation`, `resume`, `spinner`, каждый содержит `confirmed` (bool) и
+  `evidence` (непустая строка без приватного содержимого логов).
+Verify: `python3 -c 'import json,os; from pathlib import Path; d=json.loads((Path(os.environ.get("TMPDIR") or "/tmp")/"docflow-p039-codex-audit.json").read_text()); assert all(type(d[k]["confirmed"]) is bool and d[k]["evidence"] for k in ("escalation","resume","spinner"))' && git diff --check`
+Traps: не вызывать модель и не запускать RMG заново; отсутствие события
+в логе не доказывает отказ механизма, непроверенное уходит в Backlog.
+Depends: P039.1.1
+Role: cheap
+Commit: P039.1.2: audit recorded Codex runs
+
+### [ ] P039.1.3 Проверить работу локального исполнителя
+Read:
+- tools/check-plan-skill.sh
+- docs/design/skills.md:L55-95
+- docs/docflow.md
+Do:
+- Проверить `## Phase diff`: корректность скрипта, независимые review и
+  acceptance в созданном плане, low/high локальных маршрутов, выводы
+  аудита по Handoff и отсутствие приватных данных в diff.
+- Ничего не редактировать. Дефект — блок `needs plan` с конкретным
+  исправлением для Codex replan; без дефектов — передать результат дальше.
+Verify: `go test ./...`
+Traps: ревью не заменяет финальную приёмку и не закрывает непроверенное
+утверждением из Handoff.
+Depends: P039.1.1, P039.1.2
+Role: review
+Commit: P039.1.3: review local worker changes
 
 ## Phase 2: Acceptance
 
@@ -149,6 +191,6 @@ Do:
 Verify: `go test ./... && go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow && bash tools/check-plan-skill.sh --check-only`
 Traps: a failing check is fixed inside this unit when the fix is small;
 otherwise block with the reason.
-Depends: P039.1.1
+Depends: P039.1.1, P039.1.2, P039.1.3
 Role: acceptance
 Commit: P039.2.1: accept e2e and live checks

@@ -55,7 +55,7 @@ type runTotals struct {
 }
 
 func (t *runTotals) mergeQuota(name string, quota agentio.Quota) {
-	if len(quota) == 0 {
+	if name == localQuota || len(quota) == 0 {
 		return
 	}
 	windows := make([]map[string]any, 0, len(quota))
@@ -352,6 +352,9 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 	names := []string{}
 	routes := []agents.Route{}
 	add := func(name string) {
+		if name == localQuota {
+			return
+		}
 		// zai has no agent profile: the quota belongs to the z.ai
 		// subscription behind pi, so only the profile check is skipped.
 		if name != zaiQuota && profile(config, name)["quota"] == nil {

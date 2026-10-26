@@ -317,6 +317,8 @@ func agentName(name string) string {
 		return "Pi"
 	case zaiQuota:
 		return "Z.ai"
+	case localQuota:
+		return "Local"
 	default:
 		return name
 	}
@@ -324,7 +326,11 @@ func agentName(name string) string {
 
 func (p *Progress) unit(uid, title string, route agents.Route) {
 	if !p.fancy {
-		p.line(uid+" "+title+" -> "+routeText(route), false, "")
+		routeLabel := routeText(route)
+		if isLocalRoute(route) {
+			routeLabel = "Local: " + routeLabel
+		}
+		p.line(uid+" "+title+" -> "+routeLabel, false, "")
 		return
 	}
 	p.mu.Lock()
@@ -364,12 +370,16 @@ func (p *Progress) executorLocked(route agents.Route) {
 	if effort == "" {
 		effort = "-"
 	}
-	parts := []string{p.badge(route.Agent), model, p.paint(effort, level, p.out)}
+	badge := route.Agent
+	if isLocalRoute(route) {
+		badge = localQuota
+	}
+	parts := []string{p.badge(badge), model, p.paint(effort, level, p.out)}
 	row := strings.Join(parts, " │ ")
 	if visibleLength(row) <= p.width()-3 {
 		p.emitLocked(p.paint("│  ", "dim", p.out)+row, p.out)
 	} else {
-		p.emitLocked(p.paint("│  ", "dim", p.out)+p.badge(route.Agent), p.out)
+		p.emitLocked(p.paint("│  ", "dim", p.out)+p.badge(badge), p.out)
 		p.wrappedLocked(model, "│  ", "", p.out, "")
 		p.wrappedLocked(effort, "│  ", level, p.out, "")
 	}

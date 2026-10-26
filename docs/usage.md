@@ -501,7 +501,10 @@ show` печатает готовые цепочки, `docflow roster apply Pxxx
 с путём.
 
 ```toml
-spend = ["zai", "codex", "claude"]   # порядок расхода: первый тратится первым
+spend = ["strata", "zai", "codex", "claude"] # локальная работа первой
+
+[provider.strata]
+check = true      # локальная модель тоже требует независимого ревью
 
 [provider.zai]
 check = true      # юниты этого провайдера проверяет ревью другим провайдером
@@ -517,6 +520,14 @@ review     = "strong"     # провайдеры с check исключены
 acceptance = "trusted"
 replan     = "trusted"
 
+[route.swift-low]
+run  = "pi | strata/swift-1.5-iq3_s | low"
+tier = "cheap"
+
+[route.swift-high]
+run  = "pi | strata/swift-1.5-iq3_s | high"
+tier = "standard"
+
 [route.glm-flash-high]
 run  = "pi | zai/glm-5.3-flash | high"   # тройка, как у Executor
 tier = "cheap"
@@ -525,6 +536,13 @@ tier = "cheap"
 [profile.save-claude.provider.codex]   # перечисленных провайдеров; --profile NAME
 trusted = true                 # claude уходит в запас acceptance и replan
 ```
+
+Локальный провайдер `strata` уже должен быть настроен в Pi; ростер не
+создаёт подключения к модели. `low` идёт в `--thinking low` для дешёвой
+работы, `high` — для обычного исполнителя. Ступень `strong` локальной
+модели не назначается: тяжёлая работа остаётся на сильных маршрутах.
+Маршруты `strata/…` раннер показывает как `Local` без квоты
+([решение](archive/P043-local-worker.md)).
 
 Провайдер маршрута: для `pi` — префикс модели до `/` (`zai/glm-5.3` →
 `zai`, модель без `/` → `pi`), для остальных — имя агента. Подбор цепочки

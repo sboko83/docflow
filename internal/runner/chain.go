@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"bsv-docflow/internal/agentio"
@@ -166,9 +167,20 @@ func (c *executorChain) routeAgents() []string {
 // draw from the z.ai subscription, not from a pi-wide pool.
 const zaiQuota = "zai"
 
+// localQuota identifies Pi's Strata routes, which have no subscription quota.
+const localQuota = "local"
+
+func isLocalRoute(route agents.Route) bool {
+	return route.Agent == "pi" && strings.HasPrefix(route.Model, "strata/") && len(route.Model) > len("strata/")
+}
+
 // quotaName maps a route to the quota its usage draws from: pi on a zai/
-// model shares the z.ai subscription, every other route its agent quota.
+// model shares the z.ai subscription; Strata has no quota, other routes
+// use their agent quota.
 func quotaName(route agents.Route) string {
+	if isLocalRoute(route) {
+		return localQuota
+	}
 	if route.Agent == "pi" && agentio.IsZaiModel(route.Model) {
 		return zaiQuota
 	}
@@ -192,6 +204,9 @@ func markQuotaRoutes(routes []agents.Route, quotas map[string]agentio.Quota, una
 	order := []string{}
 	byAgent := make(map[string]time.Time)
 	for _, route := range routes {
+		if isLocalRoute(route) {
+			continue
+		}
 		key := availabilityKey(route)
 		if seenRoutes[key] {
 			continue
