@@ -255,7 +255,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 		return 2, err
 	}
 	prompt, problem, session := closePrompt(plan), "", ""
-	stalled := false
+	stalled, opened := false, false
 	beforeQuota := make(map[string]agentio.Quota)
 	for _, name := range chain.routeAgents() {
 		beforeQuota[name] = append(agentio.Quota(nil), totals.quota[name]...)
@@ -327,7 +327,13 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 				return 2, err
 			}
 			rel, _ := filepath.Rel(root, log)
-			p.unit(id, "close plan", route, time.Now())
+			// One block per closing: a retry or a route switch continues it.
+			if opened {
+				p.executor(route)
+			} else {
+				p.unit(id, "close plan", route, time.Now())
+				opened = true
+			}
 			totals.events.emit("attempt", "", map[string]any{"plan": id, "n": attempt, "route": eventRoute(route), "log": rel, "close": true})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))
 			totals.mu.Lock()

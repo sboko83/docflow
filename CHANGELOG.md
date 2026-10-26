@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or value is a config error (exit 2).
 
 ### Fixed
+- The spinner and cap report count agent turns per Claude message, not per
+  stream event, so `turn <n>` no longer runs ahead of the real turn count.
 - A call the runner stopped is not a provider failure: an attempt killed for
   silence, whose output quotes a limit or a login error, no longer marks the
   route unavailable, does not send the run to a fallback route and does not

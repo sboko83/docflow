@@ -16,7 +16,10 @@ type Liveness struct {
 	last   time.Time
 	lines  int
 	turns  int
-	tools  map[string]time.Time
+	// lastMessage is the id of the last Claude assistant message counted: one
+	// message arrives as several events, one per content block.
+	lastMessage string
+	tools       map[string]time.Time
 }
 
 // LivenessState is an immutable snapshot of a Liveness.
@@ -93,13 +96,16 @@ func contentBlocks(obj map[string]any) []map[string]any {
 }
 
 // observeClaude handles Claude stream-json: an assistant event is one model
-// turn and marks a tool start with a tool_use block; the following user
+// turn (events sharing a message id count once) and marks a tool start with a tool_use block; the following user
 // event reports the matching tool_result. StructuredOutput is the result
 // channel, not a tool.
 func (l *Liveness) observeClaude(obj map[string]any) {
 	switch obj["type"] {
 	case "assistant":
-		l.turns++
+		if id := str(table(obj["message"])["id"]); id == "" || id != l.lastMessage {
+			l.turns++
+			l.lastMessage = id
+		}
 		for _, block := range contentBlocks(obj) {
 			if block["type"] != "tool_use" || block["name"] == "StructuredOutput" {
 				continue

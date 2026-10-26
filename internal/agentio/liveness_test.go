@@ -23,6 +23,14 @@ func TestLivenessStreams(t *testing.T) {
 		equal(t, state.Turns, 1)
 		equal(t, state.Tools, 0)
 	})
+	t.Run("claude one message in several events", func(t *testing.T) {
+		live := NewLiveness("claude")
+		live.Observe(`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"a"}]}}`)
+		live.Observe(`{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash"}]}}`)
+		equal(t, live.State().Turns, 1)
+		live.Observe(`{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"b"}]}}`)
+		equal(t, live.State().Turns, 2)
+	})
 	t.Run("codex", func(t *testing.T) {
 		live := NewLiveness("codex")
 		live.Observe(`{"type":"turn.started"}`)
