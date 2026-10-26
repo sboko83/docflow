@@ -5,6 +5,10 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
+- P044
+- P045
+- P046
+- P047
 
 ## Frozen
 
