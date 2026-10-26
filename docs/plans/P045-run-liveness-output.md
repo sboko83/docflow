@@ -373,7 +373,7 @@ Handoff:
 - Unverified: Случай «строка не влезает даже без сброса» (окно шире room) — кодом обработан, теста нет.
 - Unverified: Терминалы шире 60 колонок с тремя и более окнами квоты, склеенными в одну строку — новых тестов нет, только существующие фикстуры.
 
-### [ ] P045.2.4 Review the output fix
+### [x] P045.2.4 Review the output fix
 Read:
 - docs/design/runner.md:L380-420
 Do:
@@ -386,6 +386,10 @@ Verify: `go test ./...`
 Depends: P045.2.3
 Role: review
 Commit: P045.2.4: review output fix
+Handoff:
+- Дифф 07a9dbe..HEAD проверен: блокирующих дефектов нет, замечание P045.2.2 устранено.
+- На macOS arm64 полный docflow verify P045.2.4 прошёл: Verify и gate — go test ./..., exit 0. Файлы не изменялись.
+- Unverified: Для P045.3.1 остаются: перенос рядом со спиннером в настоящем узком TTY, сквозная проверка config→run для left/resets и отображение на Windows.
 
 ## Phase 3: Acceptance
 
