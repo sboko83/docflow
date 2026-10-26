@@ -6,13 +6,13 @@ status: draft
 created: 2026-10-25
 permissions: auto
 gate: go test ./...
-executor: pi | strata/swift-1.5-iq3_s | high
+executor: pi | strata/swift-1.5-iq3_s | medium
 fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | max; claude | claude-sonnet-5-5 | high
-cheap: pi | strata/swift-1.5-iq3_s | low; pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | high; claude | claude-haiku-5-5 | -
-heavy: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
+cheap: pi | strata/swift-1.5-iq3_s | medium; pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | high; claude | claude-haiku-5-5 | -
+heavy: pi | strata/swift-1.5-iq3_s | high; pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
 review: codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
 acceptance: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
-replan: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
+replan: codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
 ---
 ## Goal
 
