@@ -5,7 +5,6 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P039
 - P041
 
 ## Frozen
@@ -48,10 +47,9 @@ start_budget: 4000
 - Прогнать `docflow run --close` с живым агентом по `bsv-docflow-close` на
   реальном плане — проверено только на fake-агенте
   ([P038](archive/P038-runner-backlog-batch.md)).
-- Codex: эскалация песочницы для записи вне корня репозитория (DerivedData,
-  кэши) и внутри вызова после `resume` не подтверждена: в сохранённых прогонах
-  отказов DerivedData и кэшей нет, 10 отказов CoreSimulator эскалацией не
-  сняты, в resumed-вызовах отказов песочницы не было; явных событий эскалации
-  поток Codex не содержит, измерить механизм можно только связкой «отказ
-  песочницы → повтор той же команды с успехом»
-  ([P015](archive/P015-multi-agent-runner.md)).
+- Codex: на живом Xcode/Gradle-прогоне проверить эскалацию записи вне
+  репозитория (DerivedData, кэши), эскалацию после `resume` и зафиксировать
+  запрос эскалации Verify самим агентом; сохранённые логи нужных
+  свидетельств не содержат
+  ([P015](archive/P015-multi-agent-runner.md),
+  [P039](archive/P039-e2e-and-live-checks.md)).
