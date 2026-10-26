@@ -3,6 +3,7 @@ package runner
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -190,6 +191,52 @@ func TestRunCloseRetryKeepsLogs(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(f.root, ".git/docflow/run/P001.close"+n+".out")); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestRunCloseTimeCapWhileActive: the cap ended a closing call that kept
+// speaking. The attempt is work cut short: a ↻ line, the session is resumed and
+// the summary hints, the closing is not reported as a problem.
+func TestRunCloseTimeCapWhileActive(t *testing.T) {
+	f := readyCloseFixture(t)
+	f.configure("stream = \"claude\"\ntimeout = 4\n")
+	tick := emit(map[string]any{"type": "assistant", "message": map[string]any{
+		"content": []any{map[string]any{"type": "text", "text": "tick"}},
+	}})
+	// The stream's last event is the result Claude reads the session id from:
+	// it arrives while the call runs and stays fresh under the cap.
+	step := emit(map[string]any{"type": "system", "subtype": "init", "session_id": "s1"}) + tick +
+		"sleep 1\n" + tick + "sleep 1\n" +
+		emit(map[string]any{"type": "result", "is_error": false, "result": "working", "session_id": "s1"}) +
+		"sleep 60\n"
+	r := f.run([]string{step, closeArchiveStep + doneReply()}, "--close", "--attempts", "2")
+	f.check(r, 0, "P001: closed")
+	text := r.out + r.err
+	if !regexp.MustCompile(`↻ close attempt 1: time cap 4s reached while active \(\d+ turns\); resuming the session`).MatchString(text) {
+		t.Errorf("no active-cap line for the closing call:\n%s", text)
+	}
+	if strings.Contains(text, "close agent timed out") {
+		t.Errorf("an active closing call is reported as a problem:\n%s", text)
+	}
+	if !regexp.MustCompile(`hint: P001 needs more than 4s on fake -: split the unit or set timeout: in the plan header`).MatchString(text) {
+		t.Errorf("the run summary carries no cap hint:\n%s", text)
+	}
+	calls := f.calls()
+	if len(calls) != 2 || !strings.Contains(strings.Join(calls[1].Argv, " "), "--resume s1") {
+		t.Fatalf("closing calls = %v\n%s%s", calls, r.out, r.err)
+	}
+}
+
+// TestRunCloseSilentTimeoutStaysAProblem: a closing call that printed nothing
+// the whole cap is hung, not working: it keeps the problem line and the summary
+// gives no hint.
+func TestRunCloseSilentTimeoutStaysAProblem(t *testing.T) {
+	f := readyCloseFixture(t)
+	f.configure("timeout = 2\n")
+	r := f.run([]string{"sleep 60\n"}, "--close", "--attempts", "1")
+	f.check(r, 7, "P001: close: close agent timed out")
+	if text := r.out + r.err; strings.Contains(text, "↻") || strings.Contains(text, "hint:") {
+		t.Errorf("a silent closing call reads as active work:\n%s", text)
 	}
 }
 

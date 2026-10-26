@@ -146,6 +146,12 @@ func TestFailedRunsOnly(t *testing.T) {
 	equal(t, AuthReason(agent, run), "usage limit; not logged in")
 	run.TimedOut = true
 	equal(t, FailureText(agent, run), (*string)(nil))
+	// A call the idle watchdog stopped is not a provider failure either: its
+	// output quotes the agent's own work, here a limit and a login error.
+	run = AgentRun{Stalled: true, Code: 137, Stdout: `{"result":"usage limit; not logged in","is_error":true}`, Stderr: "terminated"}
+	equal(t, FailureText(agent, run), (*string)(nil))
+	equal(t, LimitText(agent, run), (*string)(nil))
+	equal(t, AuthReason(agent, run), "")
 	run = AgentRun{Code: 1, Stderr: "\n  actual failure\nextra"}
 	equal(t, FailureReason(agent, run), "actual failure")
 	run = AgentRun{Code: 1, Stderr: "not logged in"}

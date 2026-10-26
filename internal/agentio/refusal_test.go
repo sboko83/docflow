@@ -125,4 +125,11 @@ func TestClassify(t *testing.T) {
 		run := AgentRun{TimedOut: true, Code: 124, Stderr: "429: rate limit"}
 		equal(t, Classify(agent, run, now), (*Refusal)(nil))
 	})
+	t.Run("stalled", func(t *testing.T) {
+		// The runner stopped a silent call: the killed process reads as
+		// "terminated" and its output quotes a limit, while the route is healthy.
+		agent := profile(t, "pi")
+		run := AgentRun{Stalled: true, Code: 137, Stdout: piFailure("429: usage limit reached"), Stderr: "terminated"}
+		equal(t, Classify(agent, run, now), (*Refusal)(nil))
+	})
 }

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -52,6 +53,36 @@ func TestRunStalledAttemptResumesSession(t *testing.T) {
 	}
 	if !strings.Contains(calls[1].Stdin, "Runner: the previous attempt stalled: agent silent for 5s, no tool running — stopped") {
 		t.Errorf("the resumed prompt does not name the stall:\n%s", calls[1].Stdin)
+	}
+}
+
+// TestRunStalledAttemptIsNotRefusal: the runner stopped a silent call, so the
+// attempt is not a provider failure. The killed agent's output quotes the
+// profile's limit and login patterns — reading them would send the run to the
+// fallback route and stop the run for a login the agent never missed.
+func TestRunStalledAttemptIsNotRefusal(t *testing.T) {
+	f := newRunFixture(t)
+	fake, _ := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	probe := "stream = \"claude\"\nlimit = \"usage limit\"\nauth = \"not logged in\"\n"
+	f.configure(probe + "idle_timeout = 5\n")
+	f.configure("[agents.alt]\ncmd = [\"/bin/bash\", " + jsonString(fake) + "]\nmodel_args = [\"--model\", \"{model}\"]\nresume_args = [\"--resume\", \"{session}\"]\nresult = \"json:structured_output\"\ntext = \"json:result\"\nsession = \"json:session_id\"\n" + probe)
+	f.replace(planFile, "status: active", "status: active\nfallback: alt | other-model | -")
+	steps := []string{
+		emit(map[string]any{"type": "result", "is_error": true, "result": "usage limit; not logged in", "session_id": "s1"}) +
+			"sleep 60\n",
+		writeReply("a.txt"),
+	}
+	r := f.run(steps, "--attempts", "2", "--max-units", "1")
+	f.check(r, 0, "P001.1.1: attempt 1: agent silent for 5s, no tool running — stopped", "P001.1.1 done:")
+	if text := r.out + r.err; strings.Contains(text, "is not logged in") || strings.Contains(text, "switching") {
+		t.Errorf("a stopped call routed as a provider problem:\n%s", text)
+	}
+	calls := f.calls()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want the stopped one and the resumed one\n%s%s", len(calls), r.out, r.err)
+	}
+	if argv := strings.Join(calls[1].Argv, " "); !strings.Contains(argv, "--resume s1") || strings.Contains(argv, "other-model") {
+		t.Errorf("the stopped attempt did not resume the same route: %s", argv)
 	}
 }
 

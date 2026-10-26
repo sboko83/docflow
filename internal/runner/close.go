@@ -282,6 +282,10 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 		var run agentio.AgentRun
 		var agent map[string]any
 		var live *agentio.Liveness
+		// timeout is the cap of the route in flight: the route changes inside the
+		// retry loop, so the value is set with the profile and read again after the
+		// call ends, where the cap report names it.
+		var timeout time.Duration
 		waitingKind := ""
 		for limits, throttles := 0, 0; ; {
 			for !available {
@@ -310,6 +314,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			if agent == nil {
 				return 2, runError(id + ": close: no agent profile '" + route.Agent + "'")
 			}
+			timeout = agentCallTimeout(plan, agent)
 			argv, stdin, err := agents.BuildCommand(agent, text, route.Model, schema, resume, route.Effort, format.PlanPermissions(plan))
 			if err != nil {
 				return 2, err
@@ -323,7 +328,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			totals.events.emit("attempt", "", map[string]any{"plan": id, "n": attempt, "route": eventRoute(route), "log": rel, "close": true})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))
 			p.spin(func() string { return livenessLabel(id+" close", live) }, nil)
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: agentCallTimeout(plan, agent), Idle: agentIdleTimeout(agent), Liveness: live, OnStreamEvent: func(event agentio.Event) {
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: timeout, Idle: agentIdleTimeout(agent), Liveness: live, OnStreamEvent: func(event agentio.Event) {
 				if quota, ok := agentio.StreamEvent(agent, event)["quota"].(agentio.Quota); ok {
 					totals.mergeQuota(quotaName(route), quota)
 				}
@@ -402,12 +407,14 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 		}
 		result := agentio.ExtractResult(agent, run.Stdout)
 		stalled = false
+		capLine := ""
 		switch {
 		case run.Stalled:
 			stalled = true
 			problem = stallProblem(agentIdleTimeout(agent))
 		case run.TimedOut:
 			problem = "close agent timed out"
+			capLine = capReport(fmt.Sprintf("close attempt %d", attempt), timeout, live, totals.lastActivity(), time.Now())
 		case run.Code != 0:
 			problem = fmt.Sprintf("close agent exited with code %d", run.Code)
 		case agentio.JSONPath(agentio.AgentOutput(agent, run.Stdout), stringValue(agent["error"])) == true:
@@ -416,7 +423,14 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			problem = agentio.ResultProblem(result)
 		}
 		if problem != "" {
-			p.line(id+": close: "+problem, true, "")
+			if capLine != "" {
+				// The cap ended a closing call that was still working: the attempt is
+				// resumed on the same session, not reported as a problem.
+				p.resume(capLine)
+				totals.noteCap(id, timeout, route)
+			} else {
+				p.line(id+": close: "+problem, true, "")
+			}
 			continue
 		}
 		if result["status"] == "blocked" {

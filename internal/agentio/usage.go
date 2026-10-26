@@ -12,8 +12,13 @@ import (
 	"bsv-docflow/internal/cycle"
 )
 
+// FailureText is the output a provider refusal, a limit and a login check may
+// be read from. A call the runner ended — the time cap or the idle watchdog
+// killed the process — is not a provider failure: its output quotes the agent's
+// own work (and the kill itself reads as "terminated"), while the route stayed
+// healthy. Reading a refusal from it sends the run to a fallback for no reason.
 func FailureText(agent map[string]any, run AgentRun) *string {
-	if run.TimedOut {
+	if run.TimedOut || run.Stalled {
 		return nil
 	}
 	data := AgentOutput(agent, run.Stdout)

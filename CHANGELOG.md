@@ -17,13 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `↻ attempt N: time cap <cap> reached while active (<turns> turns); resuming
   the session`, names the tool in flight where there is one, and the run
   summary adds `hint: <id> needs more than <cap> on <route>: split the unit
-  or set timeout: in the plan header`.
+  or set timeout: in the plan header`. A closing call that reaches the cap
+  while active reads the same way — `↻ close attempt N: …` — and resumes the
+  session; a silent closing call keeps the `close agent timed out` problem
+  line.
 - The TTY spinner shows what the agent is doing:
   `<id> <elapsed> · turn <n> · <age> ago`, plus `· tool <duration>` while a
   tool runs. The call log `<git-dir>/docflow/run/<unit>.<attempt>.out` is
   written while the call runs, so `tail -f` follows the agent.
 
 ### Fixed
+- A call the runner stopped is not a provider failure: an attempt killed for
+  silence, whose output quotes a limit or a login error, no longer marks the
+  route unavailable, does not send the run to a fallback route and does not
+  stop the run for a login — it is retried as a stalled attempt on the same
+  route.
 - `docflow init` replaces the legacy AGENTS.md plan marker instead of
   appending a second one; when both versions exist, it removes the old one.
 
