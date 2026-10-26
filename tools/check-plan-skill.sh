@@ -171,7 +171,7 @@ read_budget: 40000
 EOF
     git -C "$REPO" init -q
     git -C "$REPO" add -A
-    git -C "$REPO" -c user.name=docflow-check -c user.email=docflow-check@example.com \
+    git -C "$REPO" -c user.name=docflow-check -c user.email=docflow-check@localhost \
         commit -qm 'initial commit'
 
     progress "calling pi ($MODEL; up to 20 minutes); log: $AGENT_LOG"
