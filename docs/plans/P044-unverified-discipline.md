@@ -252,7 +252,7 @@ Handoff:
 - Текст RunnerCycle не менялся, хеш d80ff9b5… из TestStrictRunnerSchema остаётся валидным: правка только в internal/runner/run.go.
 - Unverified: Поведение агента на новой формулировке скилла закрытия (не напишет ли он docflow note после небольшого изменения без запроса) — missing check: живой прогон скилла bsv-docflow-close на проекте с установленной копией скилла (после bash tools/install-dev.sh) и сценарий «мелкое изменение без плана», где агент должен спросить «record it in the archive?»; Verify проверяет только наличие строки 'explicit request'.
 
-### [ ] P044.1.5 Review the rules phase again
+### [x] P044.1.5 Review the rules phase again
 Read:
 - docs/design/cycle.md:L60-76
 - docs/design/format.md:L96-106
@@ -268,6 +268,9 @@ Verify: `go test ./...`
 Depends: P044.1.4
 Role: review
 Commit: P044.1.5: review unverified rules
+Handoff:
+- Diff 85b4603..HEAD проверен: дефектов не найдено, оба замечания P044.1.3 исправлены. RunnerCycle и исходник bsv-docflow-run согласованы по правилу unverified.
+- На macOS arm64 полный bin/docflow verify P044.1.5 прошёл: Verify и gate — go test ./..., exit 0. Файлы не редактировались.
 
 ## Phase 2: Acceptance
 
