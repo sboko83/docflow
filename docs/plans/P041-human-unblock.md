@@ -83,6 +83,10 @@ goes on.
 - Replan P041.1.4: точным пунктом блока считаются только `Blocked (human): …`, `Blocked (plan): …` и legacy `Blocked: …`; похожий префикс и некорректная форма не заменяют последний настоящий блок — иначе произвольный Handoff может скрыть `plan` и разрешить `unblock`. Rejected: распознавание через один префикс `Blocked`.
 - Legacy `Blocked: …` требует той же проверки условия после `Unblocked:`, что и `Blocked (human): …`, во всех инструкциях цикла — Constraints уже определяют legacy как `human`. Rejected: снимать legacy-блок командой, но исключать его из правила повторной проверки.
 - P041.1.4 заменён исправляющим P041.1.5 и повторным ревью P041.1.6; приёмка зависит от обоих новых юнитов — ревью не исправляет код, а найденные дефекты должны быть устранены до приёмки. Rejected: повторять ревью без исправления или менять завершённые P041.1.1–P041.1.3.
+- Класс блока — точный префикс по фиксированному списку blockedClasses {human, plan}, двойник не считается блоком — why: произвольный класс в тексте некем снимать, а префикс `Blocked` из прошлой версии превращал `Blocked (plan)` без `:` в human-блок и разрешал `unblock` там, где нужен replan — rejected: принимать любой `Blocked (<x>):` и считать неизвестный класс human.
+- Ассерты по навыку: нормализация пробелов + счётчик вхождений ≥3 — why: правило обязано быть во всех абзацах про снятый юнит, а проза переносится посреди фразы — rejected: ассерт подстроки по сырому тексту (ломается на переносе) и одиночное вхождение (молча пропускает потерю правила в абзаце).
+- Документация: правило точных форм — одной строкой в docs/design/cycle.md, запись `### Fixed` в CHANGELOG, правка существующей записи cycle-текста — why: одно событие одно место; usage.md и README описывают команды, а не формы разбора — rejected: дублировать формы в usage.md.
+- Переставить хеш TestStrictRunnerSchema, а не ослаблять тест — why: смысл пина в том, что правка промпта — осознанный и просматриваемый шаг (текст RunnerCycle прочитан перед пином) — rejected: убрать сравнение хеша.
 
 ## Phase 1: Unblock
 
@@ -243,7 +247,7 @@ Commit: P041.1.4: review unblock phase
 Handoff:
 - Blocked (plan): Нужен исправляющий юнит для точного распознавания Blocked и повторной проверки условия после снятия legacy-блока.
 
-### [ ] P041.1.5 Fix block recognition and legacy re-check
+### [x] P041.1.5 Fix block recognition and legacy re-check
 Read:
 - internal/cycle/verify.go:L597-675
 - internal/cycle/cycle_test.go:L254-325
@@ -284,6 +288,18 @@ The RunnerCycle hash is pinned by TestStrictRunnerSchema. Edit skill
 sources only; do not install them or change installed copies.
 Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4
 Commit: P041.1.5: fix block recognition and legacy re-check
+Handoff:
+- Точное распознавание: blockedClass принимает только `Blocked (human):`, `Blocked (plan):` (классы из blockedClasses = значения `--needs`) и legacy `Blocked:`; для двойника возвращает needs="", reason="". blockedItem выбирает последний ВАЛИДНЫЙ пункт — хвостовой `Blocked (plan)` без `:` не прячет предыдущий `Blocked (plan): …`.
+- Снято/сохранено без изменений: `Unblock` юнита `[!]` вообще без валидного пункта блока (ручной блок, в том числе с одними двойниками) по-прежнему снимает его — код 0; класса при этом нет, и `status` не печатает `(needs …)` и строку `unblock:`. Это держат parity-сценарий cycle_status_prompt.sh, TestStatusReadinessAndBlocked и новый TestUnblockIgnoresBlockedLookalikes/«lookalikes alone keep the block classless».
+- Общие фразы двух cycle-текстов: сентинел `check that condition with a command first` и новая `a legacy `Blocked:` item counts as human` — печатаются на одной строке источника (перенос строки ломает ассерт) и проверяются в TestPromptTextAndReadBudget, TestBlockedItemRecognition, TestRunnerPromptInstructions и TestRunSkillUnblockRecheckCoversLegacyBlock.
+- Хеш RunnerCycle переставлен: b25fcc9f… → 151eb2c681b82e74b1f245d4e63c12505f88a646415325b58b29a9ef46c4bcdd (TestStrictRunnerSchema, internal/agents/agents_test.go:555).
+- Навыковый ассерт нормализует пробелы (strings.Fields) и считает вхождения ≥3: проза SKILL.md переносится посреди фразы, а правило живёт в трёх абзацах (Procedure, runner-mode reply, Who lifts each block). При правке навыка держи все три абзаца с этой формулировкой.
+- Тестовые хелперы: blockedLookalikes в internal/cycle/cycle_test.go (пакет cycle, виден и в done_test.go), таблица классов/порядков в TestBlockedItemRecognition; многострочные пункты Handoff в фикстуры не добавляй — формат их не парсит как список, а Block пишет причину в одну строку.
+- Проверки финального дерева: `bin/docflow verify P041.1.5` — verify+gate passed; `bash tools/parity/run.sh bin/docflow bin/docflow` — 68 passed, 0 skipped; `docflow lint` rc 0; ручной CLI-прогон в temp-репо (`env -u DOCFLOW_RUNNER_UNIT`): `(needs plan)` без подсказки, unblock rc 5 и план без изменений, «только двойники» → `blocked: <id> <title>`.
+- P041.1.6 (повторное ревью): дефекты, если найдёт, правятся до приёмки P041.1; приёмка зависит от P041.1.5 и P041.1.6.
+- Unverified: Поведение живого агента на снятом юните: правило повторной проверки — только текст промпта, ни один тест не гоняет агента через unblock → re-check (нет такого стенда); проверено лишь присутствие формулировок в рендере промпта.
+- Unverified: Установленные копии навыков на этой машине — дерево релиза 0.13.0 (symlinks), новый текст навыка активен для agent CLI только после релиза; установщик не запускался (по Traps юнита), проверка — только grep исходника в skills/.
+- Unverified: Консоль Windows: PTY-тесты раннера собраны под darwin||linux, прогона вопроса/снятия блока на Windows нет (правки юнита — платформенно-нейтральный текст, но прогона не было).
 
 ### [ ] P041.1.6 Review the corrected unblock phase
 Read:

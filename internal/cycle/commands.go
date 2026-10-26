@@ -19,7 +19,8 @@ const cycleText = "## Cycle\n" +
 	"   reality or the plan is outdated, run\n" +
 	"   `docflow block {id} --reason \"<why>\"` and stop.\n" +
 	"   Handoff `Unblocked:` after the latest `Blocked (human)` — a person did the\n" +
-	"   step: check that condition with a command first (a file, a login, a device\n" +
+	"   step; a legacy `Blocked:` item counts as human. Before `Do:`\n" +
+	"   check that condition with a command first (a file, a login, a device\n" +
 	"   state). Met → go on with `Do:`; not met → run\n" +
 	"   `docflow block {id} --needs human --reason \"<what is still missing>\"` and\n" +
 	"   stop, without doing the rest of `Do:`.\n" +

@@ -330,6 +330,136 @@ func TestStatusReadinessAndBlocked(t *testing.T) {
 	})
 }
 
+// blockedLookalikes are Handoff items that only look like a block: they must
+// not set the class of a unit and must not hide an earlier real block.
+var blockedLookalikes = []string{
+	"Blockedness: nothing to see",
+	"Blocked by the phase gate",
+	"Blocked (plan)",
+	"Blocked (device): not a class",
+	"blocked (plan): lowercase",
+}
+
+func TestBlockedItemRecognition(t *testing.T) {
+	for _, block := range []struct{ name, item, needs, reason string }{
+		{"human", "Blocked (human): нужен вход в аккаунт", "human", "нужен вход в аккаунт"},
+		{"plan", "Blocked (plan): Do устарел", "plan", "Do устарел"},
+		{"legacy", "Blocked: устарел", "human", "устарел"},
+		{"legacy without a reason", "Blocked:", "human", ""},
+		{"plan without a reason", "Blocked (plan):", "plan", ""},
+	} {
+		for _, tail := range []struct {
+			name  string
+			items []string
+		}{
+			{"no lookalikes", nil},
+			{"lookalikes after", append([]string{"Unblocked: вошёл в аккаунт"}, blockedLookalikes...)},
+			{"lookalikes before", append(blockedLookalikes, "Unblocked: вошёл в аккаунт")},
+		} {
+			items := append(append([]string{block.item}, tail.items...), "Unblocked: заметка")
+			t.Run(block.name+" block "+tail.name, func(t *testing.T) {
+				root := makeCycleProject(t, cycleDocflow("P001"), map[string]string{
+					"P001": cyclePlan("P001", "active", cycleHandoffUnit("P001.1.1", "!", items...)),
+				}, nil)
+				_, unit, err := findUnit(root, "P001.1.1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if needs, reason := BlockedNeeds(unit); needs != block.needs || reason != block.reason {
+					t.Fatalf("BlockedNeeds = %q, %q; want %q, %q (%#v)", needs, reason, block.needs, block.reason, items)
+				}
+				result, err := Status(root, "lint: ok")
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := "blocked: P001.1.1 Unit P001.1.1 (needs " + block.needs + ")\n"
+				if block.needs == "human" {
+					want += "unblock: docflow unblock P001.1.1 --note \"…\"\n"
+				}
+				if !strings.Contains(result.Stdout, want) {
+					t.Fatalf("status = %q, want %q", result.Stdout, want)
+				}
+				if block.needs != "human" && strings.Contains(result.Stdout, "unblock:") {
+					t.Fatalf("plan block hints unblock: %q", result.Stdout)
+				}
+			})
+		}
+	}
+	for _, order := range []struct {
+		name          string
+		items         []string
+		needs, reason string
+	}{
+		{"human then plan", []string{"Blocked (human): нужен вход", "Blocked (plan): Do устарел"}, "plan", "Do устарел"},
+		{"plan then human", []string{"Blocked (plan): Do устарел", "Blocked (human): нужен вход"}, "human", "нужен вход"},
+		{"plan then legacy", []string{"Blocked (plan): Do устарел", "Blocked: вошёл"}, "human", "вошёл"},
+		{"legacy then plan", []string{"Blocked: устарел", "Blocked (plan): Do устарел"}, "plan", "Do устарел"},
+		{"human then legacy", []string{"Blocked (human): нужен вход", "Blocked: вошёл"}, "human", "вошёл"},
+		{"legacy then human", []string{"Blocked: устарел", "Blocked (human): нужен вход"}, "human", "нужен вход"},
+		{"unblocked between human and plan", []string{"Blocked (human): нужен вход", "Unblocked: вошёл", "Blocked (plan): Do устарел"}, "plan", "Do устарел"},
+	} {
+		t.Run("latest block wins: "+order.name, func(t *testing.T) {
+			root := makeCycleProject(t, cycleDocflow("P001"), map[string]string{
+				"P001": cyclePlan("P001", "active", cycleHandoffUnit("P001.1.1", "!", order.items...)),
+			}, nil)
+			_, unit, err := findUnit(root, "P001.1.1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if needs, reason := BlockedNeeds(unit); needs != order.needs || reason != order.reason {
+				t.Fatalf("BlockedNeeds = %q, %q; want %q, %q (%#v)", needs, reason, order.needs, order.reason, order.items)
+			}
+		})
+	}
+	t.Run("lookalikes alone are not a block", func(t *testing.T) {
+		root := makeCycleProject(t, cycleDocflow("P001"), map[string]string{
+			"P001": cyclePlan("P001", "active", cycleHandoffUnit("P001.1.1", "!", blockedLookalikes...)),
+		}, nil)
+		_, unit, err := findUnit(root, "P001.1.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if needs, reason := BlockedNeeds(unit); needs != "" || reason != "" {
+			t.Fatalf("BlockedNeeds = %q, %q, want none", needs, reason)
+		}
+		result, err := Status(root, "lint: ok")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result.Stdout, "blocked: P001.1.1 Unit P001.1.1\n") ||
+			strings.Contains(result.Stdout, "needs") || strings.Contains(result.Stdout, "unblock:") {
+			t.Fatalf("status = %q, want a classless blocked line", result.Stdout)
+		}
+	})
+	t.Run("a prompt of a resumed legacy block shows both items and the re-check", func(t *testing.T) {
+		items := []string{"Blocked: нужен вход в аккаунт", "Unblocked: вошёл в аккаунт"}
+		root := makeCycleProject(t, cycleDocflow("P001"), map[string]string{
+			"P001": cyclePlan("P001", "active", cycleHandoffUnit("P001.1.1", "~", items...)),
+		}, nil)
+		plan, unit, err := findUnit(root, "P001.1.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if needs, reason := BlockedNeeds(unit); needs != "human" || reason != "нужен вход в аккаунт" {
+			t.Fatalf("BlockedNeeds = %q, %q, want a legacy human block", needs, reason)
+		}
+		text, err := PromptText(root, plan, unit, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, part := range []string{
+			"Handoff:\n- Blocked: нужен вход в аккаунт\n- Unblocked: вошёл в аккаунт\n",
+			"a legacy `Blocked:` item counts as human",
+			"check that condition with a command first",
+			"docflow block P001.1.1 --needs human --reason",
+		} {
+			if !strings.Contains(text, part) {
+				t.Errorf("resumed prompt does not contain %q", part)
+			}
+		}
+	})
+}
+
 func TestCommitPendingStateIsSelectedAndReported(t *testing.T) {
 	for _, state := range []string{"committing", "verified"} {
 		t.Run(state, func(t *testing.T) {
@@ -473,7 +603,7 @@ func TestPromptTextAndReadBudget(t *testing.T) {
 	if strings.Join(headings, "\n") != strings.Join(wantHeadings, "\n") {
 		t.Fatalf("headings = %#v", headings)
 	}
-	for _, part := range []string{"Цель плана.", "- Симулятор запущен", "- решение — почему — альтернатива", "### [~] P001.1.3 Third\nRead:\n- a.py\nDo:\n- c\n", "### P001.1.2\n- от второго\n", "docflow verify P001.1.3", "docflow finish P001.1.3 --handoff", "--decision", "docflow block P001.1.3 --reason", "Handoff `Unblocked:` after the latest `Blocked (human)`", "check that condition with a command first", "docflow block P001.1.3 --needs human --reason"} {
+	for _, part := range []string{"Цель плана.", "- Симулятор запущен", "- решение — почему — альтернатива", "### [~] P001.1.3 Third\nRead:\n- a.py\nDo:\n- c\n", "### P001.1.2\n- от второго\n", "docflow verify P001.1.3", "docflow finish P001.1.3 --handoff", "--decision", "docflow block P001.1.3 --reason", "Handoff `Unblocked:` after the latest `Blocked (human)`", "a legacy `Blocked:` item counts as human", "Before `Do:`", "check that condition with a command first", "docflow block P001.1.3 --needs human --reason"} {
 		if !strings.Contains(result.Stdout, part) {
 			t.Errorf("prompt does not contain %q", part)
 		}

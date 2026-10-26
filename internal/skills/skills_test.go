@@ -732,3 +732,30 @@ func TestExpandUserAcceptsSlashAfterTilde(t *testing.T) {
 		t.Fatalf("expandUser(~/.docflow) = %q, want %q", got, want)
 	}
 }
+
+// TestRunSkillUnblockRecheckCoversLegacyBlock keeps the skill's rule aligned
+// with the cycle texts: every passage about a resumed unit names the legacy
+// `Blocked:` item as a human block and tells the agent to check the blocked
+// condition with a command.
+func TestRunSkillUnblockRecheckCoversLegacyBlock(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join(sourceSkills(t), "bsv-docflow-run", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Join(strings.Fields(string(text)), " ")
+	for _, part := range []string{
+		"Handoff `Unblocked:` after the latest `Blocked (human)`",
+		"a legacy `Blocked:` item counts as human",
+		"condition with a command",
+		"block again with `human`, naming what is still missing",
+	} {
+		if !strings.Contains(body, part) {
+			t.Errorf("bsv-docflow-run SKILL.md does not contain %q", part)
+		}
+	}
+	for _, part := range []string{"a legacy `Blocked:` item counts as human", "condition with a command"} {
+		if got := strings.Count(body, part); got < 3 {
+			t.Fatalf("%q covers %d passages of the skill, want the three resumed-unit passages", part, got)
+		}
+	}
+}

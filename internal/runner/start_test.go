@@ -29,7 +29,7 @@ func TestRunnerPromptInstructions(t *testing.T) {
 		if !strings.Contains(text, "## Cycle (runner mode)") || !strings.Contains(text, "docflow verify P001.1.1") || strings.Contains(text, "docflow done P001.1.1") {
 			t.Fatal(text)
 		}
-		for _, part := range []string{"Handoff `Unblocked:` after the latest `Blocked (human)`", "check that condition with a command first", "naming what is still missing"} {
+		for _, part := range []string{"Handoff `Unblocked:` after the latest `Blocked (human)`", "a legacy `Blocked:` item counts as human", "Before `Do:`", "check that condition with a command first", "naming what is still missing"} {
 			if !strings.Contains(text, part) {
 				t.Fatalf("runner prompt does not contain %q", part)
 			}

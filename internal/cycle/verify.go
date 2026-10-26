@@ -594,8 +594,11 @@ func Block(root, unitID, reason, needs string) (Result, error) {
 	return Result{Code: clierrors.EXIT_OK, Stdout: fmt.Sprintf("%s: blocked (%s): %s\n", unit.ID, needs, reason)}, nil
 }
 
-// blockedItem returns the text of the unit's latest `Blocked` Handoff item,
-// "" when the unit has none.
+// blockedItem returns the text of the unit's latest block Handoff item —
+// `Blocked (human): <reason>`, `Blocked (plan): <reason>` or a legacy
+// `Blocked: <reason>` — "" when the unit has none. An item that only looks
+// like a block (`Blockedness: …`, `Blocked by …`, `Blocked (plan)` without
+// `:`) is not one, so a later lookalike cannot hide an earlier real block.
 func blockedItem(unit *format.Unit) string {
 	field := unit.Field("Handoff")
 	if field == nil {
@@ -603,28 +606,33 @@ func blockedItem(unit *format.Unit) string {
 	}
 	item := ""
 	for _, entry := range field.Items {
-		if _, ok := strings.CutPrefix(entry.Text, "Blocked"); ok {
+		if needs, _ := blockedClass(entry.Text); needs != "" {
 			item = entry.Text
 		}
 	}
 	return item
 }
 
-// blockedClass splits a `Blocked (<needs>): <reason>` Handoff item into who
-// lifts the block and the reason it recorded. A legacy `Blocked: <reason>`
-// item without a class counts as `human`; an item without a reason records an
-// empty one. Both are "" when the text is not a block item.
+// blockedClasses are the block classes a Handoff item may name; `docflow
+// block --needs` accepts exactly these.
+var blockedClasses = []string{"human", "plan"}
+
+// blockedClass splits a block Handoff item into who lifts the block and the
+// reason it recorded: `Blocked (human): <reason>`, `Blocked (plan): <reason>`,
+// and the legacy `Blocked: <reason>` — class `human`. An item without a reason
+// records an empty one. Both are "" when the text is not a block item, which
+// includes every lookalike: `Blockedness: …`, `Blocked by …`, `Blocked (plan)`
+// without `:`, an unknown class.
 func blockedClass(item string) (needs, reason string) {
-	rest, ok := strings.CutPrefix(item, "Blocked")
-	if !ok {
-		return "", ""
-	}
-	if tail, ok := strings.CutPrefix(rest, " ("); ok {
-		if class, tail, ok := strings.Cut(tail, "):"); ok && class != "" {
-			return class, strings.TrimSpace(tail)
+	for _, class := range blockedClasses {
+		if rest, ok := strings.CutPrefix(item, "Blocked ("+class+"):"); ok {
+			return class, strings.TrimSpace(rest)
 		}
 	}
-	return "human", strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(rest), ":"))
+	if rest, ok := strings.CutPrefix(item, "Blocked:"); ok {
+		return "human", strings.TrimSpace(rest)
+	}
+	return "", ""
 }
 
 // blockNeeds returns who lifts the block on the unit's latest `Blocked`

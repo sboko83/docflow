@@ -20,8 +20,9 @@ This skill covers only running a docflow unit.
    `[~]`. The unit is already `[~]` (an interrupted session) — the same
    prompt again; the work continues from the current state of the tree.
    The Handoff has `Unblocked:` after the latest `Blocked (human)` — the
-   person claims their step is done: check it with a command before the
-   `Do:` work, see "When to block".
+   person claims their step is done (a legacy `Blocked:` item counts as
+   human): check that condition with a command before the `Do:` work, see
+   "When to block".
    Right after the output — one line to the user, before reading any
    files: `Taking up <id> <title> — plan <plan id> <plan title>`
    (from the prompt's first two lines); when the stderr line of
@@ -60,8 +61,9 @@ do. A reply without the field counts as `human`. With the plan's
 `replan:` key a `"plan"` block is replanned automatically and the unit
 is re-prompted; `"human"`, or no `replan:` key, stops the run and
 notifies. On a resumed unit — Handoff `Unblocked:` after the latest
-`Blocked (human)` — a `blocked` reply for a step the person claimed as
-done is the answer too: name in `reason` what is still missing.
+`Blocked (human)` (a legacy `Blocked:` item counts as human) — check that
+condition with a command first; a `blocked` reply for a step the person
+claimed as done is the answer too: name in `reason` what is still missing.
 
 ## Executor
 
@@ -132,11 +134,13 @@ Who lifts each block: `human` — the person, with
 becomes an `Unblocked:` Handoff item, the command does not commit; the
 run asks about such a block at its start in a terminal and stops with the
 command everywhere else. `plan` — `bsv-docflow-plan` in replan mode. A
-resumed unit checks the blocked condition with a command (does the file
-exist, is the session logged in, is the device attached) before it does
-any more of `Do:`: the note is a claim, not evidence. Met — continue;
-not met — block again with `human`, naming what is still missing, and do
-not spend the unit on the rest of `Do:`.
+resumed unit — Handoff `Unblocked:` after the latest `Blocked (human)`,
+and a legacy `Blocked:` item counts as human — checks that condition
+with a command first (does the file exist, is the session logged in, is
+the device attached) before it does any more of `Do:`: the note is a
+claim, not evidence. Met — continue; not met — block again with `human`,
+naming what is still missing, and do not spend the unit on the rest of
+`Do:`.
 
 A unit with `Role: review` reviews and fixes nothing: it edits no
 files. A defect it finds is a block with `--needs plan` — the plan's

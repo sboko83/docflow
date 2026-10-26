@@ -306,6 +306,50 @@ func TestUnblockLegacyBlockedItem(t *testing.T) {
 	}
 }
 
+func TestUnblockIgnoresBlockedLookalikes(t *testing.T) {
+	handoff := func(items ...string) string {
+		text := "Commit: P001.1.1: unit\nHandoff:\n"
+		for _, item := range items {
+			text += "- " + item + "\n"
+		}
+		return text
+	}
+	plan := func(items ...string) string {
+		return strings.Replace(donePlan("!"), "Commit: P001.1.1: unit\n", handoff(items...), 1)
+	}
+	t.Run("lookalikes do not hide a plan block", func(t *testing.T) {
+		root := makeDoneProject(t, plan(append([]string{"Blocked (plan): Do устарел"}, blockedLookalikes...)...))
+		before := readPlanText(t, root)
+		result, err := Unblock(root, "P001.1.1", "сделал")
+		if err != nil || result.Code != clierrors.EXIT_ORDER ||
+			result.Stderr != "P001.1.1 is blocked (needs plan): replan it with bsv-docflow-plan\n" {
+			t.Fatalf("Unblock() past lookalikes = %#v, %v", result, err)
+		}
+		if result.Stdout != "" {
+			t.Fatalf("stdout = %q", result.Stdout)
+		}
+		if got := readPlanText(t, root); got != before {
+			t.Fatalf("Unblock() past lookalikes changed the plan:\n%s\nwant =\n%s", got, before)
+		}
+	})
+	t.Run("lookalikes alone keep the block classless", func(t *testing.T) {
+		root := makeDoneProject(t, plan(append(blockedLookalikes, "Unblocked: поправил")...))
+		if _, unit, err := findUnit(root, "P001.1.1"); err != nil {
+			t.Fatal(err)
+		} else if needs, reason := BlockedNeeds(unit); needs != "" || reason != "" {
+			t.Fatalf("BlockedNeeds = %q, %q, want none", needs, reason)
+		}
+		result, err := Unblock(root, "P001.1.1", "готово")
+		if err != nil || result.Code != clierrors.EXIT_OK {
+			t.Fatalf("Unblock() on a unit blocked by hand = %#v, %v", result, err)
+		}
+		if got := readPlanText(t, root); !strings.Contains(got, "### [~] P001.1.1 Unit P001.1.1\n") ||
+			!strings.Contains(got, "- Unblocked: готово\n") {
+			t.Fatalf("unblocked by hand =\n%s", got)
+		}
+	})
+}
+
 func TestUnblockRejectsWrongStatus(t *testing.T) {
 	for _, status := range []string{" ", "~", "x"} {
 		root := makeDoneProject(t, donePlan(status))

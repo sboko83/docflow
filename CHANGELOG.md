@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The cycle text in every unit prompt — `## Cycle` and `## Cycle (runner
   mode)` — tells the agent how to treat a resumed unit: when its Handoff has
-  `Unblocked:` after the latest `Blocked (human)`, it checks that condition
+  `Unblocked:` after the latest `Blocked (human)` — a legacy `Blocked:` item
+  without a class counts as human — it checks that condition
   with a command before the rest of `Do:`; not met — block again with
   `human`, naming what is still missing. The `bsv-docflow-run` skill names
   the command that lifts each block; `bsv-docflow-plan` puts a human-only
@@ -42,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer stands in for it.
 
 ### Fixed
+- A unit's block is read only from the exact Handoff forms
+  `Blocked (human): …`, `Blocked (plan): …` and the legacy `Blocked: …`. A
+  lookalike item (`Blocked by …`, `Blocked (plan)` without `:`, an unknown
+  class) is no longer a block, so it cannot hide an earlier `plan` block and
+  let `docflow unblock` lift a block that needs replanning.
 - The live planning check rejects failed or timed-out agent calls,
   cleans up its watchdog, and checks the requested default roster routes
   against the snapshot saved for that call.
