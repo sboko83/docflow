@@ -81,6 +81,8 @@ request.
 - Пометка наследования = префикс `inherited` в нижнем регистре ИЛИ id юнита p\d+(\.\d+)+ внутри скобок — русский хвост «(унаследовано из P044.1.4)» не содержит английского слова, только id — отвергнуто: список слов на каждый язык и нечёткое сходство (ложные потери пунктов).
 - Хвост ищется сбалансированным сканом (matchingParen), а не последним ` (` — «(inherited from P044.1.1 (draft))» должен читаться как один маркер — отвергнуто: срез всех скобок (теряется собственная деталь пункта).
 - Хвостовая пунктуация (`. , ; : ! ? — -`) срезается и до скобок, и после них — копия приходит с точкой «… P001.1.1).», а пункт зависимости без неё — отвергнуто: нормализовать только одну сторону.
+- Check the narrowed unverified bullet in the runner prompt captured by the fake agent, not in `docflow prompt` — the manual cycle has no unverified field (it ends with `docflow finish`, not a result JSON) — rejected: adding the bullet to the manual cycle (outside Do and meaningless there).
+- Leave the double AGENTS.md marker as Unverified for the Backlog instead of fixing it here — the fix is a marker migration in `init`, outside this acceptance unit's Do — rejected: fix it inside P044.2.1.
 
 ## Phase 1: Rules
 
@@ -274,7 +276,7 @@ Handoff:
 
 ## Phase 2: Acceptance
 
-### [ ] P044.2.1 Accept the unverified discipline
+### [x] P044.2.1 Accept the unverified discipline
 Read:
 - tools/parity/README.md:L1-60
 - tools/parity/scenarios/run_cli.sh
@@ -297,3 +299,9 @@ otherwise reply `blocked` with the reason.
 Depends: P044.1.1, P044.1.2, P044.1.4, P044.1.5
 Role: acceptance
 Commit: P044.2.1: accept unverified discipline
+Handoff:
+- Added tools/parity/scenarios/run_unverified.sh. It checks the three Goal statements: a copy of a Depends item is dropped (Handoff of unit 2 holds only `- Unverified: Y`, the summary says `2 unverified`); the Depends line is in both `docflow prompt` and the runner prompt; `docflow init` in a fresh repository writes agentsLine into AGENTS.md. Mutation-checked: disabling the drop in dropInheritedUnverified or changing the note text in internal/cycle/commands.go makes the scenario fail.
+- The narrowed `unverified` bullet exists only in RunnerCycle; the manual cycle of `docflow prompt` has no unverified bullet at all. The scenario reads the runner prompt from the fake agent's stdin and calls `docflow prompt P001.1.2` from inside the fake agent while unit 2 is [~].
+- Dispositions for the P044 archive entry: P044.1.1 CI steps — closed (parity in Verify and bash tools/test-install.sh OK on macOS arm64); P044.1.1 live-agent effect — Accepted: an exact copy is dropped by the runner whatever the agent does (run_unverified scenario 1), a live model run is not a reproducible test; P044.1.2 double `Plans: docflow` line after `init` on a project with the old marker — stays Unverified → Backlog (concrete failing scenario; this repo's AGENTS.md:8 holds the old marker); P044.1.2 plan-skill and P044.1.4 close-skill live-agent behaviour — Accepted: the texts are pinned by tests, model compliance cannot be checked deterministically.
+- For the close: the comment `в Backlog — всё, кроме `Waits:`` in templates/archive.md:12 and docs/design/format.md:250 omits `Accepted:` (format.md:107 already lists it) — the format spec and templates change together.
+- Unverified: run_unverified.sh ran only on macOS arm64 — missing check: the CI matrix on ubuntu-latest and windows-latest (Git Bash, parity_shim claude, the fake agent calling the .exe binary for `prompt`).
