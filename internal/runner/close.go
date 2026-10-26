@@ -260,7 +260,10 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 	for _, name := range chain.routeAgents() {
 		beforeQuota[name] = append(agentio.Quota(nil), totals.quota[name]...)
 	}
-	defer func() { unitQuotas(p, totals, chain.agentsUsed(), beforeQuota) }()
+	defer func() {
+		unitQuotas(p, totals, chain.agentsUsed(), beforeQuota)
+		p.close()
+	}()
 	var available bool
 	route, available = chain.pick(time.Now())
 	if first, ok := chain.firstRoute(); available && ok && routeIdentity(route) != routeIdentity(first) {
@@ -324,7 +327,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 				return 2, err
 			}
 			rel, _ := filepath.Rel(root, log)
-			p.unit(id, "close plan", route)
+			p.unit(id, "close plan", route, time.Now())
 			totals.events.emit("attempt", "", map[string]any{"plan": id, "n": attempt, "route": eventRoute(route), "log": rel, "close": true})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))
 			p.spin(func() string { return livenessLabel(id+" close", live) }, nil)

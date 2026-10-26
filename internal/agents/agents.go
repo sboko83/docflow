@@ -131,8 +131,18 @@ var AgentKeys = map[string]string{
 	"effort_args": "list", "permissions": "dict",
 }
 
+// Quota display modes of the `[display]` table: how much of the window is
+// spent, or how much of it is left.
+const (
+	QuotaUsed = "used"
+	QuotaLeft = "left"
+)
+
+var quotaModes = []string{QuotaUsed, QuotaLeft}
+
 var Tiers = []string{"fast", "default", "strong", "max"}
 var tierKeys = []string{"agent", "model", "effort"}
+var displayKeys = []string{"quota", "resets"}
 var Streams = []string{"", "claude", "codex", "pi"}
 var PlaceholderRE = regexp.MustCompile(`\{(prompt|model|effort|schema|schema_file|session)\}`)
 
@@ -268,11 +278,14 @@ func LoadAgents(path string, required bool) (map[string]any, error) {
 			return nil, agentsError(fmt.Sprintf("%s: 'default_agent' moved to [tiers.default]", where))
 		}
 		for _, key := range sortedKeys(userConfig) {
-			if key != "tiers" && key != "agents" {
+			if key != "tiers" && key != "agents" && key != "display" {
 				return nil, agentsError(fmt.Sprintf("%s: unknown key %s", where, pyRepr(key)))
 			}
 		}
 		if err := mergeTiers(where, config, userConfig["tiers"]); err != nil {
+			return nil, err
+		}
+		if err := mergeDisplay(where, config, userConfig["display"]); err != nil {
 			return nil, err
 		}
 		profiles := mapAt(config, "agents")
@@ -330,7 +343,35 @@ func LoadAgents(path string, required bool) (map[string]any, error) {
 	if err := checkTiers(where, config); err != nil {
 		return nil, err
 	}
+	if err := checkDisplay(where, config); err != nil {
+		return nil, err
+	}
 	return config, nil
+}
+
+// Display is the quota display chosen by the `[display]` table.
+type Display struct {
+	// Quota is QuotaUsed or QuotaLeft.
+	Quota string
+	// Resets shows the window reset time next to the percent.
+	Resets bool
+}
+
+// DisplayConfig returns the display settings of a config LoadAgents accepted.
+// A config without the table selects the defaults.
+func DisplayConfig(config map[string]any) Display {
+	display := Display{Quota: QuotaUsed, Resets: true}
+	table, ok := config["display"].(map[string]any)
+	if !ok {
+		return display
+	}
+	if mode, ok := table["quota"].(string); ok {
+		display.Quota = mode
+	}
+	if resets, ok := table["resets"].(bool); ok {
+		display.Resets = resets
+	}
+	return display
 }
 
 func isRegularFile(path string) bool {
@@ -404,6 +445,52 @@ func checkAgent(where, name string, agent map[string]any) error {
 	cmd, _ := stringList(agent["cmd"])
 	if len(cmd) == 0 {
 		return agentsError(fmt.Sprintf("%s: agent %s: cmd must be a non-empty list of strings", where, pyRepr(name)))
+	}
+	return nil
+}
+
+func mergeDisplay(where string, config map[string]any, value any) error {
+	if value == nil {
+		return nil
+	}
+	user, ok := value.(map[string]any)
+	if !ok {
+		return agentsError(fmt.Sprintf("%s: display must be a table", where))
+	}
+	table := copyTable(mapAt(config, "display"))
+	for _, key := range sortedKeys(user) {
+		table[key] = user[key]
+	}
+	config["display"] = table
+	return nil
+}
+
+func checkDisplay(where string, config map[string]any) error {
+	value, exists := config["display"]
+	if !exists || value == nil {
+		return nil
+	}
+	table, ok := value.(map[string]any)
+	if !ok {
+		return agentsError(fmt.Sprintf("%s: display must be a table", where))
+	}
+	for _, key := range sortedKeys(table) {
+		if !contains(displayKeys, key) {
+			return agentsError(fmt.Sprintf("%s: display: unknown key %s", where, pyRepr(key)))
+		}
+		if key == "quota" {
+			mode, ok := table[key].(string)
+			if !ok {
+				return agentsError(fmt.Sprintf("%s: display: quota must be str", where))
+			}
+			if !contains(quotaModes, mode) {
+				return agentsError(fmt.Sprintf("%s: display: quota must be one of: %s", where, strings.Join(quotaModes, ", ")))
+			}
+			continue
+		}
+		if _, ok := table[key].(bool); !ok {
+			return agentsError(fmt.Sprintf("%s: display: resets must be bool", where))
+		}
 	}
 	return nil
 }

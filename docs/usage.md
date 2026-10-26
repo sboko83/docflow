@@ -463,6 +463,14 @@ docflow run              # юниты текущего плана подряд �
 | `instructions` | текст в конец промпта юнита; только в режиме прав `auto` |
 | `quota` | argv опроса квоты на старте `run`, без вызова модели; вывод разбирает `stream` (`claude`: текст `/usage`, `codex`: JSON-RPC `app-server`); пусто — не опрашивать; у Pi квота встроена для модели `zai/...`, ключ профиля не нужен |
 
+Экран квоты настраивает таблица `[display]` — рядом с `[tiers]` и `[agents]`;
+её ключи известны только эти, неизвестный ключ, значение или тип — код 2:
+
+| Ключ `[display]` | Смысл |
+|---|---|
+| `quota` | `"used"` (по умолчанию) — доля израсходованного окна; `"left"` — остаток: процент, полоса, дельта и цвета считаются от него, пороги зеркальные (>50% зелёный, 21–50% жёлтый, ≤20% красный) |
+| `resets` | `true` (по умолчанию) — время сброса окна в строке квоты: `↻HH:MM` для окна 5h, `↻Mon HH:MM` для более длинных; `false` — без него. В текстовом выводе время сброса, как и раньше, только с `-v` |
+
 Плейсхолдеры в аргументах: `{prompt}`, `{model}`, `{effort}`, `{schema}` (JSON-схема
 result inline), `{schema_file}`, `{session}`.
 
@@ -474,6 +482,9 @@ result inline), `{schema_file}`, `{session}`.
 default = {model = "opus"}    # ярус default теперь opus
 fast = {model = "claude-haiku-x"}
 strong = {agent = "codex", model = "<id модели OpenAI>", effort = "high"}
+
+[display]
+quota = "left"                # остаток подписки, а не израсходованное
 
 [agents.claude.model_extra]   # модели без режима auto — явные права
 claude-haiku-x = ["--allowedTools", "Write", "Edit", "Bash"]

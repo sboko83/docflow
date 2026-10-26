@@ -244,16 +244,16 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 	if err := os.WriteFile(schema, append(data, '\n'), 0o644); err != nil {
 		return 2, err
 	}
-	p.unit(uid, "replan", route)
 	start := time.Now()
 	beforeQuota := make(map[string]agentio.Quota)
 	for _, routeAgent := range chain.routeAgents() {
 		beforeQuota[routeAgent] = append(agentio.Quota(nil), totals.quota[routeAgent]...)
 	}
 	defer func() {
-		p.elapsed(uid, time.Since(start).Seconds())
 		unitQuotas(p, totals, chain.agentsUsed(), beforeQuota)
+		p.unitEnd(uid)
 	}()
+	p.unit(uid, "replan", route, start)
 	planPath := filepath.Join(root, plan.Path)
 	before, err := os.ReadFile(planPath)
 	if err != nil {

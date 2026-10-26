@@ -146,6 +146,18 @@ func TestLoadAgentsMergeAndValidation(t *testing.T) {
 		t.Fatalf("permissions was not merged by key: %#v", permissions)
 	}
 
+	writeConfig(t, path, "[display]\nquota = \"left\"\nresets = false\n")
+	config, err = LoadAgents(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if display := DisplayConfig(config); display.Quota != QuotaLeft || display.Resets {
+		t.Fatalf("[display] = %#v", display)
+	}
+	if display := DisplayConfig(nil); display.Quota != QuotaUsed || !display.Resets {
+		t.Fatalf("default [display] = %#v", display)
+	}
+
 	writeConfig(t, path, "[tiers]\ndefault = {agent = \"echo\"}\n[agents.echo]\ncmd = [\"echo\"]\n")
 	config, err = LoadAgents(path, true)
 	if err != nil {
@@ -194,6 +206,11 @@ func TestLoadAgentsValidationErrors(t *testing.T) {
 		{"[tiers]\nfast = {size = \"x\"}\n", "unknown key 'size'"},
 		{"[tiers]\nfast = {effort = 1}\n", "'effort' must be str"},
 		{"[tiers]\nfast = {agent = \"nope\"}\n", "agent 'nope' has no profile"},
+		{"[display]\nquota = \"spent\"\n", "display: quota must be one of: used, left"},
+		{"[display]\nquota = 1\n", "display: quota must be str"},
+		{"[display]\nresets = \"no\"\n", "display: resets must be bool"},
+		{"[display]\nwidth = 80\n", "display: unknown key 'width'"},
+		{"display = 5\n", "display must be a table"},
 	} {
 		t.Run(test.message, func(t *testing.T) { assertBad(test.text, test.message) })
 	}

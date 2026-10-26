@@ -27,12 +27,15 @@ func TestTerminalRunRealTTY(t *testing.T) {
 	if code != 3 {
 		t.Fatalf("exit %d: %s", code, text)
 	}
-	for _, s := range []string{"┌─ P001.1.1", "! attempt 1:", "✓ Done:", "! Unverified:", note, "! Blocked (needs human):\n│    нет файла", "Quota · used · Δ run", "97% (+11)", "1 unverified"} {
+	if !regexp.MustCompile("(?m)^┌─ [0-9]{2}:[0-9]{2} · P001\\.1\\.1: ").MatchString(text) {
+		t.Errorf("the unit block header carries no start time:\n%s", text)
+	}
+	for _, s := range []string{"! attempt 1:", "✓ Done:", "! Unverified:", note, "! Blocked (needs human):\n│    нет файла", "Quota · used · Δ run", "97% (+11)", "1 unverified"} {
 		if !strings.Contains(text, s) {
 			t.Errorf("missing %q:\n%s", s, text)
 		}
 	}
-	if strings.Count(text, "│  Time: ") != 2 || !strings.HasSuffix(text, "╰─\n") {
+	if len(frameEnd.FindAllString(text, -1)) != 2 || !strings.HasSuffix(text, "╰─\n") {
 		t.Fatal(text)
 	}
 }
@@ -41,7 +44,7 @@ func TestTerminalReplanRealTTY(t *testing.T) {
 	f := newReplanFixture(t)
 	f.steps(blockReply(), liftReply("P001.1.1"), writeReply("b.txt"), writeReply("d.txt"))
 	code, text, raw := runInTerminal(t, f)
-	if code != 0 || strings.Count(text, "│  Time: ") != 4 {
+	if code != 0 || len(frameEnd.FindAllString(text, -1)) != 4 {
 		t.Fatalf("exit %d, missing unit/replan durations:\n%s", code, text)
 	}
 	if !strings.Contains(text, "↻ Replanned:") || !strings.Contains(raw, "\x1b[1;97;48;2;193;95;60m Claude ") {

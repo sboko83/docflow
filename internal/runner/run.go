@@ -160,6 +160,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		return dryRun(root, args, config, sel, stdout, stderr)
 	}
 	p := newProgress(stdout, stderr, args.Verbose)
+	p.setDisplay(agents.DisplayConfig(config))
 	defer p.stop()
 	now := time.Now()
 	totals := &runTotals{start: now, wall: epoch(now), quota: map[string]agentio.Quota{}, quotaStart: map[string]agentio.Quota{}}
@@ -368,6 +369,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 		}
 		code, trigger, err := runUnit(ctx, root, args, config, chain, sel.Unit.ID, p, totals)
 		unitQuotas(p, totals, chain.agentsUsed(), before)
+		p.unitEnd(sel.Unit.ID)
 		if err != nil {
 			return code, err
 		}
@@ -490,7 +492,7 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress
 		quotaByAgent[name] = quotas[i]
 		shown = append(shown, NamedQuota{name, quotas[i]})
 	}
-	p.quotas(shown, nil, "", false)
+	p.quotas(shown, nil, "")
 	if args.Executors {
 		for _, skipped := range markQuotaRoutes(routes, quotaByAgent, unavailable, time.Now()) {
 			p.line(fmt.Sprintf("%s: quota exhausted until %s, skipped", skipped.agent, skipped.until.Local().Format("15:04")), false, "")
@@ -647,8 +649,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	name := route.Agent
 	agent := profile(config, name)
 	totals.events.emit("unit_start", uid, map[string]any{"route": eventRoute(route)})
-	p.unit(uid, unit.Title, route)
-	defer func() { p.elapsed(uid, time.Since(start).Seconds()) }()
+	p.unit(uid, unit.Title, route, start)
 	committing, err := cycle.CommitPending(root, plan, unit)
 	if err != nil {
 		return 2, "", err
@@ -1128,7 +1129,7 @@ func unitQuotas(p *Progress, totals *runTotals, names []string, before map[strin
 	for _, name := range names {
 		quotas = append(quotas, NamedQuota{Name: name, Quota: totals.quota[name]})
 	}
-	p.quotas(quotas, before, "", true)
+	p.quotas(quotas, before, "")
 }
 
 func unitQuota(p *Progress, totals *runTotals, name string, before agentio.Quota) {

@@ -85,7 +85,8 @@ spends their quota. Add `--dry-run` to inspect routes without model calls.
 Each unit goes to the agent, model, and reasoning effort the plan routes
 it to. The runner verifies and commits the unit itself; whatever the agent
 could not check is reported as `Unverified` instead of being passed off as
-done. Quota bars show how much of each subscription window a unit used.
+done. Quota bars show each subscription window as the share a unit spent, or —
+with `[display] quota = "left"` in the agents config — as the share left.
 
 ![docflow run: a stale unit and an automatic replan](docs/img/demo-replan.svg)
 

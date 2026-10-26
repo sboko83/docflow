@@ -927,7 +927,10 @@ func TestRunProgressAndCost(t *testing.T) {
 			}
 			if mode == "gave-up" || mode == "blocked" {
 				lines := strings.Split(strings.TrimSpace(r.out), "\n")
-				if lines[len(lines)-2] != "quota: fake 5h 8% · 7d 7%" {
+				// The quota row sits inside the block, the closing row names the
+				// span, and the run summary is the last row.
+				if lines[len(lines)-3] != "quota: fake 5h 8% · 7d 7%" ||
+					!strings.HasPrefix(lines[len(lines)-2], "P001.1.1 time: ") {
 					t.Fatal(r.out)
 				}
 			}

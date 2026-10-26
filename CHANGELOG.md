@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<id> <elapsed> · turn <n> · <age> ago`, plus `· tool <duration>` while a
   tool runs. The call log `<git-dir>/docflow/run/<unit>.<attempt>.out` is
   written while the call runs, so `tail -f` follows the agent.
+- The quota display is configurable through the new `[display]` table of the
+  agents config: `quota = "used" | "left"` — `left` shows the remainder of the
+  window (percent, bar, delta and colours all mirror) — and
+  `resets = true | false`, which hides the window reset time. An unknown key
+  or value is a config error (exit 2).
 
 ### Fixed
 - A call the runner stopped is not a provider failure: an attempt killed for
@@ -39,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The built-in `claude`, `codex` and `pi` profiles raise the per-call cap from
   3600 to 7200 seconds: a unit that works the whole hour is cut off while it
   is still making progress. The plan header's `timeout:` keeps overriding it.
+- A unit and replan block names its own span: the header starts with the
+  block's start time (`┌─ HH:MM · <id>: <title>`), the quota rows sit inside
+  the frame, and the block ends with `└─ HH:MM · <duration>` in place of the
+  `Time: <duration>` row. Text output prints
+  `<id> time: <duration> (HH:MM:SS–HH:MM:SS)` after the per-unit `quota:` row.
+- Quota rows colour by 50% and 80% of the shown share (was 75% and 90%), and
+  the window reset time sits inline after the percent (`↻HH:MM`, `↻Mon HH:MM`)
+  instead of a separate row that only `--verbose` showed.
 - The call log ends with `--- exit N` carrying a ` (timed out)` or
   ` (stalled)` suffix instead of starting with that line: `$ argv`,
   `--- stdout` streamed line by line, `--- stderr`, exit. The file is

@@ -33,21 +33,23 @@ const unverifiedLabel = "Unverified: "
 // Progress writes ordinary progress to out and interactive terminal output to
 // the same stream. Styles and the spinner are enabled only when out is a TTY.
 type Progress struct {
-	out      io.Writer
-	err      io.Writer
-	verbose  bool
-	mu       sync.Mutex
-	tty      bool
-	fancy    bool
-	spinner  bool
-	colour   bool
-	columns  func() int
-	label    any
-	activity any
-	block    bool
-	unitID   string
-	halt     chan struct{}
-	done     chan struct{}
+	out       io.Writer
+	err       io.Writer
+	verbose   bool
+	mu        sync.Mutex
+	tty       bool
+	fancy     bool
+	spinner   bool
+	colour    bool
+	columns   func() int
+	label     any
+	activity  any
+	block     bool
+	unitID    string
+	unitStart time.Time
+	display   agents.Display
+	halt      chan struct{}
+	done      chan struct{}
 }
 
 type NamedQuota struct {
@@ -68,7 +70,16 @@ func newProgress(out, err io.Writer, verbose bool) *Progress {
 		out: out, err: err, verbose: verbose, tty: tty,
 		fancy: tty && os.Getenv("TERM") != "dumb", spinner: tty && os.Getenv("TERM") != "dumb",
 		colour: os.Getenv("NO_COLOR") == "", columns: columns,
+		display: agents.Display{Quota: agents.QuotaUsed, Resets: true},
 	}
+}
+
+// setDisplay applies the `[display]` table of the agents config: the quota
+// mode and whether the reset time shows.
+func (p *Progress) setDisplay(display agents.Display) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.display = display
 }
 
 func (p *Progress) paint(text, style string, stream io.Writer) string {
@@ -265,14 +276,29 @@ func (p *Progress) closeLocked() {
 	p.unitID = ""
 }
 
-func (p *Progress) openLocked(title string, rounded bool) {
+// openLocked starts a frame. A stamp (the block's start time) sits dim in
+// front of the title and wraps under the frame; rounded frames (the run start
+// and the summary) carry no stamp.
+func (p *Progress) openLocked(title string, rounded bool, stamp string) {
 	p.closeLocked()
 	p.emitLocked("", p.out)
 	prefix := "┌─ "
 	if rounded {
 		prefix = "╭─ "
 	}
-	p.wrappedLocked(title, prefix, "bold", p.out, "│  ")
+	if stamp == "" {
+		p.wrappedLocked(title, prefix, "bold", p.out, "│  ")
+		p.block = true
+		return
+	}
+	head := prefix + stamp + " · "
+	for index, row := range wrapParagraph(title, p.width()-utf8.RuneCountInString(head)) {
+		left := head
+		if index > 0 {
+			left = "│  "
+		}
+		p.emitLocked(p.paint(left, "dim", p.out)+p.paint(row, "bold", p.out), p.out)
+	}
 	p.block = true
 }
 
@@ -287,7 +313,7 @@ func (p *Progress) start(planID, title string, wall float64, full bool) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.openLocked("run: "+planID, true)
+	p.openLocked("run: "+planID, true, "")
 	p.wrappedLocked(title, "│  ", "", p.out, "")
 	ending := "start " + clock(wall)
 	if full {
@@ -324,19 +350,23 @@ func agentName(name string) string {
 	}
 }
 
-func (p *Progress) unit(uid, title string, route agents.Route) {
+func (p *Progress) unit(uid, title string, route agents.Route, start time.Time) {
 	if !p.fancy {
 		routeLabel := routeText(route)
 		if isLocalRoute(route) {
 			routeLabel = "Local: " + routeLabel
 		}
 		p.line(uid+" "+title+" -> "+routeLabel, false, "")
+		p.mu.Lock()
+		p.unitStart = start
+		p.mu.Unlock()
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.openLocked(uid+": "+title, false)
+	p.openLocked(uid+": "+title, false, hour(epoch(start)))
 	p.unitID = uid
+	p.unitStart = start
 	p.executorLocked(route)
 }
 
@@ -424,12 +454,34 @@ func (p *Progress) resume(text string) {
 	p.line(p.paint(text, "yellow", p.out), false, "")
 }
 
-func (p *Progress) elapsed(uid string, seconds float64) {
-	if !p.fancy {
-		p.line(uid+" time: "+agentio.Duration(seconds), false, "")
+// unitEnd closes the block a unit or replan opened: in a terminal the frame's
+// last line carries the end time and the block's duration, in text output the
+// same fact is one line naming the span. A block that never opened prints
+// nothing.
+func (p *Progress) unitEnd(uid string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	start := p.unitStart
+	if start.IsZero() {
 		return
 	}
-	p.line("Time: "+agentio.Duration(seconds), false, "dim")
+	p.unitStart = time.Time{}
+	seconds := time.Since(start).Seconds()
+	if !p.fancy {
+		p.lineLocked(fmt.Sprintf("%s time: %s (%s–%s)", uid, agentio.Duration(seconds),
+			clock(epoch(start)), clock(epoch(start)+seconds)), p.out, "", false)
+		return
+	}
+	if !p.block {
+		return
+	}
+	p.clearLocked()
+	// The end time is the header's start plus the duration: one span, read off
+	// the frame's first and last row.
+	p.emitLocked(p.paint("└─ "+hour(epoch(start)+seconds)+" · ", "dim", p.out)+
+		p.paint(agentio.Duration(seconds), "dim", p.out), p.out)
+	p.block = false
+	p.unitID = ""
 }
 
 func count(n int) string {
@@ -444,6 +496,12 @@ func count(n int) string {
 
 func clock(epoch float64) string {
 	return time.Unix(int64(epoch), 0).In(time.Local).Format("15:04:05")
+}
+
+// hour is the resolution a block's span reads at: the frame's first row names
+// the start, its last row the end.
+func hour(epoch float64) string {
+	return time.Unix(int64(epoch), 0).In(time.Local).Format("15:04")
 }
 
 var quotaLabels = map[string]string{"five_hour": "5h", "seven_day": "7d"}
@@ -507,42 +565,86 @@ func equalValues(a, b any) bool {
 	return fmt.Sprintf("%T:%v", a, a) == fmt.Sprintf("%T:%v", b, b)
 }
 
-func quotaWindow(window agentio.QuotaWindow, before agentio.Quota, resets bool) (string, string, string) {
+// quotaView is one quota window as the display shows it. `used` shows the
+// spent share, `left` shows 100 − used; the bar, the percent and the delta all
+// carry the mode, so a `left` delta is the mirror of the `used` one.
+type quotaView struct {
+	label   string
+	percent string
+	shown   int
+	delta   string
+	reset   string
+}
+
+func quotaViewOf(window agentio.QuotaWindow, before agentio.Quota, left bool) quotaView {
 	label := window.Label
 	if known, ok := quotaLabels[label]; ok {
 		label = known
 	}
-	extra := ""
+	raw := int(math.RoundToEven(window.Used * 100))
+	view := quotaView{label: label, shown: raw}
 	for _, prior := range before {
 		if prior.Label != window.Label {
 			continue
 		}
-		priorPercent := math.RoundToEven(prior.Used * 100)
+		priorPercent := int(math.RoundToEven(prior.Used * 100))
 		// An idle window at 0% has no running reset yet: the first use opens
 		// a window with a new reset, and the delta is still the whole value.
 		if priorPercent == 0 || sameReset(prior.Reset, window.Reset) {
-			delta := math.RoundToEven(window.Used*100) - priorPercent
-			extra += fmt.Sprintf(" (%+.0f)", delta)
+			delta := raw - priorPercent
+			if left {
+				delta = -delta
+			}
+			view.delta = fmt.Sprintf(" (%+d)", delta)
 			break
 		}
 	}
-	if resets {
-		if epoch, ok := numericEpoch(window.Reset); ok {
-			layout := "15:04"
-			if label != "5h" {
-				layout = "Mon 15:04"
-			}
-			extra += " resets " + time.Unix(int64(epoch), 0).In(time.Local).Format(layout)
+	if epoch, ok := numericEpoch(window.Reset); ok {
+		layout := "15:04"
+		if label != "5h" {
+			layout = "Mon 15:04"
 		}
+		view.reset = time.Unix(int64(epoch), 0).In(time.Local).Format(layout)
 	}
-	return label, fmt.Sprintf("%.0f%%", window.Used*100), extra
+	if left {
+		view.shown = 100 - raw
+	}
+	view.percent = fmt.Sprintf("%d%%", view.shown)
+	return view
 }
 
-func quotaText(quota, before agentio.Quota, resets bool) string {
+// quotaColour paints by the shown percent: in `used` a rising number is the
+// problem, in `left` a falling one is.
+func quotaColour(shown int, left bool) string {
+	if left {
+		switch {
+		case shown > 50:
+			return "green"
+		case shown > 20:
+			return "yellow"
+		default:
+			return "red"
+		}
+	}
+	switch {
+	case shown >= 80:
+		return "red"
+	case shown >= 50:
+		return "yellow"
+	default:
+		return "green"
+	}
+}
+
+func quotaText(quota, before agentio.Quota, display agents.Display, resets bool) string {
 	parts := make([]string, 0, len(quota))
 	for _, window := range quota {
-		label, percent, extra := quotaWindow(window, before, resets)
-		parts = append(parts, label+" "+percent+extra)
+		view := quotaViewOf(window, before, display.Quota == agents.QuotaLeft)
+		text := view.label + " " + view.percent + view.delta
+		if resets && view.reset != "" {
+			text += " resets " + view.reset
+		}
+		parts = append(parts, text)
 	}
 	return strings.Join(parts, " · ")
 }
@@ -552,21 +654,12 @@ func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
 	if p.width() < 60 {
 		width = 6
 	}
+	left := p.display.Quota == agents.QuotaLeft
 	rows := make([]string, 0, len(quota))
-	resets := make([]string, 0)
 	for _, window := range quota {
-		label, percent, extra := quotaWindow(window, before, p.verbose)
-		colour := "green"
-		if window.Used >= .9 {
-			colour = "red"
-		} else if window.Used >= .75 {
-			colour = "yellow"
-		}
-		if extraBefore, reset, found := strings.Cut(extra, " resets "); found {
-			resets = append(resets, label+" resets "+reset)
-			extra = extraBefore
-		}
-		scaled := int(math.RoundToEven(math.Max(0, math.Min(1, window.Used)) * float64(width*8)))
+		view := quotaViewOf(window, before, left)
+		colour := quotaColour(view.shown, left)
+		scaled := int(math.RoundToEven(math.Max(0, math.Min(1, float64(view.shown)/100)) * float64(width*8)))
 		full, fraction := scaled/8, scaled%8
 		bar := strings.Repeat("█", full)
 		fractions := []rune("▏▎▍▌▋▊▉")
@@ -581,7 +674,11 @@ func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
 			trackCount = 0
 		}
 		track := strings.Repeat("░", trackCount)
-		rows = append(rows, p.paint(label, "dim", p.out)+"  "+p.paint(bar, colour, p.out)+p.paint(track, "dim", p.out)+" "+p.paint(fmt.Sprintf("%4s", percent), colour, p.out)+p.paint(extra, "dim", p.out))
+		extra := view.delta
+		if p.display.Resets && view.reset != "" {
+			extra += " ↻" + view.reset
+		}
+		rows = append(rows, p.paint(view.label, "dim", p.out)+"  "+p.paint(bar, colour, p.out)+p.paint(track, "dim", p.out)+" "+p.paint(fmt.Sprintf("%4s", view.percent), colour, p.out)+p.paint(extra, "dim", p.out))
 	}
 	row := ""
 	for _, part := range rows {
@@ -597,12 +694,12 @@ func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
 	if row != "" {
 		p.emitLocked(p.paint(prefix, "dim", p.out)+row, p.out)
 	}
-	for _, reset := range resets {
-		p.wrappedLocked(reset, prefix+"  ", "dim", p.out, "")
-	}
 }
 
-func (p *Progress) quotasLocked(quotas []NamedQuota, before map[string]agentio.Quota, scope string, finish bool) {
+// quotasLocked writes the quota rows inside the open frame. It never closes
+// the frame: the block's owner ends it, with a duration line for a unit and
+// replan block and the bottom border for the start and the summary frame.
+func (p *Progress) quotasLocked(quotas []NamedQuota, before map[string]agentio.Quota, scope string) {
 	known := make([]NamedQuota, 0, len(quotas))
 	for _, item := range quotas {
 		if len(item.Quota) > 0 {
@@ -612,7 +709,7 @@ func (p *Progress) quotasLocked(quotas []NamedQuota, before map[string]agentio.Q
 	if !p.fancy {
 		shown := make([]string, 0, len(known))
 		for _, item := range known {
-			shown = append(shown, item.Name+" "+quotaText(item.Quota, before[item.Name], p.verbose))
+			shown = append(shown, item.Name+" "+quotaText(item.Quota, before[item.Name], p.display, p.verbose && p.display.Resets))
 		}
 		if len(shown) > 0 {
 			p.lineLocked("quota: "+strings.Join(shown, "; "), p.out, "", false)
@@ -620,39 +717,32 @@ func (p *Progress) quotasLocked(quotas []NamedQuota, before map[string]agentio.Q
 		return
 	}
 	p.clearLocked()
-	if finish {
-		if len(known) > 0 {
-			for i, item := range known {
-				prefix := "   "
-				if i == 0 {
-					prefix = "└─ Quota · used "
-				}
-				p.emitLocked(p.paint(prefix, "dim", p.out)+p.badge(item.Name), p.out)
-				p.quotaRowsLocked(item.Quota, before[item.Name], "   ")
-			}
-			p.block = false
-			p.unitID = ""
-		}
-		p.closeLocked()
+	if len(known) == 0 {
 		return
 	}
-	if len(known) > 0 {
-		heading := "Quota · used"
-		if scope != "" {
-			heading += " · Δ " + scope
-		}
+	heading := "Quota · " + p.display.Quota
+	if scope != "" {
+		heading += " · Δ " + scope
+	}
+	rest := known
+	if scope == "" && len(known) == 1 {
+		// One agent's badge fits the heading row.
+		p.emitLocked(p.paint("│  "+heading+" ", "dim", p.out)+p.badge(known[0].Name), p.out)
+		p.quotaRowsLocked(known[0].Quota, before[known[0].Name], "│  ")
+		rest = nil
+	} else {
 		p.wrappedLocked(heading, "│  ", "dim", p.out, "")
-		for _, item := range known {
-			p.emitLocked(p.paint("│  ", "dim", p.out)+p.badge(item.Name), p.out)
-			p.quotaRowsLocked(item.Quota, before[item.Name], "│    ")
-		}
+	}
+	for _, item := range rest {
+		p.emitLocked(p.paint("│  ", "dim", p.out)+p.badge(item.Name), p.out)
+		p.quotaRowsLocked(item.Quota, before[item.Name], "│  ")
 	}
 }
 
-func (p *Progress) quotas(quotas []NamedQuota, before map[string]agentio.Quota, scope string, finish bool) {
+func (p *Progress) quotas(quotas []NamedQuota, before map[string]agentio.Quota, scope string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.quotasLocked(quotas, before, scope, finish)
+	p.quotasLocked(quotas, before, scope)
 }
 
 func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]agentio.Quota, hints []string) {
@@ -660,7 +750,7 @@ func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]a
 		shown := make([]string, 0, len(quotas))
 		for _, item := range quotas {
 			if len(item.Quota) > 0 {
-				shown = append(shown, item.Name+" "+quotaText(item.Quota, before[item.Name], false))
+				shown = append(shown, item.Name+" "+quotaText(item.Quota, before[item.Name], p.display, false))
 			}
 		}
 		if len(shown) > 0 {
@@ -674,10 +764,10 @@ func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]a
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.openLocked("run: summary", true)
+	p.openLocked("run: summary", true, "")
 	p.wrappedLocked(strings.TrimPrefix(text, "run: "), "│  ", "", p.out, "")
 	p.emitLocked(p.paint("│", "dim", p.out), p.out)
-	p.quotasLocked(quotas, before, "run", false)
+	p.quotasLocked(quotas, before, "run")
 	for _, hint := range hints {
 		p.wrappedLocked("hint: "+hint, "│  ", "yellow", p.out, "")
 	}

@@ -31,30 +31,56 @@ func newTTYProgress(t *testing.T) (*Progress, *fakeTTY) {
 	return progress, out
 }
 
+// blockStart is a fixed block start, so a frame's header row is predictable.
+var blockStart = time.Date(2026, 3, 9, 14, 22, 0, 0, time.Local)
+
+// ranFor sets how long the open block ran; unitEnd measures the duration from
+// the start the frame recorded.
+func ranFor(p *Progress, seconds float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.unitStart = time.Now().Add(-time.Duration(seconds * float64(time.Second)))
+}
+
+// frameEnd is the row that closes a unit block: end time and duration.
+var frameEnd = regexp.MustCompile("(?m)^\u2514\u2500 ([0-9]{2}:[0-9]{2}) \u00b7 (.+)$")
+
+func frameDuration(t *testing.T, text string) string {
+	t.Helper()
+	match := frameEnd.FindStringSubmatch(text)
+	if match == nil {
+		t.Fatalf("the frame has no end row:\n%s", text)
+	}
+	return match[2]
+}
+
 func TestTerminalLayoutUnitResultsAndUnverified(t *testing.T) {
 	p, out := newTTYProgress(t)
-	p.unit("P001.1.1", "Первый юнит", agents.Route{Agent: "codex", Model: "gpt-6-luna", Effort: "max"})
+	p.unit("P001.1.1", "Первый юнит", agents.Route{Agent: "codex", Model: "gpt-6-luna", Effort: "max"}, blockStart)
 	p.line("P001.1.1: attempt 1: invalid JSON", true, "")
 	p.result("P001.1.1", "done", "abc123 (2 attempts, 4m34s)")
 	p.unverified("Проверка на сопряжённых Apple Watch не выполнялась.")
-	p.quotas(nil, nil, "", true)
+	p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "5h", Used: .3}}}}, nil, "")
+	ranFor(p, 48)
+	p.unitEnd("P001.1.1")
 	text := plainTTY(out.String())
 	for _, expected := range []string{
-		"┌─ P001.1.1: Первый юнит",
+		"┌─ 14:22 · P001.1.1: Первый юнит",
 		" Codex  │ gpt-6-luna │ max",
 		"│  ! attempt 1: invalid JSON",
 		"│  ✓ Done: abc123 (2 attempts, 4m34s)",
 		"│  ! Unverified:\n│    Проверка на сопряжённых",
+		"│  Quota · used  Codex \n│  5h",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("output does not contain %q:\n%s", expected, text)
 		}
 	}
-	if !strings.HasSuffix(text, "└─\n") {
-		t.Errorf("output should end with the unit close, got %q", text)
+	if !strings.HasSuffix(text, "· 48s\n") {
+		t.Errorf("the last row is not the block's end row: %q", text)
 	}
 	if p.block {
-		t.Fatal("quotas(finish=true) left the block open")
+		t.Fatal("unitEnd left the block open")
 	}
 	if strings.Contains(text, "\n│\n") {
 		t.Fatalf("unit contains empty spacer rows:\n%s", text)
@@ -86,7 +112,7 @@ func TestTerminalLayoutAgentBadgesAndReasoningColors(t *testing.T) {
 		{"claude", "Claude", "max", "1;38;5;208"},
 		{"claude", "Claude", "ultra", "1;91"},
 	} {
-		p.unit("P001.1.1", "Unit", agents.Route{Agent: item.agent, Model: "model", Effort: item.effort})
+		p.unit("P001.1.1", "Unit", agents.Route{Agent: item.agent, Model: "model", Effort: item.effort}, blockStart)
 		text := out.String()
 		if !strings.Contains(text, "\x1b["+STYLES[item.agent]+"m "+item.label+" ") {
 			t.Errorf("%s badge was not painted: %q", item.agent, text)
@@ -102,11 +128,12 @@ func TestTerminalLayoutAgentBadgesAndReasoningColors(t *testing.T) {
 
 func TestTerminalLayoutReplanAndUnknownAgent(t *testing.T) {
 	p, out := newTTYProgress(t)
-	p.unit("P001.1.1", "replan", agents.Route{Agent: "custom", Model: "model", Effort: "xhigh"})
+	p.unit("P001.1.1", "replan", agents.Route{Agent: "custom", Model: "model", Effort: "xhigh"}, blockStart)
 	p.result("P001.1.1", "replanned", "abc123 (+1 units)")
-	p.quotas(nil, nil, "", true)
+	p.quotas(nil, nil, "")
+	p.unitEnd("P001.1.1")
 	text := plainTTY(out.String())
-	for _, expected := range []string{"┌─ P001.1.1: replan", " custom  │ model │ xhigh", "↻ Replanned: abc123 (+1 units)"} {
+	for _, expected := range []string{"┌─ 14:22 · P001.1.1: replan", " custom  │ model │ xhigh", "↻ Replanned: abc123 (+1 units)"} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("output does not contain %q:\n%s", expected, text)
 		}
@@ -115,29 +142,34 @@ func TestTerminalLayoutReplanAndUnknownAgent(t *testing.T) {
 
 func TestTerminalFallbackRouteIsShownInUnitBlock(t *testing.T) {
 	p, out := newTTYProgress(t)
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "pi", Model: "zai/glm-5.3", Effort: "max"})
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "pi", Model: "zai/glm-5.3", Effort: "max"}, blockStart)
 	p.line("P001.1.1: pi zai/glm-5.3: limit until 12:30; switching to codex gpt-5.5", false, "")
 	p.executor(agents.Route{Agent: "codex", Model: "gpt-5.5"})
 	p.result("P001.1.1", "done", "abc123 (1 attempt via codex gpt-5.5)")
-	p.quotas(nil, nil, "", true)
+	p.quotas(nil, nil, "")
+	p.unitEnd("P001.1.1")
 	text := plainTTY(out.String())
 	if !strings.Contains(text, " Pi  │ zai/glm-5.3 │ max") || !strings.Contains(text, " Codex  │ gpt-5.5 │ -") || !strings.Contains(text, "via codex gpt-5.5") {
 		t.Fatalf("fallback route is missing from the unit block:\n%s", text)
 	}
 }
 
-func TestTerminalBlockedSeparatesWhiteReasonAndElapsed(t *testing.T) {
+func TestTerminalBlockedSeparatesWhiteReasonAndUnitEnd(t *testing.T) {
 	for _, status := range []string{"blocked", "replan blocked"} {
 		t.Run(status, func(t *testing.T) {
 			p, out := newTTYProgress(t)
-			p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex"})
+			p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex"}, blockStart)
 			p.line("P001.1.1: "+status+" (needs plan): первая строка\nвторая: детали", false, "red")
-			p.elapsed("P001.1.1", 137)
-			p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "5h", Used: .2}}}}, nil, "", true)
+			p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "5h", Used: .2}}}}, nil, "")
+			ranFor(p, 137)
+			p.unitEnd("P001.1.1")
 			raw, text := out.String(), plainTTY(out.String())
 			label := strings.Replace(status, "blocked", "Blocked", 1)
-			if !strings.Contains(text, "│  ! "+label+" (needs plan):\n│    первая строка\n│    вторая: детали\n│  Time: 2m17s\n└─ Quota") {
-				t.Fatalf("blocked reason or elapsed misplaced:\n%s", text)
+			if !strings.Contains(text, "│  ! "+label+" (needs plan):\n│    первая строка\n│    вторая: детали\n│  Quota · used  Codex \n│  5h") {
+				t.Fatalf("blocked reason or quota row misplaced:\n%s", text)
+			}
+			if got := frameDuration(t, text); got != "2m17s" {
+				t.Errorf("the block's end row names %q, want the block's 2m17s:\n%s", got, text)
 			}
 			if !strings.Contains(raw, "\x1b[31m! "+label) || !strings.Contains(raw, "\x1b[97mпервая строка") {
 				t.Fatalf("blocked heading or reason has the wrong color: %q", raw)
@@ -146,21 +178,42 @@ func TestTerminalBlockedSeparatesWhiteReasonAndElapsed(t *testing.T) {
 	}
 }
 
-func TestElapsedPlainAndNoColor(t *testing.T) {
+// TestTerminalClosePlanBlockClosesAfterQuota guards the closing call block:
+// it has no duration row, so its owner ends the frame after the quota rows.
+func TestTerminalClosePlanBlockClosesAfterQuota(t *testing.T) {
+	p, out := newTTYProgress(t)
+	p.unit("P001", "close plan", agents.Route{Agent: "claude", Model: "opus"}, blockStart)
+	p.result("P001", "done", "abc123")
+	p.quotas([]NamedQuota{{Name: "claude", Quota: agentio.Quota{{Label: "five_hour", Used: .2}}}}, nil, "")
+	p.close()
+	text := plainTTY(out.String())
+	if !strings.Contains(text, "\u2502  Quota \u00b7 used  Claude \n\u2502  5h") || !strings.HasSuffix(text, "\u2514\u2500\n") {
+		t.Fatalf("the close block must keep the quota inside and end with the frame bottom:\n%s", text)
+	}
+}
+
+func TestUnitEndPlainAndNoColor(t *testing.T) {
 	var plain bytes.Buffer
 	p := newProgress(&plain, &plain, false)
-	p.elapsed("P001.1.1", 48)
-	if plain.String() != "P001.1.1 time: 48s\n" {
-		t.Fatal(plain.String())
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex"}, blockStart)
+	ranFor(p, 48)
+	p.unitEnd("P001.1.1")
+	if !regexp.MustCompile("(?m)^P001\\.1\\.1 time: 48s \\([0-9]{2}:[0-9]{2}:[0-9]{2}–[0-9]{2}:[0-9]{2}:[0-9]{2}\\)$").MatchString(plain.String()) {
+		t.Fatalf("text duration row: %q", plain.String())
 	}
-	p, out := newTTYProgress(t)
+	p.unitEnd("P001.2.2")
+	if strings.Contains(plain.String(), "P001.2.2") {
+		t.Fatalf("a block that never opened printed a row: %q", plain.String())
+	}
+	out := &fakeTTY{}
 	t.Setenv("NO_COLOR", "1")
 	p = newProgress(out, out, false)
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "claude"})
+	p.setColumns(80)
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "claude"}, blockStart)
 	p.line("P001.1.1: blocked (needs human): причина", false, "red")
-	p.elapsed("P001.1.1", 48)
-	p.close()
-	if strings.Contains(out.String(), "\x1b") || !strings.Contains(out.String(), "│    причина\n│  Time: 48s\n└─") {
+	ranFor(p, 48)
+	p.unitEnd("P001.1.1")
+	if strings.Contains(out.String(), "\x1b") || !strings.Contains(out.String(), "│    причина\n└─ ") || frameDuration(t, out.String()) != "48s" {
 		t.Fatal(out.String())
 	}
 }
@@ -172,19 +225,20 @@ func TestTerminalLayoutNarrowTerminalWraps(t *testing.T) {
 	p.verbose = true
 	p.start("P001", "Длинное название плана "+strings.Repeat("Длинное название плана ", 2), 0, false)
 	p.close()
-	p.unit("P001.1.1", strings.Repeat("Длинное название юнита ", 3), agents.Route{Agent: "codex", Model: "provider/very-long-model-name-for-tests", Effort: "high"})
+	p.unit("P001.1.1", strings.Repeat("Длинное название юнита ", 3), agents.Route{Agent: "codex", Model: "provider/very-long-model-name-for-tests", Effort: "high"}, blockStart)
 	p.line("P001.1.1: blocked (needs plan): "+strings.Repeat("длинная причина ", 20), false, "red")
-	p.elapsed("P001.1.1", 137)
 	p.unverified("projects/hitfm/HitFM/Tools/WatchPlaybackBridge.swift:82")
-	p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "five_hour", Used: .97, Reset: 1791904200}, {Label: "seven_day", Used: .62, Reset: 1792476000}}}}, nil, "", true)
+	p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "five_hour", Used: .97, Reset: 1791904200}, {Label: "seven_day", Used: .62, Reset: 1792476000}}}}, nil, "")
+	ranFor(p, 137)
+	p.unitEnd("P001.1.1")
 	text := plainTTY(out.String())
 	for _, line := range strings.Split(text, "\n") {
 		if len([]rune(line)) > width-1 {
 			t.Errorf("line exceeds terminal width: %d > %d: %q", len([]rune(line)), width-1, line)
 		}
 	}
-	if !strings.Contains(text, "97%") || !strings.Contains(text, "resets") {
-		t.Fatalf("quota and reset details missing:\n%s", text)
+	if !strings.Contains(text, "97%") || !strings.Contains(text, "↻") {
+		t.Fatalf("quota and inline reset details missing:\n%s", text)
 	}
 	if strings.Count(text, "длинная") != 20 || strings.Count(text, "причина") != 20 {
 		t.Fatalf("wrapped text lost words:\n%s", text)
@@ -196,7 +250,7 @@ func TestTerminalLayoutNarrowTerminalWraps(t *testing.T) {
 
 func TestTerminalLayoutSpinnerStaysInsideUnitBlock(t *testing.T) {
 	p, out := newTTYProgress(t)
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"})
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"}, blockStart)
 	p.mu.Lock()
 	p.block, p.label = true, "P001.1.1 verify"
 	p.drawLocked("⠋")
@@ -210,27 +264,111 @@ func TestTerminalLayoutQuotaBarsThresholdsAndScope(t *testing.T) {
 	p, out := newTTYProgress(t)
 	before := agentio.Quota{{Label: "five_hour", Used: .86, Reset: 100}, {Label: "seven_day", Used: .60, Reset: 200}}
 	quota := agentio.Quota{{Label: "five_hour", Used: .97, Reset: 100}, {Label: "seven_day", Used: .62, Reset: 200}}
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "max"})
-	p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": before}, "", true)
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "max"}, blockStart)
+	p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": before}, "")
 	p.summary("run: 1 unit, 1m", []NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": {{Label: "five_hour", Used: .33, Reset: 100}, {Label: "seven_day", Used: .52, Reset: 200}}}, nil)
 	text := plainTTY(out.String())
 	if !regexp.MustCompile(`5h  [█▏▎▍▌▋▊▉░]+\s+97% \(\+11\)`).MatchString(text) {
 		t.Errorf("five-hour quota row missing or wrong:\n%s", text)
 	}
-	for _, expected := range []string{"(+64)", "(+10)", "Quota · used · Δ run", "\x1b[31m 97%", "\x1b[32m 62%"} {
+	for _, expected := range []string{"(+64)", "(+10)", "Quota · used · Δ run", "\x1b[31m 97%", "\x1b[33m 62%"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Errorf("output does not contain %q:\n%s", expected, out.String())
 		}
 	}
-	p.quotas([]NamedQuota{{Name: "codex", Quota: before}}, nil, "", true)
-	if !strings.Contains(out.String(), "\x1b[33m 86%") {
-		t.Errorf("yellow threshold not painted: %q", out.String())
+	p.quotas([]NamedQuota{{Name: "codex", Quota: before}}, nil, "")
+	if !strings.Contains(out.String(), "\x1b[31m 86%") {
+		t.Errorf("80%% and over is not painted red: %q", out.String())
+	}
+}
+
+func TestTerminalQuotaModeRowsAndThresholds(t *testing.T) {
+	// "used": under 50% green, 50-79% yellow, 80% and over red. "left" shows
+	// 100 - used and mirrors the thresholds and the bar.
+	for _, item := range []struct {
+		mode    string
+		used    float64
+		percent string
+		style   string
+		track   int
+	}{
+		{agents.QuotaUsed, .49, " 49%", "\x1b[32m", 5},
+		{agents.QuotaUsed, .50, " 50%", "\x1b[33m", 5},
+		{agents.QuotaUsed, .79, " 79%", "\x1b[33m", 2},
+		{agents.QuotaUsed, .80, " 80%", "\x1b[31m", 2},
+		{agents.QuotaLeft, .49, " 51%", "\x1b[32m", 4},
+		{agents.QuotaLeft, .50, " 50%", "\x1b[33m", 5},
+		{agents.QuotaLeft, .79, " 21%", "\x1b[33m", 7},
+		{agents.QuotaLeft, .80, " 20%", "\x1b[31m", 8},
+	} {
+		p, out := newTTYProgress(t)
+		p.setDisplay(agents.Display{Quota: item.mode, Resets: true})
+		p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex"}, blockStart)
+		p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "five_hour", Used: item.used}}}}, nil, "")
+		p.unitEnd("P001.1.1")
+		raw, text := out.String(), plainTTY(out.String())
+		if !strings.Contains(text, "\u2502  Quota \u00b7 "+item.mode+"  Codex \n\u2502  5h  ") {
+			t.Errorf("%s at %v: the quota row left the frame:\n%s", item.mode, item.used, text)
+		}
+		if !strings.Contains(raw, item.style+item.percent) {
+			t.Errorf("%s at %v: %q is not painted %s:\n%q", item.mode, item.used, item.percent, item.style, raw)
+		}
+		row := ""
+		for _, line := range strings.Split(text, "\n") {
+			if strings.Contains(line, "5h  ") {
+				row = line
+			}
+		}
+		if empty := strings.Count(row, "\u2591"); empty != item.track {
+			t.Errorf("%s at %v: the bar leaves %d cells, want %d: %q", item.mode, item.used, empty, item.track, row)
+		}
+	}
+}
+
+func TestQuotaLeftModeMirrorsPercentAndDelta(t *testing.T) {
+	before := agentio.Quota{{Label: "five_hour", Used: .30}}
+	window := agentio.QuotaWindow{Label: "five_hour", Used: .32}
+	used, left := quotaViewOf(window, before, false), quotaViewOf(window, before, true)
+	if used.percent != "32%" || used.delta != " (+2)" || used.shown != 32 {
+		t.Fatalf("used view = %#v", used)
+	}
+	if left.percent != "68%" || left.delta != " (-2)" || left.shown != 68 {
+		t.Fatalf("left view = %#v", left)
+	}
+	display := agents.Display{Quota: agents.QuotaLeft, Resets: false}
+	if got := quotaText(agentio.Quota{window}, before, display, false); got != "5h 68% (-2)" {
+		t.Fatalf("text quota line in left mode = %q", got)
+	}
+}
+
+func TestTerminalQuotaInlineResetSwitch(t *testing.T) {
+	quota := agentio.Quota{{Label: "five_hour", Used: .3, Reset: 1791904200}, {Label: "seven_day", Used: .4, Reset: 1792476000}}
+	long := regexp.MustCompile("\u21bb[A-Z][a-z]{2} [0-9]{2}:[0-9]{2}")
+	for _, resets := range []bool{true, false} {
+		p, out := newTTYProgress(t)
+		p.setDisplay(agents.Display{Quota: agents.QuotaUsed, Resets: resets})
+		p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, nil, "")
+		text := plainTTY(out.String())
+		shown := strings.Contains(text, "30% \u21bb") && long.MatchString(text)
+		if resets != shown {
+			t.Errorf("resets=%v, the inline reset is shown=%v:\n%s", resets, shown, text)
+		}
+		if strings.Contains(text, " resets ") {
+			t.Errorf("a separate reset row survived:\n%s", text)
+		}
+	}
+	var plain bytes.Buffer
+	p := newProgress(&plain, &plain, true)
+	p.setDisplay(agents.Display{Quota: agents.QuotaUsed, Resets: false})
+	p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, nil, "")
+	if strings.Contains(plain.String(), "resets") {
+		t.Errorf("resets = false left the reset time in text output: %q", plain.String())
 	}
 }
 
 func TestTerminalLayoutResumeLineIsYellowWithoutABang(t *testing.T) {
 	p, out := newTTYProgress(t)
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"})
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"}, blockStart)
 	p.resume("↻ attempt 1: time cap 2h reached while active; resuming the session")
 	raw := out.String()
 	text := plainTTY(raw)
@@ -265,7 +403,7 @@ func TestTerminalLayoutSummaryCarriesCapHints(t *testing.T) {
 func TestTerminalLayoutQuotaUnknownWindowAndClampedBar(t *testing.T) {
 	p, out := newTTYProgress(t)
 	quota := agentio.Quota{{Label: "five_hour", Used: .02, Reset: 10000}, {Label: "30d", Used: 1.2, Reset: nil}}
-	p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": {{Label: "five_hour", Used: .97, Reset: 100}}}, "", true)
+	p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": {{Label: "five_hour", Used: .97, Reset: 100}}}, "")
 	text := plainTTY(out.String())
 	if strings.Contains(text, "(-95)") || !strings.Contains(text, "30d  ██████████ 120%") || !strings.Contains(text, "2%") {
 		t.Fatalf("unexpected reset/window rendering:\n%s", text)
@@ -278,9 +416,9 @@ func TestTerminalLayoutNoColorKeepsLayout(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	p := newProgress(out, out, false)
 	p.setColumns(80)
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "claude", Model: "opus", Effort: "high"})
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "claude", Model: "opus", Effort: "high"}, blockStart)
 	p.result("P001.1.1", "done", "abc123")
-	p.quotas([]NamedQuota{{Name: "claude", Quota: agentio.Quota{{Label: "five_hour", Used: .97, Reset: nil}}}}, nil, "", true)
+	p.quotas([]NamedQuota{{Name: "claude", Quota: agentio.Quota{{Label: "five_hour", Used: .97, Reset: nil}}}}, nil, "")
 	text := out.String()
 	if strings.Contains(text, "\x1b") || !strings.Contains(text, "┌─") || !strings.Contains(text, " Claude ") || !strings.Contains(text, "97%") {
 		t.Fatalf("NO_COLOR changed layout or left ANSI codes: %q", text)
@@ -291,9 +429,9 @@ func TestTerminalLayoutDumbTerminalKeepsPlainOutput(t *testing.T) {
 	t.Setenv("TERM", "dumb")
 	out := &fakeTTY{}
 	p := newProgress(out, out, false)
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "max"})
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "max"}, blockStart)
 	p.result("P001.1.1", "done", "abc123")
-	p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "five_hour", Used: .97, Reset: nil}}}}, nil, "", false)
+	p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "five_hour", Used: .97, Reset: nil}}}}, nil, "")
 	want := "P001.1.1 Unit -> codex | model | max\nP001.1.1 done: abc123\nquota: codex 5h 97%\n"
 	if out.String() != want {
 		t.Fatalf("output = %q, want %q", out.String(), want)
@@ -304,7 +442,7 @@ func TestTerminalLayoutRedirectedStderrKeepsOriginalMessage(t *testing.T) {
 	out := &fakeTTY{}
 	var stderr bytes.Buffer
 	p := newProgress(out, &stderr, false)
-	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"})
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"}, blockStart)
 	p.line("P001.1.1: attempt 1: invalid JSON", true, "")
 	if stderr.String() != "P001.1.1: attempt 1: invalid JSON\n" {
 		t.Fatalf("stderr = %q", stderr.String())
@@ -385,9 +523,8 @@ func TestSameResetSlackAndEpochUnits(t *testing.T) {
 func TestQuotaResetWindowsDoNotCrossMatch(t *testing.T) {
 	before := agentio.Quota{{Label: "five_hour", Used: .5, Reset: int64(1000)}}
 	window := agentio.QuotaWindow{Label: "seven_day", Used: .7, Reset: int64(1000)}
-	_, _, extra := quotaWindow(window, before, false)
-	if strings.Contains(extra, "(") {
-		t.Fatalf("a different window contributed a delta: %q", extra)
+	if view := quotaViewOf(window, before, false); strings.Contains(view.delta, "(") {
+		t.Fatalf("a different window contributed a delta: %q", view.delta)
 	}
 }
 
@@ -395,13 +532,16 @@ func TestQuotaDeltaFromIdleWindow(t *testing.T) {
 	window := agentio.QuotaWindow{Label: "5h", Used: .29, Reset: int64(1792421400)}
 	for _, reset := range []any{nil, int64(1792421400 - 18000)} {
 		before := agentio.Quota{{Label: "5h", Used: 0, Reset: reset}}
-		if _, _, extra := quotaWindow(window, before, false); extra != " (+29)" {
-			t.Fatalf("idle window with reset %v: delta %q, want \" (+29)\"", reset, extra)
+		if view := quotaViewOf(window, before, false); view.delta != " (+29)" {
+			t.Fatalf("idle window with reset %v: delta %q, want \" (+29)\"", reset, view.delta)
+		}
+		if view := quotaViewOf(window, before, true); view.delta != " (-29)" {
+			t.Fatalf("left mode with reset %v: delta %q, want \" (-29)\"", reset, view.delta)
 		}
 	}
 	before := agentio.Quota{{Label: "5h", Used: .4, Reset: int64(1792421400 - 18000)}}
-	if _, _, extra := quotaWindow(window, before, false); extra != "" {
-		t.Fatalf("rolled-over window contributed a delta: %q", extra)
+	if view := quotaViewOf(window, before, false); view.delta != "" {
+		t.Fatalf("rolled-over window contributed a delta: %q", view.delta)
 	}
 }
 
@@ -440,7 +580,7 @@ func TestWrapParagraphMatchesTextwrap(t *testing.T) {
 func TestSubcommandOutputStaysInsideUnitBlock(t *testing.T) {
 	stderr := "docs/plans/P001-x.md:78: error: main.go: file not found\n"
 	p, out := newTTYProgress(t)
-	p.unit("P001.2.2", "Flags", agents.Route{Agent: "codex"})
+	p.unit("P001.2.2", "Flags", agents.Route{Agent: "codex"}, blockStart)
 	p.output(stderr)
 	p.line("P001.2.2: the plan no longer matches the tree; replan the unit, then run again", true, "")
 	text := plainTTY(out.String())
