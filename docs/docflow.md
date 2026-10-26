@@ -5,13 +5,17 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P045
 - P046
 - P047
 
 ## Frozen
 
 ## Backlog
+- Проверить PTY-сценарии живости на Linux и кадры/спиннер в настоящей
+  консоли Windows: время блока, квота used/left, сбросы, перенос на 30
+  колонках, спиннер и активный кап закрытия; убедиться, что квота
+  не выходит за рамку, а обрезка спиннера сохраняет её
+  ([P045](archive/P045-run-liveness-output.md)).
 - Проверить сценарий `run_unverified` в CI на ubuntu-latest и
   windows-latest: Git Bash, `parity_shim claude`, вызов `docflow.exe prompt`
   из fake-агента; локально проверена только macOS arm64
