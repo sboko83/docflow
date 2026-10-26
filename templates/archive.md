@@ -9,4 +9,4 @@ closed: {date}
 
 ## Gotchas           <!-- ловушки, актуальные после закрытия -->
 
-## Follow-ups        <!-- несделанное; в Backlog — всё, кроме `Waits:` -->
+## Follow-ups        <!-- несделанное; в Backlog — всё, кроме `Waits:` и `Accepted:` -->

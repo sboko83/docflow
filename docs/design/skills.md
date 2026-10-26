@@ -15,6 +15,8 @@
   Почему — [P010](../archive/P010-design-rationale.md).
 - Подстраховка маркера: `docflow init` дописывает в AGENTS.md проекта строку
   `Plans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre`.
+  Старую строку без требования явного запроса заменяет, не создавая второй
+  маркер ([P044](../archive/P044-unverified-discipline.md)).
 - Перевод существующего проекта на docflow — только явно, не по факту
   появления скрипта.
 - В docflow-проекте ARCHITECTURE — текущее устройство системы + ссылки на

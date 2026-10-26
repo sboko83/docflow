@@ -20,6 +20,7 @@ import (
 )
 
 const agentsLine = "Plans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre"
+const legacyAgentsLine = "Plans: docflow (run docflow status), not the bsv-docs PLAN genre"
 
 var (
 	slugRE     = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -102,7 +103,22 @@ func Init(root, agent string, withSkills bool, skillsDir string) (Result, error)
 	} else if !os.IsNotExist(err) {
 		return Result{}, err
 	}
-	if !containsLine(agentsText, agentsLine) {
+	originalAgentsText := agentsText
+	lines := strings.Split(agentsText, "\n")
+	hasMarker := containsLine(agentsText, agentsLine)
+	kept := lines[:0]
+	for _, line := range lines {
+		if line == legacyAgentsLine {
+			if hasMarker {
+				continue
+			}
+			line = agentsLine
+			hasMarker = true
+		}
+		kept = append(kept, line)
+	}
+	agentsText = strings.Join(kept, "\n")
+	if !hasMarker {
 		if agentsText != "" && !strings.HasSuffix(agentsText, "\n") {
 			agentsText += "\n"
 		}
@@ -110,6 +126,8 @@ func Init(root, agent string, withSkills bool, skillsDir string) (Result, error)
 			agentsText += "\n"
 		}
 		agentsText += agentsLine + "\n"
+	}
+	if agentsText != originalAgentsText {
 		if err := os.WriteFile(agentsPath, []byte(agentsText), 0o666); err != nil {
 			return Result{}, err
 		}

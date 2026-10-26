@@ -5,7 +5,6 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P044
 - P045
 - P046
 - P047
@@ -13,6 +12,10 @@ start_budget: 4000
 ## Frozen
 
 ## Backlog
+- Проверить сценарий `run_unverified` в CI на ubuntu-latest и
+  windows-latest: Git Bash, `parity_shim claude`, вызов `docflow.exe prompt`
+  из fake-агента; локально проверена только macOS arm64
+  ([P044](archive/P044-unverified-discipline.md)).
 - Проверить в настоящей консоли Windows вопрос старта о human-блоке:
   `y` и заметка снимают блок и прогон продолжается; перенаправленный stdin,
   `--yes` и блок `plan` не спрашивают. Запустить `TestIsTerminalWindows*` и

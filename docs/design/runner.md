@@ -265,7 +265,8 @@ Result JSON — единственный контракт с ассистент�
 `inherited` или содержит id юнита, а скобка с собственной деталью пункта
 (`layout on iPhone (small)`) остаётся в ключе с обеих сторон) — копия держала
 бы один риск открытым юнит за юнитом; при `--verbose` раннер печатает
-`unverified: N repeated from Depends dropped`.
+`unverified: N repeated from Depends dropped`
+([P044](../archive/P044-unverified-discipline.md)).
 Значение поля — [«Цикл юнита»](cycle.md#цикл-юнита).
 Берётся из поля вывода `result` профиля, иначе — последний блок
 ` ```json ` в тексте ответа (ассистенты без JSON-схем), иначе — голый

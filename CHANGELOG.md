@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `docflow init` replaces the legacy AGENTS.md plan marker instead of
+  appending a second one; when both versions exist, it removes the old one.
+
 ### Changed
 - `docflow init` writes the AGENTS.md marker as
   `Plans: docflow (run docflow status), only on an explicit request; not
