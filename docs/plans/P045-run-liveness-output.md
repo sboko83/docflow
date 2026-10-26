@@ -244,7 +244,7 @@ Handoff:
 - Unverified: Зависший вызов настоящего агента (claude/codex/pi) с реальными лимитами профиля (idle 1200 с, cap 7200 с): простой воспроизводит только fake-агент на 5 с; на живом профиле не проверялось
 - Unverified: Формулировка подсказки для закрытия ('split the unit') переиспользует capHint без правки — человек её не рецензировал; отдельного текста для close в Do не было
 
-### [ ] P045.1.5 Review the liveness fixes
+### [x] P045.1.5 Review the liveness fixes
 Read:
 - docs/design/runner.md:L297-330
 Do:
@@ -260,6 +260,12 @@ Verify: `go test ./...`
 Depends: P045.1.4
 Role: review
 Commit: P045.1.5: review liveness fixes
+Handoff:
+- Дефектов не найдено; оба замечания P045.1.3 устранены. Остановленные вызовы исключены из классификации отказов и ошибок логина; run/replan/close используют общий отчёт активного капа.
+- Полный docflow verify P045.1.5 прошёл на macOS arm64: Verify и gate — go test ./.... Файлы не изменялись.
+- Уточнение Handoff P045.1.4: Claude без result возвращает последнее JSON-событие через ParseJSON. Во всех просмотренных реальных событиях session_id присутствует; result для восстановления сессии не обязателен.
+- Unverified: PTY-отображение спиннера close, строки продолжения и итогового hint — остаётся приёмке P045.3.1.
+- Unverified: Зависание живых claude/codex/pi с лимитами 1200/7200 секунд не воспроизводилось; проверки используют fake agent.
 
 ## Phase 2: Output
 
