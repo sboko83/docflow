@@ -2,7 +2,7 @@
 id: P045
 title: Agent liveness and run output
 type: feature
-status: draft
+status: active
 created: 2026-10-26
 permissions: auto
 gate: go test ./...
@@ -73,10 +73,12 @@ the quota display is configurable: used or left, colour thresholds
 - The quota display mode lives in `[display]` of the agents config — the
   runner reads that file; the roster is read only while planning —
   rejected: a key in `roster.toml`, a CLI flag per run.
+- Codex: ход считается по turn.started, а не по запуску элемента — в реальных логах есть пары turn.started/completed, и один ход может выполнить несколько элементов — отклонено: считать ходом не-молчаливый item.started (это действия, а не ходы)
+- Claude: StructuredOutput никогда не считается инструментом, а событие result очищает инструменты — tool_use без парного tool_result держал бы завершившийся вызов «активным» вечно и блокировал бы проверку простоя — отклонено: считать каждый блок tool_use
 
 ## Phase 1: Liveness
 
-### [ ] P045.1.1 Watch agent liveness
+### [x] P045.1.1 Watch agent liveness
 Read:
 - internal/agentio/process.go:L20-66
 - internal/agentio/process.go:L100-230
@@ -117,6 +119,12 @@ existing ones.
 Depends: -
 Role: heavy
 Commit: P045.1.1: watch agent liveness during calls
+Handoff:
+- Семантика ходов/инструментов на поток: claude — ход = событие assistant, инструмент = блок tool_use (StructuredOutput не считается) до парного tool_result в user, result очищает всё; codex — ход = turn.started (пары turn.started/completed есть в реальных .out-логах), инструмент = не-молчаливый item.started по item.id до item.completed; pi — ход = message_end с role=assistant, инструмент = tool_execution_start/end по toolCallId. Не-JSON строки тоже обновляют время последнего события
+- Спиннер P045.1.2 берёт данные из Liveness.State() (LastLine, Turns, Tools, OldestTool) — объект создаётся свежим рядом с каждым вызовом CallAgent в run.go/replan.go/close.go и живёт, пока идёт вызов; выборка простоя — тикер agentio.LivenessCheck = 2 c, kill может наступить до 2 c после превышения лимита
+- Раскладка .out изменилась: $ argv → --- stdout (строки пишутся по мере прихода) → --- stderr → --- exit N в конце с суффиксом (timed out) или (stalled); строка exit переехала в конец файла
+- Шаг с доками (runner.md «Резервные маршруты и таймаут», usage.md — ключ idle_timeout, CHANGELOG [Unreleased]) остался юниту P045.1.2 по плану
+- Unverified: Поведение на реальных зависших агентах (claude/codex/pi) — формы событий подтверждены на реальных .out-логах репозитория, а kill и подавление инструментом проверены только на fake agent; не хватает наблюдаемого прогона с живым профилем
 
 ### [ ] P045.1.2 Report stalls and caps in the run
 Read:

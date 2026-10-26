@@ -19,7 +19,7 @@ import (
 )
 
 func TestDefaultAgentsBytesAndSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "fd1b53eed2296b7c5a1047ed7512d83b928111288a33da14ebed0d37eabb4ebc" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "c7e709f6ec6cce53ad112fc6bc3a4951aba98ea31059fed53b5bf192951db582" {
 		t.Fatalf("DefaultAgents SHA-256 = %s", got)
 	}
 	parsed, err := ParseTOML(DefaultAgents)
@@ -181,6 +181,9 @@ func TestLoadAgentsValidationErrors(t *testing.T) {
 		{"[agents.claude]\nmodle = \"x\"\n", "unknown key 'modle'"},
 		{"[agents.claude]\ntimeout = \"1\"\n", "'timeout' must be int"},
 		{"[agents.claude]\ntimeout = true\n", "'timeout' must be int"},
+		{"[agents.claude]\nidle_timeout = \"1\"\n", "'idle_timeout' must be int"},
+		{"[agents.claude]\nidle_timeout = 4\n", "idle_timeout must be 0 or an integer from 5 to 86400"},
+		{"[agents.claude]\nidle_timeout = 86401\n", "idle_timeout must be 0 or an integer from 5 to 86400"},
 		{"[agents.x]\ncmd = []\n", "cmd must be a non-empty"},
 		{"[agents.x]\ncmd = [\"a\", 1]\n", "'cmd' must be list"},
 		{"[agents.claude]\nstream = \"x\"\n", "'stream' must be"},
@@ -615,5 +618,15 @@ func writeConfig(t *testing.T, path, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIdleTimeoutAcceptedRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agents.toml")
+	for _, seconds := range []string{"0", "5", "1200", "86400"} {
+		writeConfig(t, path, "[agents.claude]\nidle_timeout = "+seconds+"\n")
+		if _, err := LoadAgents(path, true); err != nil {
+			t.Fatalf("idle_timeout = %s: %v", seconds, err)
+		}
 	}
 }

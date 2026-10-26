@@ -305,7 +305,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			p.detail(fmt.Sprintf("replan attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel, "replan": true})
 			p.spin(func() string { return uid + " replan " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid)})
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: agentio.NewLiveness(stringValue(agent["stream"]))})
 			p.stop()
 			if err != nil {
 				return 7, err

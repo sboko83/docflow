@@ -316,7 +316,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			p.unit(id, "close plan", route)
 			totals.events.emit("attempt", "", map[string]any{"plan": id, "n": attempt, "route": eventRoute(route), "log": rel, "close": true})
 			p.spin(id+" close", nil)
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: agentCallTimeout(plan, agent), OnStreamEvent: func(event agentio.Event) {
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: agentCallTimeout(plan, agent), Idle: agentIdleTimeout(agent), Liveness: agentio.NewLiveness(stringValue(agent["stream"])), OnStreamEvent: func(event agentio.Event) {
 				if quota, ok := agentio.StreamEvent(agent, event)["quota"].(agentio.Quota); ok {
 					totals.mergeQuota(quotaName(route), quota)
 				}

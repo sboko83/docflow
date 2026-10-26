@@ -48,6 +48,13 @@ func agentCallTimeout(plan *format.Plan, agent map[string]any) time.Duration {
 	return time.Duration(seconds * float64(time.Second))
 }
 
+// agentIdleTimeout reads the profile's idle_timeout; 0 (missing or off)
+// disables the stall check.
+func agentIdleTimeout(agent map[string]any) time.Duration {
+	seconds, _ := numericEpoch(agent["idle_timeout"])
+	return time.Duration(seconds * float64(time.Second))
+}
+
 var currentPlatform = runtime.GOOS
 
 // runNotificationProcess is replaceable in tests so notification behavior can

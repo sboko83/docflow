@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,11 +52,17 @@ type AgentRun struct {
 	Code           int
 	Stdout, Stderr string
 	TimedOut       bool
+	Stalled        bool
 }
 
 type CallOptions struct {
 	Timeout time.Duration
-	OnEvent func(map[string]any)
+	// Idle stops the call as stalled when no stdout line arrives for this
+	// long and no tool is in flight (Liveness tracks both). Zero disables
+	// the check.
+	Idle     time.Duration
+	Liveness *Liveness
+	OnEvent  func(map[string]any)
 	// OnStreamEvent retains JSON object order for StreamEvent quota decoding.
 	OnStreamEvent func(Event)
 	// A nil Env inherits the environment; an empty slice supplies no variables.
@@ -103,11 +110,16 @@ type eventWriter struct {
 	all      bytes.Buffer
 	pending  string
 	callback func(Event)
+	observe  func(string)
+	log      io.Writer
 }
 
 func (w *eventWriter) Write(p []byte) (int, error) {
 	w.all.Write(p)
-	if w.callback != nil {
+	if w.log != nil {
+		w.log.Write(p)
+	}
+	if w.callback != nil || w.observe != nil {
 		w.pending += string(p)
 		for {
 			i := strings.IndexAny(w.pending, "\r\n")
@@ -124,25 +136,39 @@ func (w *eventWriter) Write(p []byte) (int, error) {
 					width = 2
 				}
 			}
-			w.event(w.pending[:i])
+			w.line(w.pending[:i])
 			w.pending = w.pending[i+width:]
 		}
 	}
 	return len(p), nil
 }
 func (w *eventWriter) flush() {
-	if w.callback != nil && w.pending != "" {
-		w.event(w.pending)
+	if (w.callback != nil || w.observe != nil) && w.pending != "" {
+		w.line(w.pending)
 		w.pending = ""
 	}
 }
-func (w *eventWriter) event(line string) {
-	if obj := ParseLine(textOutput(line)); obj != nil {
-		func() { defer func() { _ = recover() }(); w.callback(Event{obj, textOutput(line)}) }()
+
+// line handles one complete stdout line. The log and the observer run
+// before the event callback, so by the time a caller reacts to an event
+// its line is already in the log file.
+func (w *eventWriter) line(line string) {
+	text := textOutput(line)
+	if w.observe != nil {
+		func() { defer func() { _ = recover() }(); w.observe(line) }()
+	}
+	if w.callback != nil {
+		if obj := ParseLine(text); obj != nil {
+			func() { defer func() { _ = recover() }(); w.callback(Event{obj, text}) }()
+		}
 	}
 }
 
 var shellSafe = regexp.MustCompile(`^[\w@%+=:,./-]+$`)
+
+// LivenessCheck is how often CallAgent samples the idle condition; the
+// check itself is a mutex-guarded timestamp comparison.
+const LivenessCheck = 2 * time.Second
 
 func shellJoin(argv []string) string {
 	quoted := make([]string, len(argv))
@@ -166,6 +192,9 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 	cmd.WaitDelay = PipeGrace
 	procgroup.Detach(cmd)
 	out := &eventWriter{}
+	if options.Liveness != nil {
+		out.observe = options.Liveness.Observe
+	}
 	if options.OnEvent != nil || options.OnStreamEvent != nil {
 		out.callback = func(event Event) {
 			if options.OnStreamEvent != nil {
@@ -182,7 +211,25 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 	if stdin != nil {
 		cmd.Stdin = strings.NewReader(*stdin)
 	}
+	// The call log is written while the call runs: the header before the
+	// process starts, stdout lines as they arrive, the rest at the end.
+	var logFile *os.File
+	if log != "" {
+		file, err := os.OpenFile(log, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+		if err != nil {
+			return run, err
+		}
+		logFile = file
+		if _, err := fmt.Fprintf(file, "$ %s\n--- stdout\n", shellJoin(argv)); err != nil {
+			logFile.Close()
+			return run, err
+		}
+		out.log = logFile
+	}
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return run, AgentError{clierrors.DocflowError{Message: fmt.Sprintf("run: cannot start %s: %s", argv[0], startError(err, argv[0])), Code: clierrors.EXIT_AGENT}}
 	}
 	done := make(chan error, 1)
@@ -194,34 +241,55 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 		deadline = timer.C
 		defer timer.Stop()
 	}
+	var stalls *time.Ticker
+	var stall <-chan time.Time
+	if options.Idle > 0 && options.Liveness != nil {
+		stalls = time.NewTicker(LivenessCheck)
+		stall = stalls.C
+		defer stalls.Stop()
+	}
 	ctx := options.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	var waitErr error
 	var canceled bool
-	select {
-	case waitErr = <-done:
-	case <-deadline:
-		run.TimedOut = true
-		waitErr = procgroup.Kill(cmd, done, KillGrace)
-	case <-ctx.Done():
-		canceled = true
-		waitErr = procgroup.Kill(cmd, done, KillGrace)
+wait:
+	for {
+		select {
+		case waitErr = <-done:
+			break wait
+		case <-deadline:
+			run.TimedOut = true
+			waitErr = procgroup.Kill(cmd, done, KillGrace)
+			break wait
+		case <-stall:
+			// Silence with no tool in flight means a hung agent: no line for
+			// the idle limit and nothing running that could still answer.
+			if state := options.Liveness.State(); state.Tools == 0 && time.Since(state.LastLine) >= options.Idle {
+				run.Stalled = true
+				waitErr = procgroup.Kill(cmd, done, KillGrace)
+				break wait
+			}
+		case <-ctx.Done():
+			canceled = true
+			waitErr = procgroup.Kill(cmd, done, KillGrace)
+			break wait
+		}
 	}
 	out.flush()
 	run.Code = exitCode(cmd, waitErr)
 	run.Stdout = textOutput(out.all.String())
 	run.Stderr = textOutput(stderr.String())
-	timed := ""
-	if run.TimedOut {
-		timed = " (timed out)"
-	}
-	content := fmt.Sprintf("$ %s\n--- exit %d%s\n--- stdout\n%s\n--- stderr\n%s", shellJoin(argv), run.Code, timed, run.Stdout, run.Stderr)
-	if log != "" {
-		if err := os.WriteFile(log, []byte(content), 0o644); err != nil {
-			return run, err
+	if logFile != nil {
+		suffix := ""
+		if run.TimedOut {
+			suffix = " (timed out)"
+		} else if run.Stalled {
+			suffix = " (stalled)"
 		}
+		fmt.Fprintf(logFile, "\n--- stderr\n%s\n--- exit %d%s\n", run.Stderr, run.Code, suffix)
+		logFile.Close()
 	}
 	if canceled {
 		return run, ctx.Err()

@@ -426,6 +426,13 @@ func TestRunPlanTimeout(t *testing.T) {
 	if got := agentCallTimeout(&format.Plan{Doc: format.Doc{Meta: map[string]string{}}}, profile); got != time.Second {
 		t.Fatalf("profile timeout = %s, want 1s", got)
 	}
+	idle := map[string]any{"idle_timeout": 1200}
+	if got := agentIdleTimeout(idle); got != 20*time.Minute {
+		t.Fatalf("agentIdleTimeout(1200) = %s, want 20m", got)
+	}
+	if got := agentIdleTimeout(map[string]any{}); got != 0 {
+		t.Fatalf("agentIdleTimeout(missing) = %s, want 0 (off)", got)
+	}
 
 	f := newRunFixture(t)
 	f.configure("timeout = 1\n")

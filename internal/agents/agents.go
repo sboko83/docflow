@@ -60,7 +60,8 @@ tokens = ["json:usage.input_tokens", "json:usage.cache_read_input_tokens",
 limit = "usage limit|limit reached|hit your limit|rate limit"
 limit_wait = 1800
 auth = "failed to authenticate|not logged in|invalid api key|oauth"
-timeout = 3600
+timeout = 7200
+idle_timeout = 1200
 instructions = ""
 quota = ["claude", "-p", "/usage"]
 
@@ -87,7 +88,8 @@ stream = "codex"
 limit = "usage limit|rate limit|hit your limit"
 limit_wait = 1800
 auth = "401 unauthorized|not logged in|codex login|token_expired|refresh token"
-timeout = 3600
+timeout = 7200
+idle_timeout = 1200
 quota = ["codex", "app-server"]
 instructions = """Commands run in a workspace-write sandbox. If it blocks a command the unit needs (a write outside the repository such as ~/.gradle or DerivedData), rerun the command requesting escalated permissions with a one-line justification; the request is reviewed automatically."""
 
@@ -111,7 +113,8 @@ tokens = ["json:usage.input", "json:usage.cacheRead", "json:usage.cacheWrite"]
 limit = "usage limit|rate limit|hit your limit|limit exhausted"
 limit_wait = 1800
 auth = "no api key found"
-timeout = 3600
+timeout = 7200
+idle_timeout = 1200
 
 [agents.pi.permissions]
 auto = []
@@ -123,6 +126,7 @@ var AgentKeys = map[string]string{
 	"result": "str", "text": "str", "session": "str", "error": "str", "cost": "str",
 	"tokens": "list", "stream": "str", "output_tokens": "str", "turns": "str",
 	"limit": "str", "limit_wait": "int", "auth": "str", "timeout": "int",
+	"idle_timeout": "int",
 	"instructions": "str", "quota": "list", "model_extra": "dict",
 	"effort_args": "list", "permissions": "dict",
 }
@@ -371,6 +375,18 @@ func checkAgent(where, name string, agent map[string]any) error {
 				if !ok || !allStrings(items) {
 					return agentsError(fmt.Sprintf("%s: agent %s: %s must be a table of string lists", where, pyRepr(name), pyRepr(key)))
 				}
+			}
+		}
+		if valid && key == "idle_timeout" {
+			seconds := 0
+			switch value := value.(type) {
+			case int:
+				seconds = value
+			case int64:
+				seconds = int(value)
+			}
+			if seconds != 0 && (seconds < 5 || seconds > 86400) {
+				return agentsError(fmt.Sprintf("%s: agent %s: idle_timeout must be 0 or an integer from 5 to 86400 seconds", where, pyRepr(name)))
 			}
 		}
 		if !valid {

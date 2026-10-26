@@ -101,7 +101,7 @@ func TestCallAgentFakeStreams(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			equal(t, string(b), "$ "+shellJoin(argv)+"\n--- exit 0\n--- stdout\n"+run.Stdout+"\n--- stderr\ndiagnostic")
+			equal(t, string(b), "$ "+shellJoin(argv)+"\n--- stdout\n"+run.Stdout+"\n--- stderr\ndiagnostic\n--- exit 0\n")
 			b, err = os.ReadFile(os.Getenv("FAKE_AGENT_SCENARIO") + ".log")
 			if err != nil {
 				t.Fatal(err)
