@@ -82,7 +82,8 @@ cat >"$HOME/bin/replan-cli" <<'EOF'
 set -eu
 rc=0
 "$PARITY_REPLAN_BINARY" "$@" >"$HOME/raw.stdout" 2>"$HOME/raw.stderr" || rc=$?
-sed '/^run:/d' "$HOME/raw.stdout"
+# The block's duration and wall clock vary between the two runs.
+sed -E -e '/^run:/d' -e 's/^(P[0-9.]+ time: ).*/\1<duration>/' "$HOME/raw.stdout"
 cat "$HOME/raw.stderr" >&2
 exit "$rc"
 EOF

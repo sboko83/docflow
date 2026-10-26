@@ -54,9 +54,22 @@ func TestTerminalReplanRealTTY(t *testing.T) {
 
 func runInTerminal(t *testing.T, f *runFixture, args ...string) (int, string, string) {
 	t.Helper()
+	return runInSizedTerminal(t, f, 0, args...)
+}
+
+// runInSizedTerminal runs `docflow run` on a PTY `columns` wide; 0 keeps the
+// PTY's unset size, which the runner reads as 80 columns.
+func runInSizedTerminal(t *testing.T, f *runFixture, columns int, args ...string) (int, string, string) {
+	t.Helper()
 	t.Setenv("TERM", "xterm")
 	t.Setenv("NO_COLOR", "")
 	master, slave := openPTY(t)
+	if columns > 0 {
+		size := terminalSize{rows: 40, columns: uint16(columns)}
+		if !ioctl(slave.Fd(), uintptr(syscall.TIOCSWINSZ), unsafe.Pointer(&size)) {
+			t.Fatal("PTY size ioctl failed")
+		}
+	}
 	c := f.command(append([]string{"run", "--no-wait"}, args...)...)
 	c.Stdout, c.Stderr = slave, slave
 	if err := c.Start(); err != nil {

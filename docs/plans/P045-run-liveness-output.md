@@ -96,6 +96,8 @@ the quota display is configurable: used or left, colour thresholds
 - Слишком широкая строка окна квоты в TTY переносит инлайн-сброс `↻…` на следующую строку с тем же префиксом `│`, а не скрывает его — сброс включён по умолчанию и не должен молча пропадать на узком терминале — отклонено: прятать сброс при `width() < 60` (расходится с `resets = true`), обрезать строку (теряет текст).
 - Окно со перенесённым сбросом завершает свою строку и не склеивается с соседними — почему: перенос измерен по одному окну, склейка базовых строк вернула бы ширину за room и рамка сломалась бы снова — отклонено: склеивать базовые строки и печатать сбросы позже (сброс уехал бы от своего окна).
 - Сдвиг продолжения = visibleLength(painted label + " "), то есть ровно под начало полосы — почему: Do требует отступа «под полосой», а label разной длины (5h/7d/30d) — отклонено: фиксированный отступ (полоса не совпадает по колонке).
+- Строка 'time:' нормализуется в parity-сценарии run_replan, вывод раннера не меняется — часы в текстовой строке времени требует P045.2.1, а сценарий сравнивает два прогона, сделанных в разное время — отклонено: убрать часы из текстовой строки (откатывает решение P045.2.1)
+- Приёмочные сценарии 1–4 продублированы через DOCFLOW_AGENTS, хотя близкие тесты с --config уже есть — Do требует конфиг во временном файле DOCFLOW_AGENTS, а связку env→run существующие тесты не проверяют — отклонено: сослаться на liveness_report_test.go
 
 ## Phase 1: Liveness
 
@@ -393,7 +395,7 @@ Handoff:
 
 ## Phase 3: Acceptance
 
-### [ ] P045.3.1 Accept liveness and run output
+### [x] P045.3.1 Accept liveness and run output
 Read:
 - internal/runner/pty_darwin_test.go
 - internal/runner/progress_test.go:L197-260
@@ -421,3 +423,13 @@ otherwise reply `blocked` with the reason.
 Depends: P045.1.1, P045.1.2, P045.1.4, P045.1.5, P045.2.1, P045.2.3, P045.2.4
 Role: acceptance
 Commit: P045.3.1: accept liveness and run output
+Handoff:
+- Приёмка P045 лежит в internal/runner/liveness_acceptance_test.go (сценарии 1–4, конфиг только через DOCFLOW_AGENTS) и internal/runner/terminal_liveness_test.go (PTY: блок юнита, режимы квоты, спиннер на 80/30 колонках, блок закрытия). runInSizedTerminal в terminal_run_test.go задаёт PTY ширину через TIOCSWINSZ; runInTerminal вызывает его с 0.
+- Parity-сценарий run_replan падал с P045.2.1: текстовая строка 'P<id> time:' содержит часы, а Verify юнитов P045.2.x не запускал parity. Нормализация добавлена в tools/parity/scenarios/run_replan.sh; любой новый сценарий, который вызывает run без e2e-cli, должен гасить эту строку так же.
+- У close-блока нет строки '└─ HH:MM · <duration>', только '└─' (так решено в P045.2.1); тест закрытия проверяет квоту перед голым '└─'.
+- В PTY-тексте после удаления \r кадры спиннера склеиваются с последующей строкой, поэтому проверки строк после спиннера (↻ close attempt) не должны быть привязаны к ^.
+- Полный docflow verify P045.3.1 прошёл на macOS arm64: Verify (go test ./..., build, parity 69/69) и gate go test ./...
+- Unverified: Зависание живых claude/codex/pi с лимитами профиля 1200/7200 с: проверено только на fake-агенте, нужен прогон с живым профилем
+- Unverified: Отображение кадра и спиннера на Windows: терминальные тесты собираются под darwin/linux, Windows-хоста не было
+- Unverified: PTY-тесты terminal_liveness_test.go на Linux: запускались только на macOS arm64, Linux проверит CI
+- Unverified: Текст подсказки закрытия ('split the unit or set timeout: in the plan header') переиспользует capHint; тест фиксирует текст, но содержание должен оценить человек

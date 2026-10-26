@@ -395,6 +395,59 @@ func TestTerminalQuotaRowStaysInsideNarrowFrame(t *testing.T) {
 	}
 }
 
+func TestTerminalQuotaRowWiderThanFrameKeepsText(t *testing.T) {
+	// 20 columns: the row is wider than the frame even without its reset. It
+	// is emitted as is, the reset still follows on its own line.
+	p, out := newTTYProgress(t)
+	p.setColumns(20)
+	p.setDisplay(agents.Display{Quota: agents.QuotaUsed, Resets: true})
+	before := map[string]agentio.Quota{"codex": {{Label: "seven_day", Used: .6, Reset: 1792476000}}}
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex"}, blockStart)
+	p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "seven_day", Used: .62, Reset: 1792476000}}}}, before, "")
+	p.unitEnd("P001.1.1")
+	text := plainTTY(out.String())
+	if !regexp.MustCompile("(?m)^\u2502  7d  [\u2588\u2589-\u258f\u2591]+  62% \\(\\+2\\)$").MatchString(text) {
+		t.Errorf("the quota row lost text:\n%s", text)
+	}
+	if strings.Count(text, "\u21bb") != 1 || !regexp.MustCompile("(?m)^\u2502  +\u21bb[A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$").MatchString(text) {
+		t.Errorf("the reset is not once on its own line:\n%s", text)
+	}
+}
+
+func TestTerminalQuotaThreeWindowsJoinWithinWidth(t *testing.T) {
+	quota := agentio.Quota{
+		{Label: "five_hour", Used: .4, Reset: 1791904200},
+		{Label: "seven_day", Used: .62, Reset: 1792476000},
+		{Label: "30d", Used: .1, Reset: 1793476000},
+	}
+	for _, c := range []struct{ columns, rows int }{{160, 1}, {80, 2}} {
+		p, out := newTTYProgress(t)
+		p.setColumns(c.columns)
+		p.setDisplay(agents.Display{Quota: agents.QuotaUsed, Resets: true})
+		p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex"}, blockStart)
+		p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, nil, "")
+		p.unitEnd("P001.1.1")
+		text := plainTTY(out.String())
+		rows := 0
+		for _, line := range strings.Split(text, "\n") {
+			if len([]rune(line)) > c.columns-1 {
+				t.Errorf("%d columns: line exceeds the terminal: %q", c.columns, line)
+			}
+			if strings.Contains(line, "\u2591") {
+				rows++
+			}
+		}
+		if rows != c.rows || strings.Count(text, "\u21bb") != 3 {
+			t.Errorf("%d columns: %d quota rows, want %d with three inline resets:\n%s", c.columns, rows, c.rows, text)
+		}
+		for _, s := range []string{"5h  ", " 40% ", "7d  ", " 62% ", "30d  ", " 10% "} {
+			if !strings.Contains(text, s) {
+				t.Errorf("%d columns: missing %q:\n%s", c.columns, s, text)
+			}
+		}
+	}
+}
+
 func TestTerminalLayoutResumeLineIsYellowWithoutABang(t *testing.T) {
 	p, out := newTTYProgress(t)
 	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"}, blockStart)
