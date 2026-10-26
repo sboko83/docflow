@@ -103,6 +103,8 @@ goes on.
 - Извлечение пункта — регулярка ^ (\S+) в границах секции positional arguments — why: колонка описаний (20 пробелов) сама отсекает перенесённые строки, а options: исключает '-h, --help' — rejected: подсчёт отступов по всем строкам вывода и сравнение вывода с rootHelp (TestParseArgsHelp уже так делает и слеп к пропуску).
 - rootHelp остаётся рукописным текстом, а не генерируется из commands — why: Do: требует сохранить现有 вёрстку, а описания в таблице однострочные и генерация переформатировала бы весь блок, который пинит тест Python-контракта — rejected: собирать rootHelp из таблицы (меняет закреплённый посимвольный контракт вывода).
 - Docs не правятся: docs/usage.md и docs/design/cli.md уже описывают unblock как команду — дефект был только в тексте общего help, и он записан одной строкой в CHANGELOG '### Fixed' — rejected: дублировать список команд в usage.md.
+- Scenario 4's condition is a file outside the repository that the fake agent tests before working — why: it models the re-check rule without dirtying the tree that the runner verifies and commits — rejected: a condition file inside the repo (would be a stray change in the unit's commit).
+- Scenarios 2 and 6 reuse the existing PTY tests instead of new copies — why: they already assert exactly the Do: statements (same-run resume; 130 without Enter, late input EIO, plan byte-identical, no agent call) — rejected: duplicating the PTY drivers in the acceptance file.
 
 ## Phase 1: Unblock
 
@@ -506,7 +508,7 @@ Handoff:
 
 ## Phase 2: Acceptance
 
-### [ ] P041.2.1 Accept the human unblock
+### [x] P041.2.1 Accept the human unblock
 Read:
 - internal/runner/terminal_run_test.go:L20-125
 - internal/runner/run_test.go:L440-450
@@ -549,3 +551,16 @@ otherwise reply `blocked` with the reason.
 Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4, P041.1.5, P041.1.6, P041.1.7, P041.1.8, P041.1.9, P041.1.10
 Role: acceptance
 Commit: P041.2.1: accept human unblock
+Handoff:
+- Acceptance scenarios live in internal/runner/unblock_acceptance_test.go (build tag darwin||linux): TestAcceptHumanBlockToCommit (1), TestAcceptUnblockRefusesPlanBlock (3), TestAcceptLegacyBlockRecheck unmet/met (4), TestAcceptPlanBlockLookalikes (5), TestAcceptHelpListsUnblock (8); scenarios 2 and 6 are the existing PTY tests TestTerminalUnblockAtRunStart/yes and TestTerminalUnblockSignalCancels (done?/note:), all passing on macOS arm64.
+- The constant name unblockHint is taken by the production func in internal/runner/helpers.go; the test file uses runHint/statusHint for the expected hint lines.
+- Prompt assertions normalize whitespace (promptText = strings.Fields join) because the cycle text wraps mid-phrase; the legacy re-check sentinel is "a legacy `Blocked:` item counts as human" and the general one "check that condition with a command first".
+- The help scenario parses the built CLI's root help with ^ (\S+) inside 'positional arguments:'…'options:' — same shape as rootHelpEntry in cmd/docflow/main_test.go; a help layout change must update both. Mutation check: dropping the unblock line from rootHelp fails TestAcceptHelpListsUnblock.
+- Checks on the final tree: docflow verify P041.2.1 (verify + gate go test ./...) passed; tools/parity/run.sh bin/docflow bin/docflow 68 passed 0 skipped; tools/test-install.sh OK; GOOS=windows go vet ./... and go test -c ./internal/runner (PE32+ console) rc 0; docflow lint rc 0.
+- Closed earlier Unverified items: P041.1.1 status lines now have a built-CLI test (scenarios 1, 4, 5); P041.1.9 per-command help is exercised for every root-help command (<cmd> -h exits 0 and names the command); P041.1.9 tools/test-install.sh was run.
+- Unverified: Native Windows console (scenario 7): real os.Stdin reaching the question, y + note resuming the unit, redirected stdin/--yes/plan block not asking — only cross-compiled (go vet, go test -c → PE32+ console), no run on Windows; TestIsTerminalWindows*/TestAskUnblockWindowsConsoleTyped never executed.
+- Unverified: Echo of the typed note on Windows: disableEcho is a no-op in terminal_windows.go; no Windows console run.
+- Unverified: Real-agent compliance with the re-check rule on a resumed unit: only the prompt text is asserted and a fake agent models both outcomes; no live agent run through unblock → re-check.
+- Unverified: Installed release 0.13.0 skills and root help: new skill text and the unblock help line reach agent CLIs only after a release; not checked on the installed copy.
+- Unverified: Parity help.sh was a self-comparison (bin/docflow vs bin/docflow); the transcript against the published release was not compared.
+- Unverified: watchKeys: a line typed at the start confirmation does not reach the 's' watcher (separate bufio.Reader on the same fd) — no test for that pair.
