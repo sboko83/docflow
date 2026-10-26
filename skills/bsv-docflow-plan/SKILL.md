@@ -217,6 +217,10 @@ A unit's `Verify` checks its slice, and its test is written by the same
 agent that wrote the code. Nobody checks the Goal as a whole unless an
 acceptance pass is set up.
 
+A plan that changes what the user sees (UI, CLI, API) always ends with
+acceptance, even when it has one ordinary unit: a `Role: review` unit
+does not replace it.
+
 - A separate unit (or phase), last in the plan, `Role: acceptance`: it
   runs along the header `acceptance:` chain, which `roster apply` or the
   manual choice writes. `Executor:` instead — only on the user's explicit

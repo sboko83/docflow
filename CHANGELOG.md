@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pi routes on `strata/…` display a light-grey `Local` badge with dark
   text. Local runs skip subscription quota probes and quota display.
 
+### Changed
+- The `bsv-docflow-plan` skill ends every plan that changes a UI, CLI or
+  API with an acceptance unit, a one-unit plan included; a review unit no
+  longer stands in for it.
+
 ## [0.13.0] - 2026-10-25
 
 ### Added

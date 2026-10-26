@@ -66,6 +66,7 @@ confirm or refute escalation, the spinner and `--approve-for-me` after
 - Считать эскалацию по паре «отказ песочницы → повтор той же команды с exit 0» — в потоке нет события approvals, а повторы и коды выхода в логах есть — отвергнут учёт упоминаний эскалации в текстах агента (самоотчёт без исхода)
 - Спиннер проверять реальным декодером: временный Go-пакет внутри модуля, вызывающий agents.LoadAgents + agentio.StreamEvent, затем удалён — отвергнута копия декодера на Python (реплику не отличить от расхождения с боевым путём)
 - Лога RMG и их содержимое (пути, команды, сообщения) не переносятся в репозиторий: в JSON и в Handoff только счётчики и классы целей — отвергнуты цитаты из логов как доказательство
+- The Acceptance section of bsv-docflow-plan states directly that a plan changing UI, CLI or API always ends with acceptance, a one-unit plan included, and that a review unit does not replace it — a cold agent read the step-7 rule as optional for a small plan — rejected: relaxing the check-plan-skill acceptance checks
 
 ## Phase 1: Live agent checks
 
@@ -199,7 +200,7 @@ Handoff:
 
 ## Phase 2: Acceptance
 
-### [ ] P039.2.1 Accept the e2e and live checks
+### [x] P039.2.1 Accept the e2e and live checks
 Read:
 - tools/parity/README.md
 - tools/check-plan-skill.sh
@@ -221,3 +222,13 @@ otherwise block with the reason.
 Depends: P039.1.1, P039.1.2, P039.1.3
 Role: acceptance
 Commit: P039.2.1: accept e2e and live checks
+Handoff:
+- e2e parity on a fresh bin/docflow: 68 scenarios passed, 0 skipped (macOS arm64); the CI e2e step runs on ubuntu, macos and windows with no if: excluding one
+- First cold check-plan-skill run failed header-acceptance and last-unit-acceptance: the agent planned a CLI feature as one ordinary unit plus Role: review and left out acceptance. The rule 'UI/CLI/API change -> last phase is Acceptance' appeared only in step 7. Added it to the Acceptance section of skills/bsv-docflow-plan/SKILL.md together with a CHANGELOG entry; the second cold run passed all 10 checks
+- The 20-minute watchdog was exercised with a hanging stub claude in a separate TMPDIR: the agent was killed at 1201 s with code 143; this closes the P039.1.1 Unverified item
+- tools/test-install.sh passed and parity passed; this closes the P039.1.2 Unverified item about CI extras
+- check-plan-skill.sh leaks a process: when the agent finishes on its own, killing the watchdog subshell leaves its 'sleep 1200' orphaned (ppid 1) for up to 20 minutes. It is harmless and was not fixed here (outside Do:). Fix: trap TERM in the subshell and kill the backgrounded sleep
+- One failing and one passing cold run do not prove the skill fix is reliable; the next cold runs will show whether acceptance gets dropped again
+- Unverified: Codex sandbox escalation for writes outside the repository root (DerivedData, caches): no live Gradle/Xcode run with observed sandbox denials; already in the docs/docflow.md Backlog
+- Unverified: Successful escalation inside a resumed Codex call: the recorded logs contain no such denial and there was no live check; already in the Backlog
+- Unverified: That the agent itself requested the 'escalated' verify of P008.2.2: no agent call records it, so it cannot be checked from the logs
