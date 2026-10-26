@@ -7,11 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docflow run` tells a working agent from a hung one: an agent silent for
+  the profile's new `idle_timeout` seconds (built-in profiles 1200; 0 turns
+  the check off, range 5–86400) with no tool running is stopped as stalled
+  and the attempt is retried on the same session with a note about the stall.
+- A time cap reached while the agent is active (its last event is under 60 s
+  old, or a tool is running) is not a failure: the run prints
+  `↻ attempt N: time cap <cap> reached while active (<turns> turns); resuming
+  the session`, names the tool in flight where there is one, and the run
+  summary adds `hint: <id> needs more than <cap> on <route>: split the unit
+  or set timeout: in the plan header`.
+- The TTY spinner shows what the agent is doing:
+  `<id> <elapsed> · turn <n> · <age> ago`, plus `· tool <duration>` while a
+  tool runs. The call log `<git-dir>/docflow/run/<unit>.<attempt>.out` is
+  written while the call runs, so `tail -f` follows the agent.
+
 ### Fixed
 - `docflow init` replaces the legacy AGENTS.md plan marker instead of
   appending a second one; when both versions exist, it removes the old one.
 
 ### Changed
+- The built-in `claude`, `codex` and `pi` profiles raise the per-call cap from
+  3600 to 7200 seconds: a unit that works the whole hour is cut off while it
+  is still making progress. The plan header's `timeout:` keeps overriding it.
+- The call log ends with `--- exit N` carrying a ` (timed out)` or
+  ` (stalled)` suffix instead of starting with that line: `$ argv`,
+  `--- stdout` streamed line by line, `--- stderr`, exit. The file is
+  complete only when the call is.
 - `docflow init` writes the AGENTS.md marker as
   `Plans: docflow (run docflow status), only on an explicit request; not
   the bsv-docs PLAN genre`.

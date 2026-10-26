@@ -417,6 +417,13 @@ func (p *Progress) unverified(text string) {
 	p.wrappedLocked(text, "│    ", "", p.out, "")
 }
 
+// resume reports an attempt the time cap ended while the agent was still
+// working: the run keeps the session and tries again, so the line is yellow
+// without the "!" mark that names a problem.
+func (p *Progress) resume(text string) {
+	p.line(p.paint(text, "yellow", p.out), false, "")
+}
+
 func (p *Progress) elapsed(uid string, seconds float64) {
 	if !p.fancy {
 		p.line(uid+" time: "+agentio.Duration(seconds), false, "")
@@ -648,7 +655,7 @@ func (p *Progress) quotas(quotas []NamedQuota, before map[string]agentio.Quota, 
 	p.quotasLocked(quotas, before, scope, finish)
 }
 
-func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]agentio.Quota) {
+func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]agentio.Quota, hints []string) {
 	if !p.fancy {
 		shown := make([]string, 0, len(quotas))
 		for _, item := range quotas {
@@ -660,6 +667,9 @@ func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]a
 			text += ", " + strings.Join(shown, "; ")
 		}
 		p.line(text, false, "")
+		for _, hint := range hints {
+			p.line("hint: "+hint, false, "yellow")
+		}
 		return
 	}
 	p.mu.Lock()
@@ -668,6 +678,9 @@ func (p *Progress) summary(text string, quotas []NamedQuota, before map[string]a
 	p.wrappedLocked(strings.TrimPrefix(text, "run: "), "│  ", "", p.out, "")
 	p.emitLocked(p.paint("│", "dim", p.out), p.out)
 	p.quotasLocked(quotas, before, "run", false)
+	for _, hint := range hints {
+		p.wrappedLocked("hint: "+hint, "│  ", "yellow", p.out, "")
+	}
 	p.closeLocked()
 }
 

@@ -255,6 +255,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 		return 2, err
 	}
 	prompt, problem, session := closePrompt(plan), "", ""
+	stalled := false
 	beforeQuota := make(map[string]agentio.Quota)
 	for _, name := range chain.routeAgents() {
 		beforeQuota[name] = append(agentio.Quota(nil), totals.quota[name]...)
@@ -268,14 +269,19 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
 		text, resume := prompt, ""
 		if problem != "" {
+			note := problem
+			if stalled {
+				note = stalledFeedback(problem)
+			}
 			if session != "" {
-				text, resume = feedback(problem), session
+				text, resume = feedback(note), session
 			} else {
-				text += "\n## Previous attempt\n\n" + feedback(problem)
+				text += "\n## Previous attempt\n\n" + feedback(note)
 			}
 		}
 		var run agentio.AgentRun
 		var agent map[string]any
+		var live *agentio.Liveness
 		waitingKind := ""
 		for limits, throttles := 0, 0; ; {
 			for !available {
@@ -315,8 +321,9 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			rel, _ := filepath.Rel(root, log)
 			p.unit(id, "close plan", route)
 			totals.events.emit("attempt", "", map[string]any{"plan": id, "n": attempt, "route": eventRoute(route), "log": rel, "close": true})
-			p.spin(id+" close", nil)
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: agentCallTimeout(plan, agent), Idle: agentIdleTimeout(agent), Liveness: agentio.NewLiveness(stringValue(agent["stream"])), OnStreamEvent: func(event agentio.Event) {
+			live = agentio.NewLiveness(stringValue(agent["stream"]))
+			p.spin(func() string { return livenessLabel(id+" close", live) }, nil)
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: agentCallTimeout(plan, agent), Idle: agentIdleTimeout(agent), Liveness: live, OnStreamEvent: func(event agentio.Event) {
 				if quota, ok := agentio.StreamEvent(agent, event)["quota"].(agentio.Quota); ok {
 					totals.mergeQuota(quotaName(route), quota)
 				}
@@ -394,7 +401,11 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			return 7, nil
 		}
 		result := agentio.ExtractResult(agent, run.Stdout)
+		stalled = false
 		switch {
+		case run.Stalled:
+			stalled = true
+			problem = stallProblem(agentIdleTimeout(agent))
 		case run.TimedOut:
 			problem = "close agent timed out"
 		case run.Code != 0:

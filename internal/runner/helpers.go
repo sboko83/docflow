@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"bsv-docflow/internal/agentio"
 	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/clierrors"
 	"bsv-docflow/internal/cycle"
@@ -53,6 +54,113 @@ func agentCallTimeout(plan *format.Plan, agent map[string]any) time.Duration {
 func agentIdleTimeout(agent map[string]any) time.Duration {
 	seconds, _ := numericEpoch(agent["idle_timeout"])
 	return time.Duration(seconds * float64(time.Second))
+}
+
+// activeEventWindow is how recently an agent must have spoken for a call that
+// hit its time cap to read as work cut short, not as a hang.
+const activeEventWindow = time.Minute
+
+// shortDuration writes a limit the way a sentence reads: 7200s is "2h", 1200s
+// is "20m", 45s is "45s". agentio.Duration keeps the seconds ("20m00s"), which
+// is noise in a message about a limit.
+func shortDuration(limit time.Duration) string {
+	hours, minutes := int64(limit/time.Hour), int64(limit%time.Hour/time.Minute)
+	switch {
+	case hours > 0 && minutes > 0:
+		return fmt.Sprintf("%dh%02dm", hours, minutes)
+	case hours > 0:
+		return fmt.Sprintf("%dh", hours)
+	case minutes > 0:
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%ds", int64(limit/time.Second))
+}
+
+// stallProblem reports a call the idle watchdog stopped: an agent that prints
+// nothing with no tool running is hung, not working. The attempt is retried the
+// way a timeout is.
+func stallProblem(idle time.Duration) string {
+	return fmt.Sprintf("agent silent for %s, no tool running — stopped", shortDuration(idle))
+}
+
+// stalledFeedback is what the resumed session is told about the attempt that
+// hung: the agent must know its work was cut short by silence, not judged
+// wrong.
+func stalledFeedback(problem string) string {
+	return "the previous attempt stalled: " + problem
+}
+
+// workingPhrase says what the agent was doing when the cap ended the call: a
+// running tool by name, or the stream itself, which spoke moments before.
+func workingPhrase(activity string) string {
+	if activity != "" {
+		return "during " + activity
+	}
+	return "while active"
+}
+
+// capProblem reports a time cap reached while the agent worked. The attempt is
+// not a failure: the run resumes the same session, so the line carries the ↻
+// mark and no "!" problem mark. `label` names the attempt: "attempt 2" in a
+// unit, "replan attempt 1" in a replan.
+func capProblem(label string, cap time.Duration, activity string, state agentio.LivenessState) string {
+	return fmt.Sprintf("↻ %s: time cap %s reached %s (%d turn%s); resuming the session",
+		label, shortDuration(cap), workingPhrase(activity), state.Turns, plural(state.Turns))
+}
+
+// activeAt reports whether the agent was working at the end of a call: a tool
+// still runs, or the stream spoke within the window. An agent that printed
+// nothing the whole call is silent, not active.
+func activeAt(state agentio.LivenessState, at time.Time) bool {
+	if state.Tools > 0 {
+		return true
+	}
+	return state.Lines > 0 && at.Sub(state.LastLine) < activeEventWindow
+}
+
+// capActivity names what the agent was doing at the cap: the activity only
+// counts while a tool is in flight, the stream's last activity outlives the
+// tool that produced it.
+func capActivity(state agentio.LivenessState, activity string) string {
+	if state.Tools > 0 {
+		return activity
+	}
+	return ""
+}
+
+// capReport is the active-cap line for a call the time cap ended, empty when
+// the call was not active: an attempt that ends silent is a problem, not work
+// cut short.
+func capReport(label string, cap time.Duration, live *agentio.Liveness, activity string, at time.Time) string {
+	state := live.State()
+	if !activeAt(state, at) {
+		return ""
+	}
+	return capProblem(label, cap, capActivity(state, activity), state)
+}
+
+// capHint is the run summary's advice for a unit whose attempt used the whole
+// cap while working: the unit needs more time than the route gives it.
+func capHint(uid string, cap time.Duration, route agents.Route) string {
+	return fmt.Sprintf("%s needs more than %s on %s: split the unit or set timeout: in the plan header",
+		uid, shortDuration(cap), routeName(route))
+}
+
+// livenessLabel is the TTY spinner text: the base label (id and elapsed) plus
+// what the stream says the agent is doing — the turn count and the age of the
+// last event, and the running tool's duration while one is in flight. The
+// spinner re-evaluates the label every frame, so the ages tick.
+func livenessLabel(label string, live *agentio.Liveness) string {
+	if live == nil {
+		return label
+	}
+	state := live.State()
+	text := fmt.Sprintf("%s · turn %d · %s ago", label, state.Turns,
+		agentio.Duration(time.Since(state.LastLine).Seconds()))
+	if state.Tools > 0 && !state.OldestTool.IsZero() {
+		text += " · tool " + agentio.Duration(time.Since(state.OldestTool).Seconds())
+	}
+	return text
 }
 
 var currentPlatform = runtime.GOOS

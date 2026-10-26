@@ -49,9 +49,39 @@ type runTotals struct {
 	switches                   int
 	mu                         sync.Mutex
 	unit, activity             string
+	hints                      []string
 	quota, quotaStart          map[string]agentio.Quota
 	names                      []string
 	events                     *eventStream
+}
+
+// lastActivity is what the stream last said the agent was doing: the tool
+// named in a cap report.
+func (t *runTotals) lastActivity() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.activity
+}
+
+// noteCap records that an attempt used the whole time cap while the agent
+// worked. The run summary turns the notes into one hint per unit and route.
+func (t *runTotals) noteCap(uid string, cap time.Duration, route agents.Route) {
+	text := capHint(uid, cap, route)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, seen := range t.hints {
+		if seen == text {
+			return
+		}
+	}
+	t.hints = append(t.hints, text)
+}
+
+// capHints returns the notes in the order the run made them.
+func (t *runTotals) capHints() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string{}, t.hints...)
 }
 
 func (t *runTotals) mergeQuota(name string, quota agentio.Quota) {
@@ -523,7 +553,7 @@ func runSummary(p *Progress, totals *runTotals) {
 		}
 		text += fmt.Sprintf(", %d %s", totals.switches, word)
 	}
-	p.summary(text, totals.namedQuotas(), totals.quotaStart)
+	p.summary(text, totals.namedQuotas(), totals.quotaStart, totals.capHints())
 }
 
 func feedback(problem string) string {
@@ -718,18 +748,26 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		}
 	}
 	session, last := "", "agent"
+	stalled := false
 	var unitIn, unitOut *int
 	timeout := agentCallTimeout(plan, agent)
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
 		text, resume := prompt, ""
 		if problem != "" {
+			note := problem
+			if stalled {
+				note = stalledFeedback(problem)
+			}
 			if session != "" {
-				text, resume = feedback(problem), session
+				text, resume = feedback(note), session
 			} else {
-				text = prompt + "\n## Previous attempt\n\n" + feedback(problem)
+				text = prompt + "\n## Previous attempt\n\n" + feedback(note)
 			}
 		}
 		var run agentio.AgentRun
+		// live tracks the call in flight: the spinner reads it every frame, the
+		// report reads it after the call ends.
+		var live *agentio.Liveness
 		for limits, throttles := 0, 0; ; {
 			argv, stdin, err := agents.BuildCommand(agent, text, route.Model, schema, resume, route.Effort, mode)
 			if err != nil {
@@ -742,8 +780,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel})
-			p.spin(func() string { return uid + " " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: agentio.NewLiveness(stringValue(agent["stream"]))})
+			live = agentio.NewLiveness(stringValue(agent["stream"]))
+			p.spin(func() string { return livenessLabel(uid+" "+agentio.Duration(time.Since(start).Seconds()), live) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live})
 			p.stop()
 			if err != nil {
 				return 7, "", err
@@ -918,9 +957,15 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			return 7, "", nil
 		}
 		var result map[string]any
+		capLine := ""
+		stalled = false
 		switch {
+		case run.Stalled:
+			stalled = true
+			problem = stallProblem(agentIdleTimeout(agent))
 		case run.TimedOut:
 			problem = fmt.Sprintf("timed out after %v s", timeout.Seconds())
+			capLine = capReport(fmt.Sprintf("attempt %d", attempt), timeout, live, totals.lastActivity(), time.Now())
 		case run.Code != 0:
 			problem = fmt.Sprintf("the agent exited with code %d", run.Code)
 		case agentio.JSONPath(agentio.AgentOutput(agent, run.Stdout), stringValue(agent["error"])) == true:
@@ -936,7 +981,14 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					problem += ": " + reason
 				}
 			}
-			p.line(fmt.Sprintf("%s: attempt %d: %s", uid, attempt, problem), true, "")
+			if capLine != "" {
+				// The cap ended a call that was still working: the attempt is
+				// resumed, not reported as a problem.
+				p.resume(capLine)
+				totals.noteCap(uid, timeout, route)
+			} else {
+				p.line(fmt.Sprintf("%s: attempt %d: %s", uid, attempt, problem), true, "")
+			}
 			continue
 		}
 		if result["status"] == "blocked" {

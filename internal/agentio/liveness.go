@@ -14,13 +14,18 @@ type Liveness struct {
 	mu     sync.Mutex
 	stream string
 	last   time.Time
+	lines  int
 	turns  int
 	tools  map[string]time.Time
 }
 
 // LivenessState is an immutable snapshot of a Liveness.
 type LivenessState struct {
-	LastLine   time.Time
+	LastLine time.Time
+	// Lines counts the stdout lines the agent has produced. Zero means the
+	// call has seen no event at all: LastLine then holds the call's start, so
+	// a reader telling an active agent from a hung one checks Lines first.
+	Lines      int
 	Turns      int
 	Tools      int
 	OldestTool time.Time
@@ -43,6 +48,7 @@ func (l *Liveness) Observe(line string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.last = time.Now()
+	l.lines++
 	if obj == nil {
 		return
 	}
@@ -65,7 +71,7 @@ func (l *Liveness) State() LivenessState {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	state := LivenessState{LastLine: l.last, Turns: l.turns, Tools: len(l.tools)}
+	state := LivenessState{LastLine: l.last, Lines: l.lines, Turns: l.turns, Tools: len(l.tools)}
 	for _, start := range l.tools {
 		if state.OldestTool.IsZero() || start.Before(state.OldestTool) {
 			state.OldestTool = start

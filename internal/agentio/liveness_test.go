@@ -55,6 +55,7 @@ func TestLivenessStreams(t *testing.T) {
 	})
 	t.Run("non-json lines still count as events", func(t *testing.T) {
 		live := NewLiveness("claude")
+		equal(t, live.State().Lines, 0) // the call has not spoken yet
 		before := live.State().LastLine
 		time.Sleep(2 * time.Millisecond)
 		live.Observe("plain text, not an event")
@@ -63,6 +64,7 @@ func TestLivenessStreams(t *testing.T) {
 			t.Fatal("a non-JSON line did not refresh the last event time")
 		}
 		equal(t, state.Turns, 0)
+		equal(t, state.Lines, 1)
 	})
 }
 

@@ -29,7 +29,8 @@ state in the repository instead of the agent's memory.
   without a human: prompts the agent, verifies, commits, retries a
   failed unit with the failure tail, switches to the plan's fallback
   executor on a provider limit or outage and waits only when all of them
-  are unavailable, and stops safely on a timeout or a soft stop. A
+  are unavailable, and stops safely on a timeout, a stalled agent or a soft
+  stop. A
   personal roster picks the executor and fallback chains per role
   (`docflow roster show`, `docflow roster apply`); the runner reads the
   plan, not the roster. Claude Code, Codex

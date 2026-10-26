@@ -281,17 +281,25 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		return code, restorePlan(planPath, string(before))
 	}
 	session, problem := "", ""
+	stalled := false
 	timeout := agentCallTimeout(plan, agent)
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
 		text, resume := prompt, ""
 		if problem != "" {
+			note := problem
+			if stalled {
+				note = stalledFeedback(problem)
+			}
 			if session != "" {
-				text, resume = feedback(problem), session
+				text, resume = feedback(note), session
 			} else {
-				text += "\n## Previous attempt\n\n" + feedback(problem)
+				text += "\n## Previous attempt\n\n" + feedback(note)
 			}
 		}
 		var run agentio.AgentRun
+		// live tracks the call in flight: the spinner reads it every frame, the
+		// report reads it after the call ends.
+		var live *agentio.Liveness
 		for limits, throttles := 0, 0; ; {
 			argv, stdin, err := agents.BuildCommand(agent, text, model, schema, resume, effort, format.PlanPermissions(plan))
 			if err != nil {
@@ -304,8 +312,11 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			rel, _ := filepath.Rel(root, log)
 			p.detail(fmt.Sprintf("replan attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel, "replan": true})
-			p.spin(func() string { return uid + " replan " + agentio.Duration(time.Since(start).Seconds()) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: agentio.NewLiveness(stringValue(agent["stream"]))})
+			live = agentio.NewLiveness(stringValue(agent["stream"]))
+			p.spin(func() string {
+				return livenessLabel(uid+" replan "+agentio.Duration(time.Since(start).Seconds()), live)
+			}, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live})
 			p.stop()
 			if err != nil {
 				return 7, err
@@ -442,9 +453,15 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			return stop(7, uid+": "+name+" is not logged in", uid+": "+name+" is not logged in: "+auth+"; the plan is restored", "")
 		}
 		var result map[string]any
+		capLine := ""
+		stalled = false
 		switch {
+		case run.Stalled:
+			stalled = true
+			problem = stallProblem(agentIdleTimeout(agent))
 		case run.TimedOut:
 			problem = fmt.Sprintf("timed out after %v s", timeout.Seconds())
+			capLine = capReport(fmt.Sprintf("replan attempt %d", attempt), timeout, live, totals.lastActivity(), time.Now())
 		case run.Code != 0:
 			problem = fmt.Sprintf("the agent exited with code %d", run.Code)
 		case agentio.JSONPath(agentio.AgentOutput(agent, run.Stdout), stringValue(agent["error"])) == true:
@@ -459,7 +476,14 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 					problem += ": " + reason
 				}
 			}
-			p.line(fmt.Sprintf("%s: replan attempt %d: %s", uid, attempt, problem), true, "")
+			if capLine != "" {
+				// The cap ended a replan call that was still working: the attempt
+				// is resumed on the same session, not reported as a problem.
+				p.resume(capLine)
+				totals.noteCap(uid, timeout, route)
+			} else {
+				p.line(fmt.Sprintf("%s: replan attempt %d: %s", uid, attempt, problem), true, "")
+			}
 			continue
 		}
 		if result["status"] == "blocked" {

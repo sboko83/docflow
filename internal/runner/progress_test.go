@@ -212,7 +212,7 @@ func TestTerminalLayoutQuotaBarsThresholdsAndScope(t *testing.T) {
 	quota := agentio.Quota{{Label: "five_hour", Used: .97, Reset: 100}, {Label: "seven_day", Used: .62, Reset: 200}}
 	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "max"})
 	p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": before}, "", true)
-	p.summary("run: 1 unit, 1m", []NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": {{Label: "five_hour", Used: .33, Reset: 100}, {Label: "seven_day", Used: .52, Reset: 200}}})
+	p.summary("run: 1 unit, 1m", []NamedQuota{{Name: "codex", Quota: quota}}, map[string]agentio.Quota{"codex": {{Label: "five_hour", Used: .33, Reset: 100}, {Label: "seven_day", Used: .52, Reset: 200}}}, nil)
 	text := plainTTY(out.String())
 	if !regexp.MustCompile(`5h  [█▏▎▍▌▋▊▉░]+\s+97% \(\+11\)`).MatchString(text) {
 		t.Errorf("five-hour quota row missing or wrong:\n%s", text)
@@ -225,6 +225,40 @@ func TestTerminalLayoutQuotaBarsThresholdsAndScope(t *testing.T) {
 	p.quotas([]NamedQuota{{Name: "codex", Quota: before}}, nil, "", true)
 	if !strings.Contains(out.String(), "\x1b[33m 86%") {
 		t.Errorf("yellow threshold not painted: %q", out.String())
+	}
+}
+
+func TestTerminalLayoutResumeLineIsYellowWithoutABang(t *testing.T) {
+	p, out := newTTYProgress(t)
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"})
+	p.resume("↻ attempt 1: time cap 2h reached while active; resuming the session")
+	raw := out.String()
+	text := plainTTY(raw)
+	if !strings.Contains(text, "│  ↻ attempt 1: time cap 2h reached while active; resuming the session") {
+		t.Errorf("the resume line is not inside the unit block:\n%s", text)
+	}
+	if strings.Contains(text, "│  !") {
+		t.Errorf("an attempt that resumes carries the problem mark:\n%s", text)
+	}
+	if !strings.Contains(raw, "\x1b[33m↻") {
+		t.Errorf("the resume line is not yellow:\n%q", raw)
+	}
+}
+
+func TestTerminalLayoutSummaryCarriesCapHints(t *testing.T) {
+	p, out := newTTYProgress(t)
+	hint := "P001.1.1 needs more than 2h on codex model: split the unit"
+	p.summary("run: 1 unit, 2h01m", []NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "five_hour", Used: .33, Reset: 100}}}}, nil, []string{hint})
+	raw := out.String()
+	text := plainTTY(raw)
+	if !strings.Contains(text, "│  hint: "+hint) {
+		t.Errorf("the summary frame has no hint row:\n%s", text)
+	}
+	if !strings.Contains(raw, "\x1b[33m"+"hint: ") {
+		t.Errorf("the hint is not yellow:\n%q", raw)
+	}
+	if strings.Index(text, hint) < strings.Index(text, "5h") || !strings.HasSuffix(text, "╰─\n") {
+		t.Errorf("the hint sits above the quota or outside the frame:\n%s", text)
 	}
 }
 
