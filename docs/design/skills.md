@@ -14,7 +14,7 @@
   нет → действует прежний жанр `docs/PLAN.md`.
   Почему — [P010](../archive/P010-design-rationale.md).
 - Подстраховка маркера: `docflow init` дописывает в AGENTS.md проекта строку
-  `Plans: docflow (run docflow status), not the bsv-docs PLAN genre`.
+  `Plans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre`.
 - Перевод существующего проекта на docflow — только явно, не по факту
   появления скрипта.
 - В docflow-проекте ARCHITECTURE — текущее устройство системы + ссылки на

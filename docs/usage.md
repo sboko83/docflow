@@ -208,7 +208,7 @@ docflow init
 
 - Создаёт `docs/docflow.md` (очередь, backlog), `docs/plans/`,
   `docs/archive/` и строку в `AGENTS.md`:
-  `Plans: docflow (run docflow status), not the bsv-docs PLAN genre`.
+  `Plans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre`.
 - Существующий проект переводится только явно. Старый `docs/PLAN.md`
   после перевода не ведётся: открытые задачи — строками в Backlog.
 - Architecture проекта (`docs/architecture.md` или что названо в AGENTS.md)

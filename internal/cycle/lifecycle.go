@@ -19,7 +19,7 @@ import (
 	"bsv-docflow/templates"
 )
 
-const agentsLine = "Plans: docflow (run docflow status), not the bsv-docs PLAN genre"
+const agentsLine = "Plans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre"
 
 var (
 	slugRE     = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)

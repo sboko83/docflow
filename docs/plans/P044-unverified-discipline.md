@@ -74,6 +74,8 @@ request.
 - Нормализация срезает ровно один хвост `( … )` (unverifiedKey) — чтобы копия «X (inherited from P001.1.1)» совпала с оригиналом, а свой пункт (`layout on iPhone (small)`) остался различим — отвергнуто: срезать все скобки (теряются реальные риски) и нечёткое сходство (ложные потери пунктов).
 - Текст про `Accepted:` не добавлен в docs/design/cycle.md в этом юните — docs фиксируют текущее поведение, а не решение плана — отвергнуто: записать решение заранее (факт появится только в P044.2.1, а дубль потом придётся вычищать).
 - skills/bsv-docflow-run/SKILL.md синхронизирован, хотя `Do:` его не называет — ловушка плана требует держать текст раннер-цикла и скилл одинаковыми — отвергнуто: оставить скилл в старом смысле (агент увидит два разных правила).
+- Обновил цитаты `agentsLine` в docs/design/skills.md и docs/usage.md, хотя `Do:` их не называет — docs фиксируют текущее поведение и цитируют строку дословно, после смены константы они врали бы; план и его `Do:` в юните не правятся — отвергнуто: оставить docs устаревшими (правило проекта: затронутый doc в том же изменении) и править текст плана.
+- Запись CHANGELOG под [Unreleased] добавлена этим юнитом, а не отложена на закрытие — строка в AGENTS.md и тексты скиллов видны пользователю — отвергнуто: молчание до `docflow close` (bsv-changelog: user-visible правки попадают в [Unreleased] сразу).
 
 ## Phase 1: Rules
 
@@ -128,7 +130,7 @@ Handoff:
 - Unverified: Прогоны `bash tools/test-install.sh` и `bash tools/parity/run.sh bin/docflow bin/docflow` (CI-шаги, не входят в Verify/gate) не запускались — missing check: прогнать их на этом дереве, вывод раннера с новой verbose-строкой там не проверен.
 - Unverified: Эффективность новой формулировки на живом агенте (перестанет ли он наследовать чужие `Unverified:` до того, как сработает дедуп) — missing check: реальный `docflow run` по плану с Depends и просмотр Handoff юнитов после прогона.
 
-### [ ] P044.1.2 Tighten skill rules for unverified and plans
+### [x] P044.1.2 Tighten skill rules for unverified and plans
 Read:
 - skills/bsv-docflow-run/SKILL.md:L88-157
 - skills/bsv-docflow-plan/SKILL.md:L16-45
@@ -178,6 +180,14 @@ Verify: `go test ./internal/cycle/ && python3 tools/test-check-plan-skill.py && 
 Traps: `bin/docflow lint` checks this plan file too; do not edit the plan.
 Depends: P044.1.1
 Commit: P044.1.2: tighten unverified and plan trigger rules
+Handoff:
+- Формулировка `unverified` в skills/bsv-docflow-run/SKILL.md (L94-105) теперь структурно совпадает с RunnerCycle; сам RunnerCycle в этом юните не менялся — SHA из TestStrictRunnerSchema (d80ff9b5…) остаётся валидным.
+- Установленные копии скиллов не обновлял (правил только skills/): для живых агентов нужен `bash tools/install-dev.sh`.
+- `agentsLine` цитируется не только тестами: docs/design/skills.md:17 и docs/usage.md:211 дословно цитировали старую строку — обновил их вместе с константой, вне списка `Do:`; CHANGELOG-запись в [Unreleased] тоже добавлена вне `Do:` (прецедент P044.1.1). Файл плана и AGENTS.md репозитория не трогал: AGENTS.md:8 содержит старый маркер — менять человеку.
+- `init` дописывает маркер, только если точной строки нет: миграции старого маркера в коде нет, тест на повторный `init` со старым текстом отсутствует — проверять это будет P044.2.1/Backlog.
+- CI-шаги прогнаны на этом дереве: `bash tools/test-install.sh` OK, `bash tools/parity/run.sh bin/docflow bin/docflow` — 68 сценариев, 0 пропущено (унаследованный пункт P044.1.1 закрыт прогоном, дублировать его в Unverified не стал).
+- Unverified: Двойной маркер в AGENTS.md: `docflow init` на проекте, где уже стоит старая строка `Plans: docflow (run docflow status), not the bsv-docs PLAN genre`, дописывает новую — проверено вручную в песочнице, получилось 2 строки `Plans: docflow`. Missing check: нет теста на повторный `init` со старым маркером (`TestInitDoesNotDuplicateAgentsLine` пинит новую строку) и нет миграции маркера; ни `Verify`, ни `gate` этого сценария не исполняют.
+- Unverified: Поведение агента на новых формулировках скилла плана (вопрос «make a plan or do it now?» перед любым планом/`note`/`activate`, и «Verify covers Do») — missing check: живой `docflow run` по плану с юнитом, где `Do:` меняет наблюдаемое только UI/e2e поведение, и просмотр его `Verify:`/Handoff; текстовые проверки `Verify:` фиксируют наличие строк, а не применение правила.
 
 ### [ ] P044.1.3 Review the rules phase
 Read:

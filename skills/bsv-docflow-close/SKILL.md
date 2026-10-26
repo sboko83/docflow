@@ -43,9 +43,12 @@ not start a release by itself; use the project's release process and
      understandable without the plan. They reach a prompt only when the
      entry is referenced by a plan's `## Context` or a unit's `Read:`
      file — usually the architecture, step 5.
-   - `## Follow-ups` — what was not done. Every
-     Handoff item with `Unverified:` that a later unit or the acceptance
-     did not close: verify it now or move it here. When even one remains,
+   - `## Follow-ups` — what was not done. Triage every open
+     `Unverified:` item of the units' Handoffs: verify it now; or write
+     `Accepted: <item> — <why it is not a risk>` — it stays only in the
+     entry, like `Waits:`; or move it to the Backlog (step 8) when it is a
+     Goal gap or a risk with a concrete failing scenario. Unfinished Goal
+     work always goes to the Backlog. When even one `Unverified:` remains,
      the Outcome says what was left unverified.
    An empty section is a `lint` error; nothing to say — `None.`
 5. The project's architecture (ARCHITECTURE.md or whatever AGENTS.md
@@ -58,14 +61,15 @@ not start a release by itself; use the project's release process and
 7. CHANGELOG — per `bsv-changelog`, observable behavior only; no
    `CHANGELOG.md` in the project — skip the step, do not create the file.
 8. Follow-ups — as lines in `## Backlog` of `docs/docflow.md`; one line
-   is one task understandable without the plan. Always moved, no
-   judgment: whatever the plan's Goal covered and was not done, every
-   open `Unverified:` item, the unfinished part of a dropped plan. The
-   only exception: an observation outside the Goal that needs nothing
-   until an external event (a project, a device, a failure that has not
-   happened yet). It stays only in the entry, written as
-   `Waits: <event> — <what to do>`; `grep -rn 'Waits:' docs/archive`
-   lists all of them.
+   is one task understandable without the plan. Triage each open item
+   (step 4): unfinished Goal work always goes to the Backlog, so does the
+   unfinished part of a dropped plan; an `Unverified:` item goes there when
+   it is a Goal gap or a risk with a concrete failing scenario. Two kinds
+   stay only in the entry: an observation outside the Goal that needs
+   nothing until an external event (a project, a device, a failure that has
+   not happened yet) — `Waits: <event> — <what to do>`; and an accepted
+   risk — `Accepted: <item> — <why it is not a risk>`.
+   `grep -rn 'Waits:' docs/archive` lists all of the first kind.
 9. `docflow lint` — without errors.
 10. When the project's rules or the commission require a commit, use the
     ordinary `git commit`: `docflow close` does not commit by itself. The

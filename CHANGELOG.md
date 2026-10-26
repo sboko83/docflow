@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `docflow init` writes the AGENTS.md marker as
+  `Plans: docflow (run docflow status), only on an explicit request; not
+  the bsv-docs PLAN genre`.
+- `bsv-docflow-plan` asks one question — "make a plan or do it now?" —
+  before any plan file, `docflow note`, `activate` or `close`, whatever the
+  task's size; `docflow note` is written only on a request, and after work
+  without a plan the reply offers it when a design decision changed. A
+  unit's `Verify:` must cover its `Do:`: behavior a command cannot observe
+  (a screen, an animation, a device flow) adds a UI/e2e test to `Verify:`
+  or a live-check unit right after the first such unit of the phase; a
+  phase run by a `check` provider holds at most 4 units before its review
+  unit.
+- `bsv-docflow-close` triages every open `Unverified:` item at closing:
+  verify it now, accept it in the entry as
+  `Accepted: <item> — <why it is not a risk>` like `Waits:`, or move it to
+  the Backlog only when it is a Goal gap or a risk with a concrete failing
+  scenario; unfinished Goal work always goes to the Backlog. Acceptance
+  ends each inherited item the same three ways.
+- Review observations without a defect are plain Handoff items, not
+  `Unverified:`: the reviewer changes no code.
 - A unit's `unverified` names a risk of the unit's own change that its
   `Verify` does not cover: not an item already open in a `Depends` unit's
   Handoff, not an idea to improve tests, not a check of code the unit did not

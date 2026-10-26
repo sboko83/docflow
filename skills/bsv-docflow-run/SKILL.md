@@ -94,15 +94,16 @@ plan: non-obvious behavior, workarounds, deferrals, a trap found.
 - Nothing to pass on — one item stating the essence of the result, not
   emptiness.
 - What was changed but not verified — as a separate item
-  `Unverified: <what> — <which check is missing>` (layout on a device, a
-  scenario outside `Verify`, a case without a test): a risk of this unit's
-  own change that its `Verify` does not cover. Not an item already open in
-  the Handoff of a `Depends` unit — it stays open on its own unit; not an
-  idea to improve tests; not a check of code this unit did not change. An
-  unfinished `Do:` step or Goal requirement is not unverified: finish it, or
-  block. No such items means `Verify` covers every risk of this change. In
-  runner mode — the `unverified` field of the result JSON; the runner adds
-  the prefix and drops a repeat of a `Depends` item.
+  `Unverified: <what> — <which check is missing>`: a risk of what this unit
+  changed that its `Verify` does not cover, each naming the missing check
+  (layout on a device, a flow `Verify` does not run, a case without a
+  test). Not: items already listed under `## Handoff from Depends` — they
+  stay open on their own unit; ideas to improve tests; checks of code this
+  unit did not change. A `Do:` step or Goal requirement left undone is not
+  unverified: finish it, or block with `--needs plan`. An empty list claims
+  every risk of this change is covered by `Verify`. In runner mode — the
+  `unverified` field of the result JSON; the runner adds the prefix and
+  drops a repeat of a `Depends` item.
 - Good: `parse_ref cuts the anchor at the first '#': anchors containing
   '#' are not supported`. Bad: `updated the parser, added tests`.
 
@@ -150,7 +151,8 @@ naming what is still missing, and do not spend the unit on the rest of
 A unit with `Role: review` reviews and fixes nothing: it edits no
 files. A defect it finds is a block with `--needs plan` — the plan's
 `replan:` schedules the fix; observations without a defect go to the
-Handoff as `Unverified:` items. The prompt's `## Phase diff` section names
+Handoff as plain items, not `Unverified:` — the reviewer changed no code,
+so its observations are not unverified risks. The prompt's `## Phase diff` section names
 the base, commits, and diff command to review.
 
 Outside the runner — `bsv-docflow-plan` in replan mode next, not this

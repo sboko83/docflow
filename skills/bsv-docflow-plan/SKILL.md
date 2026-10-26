@@ -22,8 +22,10 @@ needed, is kept per `bsv-changelog`.
 - A unit is in `[!]` status — replan mode, see below.
 
 A request to just do a task, with no mention of a plan, is not a trigger.
-A task clearly larger than one unit → ask "make a plan?", create no files;
-otherwise — work without a plan.
+Before any plan file, `docflow note`, `docflow activate` or `docflow
+close`, ask the user one question — "make a plan or do it now?" —
+whatever the task's size; never decide it for the user. "Do it now" →
+work without a plan, create no plan files.
 
 ## Procedure
 
@@ -33,9 +35,9 @@ otherwise — work without a plan.
    every line of context is paid for until the end of the session.
 2. Size estimate. The task fits one unit (criteria in "Unit") → ask the
    user: "do it without a plan?". Yes → do the work, run the project's
-   checks, commit per the project's rules; the decision with its "why" —
-   `docflow note` per `bsv-docflow-close`, the CHANGELOG — per
-   `bsv-changelog`. No → continue.
+   checks, commit per the project's rules; no `docflow note` unless the
+   user asks — when the work changed a design decision, offer the note in
+   the reply. The CHANGELOG — per `bsv-changelog`. No → continue.
 3. Skeleton: `docflow new <slug>`. No script in PATH — do it manually:
    id = max over `docs/plans/` and `docs/archive/` + 1, three digits
    (`P001`); file `docs/plans/Pxxx-slug.md` after the sample below; id goes
@@ -147,6 +149,10 @@ the user has already stated is recorded mechanically and not asked again.
   text needs an anchor (`grep -q '^P003 '`): without it the id matches the
   unit's own heading. In a project with nested repositories the check may
   start with `cd <repo> &&` to run commands in the subproject.
+  "Verify covers Do": when `Do:` changes behavior the `Verify` command
+  cannot observe (a screen, an animation, a device flow), add a UI or e2e
+  test to `Verify:`, or schedule a live-check unit right after the first
+  such unit of the phase — not only in the final acceptance.
 - `gate:` in the plan frontmatter — the cheapest full run that catches
   regressions between units (application or module unit tests, not UI):
   `verify` runs it after each unit's `Verify`. Set it when units touch
@@ -241,9 +247,10 @@ does not replace it.
   fixture of the same shape (the same payload format, not a convenient
   stand-in). No manual steps and no driving the UI from a desktop: the
   user's path is XCUITest, Espresso, or CLI. A scenario needing what only
-  a human provides is a `## Prerequisites` item, not a `Do:` step. For
-  every `Unverified:` item in earlier units' Handoffs — close it with a
-  test or keep `Unverified:` in the acceptance Handoff.
+  a human provides is a `## Prerequisites` item, not a `Do:` step. Every
+  `Unverified:` item of earlier Handoffs ends one of three ways: closed by
+  a test; `Accepted: <item> — <why it is not a risk>`; `Unverified:` only
+  when it is a Goal gap or a risk with a concrete failing scenario.
 - `Verify:` — the full test run of the application or module, not
   `-only-testing` of one suite.
 - In `Traps:` — a failing scenario is fixed inside this same unit when the
@@ -257,12 +264,15 @@ routes — visible in `docflow roster show`) ends with a review unit.
 
 - One unit at the end of the phase, `Role: review` — its chain holds no
   `check` provider.
+- A phase run by a `check` provider holds at most 4 units before its
+  review unit; a longer stretch splits into phases.
 - `Do:` template — review the diff named in the prompt's `## Phase diff`
   against `Goal`, `Constraints`, `## Decisions`, and each unit's `Do:`.
   The reviewer edits nothing.
 - A defect — `blocked` with `blocker: "plan"` (outside the runner,
   `docflow block --needs plan`): the plan's `replan:` schedules the fix.
-  Everything else worth noting — an `Unverified:` item in the Handoff.
+  Observations without a defect — a plain Handoff item, not `Unverified:`:
+  the reviewer changed no code, so they are not unverified risks.
 - `Verify:` — the plan's `gate:`.
 
 ## Sample
@@ -393,6 +403,7 @@ The commands `activate`, `freeze`, and `thaw` do not commit on their own.
 ## What not to do
 
 - Do not create a plan without an explicit request for one.
+- Do not write `docflow note` without a request.
 - Do not set `status: active` by hand and do not run `docflow activate`
   without a direct request; do not offer "activate and start" as one
   question.

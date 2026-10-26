@@ -134,7 +134,7 @@ func TestInitCreatesProjectAndIsIdempotentOnlyOnce(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(root, "docs/docflow.md")); err != nil || string(got) != string(templateText) {
 		t.Fatalf("embedded template output = %q, %v", got, err)
 	}
-	if got, err := os.ReadFile(filepath.Join(root, "AGENTS.md")); err != nil || string(got) != "Plans: docflow (run docflow status), not the bsv-docs PLAN genre\n" {
+	if got, err := os.ReadFile(filepath.Join(root, "AGENTS.md")); err != nil || string(got) != "Plans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre\n" {
 		t.Fatalf("AGENTS.md = %q, %v", got, err)
 	}
 	if code, stdout, stderr := callLifecycleCLI(t, root, "lint"); code != 0 || stdout != "" || stderr != "" {
@@ -173,7 +173,7 @@ func TestInitWithoutReadmePreservesAgentsAndUsesCurrentFormat(t *testing.T) {
 	if err != nil || docflow.Meta["docflow"] != format.DocflowVersion {
 		t.Fatalf("docflow version = %v, %v", docflow, err)
 	}
-	if got, err := os.ReadFile(filepath.Join(root, "AGENTS.md")); err != nil || string(got) != "# Project\nrules\n\nPlans: docflow (run docflow status), not the bsv-docs PLAN genre\n" {
+	if got, err := os.ReadFile(filepath.Join(root, "AGENTS.md")); err != nil || string(got) != "# Project\nrules\n\nPlans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre\n" {
 		t.Fatalf("AGENTS.md = %q, %v", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".agents")); !os.IsNotExist(err) {
@@ -184,7 +184,7 @@ func TestInitWithoutReadmePreservesAgentsAndUsesCurrentFormat(t *testing.T) {
 func TestInitDoesNotDuplicateAgentsLineAndUsesCurrentDirectory(t *testing.T) {
 	t.Setenv("DOCFLOW_RUNNER_UNIT", "")
 	root := t.TempDir()
-	existing := "# Project\nPlans: docflow (run docflow status), not the bsv-docs PLAN genre\n"
+	existing := "# Project\nPlans: docflow (run docflow status), only on an explicit request; not the bsv-docs PLAN genre\n"
 	writeLifecycleFile(t, root, "AGENTS.md", existing)
 	if code, _, stderr := callLifecycleCLI(t, root, "init"); code != 0 || stderr != "" {
 		t.Fatalf("init = (%d, %q)", code, stderr)
