@@ -92,6 +92,8 @@ the quota display is configurable: used or left, colour thresholds
 - В текстовом выводе время сброса остаётся за --verbose, в TTY — за [display] resets — почему: Do меняет только текстовую строку времени, а инлайн/приглушённость — понятия TTY — отклонено: показывать сброс в каждой текстовой строке квоты (ломает фикстуры zai/routes/run и расширяет Do).
 - Цвет считается по показанному (округлённому) проценту выбранного режима — почему: строка и цвет не должны расходиться на границе — отклонено: считать по сырому Used (в left 80%-ю использованную полосу красил цвет, которого на экране нет).
 - Полоса, процент и дельта в left считаются от остатка (100 − used), дельта инвертируется — почему: Do требует зеркала — отклонено: оставить полосу по использованной доле при проценте остатка.
+- Ревью P045.2.2 закрыто fix-юнитом P045.2.3 и повторным ревью P045.2.4 — как в фазе 1: ревью выполнено и нашло дефект, повторное смотрит на дифф исправления — отклонено: вернуть P045.2.2 в `[ ]`.
+- Слишком широкая строка окна квоты в TTY переносит инлайн-сброс `↻…` на следующую строку с тем же префиксом `│`, а не скрывает его — сброс включён по умолчанию и не должен молча пропадать на узком терминале — отклонено: прятать сброс при `width() < 60` (расходится с `resets = true`), обрезать строку (теряет текст).
 
 ## Phase 1: Liveness
 
@@ -323,7 +325,7 @@ Handoff:
 - Unverified: Сквозной прогон `docflow run` с `[display]` в DOCFLOW_AGENTS (left/resets через CLI) — мода проверены на Progress и LoadAgents по отдельности, связка config→run в e2e не запускалась; приёмка P045.3.1.
 - Unverified: Отображение новых строк кадра на Windows — терминальные тесты собраны под darwin/linux, проверка выполнялась на macOS arm64.
 
-### [ ] P045.2.2 Review the output phase
+### [-] P045.2.2 Review the output phase
 Read:
 - docs/design/runner.md:L380-420
 Do:
@@ -334,6 +336,46 @@ Do:
 Verify: `go test ./...`
 Role: review
 Commit: P045.2.2: review output phase
+Handoff:
+- Blocked (plan): [P2] internal/runner/progress.go:677–695: inline reset ломает рамку узкого терминала. При ширине 30 колонок строка «│ 7d ███▊░░ 62% (+2) ↻Tue 09:00» занимает 34. Код переносит только между окнами, но не внутри слишком длинного окна. Это нарушает Trap P045.2.1. Нужен fix-юнит с переносом, сохраняющим рамку, и регрессионным тестом на 30 колонках.
+
+### [ ] P045.2.3 Wrap a quota row inside a narrow frame
+Read:
+- internal/runner/progress.go:L145-170
+- internal/runner/progress.go:L652-695
+- internal/runner/progress_test.go:L221-250
+- internal/runner/progress_test.go:L344-402
+Do:
+- `quotaRowsLocked`: when one window's row (prefix + label, bar, percent,
+  delta, inline reset) is wider than `p.width()` minus the prefix, move
+  its inline reset `↻…` to the next line with the same dim prefix,
+  indented under the bar; the row without the reset stays on its line.
+  Windows that fit keep the current row-joining rule. A row that does not
+  fit even without the reset is emitted as is (no loop, no lost text).
+- Test: the review's case — terminal 30 columns, `seven_day` 62% `(+2)`
+  with a reset, `resets = true` — every plain line is at most
+  `width - 1` runes, starts with `│` inside the block, and the text still
+  carries `62%`, `(+2)` and `↻`; the 40-column
+  `TestTerminalLayoutNarrowTerminalWraps` keeps passing.
+Verify: `go test ./internal/runner/`
+Traps: Measure with `visibleLength` (ANSI and multi-byte runes), not
+`len`. Text output (`!p.fancy`) is untouched.
+Depends: P045.2.2
+Commit: P045.2.3: wrap quota row in narrow frame
+
+### [ ] P045.2.4 Review the output fix
+Read:
+- docs/design/runner.md:L380-420
+Do:
+- Review the diff named in the prompt's `## Phase diff` against `## Goal`,
+  `## Constraints`, `## Decisions`, each unit's `Do:`, the Traps of
+  P045.2.1 and the finding in P045.2.2's Handoff. Edit nothing.
+- A defect — reply `blocked` with `blocker: "plan"`; observations without
+  a defect — plain Handoff items.
+Verify: `go test ./...`
+Depends: P045.2.3
+Role: review
+Commit: P045.2.4: review output fix
 
 ## Phase 3: Acceptance
 
@@ -362,6 +404,6 @@ Do:
 Verify: `go test ./... && go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow`
 Traps: A failing scenario is fixed inside this unit when the fix is small;
 otherwise reply `blocked` with the reason.
-Depends: P045.1.1, P045.1.2, P045.1.4, P045.1.5, P045.2.1, P045.2.2
+Depends: P045.1.1, P045.1.2, P045.1.4, P045.1.5, P045.2.1, P045.2.3, P045.2.4
 Role: acceptance
 Commit: P045.3.1: accept liveness and run output
