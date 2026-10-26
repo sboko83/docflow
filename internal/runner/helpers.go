@@ -142,8 +142,12 @@ func capReport(label string, cap time.Duration, live *agentio.Liveness, activity
 // capHint is the run summary's advice for a unit whose attempt used the whole
 // cap while working: the unit needs more time than the route gives it.
 func capHint(uid string, cap time.Duration, route agents.Route) string {
-	return fmt.Sprintf("%s needs more than %s on %s: split the unit or set timeout: in the plan header",
-		uid, shortDuration(cap), routeName(route))
+	advice := "set timeout: in the plan header"
+	if strings.Contains(uid, ".") {
+		advice = "split the unit or " + advice
+	}
+	return fmt.Sprintf("%s needs more than %s on %s: %s",
+		uid, shortDuration(cap), routeName(route), advice)
 }
 
 // livenessLabel is the TTY spinner text: the base label (id and elapsed) plus

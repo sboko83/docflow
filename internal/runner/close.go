@@ -330,10 +330,18 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			p.unit(id, "close plan", route, time.Now())
 			totals.events.emit("attempt", "", map[string]any{"plan": id, "n": attempt, "route": eventRoute(route), "log": rel, "close": true})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))
-			p.spin(func() string { return livenessLabel(id+" close", live) }, nil)
+			totals.mu.Lock()
+			totals.activity = ""
+			totals.mu.Unlock()
+			p.spin(func() string { return livenessLabel(id+" close", live) }, totals.lastActivity)
 			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: timeout, Idle: agentIdleTimeout(agent), Liveness: live, OnStreamEvent: func(event agentio.Event) {
-				if quota, ok := agentio.StreamEvent(agent, event)["quota"].(agentio.Quota); ok {
+				parsed := agentio.StreamEvent(agent, event)
+				if quota, ok := parsed["quota"].(agentio.Quota); ok {
 					totals.mergeQuota(quotaName(route), quota)
+				} else if activity, ok := parsed["activity"].(string); ok {
+					totals.mu.Lock()
+					totals.activity = activity
+					totals.mu.Unlock()
 				}
 			}})
 			p.stop()

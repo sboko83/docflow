@@ -176,7 +176,7 @@ func TestAcceptTerminalCloseBlock(t *testing.T) {
 	if !regexp.MustCompile(`(?m)│  ↻ close attempt 1: time cap 4s reached while active \(\d+ turns?\); resuming the session$`).MatchString(text) {
 		t.Errorf("the active cap is not a resume line inside the close block:\n%s", text)
 	}
-	if !regexp.MustCompile(`(?m)^│ +hint: P001 needs more than 4s on fake -: split the unit or set timeout: in the plan header$`).MatchString(text) {
+	if !regexp.MustCompile(`(?m)^│ +hint: P001 needs more than 4s on fake -: set timeout: in the plan header$`).MatchString(text) {
 		t.Errorf("the cap hint is not inside the summary frame:\n%s", text)
 	}
 	if !regexp.MustCompile(`(?m)^┌─ [0-9]{2}:[0-9]{2} · P001: close plan\n(│[^\n]*\n)*│ +5h +[█▏▎▍▌▋▊▉░]+ +86% ↻[^\n]*\n└─$`).MatchString(text) {

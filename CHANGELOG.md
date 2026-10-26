@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   summary adds `hint: <id> needs more than <cap> on <route>: split the unit
   or set timeout: in the plan header`. A closing call that reaches the cap
   while active reads the same way — `↻ close attempt N: …` — and resumes the
-  session; a silent closing call keeps the `close agent timed out` problem
-  line.
+  session, names its running tool and suggests setting the plan's timeout;
+  a silent closing call keeps the `close agent timed out` problem line.
 - The TTY spinner shows what the agent is doing:
   `<id> <elapsed> · turn <n> · <age> ago`, plus `· tool <duration>` while a
   tool runs. The call log `<git-dir>/docflow/run/<unit>.<attempt>.out` is

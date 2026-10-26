@@ -218,7 +218,7 @@ func TestRunCloseTimeCapWhileActive(t *testing.T) {
 	if strings.Contains(text, "close agent timed out") {
 		t.Errorf("an active closing call is reported as a problem:\n%s", text)
 	}
-	if !regexp.MustCompile(`hint: P001 needs more than 4s on fake -: split the unit or set timeout: in the plan header`).MatchString(text) {
+	if !regexp.MustCompile(`hint: P001 needs more than 4s on fake -: set timeout: in the plan header`).MatchString(text) {
 		t.Errorf("the run summary carries no cap hint:\n%s", text)
 	}
 	calls := f.calls()
@@ -227,9 +227,15 @@ func TestRunCloseTimeCapWhileActive(t *testing.T) {
 	}
 }
 
-// TestRunCloseSilentTimeoutStaysAProblem: a closing call that printed nothing
-// the whole cap is hung, not working: it keeps the problem line and the summary
-// gives no hint.
+func TestRunCloseTimeCapDuringToolNamesTheActivity(t *testing.T) {
+	f := readyCloseFixture(t)
+	f.configure("stream = \"claude\"\ntimeout = 2\n")
+	r := f.run([]string{toolStep(), closeArchiveStep + doneReply()}, "--close", "--attempts", "2")
+	f.check(r, 0, "P001: closed",
+		"↻ close attempt 1: time cap 2s reached during Bash go test ./... (1 turn); resuming the session")
+}
+
+// A closing call that printed nothing keeps the problem line and no cap hint.
 func TestRunCloseSilentTimeoutStaysAProblem(t *testing.T) {
 	f := readyCloseFixture(t)
 	f.configure("timeout = 2\n")
