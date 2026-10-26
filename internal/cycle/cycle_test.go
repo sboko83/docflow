@@ -608,6 +608,10 @@ func TestPromptTextAndReadBudget(t *testing.T) {
 			t.Errorf("prompt does not contain %q", part)
 		}
 	}
+	const dependsNote = "`Unverified:` items below stay open on their own units; do not repeat them in your `unverified`."
+	if i, j, k := strings.Index(result.Stdout, "## Handoff from Depends"), strings.Index(result.Stdout, dependsNote), strings.Index(result.Stdout, "### P001.1.2"); i < 0 || j < 0 || k < 0 || !(i < j && j < k) {
+		t.Errorf("depends note placement: heading %d, note %d, handoff %d", i, j, k)
+	}
 	if strings.Contains(result.Stdout, "от первого") || strings.Contains(result.Stdout, "P001.1.4") {
 		t.Fatalf("prompt includes unrelated handoff or unit: %s", result.Stdout)
 	}

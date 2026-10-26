@@ -928,6 +928,33 @@ func TestRunProgressAndCost(t *testing.T) {
 	}
 }
 
+// The runner drops a result JSON `unverified` item that repeats an
+// `Unverified:` item already open in the Handoff of a direct `Depends` unit:
+// the copy keeps one risk open unit after unit. Normalisation ignores case,
+// spacing, the "(inherited from …)" tail and trailing punctuation.
+func TestRunUnverifiedRepeatedFromDepends(t *testing.T) {
+	f := newRunFixture(t)
+	plan := loopHeader +
+		"### [x] P001.1.1 First unit\nRead:\n- docs/docflow.md\nDo:\n- write a.txt\nVerify: `test -f a.txt`\nDepends: -\nCommit: P001.1.1: first unit\nHandoff:\n- готово\n- Unverified: раскладка на устройстве\n\n" +
+		"### [ ] P001.1.2 Second unit\nRead:\n- docs/docflow.md\nDo:\n- write b.txt\nVerify: `test -f b.txt`\nDepends: P001.1.1\nCommit: P001.1.2: second unit\n"
+	f.write(planFile, plan)
+	f.commit("plan")
+	steps := []string{"printf b > b.txt\n" + doneReply(map[string]any{"unverified": []string{
+		"Раскладка на устройстве (inherited from P001.1.1)",
+		"поток не проверен",
+	}})}
+	r := f.run(steps, "--verbose", "--max-units", "1")
+	f.check(r, 0, ", 1 unverified", "  unverified: 1 repeated from Depends dropped")
+	text := f.read(planFile)
+	start := strings.Index(text, "P001.1.2 Second unit")
+	if start < 0 {
+		t.Fatal(text)
+	}
+	if handoff := text[start:]; !strings.Contains(handoff, "- Unverified: поток не проверен") || strings.Contains(handoff, "Unverified: раскладка") {
+		t.Fatal(text)
+	}
+}
+
 func TestRunNotify(t *testing.T) {
 	for _, mode := range []string{"ready", "blocked", "soft-stop", "prerequisite", "flag-off", "env-off"} {
 		t.Run(mode, func(t *testing.T) {

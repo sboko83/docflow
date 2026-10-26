@@ -552,8 +552,19 @@ func TestRunRouteModeFixedForRun(t *testing.T) {
 }
 
 func TestStrictRunnerSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(RunnerCycle))); got != "151eb2c681b82e74b1f245d4e63c12505f88a646415325b58b29a9ef46c4bcdd" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(RunnerCycle))); got != "d80ff9b59c2e320a16a23e556956791c0f7a155bac90d1fd6a148846fffa3784" {
 		t.Fatalf("RunnerCycle SHA-256 = %s", got)
+	}
+	flat := strings.Join(strings.Fields(RunnerCycle), " ")
+	for _, part := range []string{
+		"unverified: a risk of what this unit changed that `Verify` does not cover, each naming the missing check",
+		"Not: items already listed under `## Handoff from Depends`, ideas to improve tests, checks of code this unit did not change.",
+		"A `Do:` step or Goal requirement left undone is not unverified: finish it, or reply blocked with blocker \"plan\".",
+		"An empty list claims every risk of this change is covered by `Verify`.",
+	} {
+		if !strings.Contains(flat, part) {
+			t.Errorf("RunnerCycle missing %q", part)
+		}
 	}
 	if !strings.Contains(RunnerCycle, `"reason": ""`) || !strings.Contains(RunnerCycle, `"blocker": "plan"`) {
 		t.Fatalf("RunnerCycle missing result schema examples:\n%s", RunnerCycle)

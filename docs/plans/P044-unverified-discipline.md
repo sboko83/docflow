@@ -2,7 +2,7 @@
 id: P044
 title: Unverified discipline and plan triggers
 type: feature
-status: draft
+status: active
 created: 2026-10-26
 permissions: auto
 gate: go test ./...
@@ -71,10 +71,13 @@ request.
 - A phase run by a `check` provider holds at most 4 units before its review
   unit — one review per phase keeps review cost per unit low while the diff
   stays small enough to review — rejected: a review after every unit.
+- Нормализация срезает ровно один хвост `( … )` (unverifiedKey) — чтобы копия «X (inherited from P001.1.1)» совпала с оригиналом, а свой пункт (`layout on iPhone (small)`) остался различим — отвергнуто: срезать все скобки (теряются реальные риски) и нечёткое сходство (ложные потери пунктов).
+- Текст про `Accepted:` не добавлен в docs/design/cycle.md в этом юните — docs фиксируют текущее поведение, а не решение плана — отвергнуто: записать решение заранее (факт появится только в P044.2.1, а дубль потом придётся вычищать).
+- skills/bsv-docflow-run/SKILL.md синхронизирован, хотя `Do:` его не называет — ловушка плана требует держать текст раннер-цикла и скилл одинаковыми — отвергнуто: оставить скилл в старом смысле (агент увидит два разных правила).
 
 ## Phase 1: Rules
 
-### [ ] P044.1.1 Narrow unverified in the runner
+### [x] P044.1.1 Narrow unverified in the runner
 Read:
 - internal/agents/agents.go:L137-180
 - internal/cycle/commands.go:L40-75
@@ -115,6 +118,15 @@ Traps: The Depends Handoff is plan text: read it through the parsed plan
 prompt; do not re-parse the prompt string.
 Depends: -
 Commit: P044.1.1: narrow unverified items in runner prompt
+Handoff:
+- RunnerCycle закреплён SHA-256 в TestStrictRunnerSchema (internal/agents/agents_test.go): любое изменение текста раннер-цикла требует пересчёта хеша, сейчас d80ff9b59c2e320a16a23e556956791c0f7a155bac90d1fd6a148846fffa3784.
+- Правило дедупа живёт в unverifiedKey (internal/runner/run.go): одна нормализация на обе стороны. P044.2.1 (Accepted, диспозиции закрытия) сверяет пункты тем же ключом — дублировать нормализацию нельзя.
+- Формулировка unverified дублируется в skills/bsv-docflow-run/SKILL.md (Traps плана). Я синхронизировал её; установленные копии скиллов не обновлял — нужен bash tools/install-dev.sh.
+- docs/design/cycle.md ссылается на ../archive/P044-unverified-discipline.md, файла ещё нет — его создаст закрытие P044; lint ссылки в docs не проверяет, так что битую ссылку lint не покажет.
+- Пункт `Accepted: <item> — <почему это не риск>` в docs не добавлял: docs описывают текущее поведение, а закрытие это сделает в P044.2.1 — тогда и ссылка на архивную запись.
+- Строка Depends проверяется тестом на фикстуре P001.1.3 (internal/cycle/cycle_test.go): позиция между заголовком `## Handoff from Depends` и первым `### Pxxx`. Юнит без Depends секцию не печатает — строки там не появляется.
+- Unverified: Прогоны `bash tools/test-install.sh` и `bash tools/parity/run.sh bin/docflow bin/docflow` (CI-шаги, не входят в Verify/gate) не запускались — missing check: прогнать их на этом дереве, вывод раннера с новой verbose-строкой там не проверен.
+- Unverified: Эффективность новой формулировки на живом агенте (перестанет ли он наследовать чужие `Unverified:` до того, как сработает дедуп) — missing check: реальный `docflow run` по плану с Depends и просмотр Handoff юнитов после прогона.
 
 ### [ ] P044.1.2 Tighten skill rules for unverified and plans
 Read:

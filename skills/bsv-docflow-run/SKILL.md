@@ -95,9 +95,14 @@ plan: non-obvious behavior, workarounds, deferrals, a trap found.
   emptiness.
 - What was changed but not verified — as a separate item
   `Unverified: <what> — <which check is missing>` (layout on a device, a
-  scenario outside `Verify`, a case without a test). No such items means
-  everything was verified. In runner mode — the `unverified` field of the
-  result JSON; the runner adds the prefix.
+  scenario outside `Verify`, a case without a test): a risk of this unit's
+  own change that its `Verify` does not cover. Not an item already open in
+  the Handoff of a `Depends` unit — it stays open on its own unit; not an
+  idea to improve tests; not a check of code this unit did not change. An
+  unfinished `Do:` step or Goal requirement is not unverified: finish it, or
+  block. No such items means `Verify` covers every risk of this change. In
+  runner mode — the `unverified` field of the result JSON; the runner adds
+  the prefix and drops a repeat of a `Depends` item.
 - Good: `parse_ref cuts the anchor at the first '#': anchors containing
   '#' are not supported`. Bad: `updated the parser, added tests`.
 

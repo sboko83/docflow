@@ -64,6 +64,7 @@ func PromptText(root string, plan *format.Plan, unit *format.Unit, repos []strin
 	}
 	if len(handoffs) > 0 {
 		out.WriteString("## Handoff from Depends\n\n")
+		out.WriteString("`Unverified:` items below stay open on their own units; do not repeat them in your `unverified`.\n\n")
 		out.WriteString(strings.Join(handoffs, "\n"))
 		out.WriteByte('\n')
 	}

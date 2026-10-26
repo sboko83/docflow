@@ -997,11 +997,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 		}
 		step := []string{"done", uid}
-		unverified := []string{}
-		for _, u := range resultStrings(result["unverified"]) {
-			if strings.TrimSpace(u) != "" {
-				unverified = append(unverified, oneLine(u))
-			}
+		unverified, repeated := dropInheritedUnverified(plan, unit, resultStrings(result["unverified"]))
+		if repeated > 0 {
+			p.detail(fmt.Sprintf("unverified: %d repeated from Depends dropped", repeated))
 		}
 		for _, h := range resultStrings(result["handoff"]) {
 			step = append(step, "--handoff="+h)
@@ -1282,6 +1280,63 @@ func addInt(a, b *int) *int {
 	}
 	return &n
 }
+
+// unverifiedKey normalises an `Unverified:` item text so a copy of a
+// dependency's item matches the item of its own unit: case and spacing go,
+// with them the "(inherited from P001.1.1)" tail an agent writes and the
+// trailing punctuation. One trailing parenthetical only — an item that names
+// its own parenthetical keeps it and stays a distinct item.
+func unverifiedKey(text string) string {
+	key := strings.ToLower(oneLine(text))
+	if open := strings.LastIndex(key, " ("); open > 0 && strings.HasSuffix(key, ")") {
+		key = strings.TrimSpace(key[:open])
+	}
+	return strings.TrimRight(key, " .,;:!?\u2014-")
+}
+
+// dropInheritedUnverified keeps the result JSON's unverified items that are
+// not copies of an item already open in the Handoff of a direct Depends unit,
+// and counts the copies it drops. An agent inherits its dependency's open item
+// and the copy stays open unit after unit; the unit that changed the code owns
+// its own risks. The dependency Handoff is plan text, read through the parsed
+// plan the way `prompt` renders `## Handoff from Depends`.
+func dropInheritedUnverified(plan *format.Plan, unit *format.Unit, values []string) (kept []string, dropped int) {
+	inherited := map[string]bool{}
+	depends, _ := format.UnitDepends(plan, unit)
+	for _, id := range depends {
+		dep := plan.Unit(id)
+		if dep == nil {
+			continue
+		}
+		field := dep.Field("Handoff")
+		if field == nil {
+			continue
+		}
+		for _, item := range field.Items {
+			text, ok := strings.CutPrefix(item.Text, agents.Unverified)
+			if !ok {
+				continue
+			}
+			if key := unverifiedKey(text); key != "" {
+				inherited[key] = true
+			}
+		}
+	}
+	kept = []string{}
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		text := oneLine(value)
+		if inherited[unverifiedKey(text)] {
+			dropped++
+			continue
+		}
+		kept = append(kept, text)
+	}
+	return kept, dropped
+}
+
 func resultStrings(v any) []string {
 	result := []string{}
 	if values, ok := v.([]any); ok {

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- A unit's `unverified` names a risk of the unit's own change that its
+  `Verify` does not cover: not an item already open in a `Depends` unit's
+  Handoff, not an idea to improve tests, not a check of code the unit did not
+  change; an unfinished `Do:` step is finished or blocked, never listed
+  there. The runner prompt and the `bsv-docflow-run` skill say so, and a
+  prompt with `## Handoff from Depends` adds that those items stay open on
+  their own units.
+- `docflow run` drops a result `unverified` item that repeats an
+  `Unverified:` item in the Handoff of a direct `Depends` unit; the
+  comparison ignores case, spacing, one trailing `( … )` tail and trailing
+  punctuation. The plan Handoff, the unit's count and the run summary carry
+  only the kept items, and `--verbose` prints
+  `unverified: N repeated from Depends dropped`.
+
 ## [0.14.0] - 2026-10-26
 
 ### Added
