@@ -81,6 +81,9 @@ the quota display is configurable: used or left, colour thresholds
 - Подсказка — набор строк в итоговой сводке прогона (runTotals.noteCap, дедуп по тексту) — отклонено: detail-строка под --verbose (совет человеку, читающему конец прогона) и строка в блоке юнита (совет относится к прогону целиком)
 - Юнит P045.1.2 трогает close.go только ради текста зависания и спиннера: строка 'close agent timed out' сохранена без variant '↻ attempt N', потому что текст из Do называет номера попыток, а у close их нумерации в выводе нет — отклонено: обобщать формулировку на close (ревью решит, если это дефект)
 - В cap-строке счётчик ходов просклоняён ('1 turn') — отклонено: дословный шаблон плана '(<turns> turns)' (в кодовой базе счётчики уже склоняются через plural)
+- Ревью P045.1.3 закрыто fix-юнитом P045.1.4 и повторным ревью P045.1.5, а не возвратом P045.1.3 в `[ ]` — ревью уже выполнено и нашло дефекты, повторное должно смотреть на дифф исправления — отклонено: снять блок с P045.1.3 и повторить то же ревью после фикса
+- Close сообщает активный кап так же, как run и replan (`↻ close attempt N`, hint в сводке) — Goal требует, чтобы кап при активной работе читался как продолжение, а не сбой, для любого вызова; это отменяет оговорку решения про close в P045.1.2 — отклонено: оставить 'close agent timed out' для close
+- Остановленный вызов (Stalled, как и TimedOut) не классифицируется как отказ провайдера или ошибка логина — вывод прерванного агента может цитировать текст лимита, а маршрут при этом исправен — отклонено: проверять Stalled отдельно в каждом вызывающем месте
 
 ## Phase 1: Liveness
 
@@ -175,7 +178,7 @@ Handoff:
 - Unverified: Строка зависания и подпись спиннера в вызове close: нет ни одного теста на problem-строки close (ни на 'close agent timed out', ни на новую 'agent silent for …'), Verify не прогоняет close со зависшим агентом
 - Unverified: Линия спиннера в настоящем PTY-кадре: обрезка по ширине терминала с суффиксом '· tool <duration>' проверена только как текстовая функция livenessLabel, Verify не запускает PTY-сценарий со спиннером
 
-### [ ] P045.1.3 Review the liveness phase
+### [-] P045.1.3 Review the liveness phase
 Read:
 - docs/design/runner.md:L297-330
 Do:
@@ -188,6 +191,62 @@ Do:
 Verify: `go test ./...`
 Role: review
 Commit: P045.1.3: review liveness phase
+Handoff:
+- Blocked (plan): [P1] internal/agentio/usage.go:16 исключает только TimedOut. Остановленный вызов с Stalled=true ошибочно классифицируется как limit или ошибка авторизации при соответствующей цитате в выводе; вместо восстановления сессии возможны смена маршрута или требование логина. [P2] internal/runner/close.go:409–419 сообщает активный кап как close agent timed out, без строки продолжения и итогового hint, что противоречит Goal. Нужен fix-юнит с регрессионными тестами.
+
+### [ ] P045.1.4 Fix stall classification and the close cap
+Read:
+- internal/agentio/usage.go:L15-45
+- internal/agentio/refusal.go:L34-40
+- internal/agentio/quota_test.go:L99-130
+- internal/runner/close.go:L320-330
+- internal/runner/close.go:L398-420
+- internal/runner/run.go:L959-992
+- internal/runner/helpers.go:L100-150
+- internal/runner/liveness_report_test.go:L1-102
+- internal/runner/close_test.go:L132-195
+Do:
+- `agentio.FailureText` returns nil for `run.Stalled` as it does for
+  `run.TimedOut`: a call the runner stopped is not a provider failure, so
+  `LimitText`, `Classify` and `AuthReason` never read a limit or a login
+  error from its output — the attempt goes to the stall retry (session
+  resume).
+- `internal/runner/close.go`: a timed-out close call builds its line with
+  `capReport("close attempt N", timeout, live, …)` like `run.go` and
+  `replan.go`; when the call was active it prints through `p.resume` and
+  calls `totals.noteCap` with the close id and route, otherwise it keeps
+  the `close agent timed out` problem line. Keep the close call's timeout
+  in a variable instead of calling `agentCallTimeout` inline.
+- Tests: `FailureText`, `LimitText` and `Classify` with `Stalled = true`
+  and stdout matching the agent's `limit` pattern → nil; a stalled
+  attempt whose stdout quotes a limit or a login error is retried as
+  stalled, not routed to a fallback or stopped for login; close — active
+  cap → the `↻ close attempt …` line and the summary hint, silent timeout →
+  `close agent timed out`.
+Verify: `go test ./internal/agentio/ ./internal/runner/`
+Traps: `fake_agent.sh` is shared by many tests; add new modes, do not change
+existing ones. `capReport`'s label goes inside `↻ <label>: time cap …`;
+close attempts have no number in today's output, so count them in the
+close loop.
+Depends: P045.1.2
+Commit: P045.1.4: fix stall classification and close cap
+
+### [ ] P045.1.5 Review the liveness fixes
+Read:
+- docs/design/runner.md:L297-330
+Do:
+- Review the diff named in the prompt's `## Phase diff` against `## Goal`,
+  `## Constraints`, `## Decisions`, each unit's `Do:` and the two findings
+  in P045.1.3's Handoff. Check that no path reads a stopped call
+  (`TimedOut` or `Stalled`) as a provider refusal or a login error, and
+  that run, replan and close report an active cap the same way. Edit
+  nothing.
+- A defect — reply `blocked` with `blocker: "plan"`; observations without
+  a defect — plain Handoff items.
+Verify: `go test ./...`
+Depends: P045.1.4
+Role: review
+Commit: P045.1.5: review liveness fixes
 
 ## Phase 2: Output
 
@@ -227,7 +286,7 @@ Verify: `go test ./internal/runner/ ./internal/agents/`
 Traps: The start block uses rounded corners (`╭─`/`╰─`) and has no quota
 inside; keep it. Narrow terminals (`width() < 60`) shorten the bar to 6
 cells; the inline reset must still wrap by the existing row rule.
-Depends: P045.1.3
+Depends: P045.1.5
 Commit: P045.2.1: show block times and configurable quota
 
 ### [ ] P045.2.2 Review the output phase
@@ -269,6 +328,6 @@ Do:
 Verify: `go test ./... && go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow`
 Traps: A failing scenario is fixed inside this unit when the fix is small;
 otherwise reply `blocked` with the reason.
-Depends: P045.1.1, P045.1.2, P045.1.3, P045.2.1, P045.2.2
+Depends: P045.1.1, P045.1.2, P045.1.4, P045.1.5, P045.2.1, P045.2.2
 Role: acceptance
 Commit: P045.3.1: accept liveness and run output
