@@ -80,6 +80,9 @@ goes on.
 - One sentinel phrase ("check that condition with a command first") in both cycle texts, asserted in both packages' tests — why: it is the only anchor that keeps the CLI and runner texts aligned — rejected: per-text assertions with divergent wording, which drift silently.
 - In RunnerCycle the not-met branch is a `blocked` reply with `blocker: "human"`; in cycleText it is `docflow block {id} --needs human --reason "<what is still missing>"` — why: each text names the action its mode allows (under the runner `block` refuses with code 5) — rejected: naming `docflow block` in the runner text.
 - Re-pin the RunnerCycle golden hash instead of loosening TestStrictRunnerSchema — why: the pin's point is that prompt drift is a deliberate, reviewable act — rejected: dropping the hash comparison.
+- Replan P041.1.4: точным пунктом блока считаются только `Blocked (human): …`, `Blocked (plan): …` и legacy `Blocked: …`; похожий префикс и некорректная форма не заменяют последний настоящий блок — иначе произвольный Handoff может скрыть `plan` и разрешить `unblock`. Rejected: распознавание через один префикс `Blocked`.
+- Legacy `Blocked: …` требует той же проверки условия после `Unblocked:`, что и `Blocked (human): …`, во всех инструкциях цикла — Constraints уже определяют legacy как `human`. Rejected: снимать legacy-блок командой, но исключать его из правила повторной проверки.
+- P041.1.4 заменён исправляющим P041.1.5 и повторным ревью P041.1.6; приёмка зависит от обоих новых юнитов — ревью не исправляет код, а найденные дефекты должны быть устранены до приёмки. Rejected: повторять ревью без исправления или менять завершённые P041.1.1–P041.1.3.
 
 ## Phase 1: Unblock
 
@@ -225,7 +228,7 @@ Handoff:
 - Unverified: Skill text is not active for installed agent CLIs (they read the 0.13.0 release tree) — nothing checks that an agent CLI ever sees the new rule; the unit's Verify only greps the source files in skills/.
 - Unverified: Windows console path: the change is platform-neutral prompt text, no Windows run performed; the PTY tests of P041.1.2 remain darwin/linux only.
 
-### [ ] P041.1.4 Review the unblock phase
+### [-] P041.1.4 Review the unblock phase
 Read:
 - docs/design/cycle.md#цикл-юнита
 - docs/design/runner.md:L40-70
@@ -237,6 +240,67 @@ Do:
 Verify: `go test ./...`
 Role: review
 Commit: P041.1.4: review unblock phase
+Handoff:
+- Blocked (plan): Нужен исправляющий юнит для точного распознавания Blocked и повторной проверки условия после снятия legacy-блока.
+
+### [ ] P041.1.5 Fix block recognition and legacy re-check
+Read:
+- internal/cycle/verify.go:L597-675
+- internal/cycle/cycle_test.go:L254-325
+- internal/cycle/cycle_test.go:L457-492
+- internal/cycle/done_test.go:L237-325
+- internal/cycle/commands.go:L17-36
+- internal/agents/agents.go:L137-155
+- internal/agents/agents_test.go:L545-575
+- internal/runner/start_test.go:L15-50
+- skills/bsv-docflow-run/SKILL.md
+Do:
+- Tighten the shared block parser: recognize only `Blocked (human): …`,
+  `Blocked (plan): …` and legacy `Blocked: …` (class `human`). Ignore
+  unrelated or malformed Handoff items, including `Blockedness: …`,
+  `Blocked by …` and `Blocked (plan)` without `:`. Select the latest
+  valid block, so a later lookalike cannot hide an earlier `plan` block.
+  Keep Unblock, Status and runner on the same parser.
+- Add regression tests with a real plan block followed by lookalikes:
+  `BlockedNeeds` still reports `plan` and its reason, `status` still shows
+  `(needs plan)` without a human hint, and `Unblock` refuses without
+  changing the plan. Cover lookalikes without any valid block, both
+  orders of valid human/plan/legacy items, and `Unblocked:` after them.
+- Extend the re-check rule in both `cycleText` and `RunnerCycle` and in
+  every corresponding passage of `skills/bsv-docflow-run/SKILL.md`:
+  `Unblocked:` after the latest human block includes legacy `Blocked:`.
+  Check the condition with a command before `Do:`; when it is unmet,
+  block again as `human` using the action allowed by that cycle mode.
+- Update the prompt assertions to require explicit legacy coverage in
+  both cycle texts; render a resumed legacy-block fixture with its
+  `Blocked:` and `Unblocked:` history and the re-check instruction.
+  Add a source-skill assertion for the same legacy rule. Re-pin the
+  RunnerCycle hash after reviewing the new text.
+Verify: `go test ./internal/cycle/ ./internal/runner/ ./internal/agents/`
+Traps: A unit `[!]` with no valid Blocked item keeps the existing status
+output without a class or hint; do not infer `human` from a lookalike.
+Keep the sentinel phrase "check that condition with a command first".
+The RunnerCycle hash is pinned by TestStrictRunnerSchema. Edit skill
+sources only; do not install them or change installed copies.
+Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4
+Commit: P041.1.5: fix block recognition and legacy re-check
+
+### [ ] P041.1.6 Review the corrected unblock phase
+Read:
+- docs/design/cycle.md#цикл-юнита
+- docs/design/runner.md:L40-70
+Do:
+- Review the complete phase diff named in the prompt's `## Phase diff`
+  against `## Goal`, `## Constraints`, `## Decisions` and each unit's
+  `Do:`, including the fixes required by P041.1.5. Edit nothing.
+- Confirm that lookalike Handoff items cannot hide a plan block and that
+  the CLI cycle, runner cycle and run skill explicitly require the same
+  condition check after a legacy human block is lifted.
+- A defect — reply `blocked` with `blocker: "plan"`; anything else worth
+  noting — an `Unverified:` item.
+Verify: `go test ./...`
+Role: review
+Commit: P041.1.6: review corrected unblock phase
 
 ## Phase 2: Acceptance
 
@@ -256,11 +320,20 @@ Do:
   2. Real TTY: run starts on that blocked unit, answer `y` and a note →
      the unit is resumed in the same run.
   3. A `plan` block: `docflow unblock` refuses, the plan file is unchanged.
+  4. A legacy `Blocked: …` human block: unblock resumes the same unit;
+     its prompt includes the original reason, `Unblocked:` and the
+     explicit legacy re-check rule. A fake agent exercises both outcomes
+     using a fixture condition: unmet → human block without doing the
+     remaining work; met → completion. Keep real-agent compliance as
+     `Unverified` unless it is independently demonstrated.
+  5. A `plan` block followed by unrelated `Blocked…` Handoff text:
+     `status` still reports `needs plan`, `unblock` refuses without
+     changing the plan, and `run` offers no human-unblock question.
 - Close every `Unverified:` item of earlier units with a test, or keep it
   as `Unverified:` in this Handoff.
 Verify: `go test ./...`
 Traps: A failing scenario is fixed inside this unit when the fix is small;
 otherwise reply `blocked` with the reason.
-Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4
+Depends: P041.1.1, P041.1.2, P041.1.3, P041.1.4, P041.1.5, P041.1.6
 Role: acceptance
 Commit: P041.2.1: accept human unblock
