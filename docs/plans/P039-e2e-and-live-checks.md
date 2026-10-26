@@ -63,6 +63,9 @@ confirm or refute escalation, the spinner and `--approve-for-me` after
   обоснование в [P043](../archive/P043-local-worker.md).
 - --check-only runs only the checks and skips build, preconditions, fixture and the agent call — the unit's Verify command runs it repeatedly and must not spend a subscription session; rejected: re-calling the agent on --check-only
 - The three header keys are reported as three ok/FAIL lines (header-executor/review/acceptance) instead of one — keeps failures diagnosable without rerunning the agent; rejected: a single combined header check
+- Считать эскалацию по паре «отказ песочницы → повтор той же команды с exit 0» — в потоке нет события approvals, а повторы и коды выхода в логах есть — отвергнут учёт упоминаний эскалации в текстах агента (самоотчёт без исхода)
+- Спиннер проверять реальным декодером: временный Go-пакет внутри модуля, вызывающий agents.LoadAgents + agentio.StreamEvent, затем удалён — отвергнута копия декодера на Python (реплику не отличить от расхождения с боевым путём)
+- Лога RMG и их содержимое (пути, команды, сообщения) не переносятся в репозиторий: в JSON и в Handoff только счётчики и классы целей — отвергнуты цитаты из логов как доказательство
 
 ## Phase 1: Live agent checks
 
@@ -124,7 +127,7 @@ Handoff:
 - Fixture repo and agent.log stay in TMPDIR; no run content (code, paths, messages) was copied into this repository
 - Unverified: Watchdog kill verified with a 5-second copy of the script (sleep 1200 → 5) against a hanging stub agent; the committed 20-minute value itself was not exercised live
 
-### [ ] P039.1.2 Проверить сохранённые прогоны Codex
+### [x] P039.1.2 Проверить сохранённые прогоны Codex
 Read:
 - internal/agents/agents.go:L65-95
 - internal/agentio/output.go
@@ -158,6 +161,17 @@ Traps: не вызывать модель и не запускать RMG зан�
 Depends: P039.1.1
 Role: cheap
 Commit: P039.1.2: audit recorded Codex runs
+Handoff:
+- Codex JSON-поток не содержит событий approval/escalation: элемент command_execution несёт только id/command/aggregated_output/exit_code/status, потому эскалация измерима лишь как «отказ песочницы → повтор той же команды»; для живой проверки нужен новый прогон, а не эти логи
+- Подтверждено только 5/5 успешных эскалаций для защищённого песочницей пути внутри workspace (каталог git); для записей вне корня репозитория (DerivedData, кэши) в логах нет ни одного отказа и ни одного подтверждения успеха, 10 отказов CoreSimulator эскалацией не сняты — это строка Backlog в docs/docflow.md
+- resume-вызовы (4) сохраняют оба auto-аргумента (--approve-for-me и -c sandbox_workspace_write.network_access=true) в позиции BuildCommand и завершаются exit 0; отказов песочницы в них нет, так что P039.2.1 не может опираться на эти логи в вопросе эскалации после resume
+- Спиннер: 42/44 лога дают activity через реальный декодер (agents.LoadAgents + agentio.StreamEvent); 2 лога с нулём — вызовы без item.started (один agent_message, ноль инструментов), то есть пустой спиннер у уunit-блока = отсутствие инструментов у агента, а не потеря декодера
+- Логи RMG порождены старым Python-docflow (PermissionError из pathlib в .verify.log): числа описывают тот раннер, механизм (песочница + --approve-for-me + resume) общий с Go-версией; вывод о механизме переносим, счётчики — нет
+- Артефакты аудита живут в TMPDIR и исчезнут: скрипт ${TMPDIR}docflow-p039-audit/audit.py, сводка ${TMPDIR}docflow-p039-codex-audit.json; Go-зонд декодера приходилось держать внутри модуля (internal/* импортируется только из него) и удалить — для повтора нужен такой же временный пакет
+- Unverified: Эскалация при записях вне корня репозитория (DerivedData, кэши) — в сохранённых логах нет ни одного такого отказа; проверка отсутствует: нужен живой прогон Gradle/Xcode-сборки с наблюдаемыми отказами песочницы (ушла в Backlog)
+- Unverified: Успешная эскалация внутри resumed-вызова — в 4 resumed-вызовах отказов песочницы не было; ни одна проверка из этих логов не воспроизводима (ушла в Backlog)
+- Unverified: Запуск verify, чей результат прочитан из файла с меткой «escalated» (юнит P008.2.2), не записан ни в одном вызове агента: нельзя подтвердить, что эскалацию запросил агент, — сверки нет и получить её из логов нельзя
+- Unverified: CI-допы за пределами гейта P039 (tools/test-install.sh и e2e parity) не запускались: gate плана — только go test ./...
 
 ### [ ] P039.1.3 Проверить работу локального исполнителя
 Read:
