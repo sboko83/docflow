@@ -366,6 +366,35 @@ func TestTerminalQuotaInlineResetSwitch(t *testing.T) {
 	}
 }
 
+func TestTerminalQuotaRowStaysInsideNarrowFrame(t *testing.T) {
+	p, out := newTTYProgress(t)
+	const width = 30
+	p.setColumns(width)
+	p.setDisplay(agents.Display{Quota: agents.QuotaUsed, Resets: true})
+	quota := agentio.Quota{{Label: "seven_day", Used: .62, Reset: 1792476000}}
+	before := map[string]agentio.Quota{"codex": {{Label: "seven_day", Used: .6, Reset: 1792476000}}}
+	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"}, blockStart)
+	p.quotas([]NamedQuota{{Name: "codex", Quota: quota}}, before, "")
+	ranFor(p, 48)
+	p.unitEnd("P001.1.1")
+	text := plainTTY(out.String())
+	resetRow := regexp.MustCompile("(?m)^\u2502  +\u21bb[A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$")
+	for _, line := range strings.Split(text, "\n") {
+		if len([]rune(line)) > width-1 {
+			t.Errorf("line exceeds terminal width: %d > %d: %q", len([]rune(line)), width-1, line)
+		}
+		if strings.ContainsAny(line, "\u2588\u2591\u21bb") && !strings.HasPrefix(line, "\u2502") {
+			t.Errorf("a quota line is outside the frame: %q", line)
+		}
+	}
+	if !strings.Contains(text, "62%") || !strings.Contains(text, "(+2)") || !strings.Contains(text, "\u21bb") {
+		t.Fatalf("quota details missing:\n%s", text)
+	}
+	if !resetRow.MatchString(text) {
+		t.Fatalf("the reset is not on its own line under the bar:\n%s", text)
+	}
+}
+
 func TestTerminalLayoutResumeLineIsYellowWithoutABang(t *testing.T) {
 	p, out := newTTYProgress(t)
 	p.unit("P001.1.1", "Unit", agents.Route{Agent: "codex", Model: "model", Effort: "high"}, blockStart)

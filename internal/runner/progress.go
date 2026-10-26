@@ -649,13 +649,23 @@ func quotaText(quota, before agentio.Quota, display agents.Display, resets bool)
 	return strings.Join(parts, " · ")
 }
 
+// quotaRow is one quota window's TTY row. `reset` is the inline reset moved to
+// its own line: a window wider than the frame would otherwise push `↻…` onto a
+// next line with the same prefix, breaking the frame's right edge.
+type quotaRow struct {
+	text  string
+	reset string
+	gap   int
+}
+
 func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
 	width := 10
 	if p.width() < 60 {
 		width = 6
 	}
 	left := p.display.Quota == agents.QuotaLeft
-	rows := make([]string, 0, len(quota))
+	room := p.width() - utf8.RuneCountInString(prefix)
+	rows := make([]quotaRow, 0, len(quota))
 	for _, window := range quota {
 		view := quotaViewOf(window, before, left)
 		colour := quotaColour(view.shown, left)
@@ -674,22 +684,42 @@ func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
 			trackCount = 0
 		}
 		track := strings.Repeat("░", trackCount)
-		extra := view.delta
-		if p.display.Resets && view.reset != "" {
-			extra += " ↻" + view.reset
+		head := p.paint(view.label, "dim", p.out) + "  "
+		row := quotaRow{
+			text: head + p.paint(bar, colour, p.out) + p.paint(track, "dim", p.out) + " " +
+				p.paint(fmt.Sprintf("%4s", view.percent), colour, p.out) + p.paint(view.delta, "dim", p.out),
 		}
-		rows = append(rows, p.paint(view.label, "dim", p.out)+"  "+p.paint(bar, colour, p.out)+p.paint(track, "dim", p.out)+" "+p.paint(fmt.Sprintf("%4s", view.percent), colour, p.out)+p.paint(extra, "dim", p.out))
+		if p.display.Resets && view.reset != "" {
+			reset := p.paint("↻"+view.reset, "dim", p.out)
+			if visibleLength(row.text+" "+reset) <= room {
+				row.text += " " + reset
+			} else {
+				// The row without the reset stays on its line, the reset follows
+				// under the bar. A row too wide even without the reset is emitted
+				// as is: no wrap loop, no lost text.
+				row.reset = reset
+				row.gap = visibleLength(head)
+			}
+		}
+		rows = append(rows, row)
 	}
 	row := ""
 	for _, part := range rows {
-		if row != "" && visibleLength(row+"    "+part) > p.width()-utf8.RuneCountInString(prefix) {
+		if row != "" && visibleLength(row+"    "+part.text) > room {
 			p.emitLocked(p.paint(prefix, "dim", p.out)+row, p.out)
 			row = ""
 		}
 		if row != "" {
 			row += "    "
 		}
-		row += part
+		row += part.text
+		if part.reset == "" {
+			continue
+		}
+		emit := func(text string) { p.emitLocked(p.paint(prefix, "dim", p.out)+text, p.out) }
+		emit(row)
+		emit(strings.Repeat(" ", part.gap) + part.reset)
+		row = ""
 	}
 	if row != "" {
 		p.emitLocked(p.paint(prefix, "dim", p.out)+row, p.out)
