@@ -1281,17 +1281,58 @@ func addInt(a, b *int) *int {
 	return &n
 }
 
+// unverifiedPunct is the trailing punctuation an `Unverified:` item may end
+// with: a period, the colon before the missing check, the dash of
+// "… — missing check".
+const unverifiedPunct = " .,;:!?\u2014-"
+
+// inheritedUnitID matches a lower-cased unit id inside a parenthetical: it
+// names the unit the item was copied from.
+var inheritedUnitID = regexp.MustCompile(`p\d+(\.\d+)+`)
+
+// isInheritanceTail reports whether the text inside a trailing parenthetical
+// marks the item as copied from another unit: the English "inherited" or a
+// unit id, which is also how "унаследовано из P001.1.1" marks it.
+func isInheritanceTail(text string) bool {
+	return strings.HasPrefix(text, "inherited") || inheritedUnitID.MatchString(text)
+}
+
 // unverifiedKey normalises an `Unverified:` item text so a copy of a
-// dependency's item matches the item of its own unit: case and spacing go,
-// with them the "(inherited from P001.1.1)" tail an agent writes and the
-// trailing punctuation. One trailing parenthetical only — an item that names
-// its own parenthetical keeps it and stays a distinct item.
+// dependency's item matches the item of its own unit: case, spacing and the
+// trailing punctuation go, with them the inheritance tail an agent writes —
+// "(inherited from P001.1.1)", "(унаследовано из P001.1.1)". Only a trailing
+// parenthetical that marks inheritance is cut: one naming the item's own
+// detail ("layout on iPhone (small)") stays in the key on both sides, so two
+// such items stay distinct.
 func unverifiedKey(text string) string {
-	key := strings.ToLower(oneLine(text))
-	if open := strings.LastIndex(key, " ("); open > 0 && strings.HasSuffix(key, ")") {
-		key = strings.TrimSpace(key[:open])
+	key := strings.TrimRight(strings.ToLower(oneLine(text)), unverifiedPunct)
+	if end := len(key) - 1; end > 0 && key[end] == ')' {
+		if open := matchingParen(key, end); open > 0 && isInheritanceTail(key[open+1:end]) {
+			key = strings.TrimRight(strings.TrimSpace(key[:open]), unverifiedPunct)
+		}
 	}
-	return strings.TrimRight(key, " .,;:!?\u2014-")
+	return key
+}
+
+// matchingParen returns the index of the "(" whose ")" sits at the end of the
+// key, or -1 when the tail is not a whole parenthetical: an agent's own
+// parenthesis inside the tail ("(inherited from P001.1.1 (draft))") then
+// belongs to the tail's text, the whole tail is the inheritance marker.
+func matchingParen(key string, end int) int {
+	for depth, i := 0, end; i >= 0; i-- {
+		switch key[i] {
+		case ')':
+			depth++
+		case '(':
+			if depth--; depth == 0 {
+				if i > 0 && key[i-1] == ' ' {
+					return i
+				}
+				return -1
+			}
+		}
+	}
+	return -1
 }
 
 // dropInheritedUnverified keeps the result JSON's unverified items that are

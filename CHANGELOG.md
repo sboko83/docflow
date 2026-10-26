@@ -37,9 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their own units.
 - `docflow run` drops a result `unverified` item that repeats an
   `Unverified:` item in the Handoff of a direct `Depends` unit; the
-  comparison ignores case, spacing, one trailing `( … )` tail and trailing
-  punctuation. The plan Handoff, the unit's count and the run summary carry
-  only the kept items, and `--verbose` prints
+  comparison ignores case, spacing and trailing punctuation, and cuts one
+  trailing `( … )` tail only when it marks inheritance — it starts with
+  `inherited` or names a unit id, so a tail with the item's own detail
+  (`layout on iPhone (small)` vs `(large)`) keeps the items distinct. The
+  plan Handoff, the unit's count and the run summary carry only the kept
+  items, and `--verbose` prints
   `unverified: N repeated from Depends dropped`.
 
 ## [0.14.0] - 2026-10-26

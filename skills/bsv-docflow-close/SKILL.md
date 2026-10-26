@@ -97,9 +97,11 @@ plan is rejected for good, it is closed.
 
 ## Entry without a plan
 
-A small change settled something and there was no plan:
-`docflow note <slug> [--title …]` — an entry in the same numbering. Fill
-every section (`Outcome` — what changed; the rest — to the point or
+`docflow note` runs only on an explicit request for an archive entry. A
+small change settled something and there was no plan: ask the user once —
+"record it in the archive?" — and write no entry yourself. On the answer
+"yes": `docflow note <slug> [--title …]` — an entry in the same numbering.
+Fill every section (`Outcome` — what changed; the rest — to the point or
 `None.`), link it from the architecture, `docflow lint`, commit
 `Pxxx: add note`.
 

@@ -928,30 +928,133 @@ func TestRunProgressAndCost(t *testing.T) {
 	}
 }
 
+// Normalisation of an `Unverified:` item: case, spacing and trailing
+// punctuation go. The trailing parenthetical goes only when it marks
+// inheritance — a tail naming the item's own detail stays, so two items that
+// differ only there keep distinct keys.
+func TestUnverifiedKey(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Раскладка на устройстве", "раскладка на устройстве"},
+		{"  Layout   on\tiPhone  ", "layout on iphone"},
+		{"поток не проверен \u2014 ", "поток не проверен"},
+		{"раскладка не видна: нет теста", "раскладка не видна: нет теста"},
+		{"layout on iPhone (small)", "layout on iphone (small)"},
+		{"layout on iPhone (large)", "layout on iphone (large)"},
+		{"Layout on iPhone (small) (inherited from P001.1.1).", "layout on iphone (small)"},
+		{"X (inherited from P001.1.1).", "x"},
+		{"X (унаследовано из P001.1.1)", "x"},
+		{"X (проверено на P001.1.1)", "x"},
+		{"X (inherited)", "x"},
+		// The tail is a whole parenthetical: the agent's own parenthesis inside
+		// it belongs to the tail's text, so the tail is still an inheritance
+		// marker. A key that is only a parenthetical has nothing to cut from.
+		{"X (inherited from P001.1.1 (draft))", "x"},
+		{"(inherited from P001.1.1)", "(inherited from p001.1.1)"},
+		// Unbalanced and non-inheritance parentheses stay.
+		{"X (inherited from P001.1.1", "x (inherited from p001.1.1"},
+		{"layout on iPhone (small) (large)", "layout on iphone (small) (large)"},
+		{"X (inherited)", "x"},
+		// A plan id is not a unit id: the parenthetical names no inheritance.
+		{"X (see P001)", "x (see p001)"},
+	}
+	for _, c := range cases {
+		if got := unverifiedKey(c.in); got != c.want {
+			t.Errorf("unverifiedKey(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+
+	pairs := []struct {
+		dep, reply string
+		same       bool
+	}{
+		{"layout on iPhone (small)", "layout on iPhone (large)", false},
+		{"layout on iPhone (small)", "Layout on iPhone (small) (inherited from P001.1.1).", true},
+		{"X", "X (inherited from P001.1.1).", true},
+		{"X", "X (унаследовано из P001.1.1)", true},
+		{"X", "X (inherited from P001.1.1 (draft))", true},
+		{"layout on iPhone (small)", "layout on iPhone (small) (large)", false},
+	}
+	for _, p := range pairs {
+		if same := unverifiedKey(p.dep) == unverifiedKey(p.reply); same != p.same {
+			t.Errorf("key(%q) == key(%q) is %v, want %v", p.dep, p.reply, same, p.same)
+		}
+	}
+}
+
 // The runner drops a result JSON `unverified` item that repeats an
 // `Unverified:` item already open in the Handoff of a direct `Depends` unit:
 // the copy keeps one risk open unit after unit. Normalisation ignores case,
-// spacing, the "(inherited from …)" tail and trailing punctuation.
+// spacing and trailing punctuation, and the tail that marks inheritance.
 func TestRunUnverifiedRepeatedFromDepends(t *testing.T) {
-	f := newRunFixture(t)
-	plan := loopHeader +
-		"### [x] P001.1.1 First unit\nRead:\n- docs/docflow.md\nDo:\n- write a.txt\nVerify: `test -f a.txt`\nDepends: -\nCommit: P001.1.1: first unit\nHandoff:\n- готово\n- Unverified: раскладка на устройстве\n\n" +
-		"### [ ] P001.1.2 Second unit\nRead:\n- docs/docflow.md\nDo:\n- write b.txt\nVerify: `test -f b.txt`\nDepends: P001.1.1\nCommit: P001.1.2: second unit\n"
-	f.write(planFile, plan)
-	f.commit("plan")
-	steps := []string{"printf b > b.txt\n" + doneReply(map[string]any{"unverified": []string{
-		"Раскладка на устройстве (inherited from P001.1.1)",
-		"поток не проверен",
-	}})}
-	r := f.run(steps, "--verbose", "--max-units", "1")
-	f.check(r, 0, ", 1 unverified", "  unverified: 1 repeated from Depends dropped")
-	text := f.read(planFile)
-	start := strings.Index(text, "P001.1.2 Second unit")
-	if start < 0 {
-		t.Fatal(text)
+	const control = "поток не проверен"
+	const dropLine = "  unverified: 1 repeated from Depends dropped"
+	cases := []struct {
+		name               string
+		dep, reply, marker string
+		dropped            bool
+	}{
+		{
+			name:    "own parenthetical is a distinct risk",
+			dep:     "layout on iPhone (small)",
+			reply:   "layout on iPhone (large)",
+			marker:  "Unverified: layout on iPhone (large)",
+			dropped: false,
+		},
+		{
+			name:    "inherited tail after an own parenthetical",
+			dep:     "layout on iPhone (small)",
+			reply:   "Layout on iPhone (small) (inherited from P001.1.1).",
+			marker:  "Unverified: layout on iPhone",
+			dropped: true,
+		},
+		{
+			name:    "inherited tail with trailing punctuation",
+			dep:     "X",
+			reply:   "X (inherited from P001.1.1).",
+			marker:  "Unverified: X",
+			dropped: true,
+		},
+		{
+			name:    "russian tail naming the unit",
+			dep:     "X",
+			reply:   "X (унаследовано из P001.1.1)",
+			marker:  "Unverified: X",
+			dropped: true,
+		},
 	}
-	if handoff := text[start:]; !strings.Contains(handoff, "- Unverified: поток не проверен") || strings.Contains(handoff, "Unverified: раскладка") {
-		t.Fatal(text)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newRunFixture(t)
+			plan := loopHeader +
+				"### [x] P001.1.1 First unit\nRead:\n- docs/docflow.md\nDo:\n- write a.txt\nVerify: `test -f a.txt`\nDepends: -\nCommit: P001.1.1: first unit\nHandoff:\n- готово\n- Unverified: " + c.dep + "\n\n" +
+				"### [ ] P001.1.2 Second unit\nRead:\n- docs/docflow.md\nDo:\n- write b.txt\nVerify: `test -f b.txt`\nDepends: P001.1.1\nCommit: P001.1.2: second unit\n"
+			f.write(planFile, plan)
+			f.commit("plan")
+			// The control item is kept in every case, so the count and the plan
+			// show the fate of the tested item, not of the whole field.
+			steps := []string{"printf b > b.txt\n" + doneReply(map[string]any{"unverified": []string{c.reply, control}})}
+			r := f.run(steps, "--verbose", "--max-units", "1")
+			if c.dropped {
+				f.check(r, 0, ", 1 unverified", dropLine)
+			} else {
+				f.check(r, 0, ", 2 unverified")
+				if strings.Contains(r.out+r.err, "repeated from Depends dropped") {
+					t.Errorf("a distinct item counted as a copy:\n%s%s", r.out, r.err)
+				}
+			}
+			text := f.read(planFile)
+			start := strings.Index(text, "P001.1.2 Second unit")
+			if start < 0 {
+				t.Fatal(text)
+			}
+			handoff := text[start:]
+			if !strings.Contains(handoff, "- Unverified: "+control) {
+				t.Fatalf("control item lost:\n%s", text)
+			}
+			if got := strings.Contains(handoff, c.marker); got != !c.dropped {
+				t.Fatalf("handoff has %q: %v, want %v:\n%s", c.marker, got, !c.dropped, text)
+			}
+		})
 	}
 }
 
