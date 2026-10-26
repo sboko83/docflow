@@ -468,7 +468,7 @@ Handoff:
 - Unverified: Собственные help-тексты команд (docflow <cmd> -h) не сверяются с регистрацией — покрытие тестом только у общего help; команда, пропущенная в собственном help-пути, этим юнитом не проверяется.
 - Unverified: tools/test-install.sh (шаг CI) не запускался — путь установки/обновления не затронут.
 
-### [ ] P041.1.10 Review complete unblock phase and help
+### [x] P041.1.10 Review complete unblock phase and help
 Read:
 - docs/design/cycle.md#цикл-юнита
 - docs/design/runner.md:L40-70
@@ -497,6 +497,12 @@ Verify: `go test ./...`
 Depends: P041.1.9
 Role: review
 Commit: P041.1.10: review unblock phase and help
+Handoff:
+- Ревью diff 098ac4c..HEAD завершено: дефектов не найдено, файлы не изменялись. Полный docflow verify P041.1.10: Verify и gate прошли.
+- На macOS arm64 PTY подтверждены отмена обоих вопросов без Enter, выход 130, неизменность плана и отсутствие запуска агента. Поздний ввод отклоняется; общий читатель сохраняет ввод следующего подтверждения.
+- Checkout-бинарник: оба варианта root help перечисляют все 26 команд по регистрации, unblock стоит между block и lint; справка всех команд работает. Защита plan-блока от похожих строк и legacy re-check сохранены.
+- Signal/PTY-проверки выполнены вне sandbox с учётом известных ограничений среды.
+- Unverified: Нативный Windows runtime не проверен: выполнена только успешная кросс-компиляция Windows-тестов. Реальная консоль stdin, перенаправление и интерактивный unblock требуют Windows; fake-stream тесты этого не доказывают.
 
 ## Phase 2: Acceptance
 
