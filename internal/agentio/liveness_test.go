@@ -76,6 +76,28 @@ func TestLivenessStreams(t *testing.T) {
 	})
 }
 
+func TestLivenessTurnAgeIgnoresStreamEvents(t *testing.T) {
+	live := NewLiveness("codex")
+	initial := live.State()
+
+	time.Sleep(2 * time.Millisecond)
+	live.Observe(`{"type":"item.started","item":{"id":"i1","type":"agent_message"}}`)
+	streaming := live.State()
+	if !streaming.LastLine.After(initial.LastLine) {
+		t.Fatal("stream event did not update last line time")
+	}
+	if !streaming.LastTurn.Equal(initial.LastTurn) {
+		t.Fatal("stream event without a new turn reset turn age")
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	live.Observe(`{"type":"turn.started"}`)
+	turned := live.State()
+	if !turned.LastTurn.After(streaming.LastTurn) {
+		t.Fatal("new turn did not reset turn age")
+	}
+}
+
 func TestCallAgentStall(t *testing.T) {
 	root, argv := fakeScenario(t, "printf '%s\\n' '{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\"}}'\nsleep 60\n")
 	live := NewLiveness("pi")

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The `docflow run` start frame shows the plan title on the `run:` line,
+  labels its timestamp `Start at`, ends with `Go! Go! Go!`, and separates
+  quota reset icons from times.
+
+### Fixed
+- The `docflow run` spinner's age now counts from the last agent turn instead
+  of resetting on every stream event.
+
 ## [0.15.0] - 2026-10-27
 
 ### Added

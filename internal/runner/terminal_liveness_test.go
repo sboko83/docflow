@@ -115,7 +115,7 @@ func TestAcceptTerminalSpinnerShowsLiveness(t *testing.T) {
 				return
 			}
 		}
-		t.Fatalf("no spinner frame with turn, event age and tool time:\n%q", spinnerLabels(raw))
+		t.Fatalf("no spinner frame with turn age and tool time:\n%q", spinnerLabels(raw))
 	})
 	t.Run("narrow", func(t *testing.T) {
 		// 30 columns: the spinner is cut to the line and the quota row's reset
@@ -139,7 +139,7 @@ func TestAcceptTerminalSpinnerShowsLiveness(t *testing.T) {
 				}
 			}
 		}
-		if !regexp.MustCompile(`(?m)^│ +↻[A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$`).MatchString(text) {
+		if !regexp.MustCompile(`(?m)^│ +↻ [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$`).MatchString(text) {
 			t.Errorf("the reset did not move under the bar inside the frame:\n%s", text)
 		}
 	})

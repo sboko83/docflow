@@ -343,7 +343,7 @@ func TestQuotaLeftModeMirrorsPercentAndDelta(t *testing.T) {
 
 func TestTerminalQuotaInlineResetSwitch(t *testing.T) {
 	quota := agentio.Quota{{Label: "five_hour", Used: .3, Reset: 1791904200}, {Label: "seven_day", Used: .4, Reset: 1792476000}}
-	long := regexp.MustCompile("\u21bb[A-Z][a-z]{2} [0-9]{2}:[0-9]{2}")
+	long := regexp.MustCompile("\u21bb [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}")
 	for _, resets := range []bool{true, false} {
 		p, out := newTTYProgress(t)
 		p.setDisplay(agents.Display{Quota: agents.QuotaUsed, Resets: resets})
@@ -378,7 +378,7 @@ func TestTerminalQuotaRowStaysInsideNarrowFrame(t *testing.T) {
 	ranFor(p, 48)
 	p.unitEnd("P001.1.1")
 	text := plainTTY(out.String())
-	resetRow := regexp.MustCompile("(?m)^\u2502  +\u21bb[A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$")
+	resetRow := regexp.MustCompile("(?m)^\u2502  +\u21bb [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$")
 	for _, line := range strings.Split(text, "\n") {
 		if len([]rune(line)) > width-1 {
 			t.Errorf("line exceeds terminal width: %d > %d: %q", len([]rune(line)), width-1, line)
@@ -409,7 +409,7 @@ func TestTerminalQuotaRowWiderThanFrameKeepsText(t *testing.T) {
 	if !regexp.MustCompile("(?m)^\u2502  7d  [\u2588\u2589-\u258f\u2591]+  62% \\(\\+2\\)$").MatchString(text) {
 		t.Errorf("the quota row lost text:\n%s", text)
 	}
-	if strings.Count(text, "\u21bb") != 1 || !regexp.MustCompile("(?m)^\u2502  +\u21bb[A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$").MatchString(text) {
+	if strings.Count(text, "\u21bb") != 1 || !regexp.MustCompile("(?m)^\u2502  +\u21bb [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}$").MatchString(text) {
 		t.Errorf("the reset is not once on its own line:\n%s", text)
 	}
 }

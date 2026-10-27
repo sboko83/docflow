@@ -151,8 +151,8 @@ func capHint(uid string, cap time.Duration, route agents.Route) string {
 }
 
 // livenessLabel is the TTY spinner text: the base label (id and elapsed) plus
-// what the stream says the agent is doing — the turn count and the age of the
-// last event, and the running tool's duration while one is in flight. The
+// what the stream says the agent is doing — the turn count and the age since
+// the last turn, and the running tool's duration while one is in flight. The
 // spinner re-evaluates the label every frame, so the ages tick.
 func livenessLabel(label string, live *agentio.Liveness) string {
 	if live == nil {
@@ -160,7 +160,7 @@ func livenessLabel(label string, live *agentio.Liveness) string {
 	}
 	state := live.State()
 	text := fmt.Sprintf("%s · turn %d · %s ago", label, state.Turns,
-		agentio.Duration(time.Since(state.LastLine).Seconds()))
+		agentio.Duration(time.Since(state.LastTurn).Seconds()))
 	if state.Tools > 0 && !state.OldestTool.IsZero() {
 		text += " · tool " + agentio.Duration(time.Since(state.OldestTool).Seconds())
 	}

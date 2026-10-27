@@ -45,6 +45,7 @@ type Progress struct {
 	label     any
 	activity  any
 	block     bool
+	blockEnd  string
 	unitID    string
 	unitStart time.Time
 	display   agents.Display
@@ -270,9 +271,13 @@ func (p *Progress) closeLocked() {
 		if p.unitID != "" {
 			end = "└─"
 		}
+		if p.blockEnd != "" {
+			end += " " + p.blockEnd
+		}
 		p.emitLocked(p.paint(end, "dim", p.out), p.out)
 	}
 	p.block = false
+	p.blockEnd = ""
 	p.unitID = ""
 }
 
@@ -303,7 +308,7 @@ func (p *Progress) openLocked(title string, rounded bool, stamp string) {
 }
 
 func (p *Progress) start(planID, title string, wall float64, full bool) {
-	text := fmt.Sprintf("run: %s %s, start %s", planID, title, clock(wall))
+	text := fmt.Sprintf("run: %s %s, Start at %s", planID, title, clock(wall))
 	if full {
 		text += ", permissions full"
 	}
@@ -313,9 +318,9 @@ func (p *Progress) start(planID, title string, wall float64, full bool) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.openLocked("run: "+planID, true, "")
-	p.wrappedLocked(title, "│  ", "", p.out, "")
-	ending := "start " + clock(wall)
+	p.openLocked("run: "+planID+" "+title, true, "")
+	p.blockEnd = "Go! Go! Go!"
+	ending := "Start at " + clock(wall)
 	if full {
 		ending += " · permissions full"
 	}
@@ -690,7 +695,7 @@ func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
 				p.paint(fmt.Sprintf("%4s", view.percent), colour, p.out) + p.paint(view.delta, "dim", p.out),
 		}
 		if p.display.Resets && view.reset != "" {
-			reset := p.paint("↻"+view.reset, "dim", p.out)
+			reset := p.paint("↻ "+view.reset, "dim", p.out)
 			if visibleLength(row.text+" "+reset) <= room {
 				row.text += " " + reset
 			} else {

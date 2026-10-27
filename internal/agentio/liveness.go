@@ -14,6 +14,7 @@ type Liveness struct {
 	mu     sync.Mutex
 	stream string
 	last   time.Time
+	turnAt time.Time
 	lines  int
 	turns  int
 	// lastMessage is the id of the last Claude assistant message counted: one
@@ -25,6 +26,7 @@ type Liveness struct {
 // LivenessState is an immutable snapshot of a Liveness.
 type LivenessState struct {
 	LastLine time.Time
+	LastTurn time.Time
 	// Lines counts the stdout lines the agent has produced. Zero means the
 	// call has seen no event at all: LastLine then holds the call's start, so
 	// a reader telling an active agent from a hung one checks Lines first.
@@ -37,7 +39,13 @@ type LivenessState struct {
 // NewLiveness starts a tracker whose last line is counted from now, so an
 // agent that prints nothing at all stalls after the idle limit too.
 func NewLiveness(stream string) *Liveness {
-	return &Liveness{stream: stream, last: time.Now(), tools: map[string]time.Time{}}
+	now := time.Now()
+	return &Liveness{stream: stream, last: now, turnAt: now, tools: map[string]time.Time{}}
+}
+
+func (l *Liveness) beginTurn() {
+	l.turns++
+	l.turnAt = l.last
 }
 
 // Observe consumes one stdout line as it arrives. Every line refreshes the
@@ -74,7 +82,7 @@ func (l *Liveness) State() LivenessState {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	state := LivenessState{LastLine: l.last, Lines: l.lines, Turns: l.turns, Tools: len(l.tools)}
+	state := LivenessState{LastLine: l.last, LastTurn: l.turnAt, Lines: l.lines, Turns: l.turns, Tools: len(l.tools)}
 	for _, start := range l.tools {
 		if state.OldestTool.IsZero() || start.Before(state.OldestTool) {
 			state.OldestTool = start
@@ -103,7 +111,7 @@ func (l *Liveness) observeClaude(obj map[string]any) {
 	switch obj["type"] {
 	case "assistant":
 		if id := str(table(obj["message"])["id"]); id == "" || id != l.lastMessage {
-			l.turns++
+			l.beginTurn()
 			l.lastMessage = id
 		}
 		for _, block := range contentBlocks(obj) {
@@ -133,7 +141,7 @@ func (l *Liveness) observeClaude(obj map[string]any) {
 func (l *Liveness) observeCodex(obj map[string]any) {
 	kind := str(obj["type"])
 	if kind == "turn.started" {
-		l.turns++
+		l.beginTurn()
 		return
 	}
 	if kind != "item.started" && kind != "item.completed" {
@@ -173,7 +181,7 @@ func (l *Liveness) observePi(obj map[string]any) {
 		delete(l.tools, str(obj["toolCallId"]))
 	case "message_end":
 		if table(obj["message"])["role"] == "assistant" {
-			l.turns++
+			l.beginTurn()
 		}
 	}
 }

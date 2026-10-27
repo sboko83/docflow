@@ -29,7 +29,7 @@ code=0
 # Only the start time, wall clock interval and elapsed duration vary.
 # Retain the unit count, cost, unverified count and replan count.
 sed -E \
-    -e 's/^(run: P[0-9]+ .*, start )[0-9:]+/\1<clock>/' \
+    -e 's/^(run: P[0-9]+ .*, (start |Start at ))[0-9:]+/\1<clock>/' \
     -e 's/^(run: [0-9]+ units?, )[^,]*–[^,]* \([^)]*\)/\1<clock> (<duration>)/' \
     -e 's/^(P[0-9.]+ time: ).*/\1<duration>/' \
     -e 's/^(P[0-9.]+ done: [0-9a-f]+ \([0-9]+ attempts?, )[^,)]*/\1<duration>/' \
