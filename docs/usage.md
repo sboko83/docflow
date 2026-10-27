@@ -8,11 +8,17 @@
 
 ### Установить CLI
 
-Требования: macOS или Linux (amd64 или arm64), curl или wget. Go и sudo не
-нужны:
+Требования: macOS, Linux или Windows 10/11 (amd64 или arm64). Go и sudo не
+нужны; install.sh требует curl или wget, install.ps1 — только PowerShell:
 
 ~~~bash
 curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | sh
+~~~
+
+Windows, PowerShell:
+
+~~~powershell
+irm https://raw.githubusercontent.com/sboko83/docflow/main/install.ps1 | iex
 ~~~
 
 Установщик определяет OS и архитектуру, скачивает последний релиз, сверяет
@@ -32,7 +38,8 @@ sha256 по checksums.txt, распаковывает архив и запуск
 ~~~
 
 Затем `docflow install` добавляет `~/.docflow/bin` в PATH (блок в
-`.zshrc`, `.bashrc` или `.bash_profile`) и ставит личные симлинки скиллов
+`.zshrc`, `.bashrc` или `.bash_profile`; на Windows — каталог `current`
+в пользовательский PATH) и ставит личные симлинки скиллов
 агентам, чьи CLI найдены в PATH (`claude`, `codex`, `pi`), и в
 `~/.zcode/skills`, если существует каталог `~/.zcode`. Симлинки ведут в
 `~/.docflow/current/skills/<имя>` и не переписываются при обновлении.
@@ -47,12 +54,13 @@ sha256 по checksums.txt, распаковывает архив и запуск
 project-режиме скиллы в проект ставят `docflow init --skills` и
 `docflow install-skills --project`; сам режим ничего не копирует.
 
-Переменные окружения install.sh: `DOCFLOW_VERSION=X.Y.Z` — поставить
-конкретный релиз вместо последнего; `DOCFLOW_RELEASE_URL` — базовый URL
-релизов вместо GitHub Releases (по умолчанию
+Переменные окружения install.sh и install.ps1: `DOCFLOW_VERSION=X.Y.Z` —
+поставить конкретный релиз вместо последнего; `DOCFLOW_RELEASE_URL` — базовый
+URL релизов вместо GitHub Releases (по умолчанию
 `https://github.com/sboko83/docflow/releases`); `DOCFLOW_SKILLS=global|project`
-— ответить на вопрос о режиме скиллов заранее, install.sh передаёт его как
-`docflow install --skills`.
+— ответить на вопрос о режиме скиллов заранее, установщик передаёт его как
+`docflow install --skills`. В PowerShell переменную задают перед командой:
+`$env:DOCFLOW_VERSION = 'X.Y.Z'`.
 
 После установки перезапустите оболочку или выполните
 `export PATH="$HOME/.docflow/bin:$PATH"` и проверьте версию:

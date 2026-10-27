@@ -109,18 +109,29 @@ cycle.
 
 ## Quick start
 
-Requirements: macOS, Linux, or Windows 10/11 with Git for Windows (run
-the command in Git Bash); amd64 or arm64. No Go toolchain needed:
+Requirements: macOS, Linux, or Windows 10/11; amd64 or arm64. No Go
+toolchain needed.
+
+macOS and Linux:
 
 ~~~bash
 curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | sh
 ~~~
 
+Windows (PowerShell):
+
+~~~powershell
+irm https://raw.githubusercontent.com/sboko83/docflow/main/install.ps1 | iex
+~~~
+
+The install.sh command also works in Git Bash on Windows.
+
 The installer downloads the latest release, verifies its sha256 checksum,
 and runs `docflow install`: the binary, skills, and LICENSE land under
 `~/.docflow` (on Windows `%USERPROFILE%\.docflow` with directory junctions,
 no Developer Mode or administrator rights), and PATH is configured in the
-shell profile — restart your terminal after installation. Personal skill
+shell profile on macOS and Linux and in the user PATH on Windows — restart
+your terminal after installation. Personal skill
 links are installed for agent CLIs found in `PATH`. `DOCFLOW_VERSION=X.Y.Z`
 installs a specific release.
 

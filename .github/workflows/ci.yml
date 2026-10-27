@@ -27,3 +27,5 @@ jobs:
       - run: go build -o "bin/docflow$(go env GOEXE)" ./cmd/docflow
       - run: bash tools/parity/run.sh "bin/docflow$(go env GOEXE)" "bin/docflow$(go env GOEXE)"
       - run: bash tools/test-install.sh
+      - run: bash tools/test-install-ps1.sh
+        if: runner.os == 'Windows'

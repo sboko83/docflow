@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Windows PowerShell installer `install.ps1`
+  (`irm https://raw.githubusercontent.com/sboko83/docflow/main/install.ps1 | iex`):
+  the same download, checksum, and unpack flow as install.sh without Git
+  Bash. Covered by CI on the Windows runner in both entry forms.
+
 ## [0.17.0] - 2026-10-27
 
 ### Added
