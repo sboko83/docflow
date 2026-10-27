@@ -26,10 +26,6 @@ start_budget: 4000
 - Перенести Unix shell fixtures `internal/runner` и `internal/agentio`
   на Windows, где они пока пропускаются
   ([P040](archive/P040-windows-support.md)).
-- Проверить в настоящей консоли Windows типнутый ответ на вопрос режима
-  скиллов при установке (`global`/`project`) и что ответ сохраняется;
-  без консоли fallback и режим из `DOCFLOW_SKILLS` проверены
-  ([P040](archive/P040-windows-support.md)).
 - `docflow run`: сверить классификатор отказов с живыми отказами Claude и
   Codex по лимиту, проверить возврат к основному исполнителю после сброса
   на живом прогоне — при случае на рабочем прогоне, подписку ради проверки
