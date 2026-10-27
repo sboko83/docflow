@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,14 +48,16 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 	writeReleaseFile(t, filepath.Join(f.source, "LICENSE"), "license", 0644)
 	writeReleaseFile(t, filepath.Join(f.source, "skills", "sample", "SKILL.md"), "---\nname: sample\n---\nversion one\n", 0644)
 	f.executable = filepath.Join(f.source, release.BinaryName())
-	oldExecutable, oldTerminal, oldVersion, oldSkills := currentExecutable, stderrIsTerminal, version, currentSkillDirectory
+	oldExecutable, oldTerminal, oldVersion, oldSkills, oldTTY := currentExecutable, stderrIsTerminal, version, currentSkillDirectory, openSkillsTTY
 	currentExecutable = func() (string, error) { return f.executable, nil }
 	currentSkillDirectory = func() (string, error) { return docskills.SkillDirFromExecutable(f.executable) }
 	stderrIsTerminal = func(io.Writer) bool { return false }
+	openSkillsTTY = func() (*os.File, error) { return nil, errors.New("no controlling terminal") }
 	version = "1.0.0"
 	t.Cleanup(func() {
 		currentExecutable, stderrIsTerminal, version = oldExecutable, oldTerminal, oldVersion
 		currentSkillDirectory = oldSkills
+		openSkillsTTY = oldTTY
 	})
 	return f
 }
@@ -295,8 +298,14 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 		latest = remote
 		for _, args := range [][]string{{"update"}, {"update", "--check"}} {
 			stdout, _ = runRelease(t, 0, args...)
-			if stdout != "up to date: 1.2.0\n" {
-				t.Fatalf("up-to-date stdout=%q", stdout)
+			// Without a stored mode and without a terminal the update keeps the
+			// global links and prints one hint line; --check stays quiet.
+			want := "up to date: 1.2.0\n"
+			if len(args) == 1 {
+				want += skillsGlobalHint
+			}
+			if stdout != want {
+				t.Fatalf("up-to-date stdout=%q, want %q", stdout, want)
 			}
 		}
 	}
@@ -535,16 +544,142 @@ func TestReleaseModeUsesResolvedPath(t *testing.T) {
 	}
 }
 
-func TestReleaseTerminalRejectsNonTerminals(t *testing.T) {
-	if releaseTerminal(&bytes.Buffer{}) {
-		t.Fatal("buffer detected as terminal")
+const skillsGlobalHint = "skills: global (set docflow update --skills project to keep agent directories clean)\n"
+
+// releaseAgentTargets stubs every agent CLI and creates ~/.zcode, returning
+// the personal skill directories the release commands would link.
+func releaseAgentTargets(t *testing.T, f *releaseFixture) []string {
+	t.Helper()
+	var targets []string
+	for _, agent := range []string{"claude", "codex", "pi"} {
+		writeReleaseFile(t, releaseAgentPath(f.binDir, agent), "#!/bin/sh\nexit 0\n", 0755)
+		target, err := docskills.AgentSkillsDir(agent, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, target)
 	}
-	file, err := os.Open(os.DevNull)
-	if err != nil {
+	if err := os.Mkdir(filepath.Join(f.homeDir, ".zcode"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
-	if releaseTerminal(file) {
-		t.Fatal("null character device detected as terminal")
+	return append(targets, filepath.Join(f.homeDir, ".zcode", "skills"))
+}
+
+func TestInstallSkillsProjectFlag(t *testing.T) {
+	f := newReleaseFixture(t)
+	targets := releaseAgentTargets(t, f)
+	runRelease(t, 0, "install", "--skills", "global")
+	for _, target := range targets {
+		releaseLink(t, filepath.Join(target, "sample"), filepath.Join(f.home, "current", "skills", "sample"))
+	}
+	foreign := filepath.Join(f.homeDir, ".docflow-other", "skill")
+	writeReleaseFile(t, filepath.Join(foreign, "SKILL.md"), "foreign", 0644)
+	for _, target := range targets {
+		if err := dirlink.Create(foreign, filepath.Join(target, "foreign")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := t.TempDir()
+	projectSkill := filepath.Join(project, ".claude", "skills", "sample", "SKILL.md")
+	writeReleaseFile(t, projectSkill, "project copy", 0644)
+	t.Chdir(project)
+	stdout, _ := runRelease(t, 0, "install", "--skills", "project")
+	want := "skills: project mode — removed 4 personal links; add skills to a project with docflow init --skills or docflow install-skills --project\n"
+	if !strings.Contains(stdout, want) {
+		t.Fatalf("stdout=%q, want it to contain %q", stdout, want)
+	}
+	for _, target := range targets {
+		if _, err := os.Lstat(filepath.Join(target, "sample")); !os.IsNotExist(err) {
+			t.Fatalf("own link remains in %s: %v", target, err)
+		}
+		releaseLink(t, filepath.Join(target, "foreign"), foreign)
+	}
+	if data, err := os.ReadFile(projectSkill); err != nil || string(data) != "project copy" {
+		t.Fatalf("project copy changed: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(f.home, "skills-mode")); err != nil || strings.TrimSpace(string(data)) != "project" {
+		t.Fatalf("stored mode = %q, %v", data, err)
+	}
+}
+
+func TestUpdateSkillsModeStoredDoesNotAsk(t *testing.T) {
+	f := newReleaseFixture(t)
+	targets := releaseAgentTargets(t, f)
+	asked := 0
+	openSkillsTTY = func() (*os.File, error) {
+		asked++
+		return nil, errors.New("no controlling terminal")
+	}
+	runRelease(t, 0, "install", "--skills", "project")
+	f.executable = release.ExecutablePath(f.home)
+	latest := "1.0.0"
+	archive := testReleaseArchive(t, "---\nname: sample\n---\nupdated\n")
+	archiveName := fmt.Sprintf("docflow_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest/download/VERSION":
+			fmt.Fprintln(w, latest)
+		case "/download/v1.1.0/checksums.txt":
+			fmt.Fprintf(w, "%x  %s\n", sha256.Sum256(archive), archiveName)
+		case "/download/v1.1.0/" + archiveName:
+			w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_RELEASE_URL", server.URL)
+	t.Chdir(t.TempDir()) // Outside any docflow project.
+	stdout, _ := runRelease(t, 0, "update")
+	if asked != 0 || stdout != "up to date: 1.0.0\n" {
+		t.Fatalf("up-to-date update: asked=%d stdout=%q", asked, stdout)
+	}
+	latest = "1.1.0"
+	stdout, _ = runRelease(t, 0, "update")
+	if asked != 0 || !strings.Contains(stdout, "updated: 1.0.0 -> 1.1.0") || !strings.Contains(stdout, "skills: project mode — removed 0 personal links") {
+		t.Fatalf("update: asked=%d stdout=%q", asked, stdout)
+	}
+	for _, target := range targets {
+		if _, err := os.Lstat(filepath.Join(target, "sample")); !os.IsNotExist(err) {
+			t.Fatalf("update linked personal skills in %s: %v", target, err)
+		}
+	}
+}
+
+func TestInstallSkillsModeNoTerminalFallback(t *testing.T) {
+	f := newReleaseFixture(t)
+	targets := releaseAgentTargets(t, f)
+	stdout, _ := runRelease(t, 0, "install")
+	if !strings.Contains(stdout, skillsGlobalHint) {
+		t.Fatalf("stdout misses the fallback hint: %q", stdout)
+	}
+	for _, target := range targets {
+		releaseLink(t, filepath.Join(target, "sample"), filepath.Join(f.home, "current", "skills", "sample"))
+	}
+	if _, err := os.Stat(filepath.Join(f.home, "skills-mode")); !os.IsNotExist(err) {
+		t.Fatalf("fallback stored a mode: %v", err)
+	}
+}
+
+func TestUpdateSkillsFlagWhenUpToDateRelinks(t *testing.T) {
+	f := newReleaseFixture(t)
+	targets := releaseAgentTargets(t, f)
+	runRelease(t, 0, "install", "--skills", "project")
+	f.executable = release.ExecutablePath(f.home)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "1.0.0")
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_RELEASE_URL", server.URL)
+	t.Chdir(t.TempDir()) // Outside any docflow project.
+	stdout, _ := runRelease(t, 0, "update", "--skills", "global")
+	if !strings.Contains(stdout, "up to date: 1.0.0\n") || !strings.Contains(stdout, "skills: links follow the active version") {
+		t.Fatalf("stdout=%q", stdout)
+	}
+	for _, target := range targets {
+		releaseLink(t, filepath.Join(target, "sample"), filepath.Join(f.home, "current", "skills", "sample"))
+	}
+	if data, err := os.ReadFile(filepath.Join(f.home, "skills-mode")); err != nil || strings.TrimSpace(string(data)) != "global" {
+		t.Fatalf("stored mode = %q, %v", data, err)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"bsv-docflow/internal/cycle"
+	"bsv-docflow/internal/term"
 )
 
 // syncBuffer is a bytes.Buffer safe to read while the process under test
@@ -173,11 +174,11 @@ func TestIsTerminalRejectsRedirectedStreams(t *testing.T) {
 		{name: "stream with no handle", stream: &plainStdin{}},
 		{name: "nil", stream: nil},
 	} {
-		if isTerminal(tc.stream) {
+		if term.IsTerminal(tc.stream) {
 			t.Errorf("%s reads as a terminal", tc.name)
 		}
 	}
-	if !isTerminal(newScriptedStdin()) {
+	if !term.IsTerminal(newScriptedStdin()) {
 		t.Fatal("the IsTerminal hook is not honoured")
 	}
 }

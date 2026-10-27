@@ -1,25 +1,36 @@
 package main
 
 var helpTexts = map[string]string{
-	"install": `usage: docflow install [-h]
+	"install": `usage: docflow install [-h] [--skills {global,project}]
 
 install an unpacked release into ~/.docflow and link personal skills
 
 Run the docflow binary beside skills/ and LICENSE from a release archive.
 Configure PATH for zsh/bash and install personal skills for agent CLIs in
 PATH (claude, codex, pi), and for ~/.zcode when it exists.
+--skills sets the skills mode: global links the personal skill directories,
+project keeps them clean and only project copies (docflow init --skills,
+docflow install-skills --project) carry the skills. Without the flag the
+mode stored in ~/.docflow/skills-mode applies; a first run on a terminal
+asks once and remembers the answer; without a terminal global is used.
 
 options:
   -h, --help  show this help message and exit
+  --skills {global,project}
+              personal links (global) or project-only skills (project)
 `,
-	"update": `usage: docflow update [-h] [--check]
+	"update": `usage: docflow update [-h] [--check] [--skills {global,project}]
 
 download and activate the latest release
 
 Only standalone installations can update. For a development checkout use:
 git pull && bash tools/install-dev.sh
 Personal skill links point into ~/.docflow/current and follow the active
-version. Stale project skill copies in the current project are reported with
+version. --skills global|project sets the skills mode: it is stored in
+~/.docflow/skills-mode, asked once on a terminal when neither is given,
+and global without a terminal prints a hint instead. An explicit mode
+applies to the links even when the release is up to date.
+Stale project skill copies in the current project are reported with
 their install-skills --project command.
 The previous release stays in ~/.docflow/versions; roll back with
 ln -sfn versions/<previous> ~/.docflow/current; the next update reinstalls
@@ -30,6 +41,8 @@ Daily terminal checks can be disabled with DOCFLOW_NO_UPDATE_CHECK=1.
 options:
   -h, --help  show this help message and exit
   --check     check for a new release without installing it
+  --skills {global,project}
+              personal links (global) or project-only skills (project)
 `,
 	"uninstall": `usage: docflow uninstall [-h]
 

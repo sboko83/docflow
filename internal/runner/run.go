@@ -22,6 +22,7 @@ import (
 	"bsv-docflow/internal/gitx"
 	"bsv-docflow/internal/lint"
 	"bsv-docflow/internal/skills"
+	"bsv-docflow/internal/term"
 )
 
 type Args struct {
@@ -250,7 +251,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		totals.events.emit("run_end", "", map[string]any{"reason": reason, "exit_code": eventExitCode(code, runErr)})
 		totals.events.close()
 	}()
-	if isTerminal(input.stream) {
+	if term.IsTerminal(input.stream) {
 		p.line("run: s + Enter stops after the current unit; Ctrl-C stops now", false, "")
 		restore := noEcho(input.stream)
 		defer restore()

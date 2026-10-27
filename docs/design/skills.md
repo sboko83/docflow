@@ -79,6 +79,19 @@ docflow-жизненный цикл. Политики коммитов и рел
   `~/.docflow/current/skills/<имя>`, а не в checkout: `docflow update`
   переключает симлинк `current` на новую версию, не переписывая симлинки
   скиллов; `docflow uninstall` убирает их вместе с `~/.docflow`.
+- Режим скиллов standalone-установки: `docflow install` и `docflow update`
+  принимают `--skills global|project`; режим хранится одним словом в
+  `~/.docflow/skills-mode` и удаляется вместе с `~/.docflow`. Без флага
+  берётся сохранённый режим; при первом запуске в терминале docflow один раз
+  спрашивает `skills: link into agent directories (global) or only per
+  project (project)? [G/p]` и запоминает ответ; без терминала действует
+  `global`, файл не пишется и печатается одна подсказка про
+  `docflow update --skills project`. Режим `project` убирает только личные
+  симлинки docflow (ведущие в `~/.docflow`) в каталогах, которые глобальный
+  режим использовал бы; проектные копии и чужие скиллы не трогаются.
+  `docflow update --skills <режим>` применяет режим и без нового релиза.
+  В проект скиллы ставит `docflow init --skills` или
+  `docflow install-skills --project` — сам project-режим ничего не копирует.
 - `install-skills --project` копирует скиллы (не симлинки) в
   `<project>/.claude/skills/` для Claude или `<project>/.agents/skills/` для
   Codex или `<project>/.pi/skills/` для Pi. `--project` и `--target` несовместимы. `init --skills` использует тот

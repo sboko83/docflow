@@ -22,6 +22,7 @@ import (
 	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/lint"
+	"bsv-docflow/internal/term"
 )
 
 const (
@@ -433,7 +434,7 @@ func commandExitCode(err error) int {
 }
 
 // runInput owns the run's stdin for the whole start. `stream` carries the
-// terminal checks (`isTerminal`, `noEcho`), `reader` is the one line reader
+// terminal checks (`term.IsTerminal`, `noEcho`), `reader` is the one line reader
 // shared by the start's prompts: a line typed while one question waits reaches
 // the next question instead of being swallowed by a second reader over the
 // same descriptor. Nothing closes `stream` — the process owns it.
@@ -504,7 +505,7 @@ func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, inpu
 	if yes {
 		return clierrors.EXIT_OK
 	}
-	if !isTerminal(input.stream) {
+	if !term.IsTerminal(input.stream) {
 		progress.line("run: no terminal to confirm the start; pass --yes", true, "")
 		return clierrors.EXIT_FORMAT
 	}
@@ -558,7 +559,7 @@ var unblockCommand = cycle.Self
 // `unblock` and without printing a second line — the caller reports the
 // signal. An answer typed after the cancellation changes nothing.
 func askUnblock(ctx context.Context, root, uid, needs, reason string, yes bool, progress *Progress, input runInput, stdout io.Writer) (unblocked, cancelled bool) {
-	if needs != "human" || yes || !isTerminal(input.stream) {
+	if needs != "human" || yes || !term.IsTerminal(input.stream) {
 		return false, false
 	}
 	line := uid + " is blocked (needs human)"
@@ -618,7 +619,7 @@ func notify(text string, off bool, stderr io.Writer) {
 	case "linux":
 		sent = spawn([]string{"notify-send", "docflow", text})
 	}
-	if !sent && isTerminal(stderr) {
+	if !sent && term.IsTerminal(stderr) {
 		_, _ = io.WriteString(stderr, "\a")
 		flushWriter(stderr)
 	}

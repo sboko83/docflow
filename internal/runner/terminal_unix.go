@@ -7,27 +7,17 @@ import (
 	"os"
 	"syscall"
 	"unsafe"
+
+	"bsv-docflow/internal/term"
 )
 
 type terminalSize struct {
 	rows, columns, xPixels, yPixels uint16
 }
 
-func isTerminal(stream any) bool {
-	if value, ok := stream.(interface{ IsTerminal() bool }); ok {
-		return value.IsTerminal()
-	}
-	file, ok := stream.(*os.File)
-	if !ok {
-		return false
-	}
-	var state syscall.Termios
-	return ioctl(file.Fd(), termiosGetRequest(), unsafe.Pointer(&state))
-}
-
 func terminalColumns(stream io.Writer) int {
 	file, ok := stream.(*os.File)
-	if !ok || !isTerminal(file) {
+	if !ok || !term.IsTerminal(file) {
 		return 80
 	}
 	var size terminalSize

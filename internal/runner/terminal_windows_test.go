@@ -9,10 +9,12 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/term"
 )
 
 // consoleMode is the Windows oracle: the system accepts GetConsoleMode on a
-// console handle and refuses it on a redirected file, a pipe and NUL. isTerminal
+// console handle and refuses it on a redirected file, a pipe and NUL. term.IsTerminal
 // must agree on the very handle the process was given.
 func consoleMode(handle uintptr) bool {
 	var mode uint32
@@ -29,7 +31,7 @@ func TestIsTerminalWindowsRealHandles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	if isTerminal(file) {
+	if term.IsTerminal(file) {
 		t.Fatal("a regular file reads as a console")
 	}
 	reader, writer, err := os.Pipe()
@@ -38,7 +40,7 @@ func TestIsTerminalWindowsRealHandles(t *testing.T) {
 	}
 	defer reader.Close()
 	defer writer.Close()
-	if isTerminal(reader) {
+	if term.IsTerminal(reader) {
 		t.Fatal("a pipe reads as a console")
 	}
 	nul, err := os.OpenFile("NUL", os.O_RDONLY, 0)
@@ -46,10 +48,10 @@ func TestIsTerminalWindowsRealHandles(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer nul.Close()
-	if isTerminal(nul) {
+	if term.IsTerminal(nul) {
 		t.Fatal("NUL reads as a console")
 	}
-	if isTerminal(&plainStdin{}) {
+	if term.IsTerminal(&plainStdin{}) {
 		t.Fatal("a stream with no handle reads as a console")
 	}
 }
@@ -57,10 +59,10 @@ func TestIsTerminalWindowsRealHandles(t *testing.T) {
 func TestIsTerminalWindowsStandardStreams(t *testing.T) {
 	for _, stream := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
 		name := stream.Name()
-		if isTerminal(stream) != consoleMode(stream.Fd()) {
-			t.Fatalf("%s: isTerminal=%v, GetConsoleMode accepts=%v", name, isTerminal(stream), consoleMode(stream.Fd()))
+		if term.IsTerminal(stream) != consoleMode(stream.Fd()) {
+			t.Fatalf("%s: term.IsTerminal=%v, GetConsoleMode accepts=%v", name, term.IsTerminal(stream), consoleMode(stream.Fd()))
 		}
-		if isTerminal(stream) {
+		if term.IsTerminal(stream) {
 			t.Logf("%s is a Windows console", name)
 		} else {
 			t.Logf("%s is redirected", name)
@@ -87,7 +89,7 @@ func TestIsTerminalWindowsConsoleHandle(t *testing.T) {
 	if console == nil {
 		t.Fatal("os.NewFile rejected the duplicated console handle")
 	}
-	if !isTerminal(console) {
+	if !term.IsTerminal(console) {
 		t.Fatal("a duplicated console handle is not a terminal")
 	}
 	calls := recordUnblock(t)
@@ -112,7 +114,7 @@ func TestAskUnblockWindowsConsoleTyped(t *testing.T) {
 	if os.Getenv("DOCFLOW_WINDOWS_CONSOLE_ASK") != "1" {
 		t.Skip("needs a person at the console: run with DOCFLOW_WINDOWS_CONSOLE_ASK=1 in a Windows terminal; recorded as Unverified")
 	}
-	if !isTerminal(os.Stdin) {
+	if !term.IsTerminal(os.Stdin) {
 		t.Skip("stdin is not a Windows console; recorded as Unverified")
 	}
 	calls := recordUnblock(t)

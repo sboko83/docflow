@@ -13,6 +13,7 @@ import (
 
 	"bsv-docflow/internal/agentio"
 	"bsv-docflow/internal/agents"
+	"bsv-docflow/internal/term"
 )
 
 var STYLES = map[string]string{
@@ -65,7 +66,7 @@ func newProgress(out, err io.Writer, verbose bool) *Progress {
 	if err == nil {
 		err = os.Stderr
 	}
-	tty := isTerminal(out)
+	tty := term.IsTerminal(out)
 	columns := func() int { return terminalColumns(out) }
 	return &Progress{
 		out: out, err: err, verbose: verbose, tty: tty,
@@ -84,7 +85,7 @@ func (p *Progress) setDisplay(display agents.Display) {
 }
 
 func (p *Progress) paint(text, style string, stream io.Writer) string {
-	if code, ok := STYLES[style]; style != "" && ok && p.colour && p.fancy && isTerminal(stream) {
+	if code, ok := STYLES[style]; style != "" && ok && p.colour && p.fancy && term.IsTerminal(stream) {
 		return "\x1b[" + code + "m" + text + "\x1b[0m"
 	}
 	return text
@@ -111,7 +112,7 @@ func (p *Progress) lineLocked(text string, stream io.Writer, style string, stder
 	if stderr && style == "" {
 		style = "red"
 	}
-	if p.fancy && p.block && isTerminal(stream) {
+	if p.fancy && p.block && term.IsTerminal(stream) {
 		if p.unitID != "" && strings.HasPrefix(text, p.unitID+": ") {
 			text = strings.TrimPrefix(text, p.unitID+": ")
 		}
@@ -126,7 +127,7 @@ func (p *Progress) lineLocked(text string, stream io.Writer, style string, stder
 			text = "! " + text
 		}
 		p.wrappedLocked(text, "│  ", style, stream, "")
-	} else if p.fancy && isTerminal(stream) {
+	} else if p.fancy && term.IsTerminal(stream) {
 		p.wrappedLocked(text, "", style, stream, "")
 	} else {
 		p.emitLocked(p.paint(text, style, stream), stream)
@@ -819,7 +820,7 @@ func (p *Progress) output(text string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.clearLocked()
-	if p.fancy && p.block && isTerminal(p.err) {
+	if p.fancy && p.block && term.IsTerminal(p.err) {
 		p.wrappedLocked(strings.TrimRight(text, "\n"), "│  ", "", p.err, "")
 		return
 	}

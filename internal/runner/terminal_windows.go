@@ -6,23 +6,9 @@ import (
 	"io"
 	"os"
 	"syscall"
-)
 
-// isTerminal reports a real console. GetConsoleMode succeeds only on a console
-// input or output handle, so a redirected file, a pipe and the NUL device read
-// as not a terminal. The fd of a standard stream is the value Windows gave the
-// process for it, which is the console handle in a terminal.
-func isTerminal(stream any) bool {
-	if value, ok := stream.(interface{ IsTerminal() bool }); ok {
-		return value.IsTerminal()
-	}
-	file, ok := stream.(*os.File)
-	if !ok {
-		return false
-	}
-	var mode uint32
-	return syscall.GetConsoleMode(syscall.Handle(file.Fd()), &mode) == nil
-}
+	"bsv-docflow/internal/term"
+)
 
 func terminalColumns(stream io.Writer) int { return 80 }
 

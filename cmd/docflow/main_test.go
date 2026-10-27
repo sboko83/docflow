@@ -399,6 +399,26 @@ func TestSkillAgentDefaultsAndChoices(t *testing.T) {
 	}
 }
 
+func TestSkillsModeOption(t *testing.T) {
+	for _, name := range []string{"install", "update"} {
+		t.Run(name, func(t *testing.T) {
+			parsed, code := parseArgs([]string{name}, &bytes.Buffer{}, &bytes.Buffer{})
+			if code != 0 || parsed == nil || parsed.values["--skills"] != "" {
+				t.Fatalf("default args = %#v, %d", parsed, code)
+			}
+			parsed, code = parseArgs([]string{name, "--skills", "project"}, &bytes.Buffer{}, &bytes.Buffer{})
+			if code != 0 || parsed == nil || parsed.values["--skills"] != "project" {
+				t.Fatalf("project args = %#v, %d", parsed, code)
+			}
+			var stderr bytes.Buffer
+			parsed, code = parseArgs([]string{name, "--skills", "both"}, &bytes.Buffer{}, &stderr)
+			if code != clierrors.EXIT_FORMAT || parsed != nil {
+				t.Fatalf("invalid skills args = %#v, %d", parsed, code)
+			}
+		})
+	}
+}
+
 func gitTestCommand(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)

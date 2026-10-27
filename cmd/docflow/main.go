@@ -52,8 +52,8 @@ var commands = []commandSpec{
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi"), option("--target", "DIR", "personal skills directory override")}},
 	{name: "roster", help: "show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
-	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills"},
-	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it")}},
+	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
+	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "uninstall", help: "remove the standalone installation and its personal skill links"},
 }
 

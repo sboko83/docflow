@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -17,9 +18,90 @@ import (
 	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/release"
 	docskills "bsv-docflow/internal/skills"
+	"bsv-docflow/internal/term"
 )
 
-var stderrIsTerminal = releaseTerminal
+var stderrIsTerminal = func(stream io.Writer) bool { return term.IsTerminal(stream) }
+
+// Personal skills install modes: global links skills into the personal agent
+// directories; project keeps them clean and only project copies carry the
+// skills (docflow init --skills, docflow install-skills --project).
+const (
+	skillsModeGlobal  = "global"
+	skillsModeProject = "project"
+)
+
+// openSkillsTTY is the controlling-terminal seam for tests: without a
+// terminal the mode question cannot be asked and install/update fall back to
+// global.
+var openSkillsTTY = term.OpenTTY
+
+func skillsModePath(home string) string { return filepath.Join(home, "skills-mode") }
+
+// readSkillsMode returns the stored mode, or "" when nothing valid is stored.
+func readSkillsMode(home string) string {
+	data, err := os.ReadFile(skillsModePath(home))
+	if err != nil {
+		return ""
+	}
+	mode := strings.TrimSpace(string(data))
+	if mode != skillsModeGlobal && mode != skillsModeProject {
+		return ""
+	}
+	return mode
+}
+
+func writeSkillsMode(home, mode string) error {
+	return os.WriteFile(skillsModePath(home), []byte(mode+"\n"), 0644)
+}
+
+// resolveSkillsMode picks the skills mode: the --skills flag, else the stored
+// mode, else a question on the controlling terminal, else global. The mode is
+// stored when it came from the flag or the question, so later commands follow
+// it without asking; the no-terminal fallback returns one hint line instead.
+func resolveSkillsMode(home, flagMode string) (mode, hint string, err error) {
+	if flagMode == skillsModeGlobal || flagMode == skillsModeProject {
+		if err := writeSkillsMode(home, flagMode); err != nil {
+			return "", "", err
+		}
+		return flagMode, "", nil
+	}
+	if stored := readSkillsMode(home); stored != "" {
+		return stored, "", nil
+	}
+	tty, err := openSkillsTTY()
+	if err != nil {
+		return skillsModeGlobal, "skills: global (set docflow update --skills project to keep agent directories clean)\n", nil
+	}
+	defer tty.Close()
+	mode, err = askSkillsMode(tty)
+	if err != nil {
+		return "", "", err
+	}
+	if err := writeSkillsMode(home, mode); err != nil {
+		return "", "", err
+	}
+	return mode, "", nil
+}
+
+// askSkillsMode asks on the terminal: an empty answer or EOF takes the
+// capital default, an unrecognized answer repeats the question.
+func askSkillsMode(tty *os.File) (string, error) {
+	reader := bufio.NewReader(tty)
+	for {
+		fmt.Fprint(os.Stderr, "skills: link into agent directories (global) or only per project (project)? [G/p] ")
+		line, err := reader.ReadString('\n')
+		if err != nil && line == "" {
+			return skillsModeGlobal, nil
+		}
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "", "g", "global":
+			return skillsModeGlobal, nil
+		case "p", "project":
+			return skillsModeProject, nil
+		}
+	}
+}
 
 func releaseCommand(handler handlerFunc) handlerFunc {
 	return func(parsed *parsedArgs) error {
@@ -74,11 +156,9 @@ func activateRelease(home, source, next string) error {
 	return release.Activate(home, source, next)
 }
 
-// installReleaseSkills links the release skills for every agent found and
-// prints one line per target: the links point into current, so they follow
-// the active version and an update only adds skills new in the release.
-func installReleaseSkills(home string) (docskills.Result, error) {
-	var combined docskills.Result
+// releaseSkillOptions lists the personal skill targets of this machine: one
+// per agent CLI in PATH, plus the zcode directory when it exists.
+func releaseSkillOptions() ([]docskills.InstallOptions, error) {
 	var options []docskills.InstallOptions
 	for _, agent := range []string{"claude", "codex", "pi"} {
 		if _, err := exec.LookPath(agent); err == nil {
@@ -87,10 +167,22 @@ func installReleaseSkills(home string) (docskills.Result, error) {
 	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return combined, err
+		return nil, err
 	}
 	if info, err := os.Stat(filepath.Join(homeDir, ".zcode")); err == nil && info.IsDir() {
 		options = append(options, docskills.InstallOptions{Target: filepath.Join(homeDir, ".zcode", "skills")})
+	}
+	return options, nil
+}
+
+// installReleaseSkills links the release skills for every agent found and
+// prints one line per target: the links point into current, so they follow
+// the active version and an update only adds skills new in the release.
+func installReleaseSkills(home string) (docskills.Result, error) {
+	var combined docskills.Result
+	options, err := releaseSkillOptions()
+	if err != nil {
+		return combined, err
 	}
 	if len(options) == 0 {
 		return combined, nil
@@ -121,6 +213,40 @@ func installReleaseSkills(home string) (docskills.Result, error) {
 	}
 	combined.Stdout = stdout.String()
 	return combined, nil
+}
+
+// projectSkillsMode removes docflow's own personal links from every target
+// the global mode would use; foreign links and project copies stay.
+func projectSkillsMode(home string) (docskills.Result, error) {
+	var result docskills.Result
+	options, err := releaseSkillOptions()
+	if err != nil {
+		return result, err
+	}
+	removed := 0
+	for _, option := range options {
+		target := option.Target
+		if target == "" {
+			if target, err = docskills.AgentSkillsDir(option.Agent, ""); err != nil {
+				return result, err
+			}
+		}
+		count, err := removeReleaseSkillLinks(target, home)
+		if err != nil {
+			return result, err
+		}
+		removed += count
+	}
+	result.Stdout = fmt.Sprintf("skills: project mode — removed %d personal links; add skills to a project with docflow init --skills or docflow install-skills --project\n", removed)
+	return result, nil
+}
+
+// applySkillsMode installs or removes the personal skill links for the mode.
+func applySkillsMode(home, mode string) (docskills.Result, error) {
+	if mode == skillsModeProject {
+		return projectSkillsMode(home)
+	}
+	return installReleaseSkills(home)
 }
 
 // projectCopyHints returns update hints for stale docflow skill copies in the
@@ -168,7 +294,7 @@ func displayPath(path string) string {
 	return path
 }
 
-func handleInstall(_ *parsedArgs) error {
+func handleInstall(parsed *parsedArgs) error {
 	executable, err := currentExecutable()
 	if err != nil {
 		return err
@@ -192,7 +318,11 @@ func handleInstall(_ *parsedArgs) error {
 	if err != nil {
 		return err
 	}
-	result, err := installReleaseSkills(home)
+	mode, hint, err := resolveSkillsMode(home, skillsFlagValue(parsed))
+	if err != nil {
+		return err
+	}
+	result, err := applySkillsMode(home, mode)
 	if err != nil {
 		return err
 	}
@@ -200,7 +330,16 @@ func handleInstall(_ *parsedArgs) error {
 	if filepath.IsAbs(profile) {
 		pathHint = fmt.Sprintf("PATH configured in %s; restart your shell or run:\nexport PATH=\"$HOME/.docflow/bin:$PATH\"", profile)
 	}
-	return commandResult{code: result.Code, stdout: fmt.Sprintf("installed: %s\npath: %s\n%s\n", version, release.ExecutablePath(home), pathHint) + result.Stdout, stderr: result.Stderr}
+	return commandResult{code: result.Code, stdout: fmt.Sprintf("installed: %s\npath: %s\n%s\n", version, release.ExecutablePath(home), pathHint) + result.Stdout + hint, stderr: result.Stderr}
+}
+
+// skillsFlagValue returns the --skills choice of the command, "" when absent.
+func skillsFlagValue(parsed *parsedArgs) string {
+	if parsed == nil {
+		return ""
+	}
+	value, _ := parsed.values["--skills"].(string)
+	return value
 }
 
 func standaloneHome(command string) (string, error) {
@@ -222,6 +361,16 @@ func handleUpdate(parsed *parsedArgs) error {
 	if err != nil {
 		return err
 	}
+	checkOnly, _ := parsed.values["--check"].(bool)
+	var mode, hint string
+	if !checkOnly {
+		// Resolve the mode up front: a first update on a terminal asks once,
+		// later updates follow the stored answer without asking again.
+		mode, hint, err = resolveSkillsMode(home, skillsFlagValue(parsed))
+		if err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	latest, err := release.Latest(ctx, release.BaseURL())
@@ -229,9 +378,21 @@ func handleUpdate(parsed *parsedArgs) error {
 		return err
 	}
 	if release.Compare(latest, version) <= 0 {
-		return commandResult{stdout: fmt.Sprintf("up to date: %s\n", version)}
+		stdout := fmt.Sprintf("up to date: %s\n", version)
+		if !checkOnly {
+			if skillsFlagValue(parsed) != "" {
+				// An explicit mode applies even without a newer release.
+				result, err := applySkillsMode(home, mode)
+				if err != nil {
+					return err
+				}
+				return commandResult{code: result.Code, stdout: stdout + result.Stdout, stderr: result.Stderr}
+			}
+			stdout += hint
+		}
+		return commandResult{stdout: stdout}
 	}
-	if check, _ := parsed.values["--check"].(bool); check {
+	if checkOnly {
 		return commandResult{stdout: fmt.Sprintf("update available: %s -> %s\n", version, latest)}
 	}
 	dir, err := os.MkdirTemp("", "docflow-update-")
@@ -248,11 +409,11 @@ func handleUpdate(parsed *parsedArgs) error {
 	if err := activateRelease(home, dir, latest); err != nil {
 		return err
 	}
-	result, err := installReleaseSkills(home)
+	result, err := applySkillsMode(home, mode)
 	if err != nil {
 		return err
 	}
-	return commandResult{code: result.Code, stdout: fmt.Sprintf("updated: %s -> %s\n", version, latest) + result.Stdout + projectCopyHints(home), stderr: result.Stderr}
+	return commandResult{code: result.Code, stdout: fmt.Sprintf("updated: %s -> %s\n", version, latest) + result.Stdout + hint + projectCopyHints(home), stderr: result.Stderr}
 }
 
 func handleUninstall(_ *parsedArgs) error {
@@ -274,7 +435,7 @@ func handleUninstall(_ *parsedArgs) error {
 	}
 	targets = append(targets, filepath.Join(homeDir, ".zcode", "skills"))
 	for _, target := range targets {
-		if err := removeReleaseSkillLinks(target, home); err != nil {
+		if _, err := removeReleaseSkillLinks(target, home); err != nil {
 			return err
 		}
 	}
@@ -287,20 +448,23 @@ func handleUninstall(_ *parsedArgs) error {
 	return commandResult{stdout: "uninstalled: " + home + "\n"}
 }
 
-func removeReleaseSkillLinks(target, home string) error {
+// removeReleaseSkillLinks deletes the symlinks of target that point into the
+// release home and returns how many it removed.
+func removeReleaseSkillLinks(target, home string) (int, error) {
 	entries, err := os.ReadDir(target)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return 0, nil
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
+	removed := 0
 	for _, entry := range entries {
 		name := filepath.Join(target, entry.Name())
 		link, err := os.Readlink(name)
 		if err != nil {
 			if entry.Type()&os.ModeSymlink != 0 {
-				return err
+				return removed, err
 			}
 			continue
 		}
@@ -319,10 +483,11 @@ func removeReleaseSkillLinks(target, home string) error {
 			}
 		}
 		if err := os.Remove(name); err != nil {
-			return err
+			return removed, err
 		}
+		removed++
 	}
-	return nil
+	return removed, nil
 }
 
 func pathUnder(root, name string) bool {

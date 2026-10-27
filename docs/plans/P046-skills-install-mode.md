@@ -2,7 +2,7 @@
 id: P046
 title: Project-only skills install
 type: feature
-status: draft
+status: active
 created: 2026-10-26
 permissions: auto
 gate: go test ./...
@@ -65,10 +65,15 @@ change.
 - Project-only mode does not copy skills into projects by itself — which
   projects use docflow is the user's call — rejected: scanning for
   `docs/docflow.md` under HOME.
+- Вопрос пишется в stderr, ответ читается через term.OpenTTY (/dev/tty), а не stdin — stdin у install.sh занят пайпом curl — отклонено: чтение stdin или вывод вопроса в stdout (перехватывается в скриптовых установках)
+- update --check не резолвит режим вообще — чистый сетевой запрос не должен иметь терминального побочного эффекта — отклонено: резолвить и на --check
+- Update без нового релиза и без --skills не трогает ссылки и сохраняет сегодняшний точный вывод «up to date» (+hint, если режим не хранится) — без неожиданных relink на no-op — отклонено: всегда применять хранимый режим
+- Неопознанный ответ на вопрос повторяет вопрос; пустая строка/EOF даёт global — отклонено: падать на опечатке
+- Файл skills-mode валиден только со словами global/project, иное содержимое игнорируется (режим спросится заново) — отклонено: ошибка на испорченном файле
 
 ## Phase 1: Install mode
 
-### [ ] P046.1.1 Add the skills mode to install and update
+### [x] P046.1.1 Add the skills mode to install and update
 Read:
 - cmd/docflow/release.go:L80-330
 - cmd/docflow/main.go:L50-60
@@ -109,6 +114,14 @@ with the new flag.
 Depends: -
 Role: heavy
 Commit: P046.1.1: add project-only skills mode
+Handoff:
+- Сид для тестов — var openSkillsTTY в cmd/docflow/release.go (default term.OpenTTY); фикстура newReleaseFixture подменяет её ошибкой «нет терминала». Тестам PTY-сценария P046.2.1 подсовывать *os.File с готовой строкой ответа в этот seam, сам вопрос askSkillsMode пишет в os.Stderr
+- Вопрос идёт в stderr, ответ читается из /dev/tty: при curl|sh работает, но интерактивный запуск tools/test-install.sh человеком получит невидимый вопрос (вывод перенаправлен в логи) — P046.1.2 должен провести все вызовы install/update через DOCFLOW_SKILLS или иной способ погасить вопрос; в CI терминала нет, там fallback тихий
+- update --check полностью пропускает резолюцию режима: не спрашивает, не пишет файл, не печатает hint — не считать это упущением
+- removeReleaseSkillLinks теперь возвращает (int, error); uninstall игнорирует счётчик
+- Я обновил строки install/update в docs/design/cli.md сверх списка Do:, чтобы таблица команд не протухла — на взгляд ревьюера P046.1.3
+- Unverified: Интерактивный вопрос на реальном терминале (текст, default G, запись ответа) — unit-тесты заменяют openSkillsTTY заглушкой, живой путь проверит только PTY-сценарий P046.2.1
+- Unverified: Windows: term.OpenTTY через CONIN$ (O_RDWR) и прохождение новых тестов режима на Windows — локально не запускалось, увидит CI/юнит P046.1.2 (test-install.sh)
 
 ### [ ] P046.1.2 Cover the mode in the installer test and docs
 Read:
