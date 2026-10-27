@@ -22,7 +22,7 @@ import (
 	"bsv-docflow/internal/stats"
 )
 
-var version = "0.15.1"
+var version = "0.16.0"
 
 var currentExecutable = os.Executable
 
