@@ -677,3 +677,21 @@ func TestSubcommandOutputStaysInsideUnitBlock(t *testing.T) {
 		t.Fatalf("plain output changed: %q", plain.String())
 	}
 }
+
+func TestTerminalQuotaColumnsAlignAcrossAgents(t *testing.T) {
+	timed := agentio.Quota{{Label: "five_hour", Used: .08, Reset: 1791904200}, {Label: "seven_day", Used: .03, Reset: 1792476000}}
+	idle := agentio.Quota{{Label: "five_hour", Used: 0}, {Label: "seven_day", Used: .48, Reset: 1792476000}}
+	p, out := newTTYProgress(t)
+	p.setColumns(120)
+	p.setDisplay(agents.Display{Quota: agents.QuotaUsed, Resets: true})
+	p.quotas([]NamedQuota{{Name: "zai", Quota: idle}, {Name: "claude", Quota: timed}}, nil, "")
+	columns := []int{}
+	for _, line := range strings.Split(plainTTY(out.String()), "\n") {
+		if i := strings.Index(line, "7d"); i >= 0 && strings.Contains(line, "5h") {
+			columns = append(columns, len([]rune(line[:i])))
+		}
+	}
+	if len(columns) != 2 || columns[0] != columns[1] {
+		t.Fatalf("7d columns = %v, want two equal:\n%s", columns, plainTTY(out.String()))
+	}
+}

@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - On a Windows console the installed CLI now shows the new-release notice;
   terminal detection there always reported no terminal before.
+- Quota windows line up in columns across agents in the `docflow run`
+  frame: a window without a reset time no longer shifts the next one left.
 
 ## [0.15.1] - 2026-10-27
 

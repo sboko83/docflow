@@ -664,7 +664,8 @@ type quotaRow struct {
 	gap   int
 }
 
-func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
+// quotaRowsOf builds one agent's quota cells, one per window.
+func (p *Progress) quotaRowsOf(quota, before agentio.Quota, prefix string) []quotaRow {
 	width := 10
 	if p.width() < 60 {
 		width = 6
@@ -709,16 +710,45 @@ func (p *Progress) quotaRowsLocked(quota, before agentio.Quota, prefix string) {
 		}
 		rows = append(rows, row)
 	}
+	return rows
+}
+
+// quotaColumnWidths is the widest cell of each window column across agents,
+// so a window without a reset time does not shift the next column left.
+func quotaColumnWidths(groups [][]quotaRow) []int {
+	widths := []int{}
+	for _, rows := range groups {
+		for i, row := range rows {
+			if i == len(widths) {
+				widths = append(widths, 0)
+			}
+			if row.reset == "" && visibleLength(row.text) > widths[i] {
+				widths[i] = visibleLength(row.text)
+			}
+		}
+	}
+	return widths
+}
+
+// quotaRowsLocked emits one agent's cells, padding each joined cell to its
+// column width.
+func (p *Progress) quotaRowsLocked(rows []quotaRow, widths []int, prefix string) {
+	room := p.width() - utf8.RuneCountInString(prefix)
 	row := ""
-	for _, part := range rows {
-		if row != "" && visibleLength(row+"    "+part.text) > room {
+	pad := ""
+	for i, part := range rows {
+		if row != "" && visibleLength(row+pad+"    "+part.text) > room {
 			p.emitLocked(p.paint(prefix, "dim", p.out)+row, p.out)
 			row = ""
 		}
 		if row != "" {
-			row += "    "
+			row += pad + "    "
 		}
 		row += part.text
+		pad = ""
+		if i < len(widths) && widths[i] > visibleLength(part.text) {
+			pad = strings.Repeat(" ", widths[i]-visibleLength(part.text))
+		}
 		if part.reset == "" {
 			continue
 		}
@@ -760,18 +790,23 @@ func (p *Progress) quotasLocked(quotas []NamedQuota, before map[string]agentio.Q
 	if scope != "" {
 		heading += " · Δ " + scope
 	}
-	rest := known
+	groups := make([][]quotaRow, len(known))
+	for i, item := range known {
+		groups[i] = p.quotaRowsOf(item.Quota, before[item.Name], "│  ")
+	}
+	widths := quotaColumnWidths(groups)
+	first := 0
 	if scope == "" && len(known) == 1 {
 		// One agent's badge fits the heading row.
 		p.emitLocked(p.paint("│  "+heading+" ", "dim", p.out)+p.badge(known[0].Name), p.out)
-		p.quotaRowsLocked(known[0].Quota, before[known[0].Name], "│  ")
-		rest = nil
+		p.quotaRowsLocked(groups[0], widths, "│  ")
+		first = 1
 	} else {
 		p.wrappedLocked(heading, "│  ", "dim", p.out, "")
 	}
-	for _, item := range rest {
-		p.emitLocked(p.paint("│  ", "dim", p.out)+p.badge(item.Name), p.out)
-		p.quotaRowsLocked(item.Quota, before[item.Name], "│  ")
+	for i := first; i < len(known); i++ {
+		p.emitLocked(p.paint("│  ", "dim", p.out)+p.badge(known[i].Name), p.out)
+		p.quotaRowsLocked(groups[i], widths, "│  ")
 	}
 }
 
