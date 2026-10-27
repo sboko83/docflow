@@ -74,6 +74,9 @@ change.
 - На Windows режим закрепляется (DOCFLOW_SKILLS=global + сохранённый skills-mode), а кейс «без терминала» помечен skip — CONIN$ открывается без консоли и setsid там нет, проверит только windows-latest CI — отклонено: гонять тот же кейс на Windows (риск зависания CI-шага).
 - Секция режима возвращает harness в global через docflow update --skills global — секция install-dev.sh ниже проверяет именно перелинковку релизных ссылок в checkout — отклонено: оставить project-режим и ослабить её утверждение.
 - Чужой скилл для кейса возврата в project: симлинк на Unix, обычный каталог на Windows — для removeReleaseSkillLinks это одинаковое «не своё» (таргет вне ~/.docflow / не симлинк), Windows-ветка не требует привилегии симлинков, которой нет у раннера — отклонено: ln -s на Windows, отклонено: пропускать кейс на Windows.
+- Сценарий 1 идёт настоящим бинарём в подпроцессе с Setsid+Setctty, а не через seam openSkillsTTY — так проверяется путь /dev/tty, как при curl|sh — отклонено: подсунуть PTY-slave в openSkillsTTY (вопрос не прошёл бы через /dev/tty)
+- Новый релиз для update собирается вторым go build с -X main.version=1.1.0, а в сборке-источнике стоит 1.0.0 — иначе скопированный бинарь с той же версией обновлялся бы на каждый вызов update — отклонено: отдавать в архиве копию бинаря той же версии
+- Дочерние процессы сценариев 2–4 запускаются с Setsid без управляющего терминала: любой нежданный вопрос тихо уйдёт в global-fallback и будет пойман проверкой отсутствия личных ссылок, а не повиснет — отклонено: запускать без Setsid, тогда под интерактивным go test вопрос мог бы ждать ввода
 
 ## Phase 1: Install mode
 
@@ -187,7 +190,7 @@ Handoff:
 
 ## Phase 2: Acceptance
 
-### [ ] P046.2.1 Accept the project-only install
+### [x] P046.2.1 Accept the project-only install
 Read:
 - tools/test-install.sh:L1-130
 Do:
@@ -213,3 +216,10 @@ are test-only files of `internal/runner` (`pty_darwin_test.go`,
 Depends: P046.1.1, P046.1.2, P046.1.3
 Role: acceptance
 Commit: P046.2.1: accept project-only skills install
+Handoff:
+- Приёмка P046 — Go-тест TestAcceptProjectOnlySkillsInstall (cmd/docflow/skills_mode_acceptance_test.go, darwin||linux): настоящий бинарь, PTY с Setsid+Setctty, вопрос в stderr, ответ из /dev/tty, stdin — неиспользуемый пайп.
+- Unverified P046.1.1 «интерактивный вопрос на реальном терминале» закрыт этим тестом (текст вопроса, ответ p, запись skills-mode=project).
+- Windows-пункты Unverified из P046.1.1 и P046.1.2 (CONIN$ через term.OpenTTY, Windows-ветки test-install.sh) не закрыты: PTY-тест только для darwin/linux, на Windows test-install.sh закрепляет режим через DOCFLOW_SKILLS=global и вопрос не проверяет. Остаются на своих юнитах и CI windows-latest.
+- macOS: выход лидера сессии с PTY блокируется, пока master не вычитан (процесс виснет в состоянии exiting). Тесты с PTY обязаны читать master до конца, а не только до вопроса.
+- Наблюдение из P046.1.3 про docflow doctor не решено: в project-режиме doctor печатает «not installed» по каждому личному скиллу и выходит с кодом 6. Решить в docs/usage.md или в Backlog отдельной задачей.
+- Наблюдения P046.1.3 без правок: skills-mode пишется в update до запроса latest; фоновый `docflow update &` без сохранённого режима получит SIGTTIN; изменилось поведение stderrIsTerminal на Windows; агент вне PATH сохраняет личные ссылки при переключении на project.

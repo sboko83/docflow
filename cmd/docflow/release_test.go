@@ -166,6 +166,11 @@ func TestInstallPreservesForeignSkills(t *testing.T) {
 
 func testReleaseArchive(t *testing.T, text string) []byte {
 	t.Helper()
+	return releaseArchiveWithBinary(t, "new binary", text)
+}
+
+func releaseArchiveWithBinary(t *testing.T, binary, text string) []byte {
+	t.Helper()
 	var buffer bytes.Buffer
 	gz := gzip.NewWriter(&buffer)
 	tw := tar.NewWriter(gz)
@@ -173,7 +178,7 @@ func testReleaseArchive(t *testing.T, text string) []byte {
 		name, body string
 		mode       int64
 	}{
-		{release.BinaryName(), "new binary", 0755},
+		{release.BinaryName(), binary, 0755},
 		{"LICENSE", "license", 0644},
 		{"skills/sample/SKILL.md", text, 0644},
 	} {
