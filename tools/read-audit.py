@@ -69,6 +69,7 @@ import fnmatch
 import glob
 import json
 import os
+import posixpath
 import re
 import shlex
 import subprocess
@@ -528,11 +529,16 @@ def resolve(root, token, tree=None):
         candidate = os.path.normpath(os.path.join(root, candidate))
     prefix = root + os.sep
     relative = candidate[len(prefix):] if candidate.startswith(prefix) else None
-    if relative is not None and tree is not None and relative in tree:
-        return relative
+    if relative is not None:
+        # Git tree paths are always `/`-separated; `normpath` made the
+        # candidate OS-native, which on Windows never matches them.
+        relative = relative.replace(os.sep, "/")
+        if tree is not None and relative in tree:
+            return relative
     if not os.path.isfile(candidate):
         return None
-    return relative if relative is not None else candidate
+    # A file outside the repository is reported by its OS-canonical path.
+    return relative if relative is not None else os.path.normpath(candidate)
 
 
 def expand_paths(word, root, tree):
@@ -545,12 +551,23 @@ def expand_paths(word, root, tree):
         resolved = resolve(root, word, tree)
         return [resolved] if resolved else []
     pattern = os.path.expanduser(word)
-    if not os.path.isabs(pattern):
-        pattern = os.path.normpath(os.path.join(root, pattern))
+    disk_pattern = pattern if os.path.isabs(pattern) else os.path.join(root, pattern)
+    # The tree side matches `/`-separated repository paths: the pattern as
+    # typed, relative to the root, which is what `os.path.join(root, path)`
+    # gave it when every separator was already `/`.
+    repo_pattern = pattern
+    if os.path.isabs(pattern):
+        try:
+            repo_pattern = os.path.relpath(pattern, root)
+        except ValueError:  # another drive: no repository path can match
+            repo_pattern = None
+    if repo_pattern is not None:
+        repo_pattern = posixpath.normpath(repo_pattern.replace(os.sep, "/"))
     seen, out = set(), []
-    for candidate in (sorted(glob.glob(pattern))
+    for candidate in (sorted(glob.glob(disk_pattern))
                       + [path for path in sorted(tree or ())
-                         if glob_match(pattern, os.path.join(root, path))]):
+                         if repo_pattern is not None
+                         and glob_match(repo_pattern, path)]):
         resolved = resolve(root, candidate, tree)
         if resolved and resolved not in seen:
             seen.add(resolved)

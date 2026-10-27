@@ -97,11 +97,13 @@ def run_tool(tool, args, cwd, docflow):
 
 
 def stdout_of(result):
-    return result.stdout.decode("utf-8", "replace")
+    # The tools print in text mode, which is CRLF on Windows: normalize, so
+    # line-anchored assertions hold on every OS.
+    return result.stdout.decode("utf-8", "replace").replace("\r\n", "\n")
 
 
 def stderr_of(result):
-    return result.stderr.decode("utf-8", "replace")
+    return result.stderr.decode("utf-8", "replace").replace("\r\n", "\n")
 
 
 def fixture_text(nbytes):
@@ -214,7 +216,9 @@ class Fixture:
     def write(self, name, text):
         path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        # LF on every OS: the audits measure blob bytes, and Windows text
+        # mode would add one byte per line to every fixture.
+        path.write_text(text, encoding="utf-8", newline="\n")
         return text
 
     def remove(self, name):
@@ -254,7 +258,7 @@ class Fixture:
         path = self.git_dir / "docflow" / "run"
         path.mkdir(parents=True, exist_ok=True)
         (path / ("%s.%d.out" % (unit, attempt))).write_text(
-            "\n".join(lines) + "\n", encoding="utf-8")
+            "\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
 class SkillDescriptionBudgetTest(unittest.TestCase):
@@ -421,7 +425,7 @@ class HistoricalReadTest(unittest.TestCase):
         cls.helper = fixture_text(LEGACY_BYTES)
         cls.fixture = cls.build()
         cls.external = SCRATCH / "external-notes.md"
-        cls.external.write_text(fixture_text(44), encoding="utf-8")
+        cls.external.write_text(fixture_text(44), encoding="utf-8", newline="\n")
         cls.fixture.pi_log("P999.1.1", 1, [
             ("read", {"path": "docs/kept.md"}),
             ("read", {"path": "tests/legacy.py"}),
@@ -435,7 +439,9 @@ class HistoricalReadTest(unittest.TestCase):
         ])
         cls.fixture.pi_log("P999.1.2", 1, [
             ("read", {"path": "tests/legacy.py"}),
-            ("bash", {"command": "cat %s" % cls.external}),
+            # A backslash path would not survive a real shell either: shlex
+            # eats the separators, so the fixture says it the way bash does.
+            ("bash", {"command": "cat %s" % cls.external.as_posix()}),
         ])
         cls.fixture.pi_log("P999.1.3", 1, [
             ("bash", {"command": "head -n 2 tests/*.py"}),
@@ -666,7 +672,7 @@ class ShellReadsTest(unittest.TestCase):
         for name in ("a.md", "docs/b.md", "docs/sub/c.md", "out.txt"):
             path = Path(cls.root) / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("line\n", encoding="utf-8")
+            path.write_text("line\n", encoding="utf-8", newline="\n")
 
     def test_the_table(self):
         tree = {"docs/gone.md", "docs/sub/c.md"}

@@ -26,6 +26,12 @@ jobs:
       - run: go test ./...
       - run: go build -o "bin/docflow$(go env GOEXE)" ./cmd/docflow
       - run: bash tools/parity/run.sh "bin/docflow$(go env GOEXE)" "bin/docflow$(go env GOEXE)"
+      # python3 is the Microsoft Store stub on Windows; python is the same
+      # interpreter everywhere else.
+      - run: PYTHONDONTWRITEBYTECODE=1 python3 tools/test-context-audits.py
+        if: runner.os != 'Windows'
+      - run: PYTHONDONTWRITEBYTECODE=1 python tools/test-context-audits.py
+        if: runner.os == 'Windows'
       - run: bash tools/test-install.sh
       - run: bash tools/test-install-ps1.sh
         if: runner.os == 'Windows'

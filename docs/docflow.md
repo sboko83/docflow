@@ -9,20 +9,11 @@ start_budget: 4000
 ## Frozen
 
 ## Backlog
-- Прогнать `python3 tools/test-context-audits.py` в CI на ubuntu-latest и
-  windows-latest (Git Bash): регрессии бюджетной проекции и исторических
-  чтений сегодня запускает только Verify приёмки, переносимость
-  git-обвязки и матчера путей проверена на macOS
-  ([P047](archive/P047-context-audit.md)).
 - Проверить PTY-сценарии живости на Linux и кадры/спиннер в настоящей
   консоли Windows: время блока, квота used/left, сбросы, перенос на 30
   колонках, спиннер и активный кап закрытия; убедиться, что квота
   не выходит за рамку, а обрезка спиннера сохраняет её
   ([P045](archive/P045-run-liveness-output.md)).
-- Проверить сценарий `run_unverified` в CI на ubuntu-latest и
-  windows-latest: Git Bash, `parity_shim claude`, вызов `docflow.exe prompt`
-  из fake-агента; локально проверена только macOS arm64
-  ([P044](archive/P044-unverified-discipline.md)).
 - Проверить в настоящей консоли Windows вопрос старта о human-блоке:
   `y` и заметка снимают блок и прогон продолжается; перенаправленный stdin,
   `--yes` и блок `plan` не спрашивают. Запустить `TestIsTerminalWindows*` и

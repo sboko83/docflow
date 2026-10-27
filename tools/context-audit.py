@@ -422,7 +422,9 @@ def skill_files(root):
         return []
     out = []
     for name in sorted(os.listdir(skills)):
-        path = os.path.join("skills", name, "SKILL.md")
+        # `/`-separated: the row names and the base snapshot's git tree paths
+        # must match on Windows too.
+        path = "skills/%s/SKILL.md" % name
         if os.path.isfile(os.path.join(root, path)):
             out.append(path)
     return out
@@ -456,7 +458,7 @@ def fixture_repo(root):
     os.makedirs(repo)
     copy_tracked(root, repo)
     with open(os.path.join(repo, "docs", "plans", FIXTURE_ID + "-audit-fixture.md"),
-              "w", encoding="utf-8") as handle:
+              "w", encoding="utf-8", newline="\n") as handle:
         handle.write(FIXTURE_PLAN)
     if git(repo, "init", "-q").returncode != 0:
         shutil.rmtree(tmp, ignore_errors=True)
