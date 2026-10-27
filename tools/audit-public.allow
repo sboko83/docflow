@@ -22,6 +22,7 @@ internal/cycle/cycle_test.go:email
 internal/cycle/verify_test.go:email
 internal/roster/apply_test.go:email
 internal/runner/run_test.go:email
+tools/test-context-audits.py:email
 tools/parity/driver.sh:email
 tools/parity/e2e.sh:email
 tools/parity/run.sh:email
