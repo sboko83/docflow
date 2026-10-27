@@ -129,6 +129,15 @@ PATH настраивается в профиле zsh/bash на macOS/Linux ил
 скиллов ставятся агентам, чьи CLI найдены
 в PATH. `DOCFLOW_VERSION=X.Y.Z` ставит конкретный релиз.
 
+`docflow install` один раз спрашивает, как ставить скиллы: `global` — личные
+ссылки в каталоги агентов, `project` — каталоги агентов чистые, скиллы только
+в проектных копиях. Ответ хранится в `~/.docflow/skills-mode`, и
+`docflow update` следует ему; `docflow update --skills global|project`
+переключает режим и применяет его к ссылкам, а `DOCFLOW_SKILLS=global|project`
+отвечает за установщик. Без терминала (скриптовая установка) действует
+`global`, и файл не пишется. Переключение в `project` убирает только личные
+ссылки docflow; проектные копии и чужие скиллы остаются.
+
 ~~~bash
 docflow doctor --agent codex
 cd <project>

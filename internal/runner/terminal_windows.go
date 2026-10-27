@@ -6,8 +6,6 @@ import (
 	"io"
 	"os"
 	"syscall"
-
-	"bsv-docflow/internal/term"
 )
 
 func terminalColumns(stream io.Writer) int { return 80 }

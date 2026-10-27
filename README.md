@@ -132,6 +132,16 @@ installed
 for agent CLIs found in `PATH`. `DOCFLOW_VERSION=X.Y.Z` installs a specific
 release.
 
+`docflow install` asks once how skills go in: `global` links them into the
+personal agent directories, `project` keeps those directories clean and
+leaves the skills to project copies. The answer is stored in
+`~/.docflow/skills-mode` and `docflow update` follows it; `docflow update
+--skills global|project` switches the mode and applies it to the links, and
+`DOCFLOW_SKILLS=global|project` answers the question for the installer.
+Without a terminal (a scripted install) `global` applies and nothing is
+stored. Switching to `project` removes only docflow's own personal links;
+project copies and other skills stay.
+
 ~~~bash
 docflow doctor --agent codex
 cd <project>

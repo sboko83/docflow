@@ -8,6 +8,12 @@
 # Environment overrides:
 #   DOCFLOW_VERSION=X.Y.Z      install this version instead of the latest
 #   DOCFLOW_RELEASE_URL=BASE   release base URL (default: GitHub Releases)
+#   DOCFLOW_SKILLS=global|project
+#                              link personal skills (global) or keep the agent
+#                              directories clean and use project copies only
+#                              (project); passed to `docflow install --skills`.
+#                              Unset: docflow install asks on a terminal and
+#                              remembers the answer; without a terminal global.
 set -eu
 
 BASE=${DOCFLOW_RELEASE_URL:-https://github.com/sboko83/docflow/releases}
@@ -91,4 +97,8 @@ mkdir "$TMP/release" || fail 'cannot create the unpack directory'
 tar -xzf "$TMP/$NAME" -C "$TMP/release" || fail "cannot unpack $NAME"
 [ -x "$TMP/release/$BINARY" ] || fail "archive has no $BINARY binary: $NAME"
 
-"$TMP/release/$BINARY" install
+if [ -n "${DOCFLOW_SKILLS-}" ]; then
+    "$TMP/release/$BINARY" install --skills "$DOCFLOW_SKILLS"
+else
+    "$TMP/release/$BINARY" install
+fi

@@ -4,7 +4,8 @@
 # run install.sh, docflow update across versions, and docflow uninstall.
 # Uses a temporary HOME with ~/.zcode and stub claude/codex/pi CLIs at the
 # front of PATH; also checks the release tag guard and that a development
-# build refuses update.
+# build refuses update, and the skills mode: DOCFLOW_SKILLS=project, the
+# no-terminal global fallback, docflow update --skills switching the links.
 # DOCFLOW_TEST_SH=dash runs install.sh under dash instead of sh.
 set -euo pipefail
 
@@ -72,6 +73,13 @@ if [ "$WINDOWS" = 1 ]; then
 fi
 mkdir "$HOME/.zcode"
 export SHELL=/bin/zsh
+if [ "$WINDOWS" = 1 ]; then
+    # The skills mode question reads the console (CONIN$), which stays openable
+    # without a console and has no setsid here: pin the mode so a scripted
+    # install never blocks on the question. The no-terminal fallback is a
+    # Unix-only case, marked as skipped on Windows below.
+    export DOCFLOW_SKILLS=global
+fi
 # Real agent CLIs and a development docflow on the inherited PATH would mask
 # the stubs: keep only the tools the test needs plus the system directories.
 TOOL_PATH=
@@ -85,11 +93,33 @@ for tool in go "$PYTHON" curl "$SH_BIN" zsh git; do
 done
 export PATH="$STUB_BIN:$TOOL_BIN:/usr/bin:/bin:/usr/sbin:/sbin$TOOL_PATH"
 
+# The skills mode question is asked on the controlling terminal. CI runners
+# have none; a human running this script does, and its log is redirected, so
+# the question would be invisible and the read would block. Start the children
+# in a new session: /dev/tty then fails to open and docflow install/update take
+# the scripted fallback (global links, one hint line, nothing stored).
+no_tty() {
+    "$PYTHON" -c 'import subprocess, sys
+raise SystemExit(subprocess.run(sys.argv[1:], start_new_session=True).returncode)' "$@"
+}
+
 docflow() {
     if [ "$WINDOWS" = 1 ]; then
         "$HOME/.docflow/current/docflow.exe" "$@"
     else
-        "$HOME/.docflow/bin/docflow" "$@"
+        no_tty "$HOME/.docflow/bin/docflow" "$@"
+    fi
+}
+
+# Run install.sh detached from the controlling terminal, with the log captured
+# and any extra VAR=VALUE assignments in its environment.
+install_sh() {
+    local log=$1
+    shift
+    if [ "$WINDOWS" = 1 ]; then
+        env "$@" "$SH_BIN" "$REPO_DIR/install.sh" >"$log" 2>&1
+    else
+        no_tty env "$@" "$SH_BIN" "$REPO_DIR/install.sh" >"$log" 2>&1
     fi
 }
 
@@ -113,6 +143,43 @@ remove_skill_link() {
 
 PATH_LINE='export PATH="$HOME/.docflow/bin:$PATH"'
 SKILL_DIRS='.claude/skills .agents/skills .pi/agent/skills .zcode/skills'
+
+release_skill_names() {
+    local skill
+    for skill in "$REPO_DIR"/skills/*/; do
+        basename "$skill"
+    done
+}
+
+skill_links_present() {
+    local label=$1 dir name got want
+    for dir in $SKILL_DIRS; do
+        for name in $(release_skill_names); do
+            want=$HOME/.docflow/current/skills/$name
+            got=$(read_link "$HOME/$dir/$name") || fail "$label: no skill link in ~/$dir/$name"
+            [ "$got" = "$want" ] \
+                || fail "$label: readlink ~/$dir/$name: got '$got', want '$want'"
+        done
+    done
+}
+
+skill_links_absent() {
+    local label=$1 dir name
+    for dir in $SKILL_DIRS; do
+        for name in $(release_skill_names); do
+            [ ! -L "$HOME/$dir/$name" ] && [ ! -e "$HOME/$dir/$name" ] \
+                || fail "$label: a docflow skill is in ~/$dir/$name"
+        done
+    done
+}
+
+skills_mode_is() {
+    local label=$1 want=$2 got
+    got=$(cat "$HOME/.docflow/skills-mode" 2>/dev/null) \
+        || fail "$label: no ~/.docflow/skills-mode"
+    [ "$got" = "$want" ] \
+        || fail "$label: skills-mode: got '$got', want '$want'"
+}
 
 path_line_count() {
     if [ "$WINDOWS" = 1 ]; then
@@ -155,16 +222,20 @@ curl -fsS -o /dev/null "$BASE_URL/latest/download/VERSION" 2>/dev/null \
     || fail "http server did not start: $(cat "$WORK/http.log")"
 
 echo '== install 0.0.1'
-"$SH_BIN" "$REPO_DIR/install.sh" >"$WORK/install.log" 2>&1 \
-    || { cat "$WORK/install.log" >&2; fail 'install.sh failed'; }
+install_sh "$WORK/install.log" || { cat "$WORK/install.log" >&2; fail 'install.sh failed'; }
 GOT=$(docflow --version)
 [ "$GOT" = 0.0.1 ] || fail "docflow --version: got '$GOT', want '0.0.1'"
-WANT_LINK=$HOME/.docflow/current/skills/bsv-docs
-for dir in $SKILL_DIRS; do
-    GOT=$(read_link "$HOME/$dir/bsv-docs") || fail "no skill link in ~/$dir"
-    [ "$GOT" = "$WANT_LINK" ] \
-        || fail "readlink ~/$dir/bsv-docs: got '$GOT', want '$WANT_LINK'"
-done
+skill_links_present 'install 0.0.1'
+if [ "$WINDOWS" = 1 ]; then
+    echo 'skip: the no-terminal skills mode needs setsid, which Windows lacks'
+else
+    # No DOCFLOW_SKILLS and no controlling terminal: docflow install links
+    # globally, hints, and stores nothing, so scripted installs keep working.
+    [ ! -e "$HOME/.docflow/skills-mode" ] \
+        || fail "skills-mode written without a terminal: $(cat "$HOME/.docflow/skills-mode")"
+    grep -qF 'docflow update --skills project' "$WORK/install.log" \
+        || fail "install.sh: no global fallback hint in '$(cat "$WORK/install.log")'"
+fi
 COUNT=$(path_line_count)
 [ "$COUNT" = 1 ] || fail "PATH lines in ~/.zshrc: got $COUNT, want 1"
 if [ "$WINDOWS" = 1 ]; then
@@ -183,12 +254,20 @@ else
 fi
 
 echo '== reinstall 0.0.1'
-"$SH_BIN" "$REPO_DIR/install.sh" >"$WORK/reinstall.log" 2>&1 \
-    || { cat "$WORK/reinstall.log" >&2; fail 'second install.sh failed'; }
+install_sh "$WORK/reinstall.log" || { cat "$WORK/reinstall.log" >&2; fail 'second install.sh failed'; }
 GOT=$(docflow --version)
 [ "$GOT" = 0.0.1 ] || fail "docflow --version after reinstall: got '$GOT', want '0.0.1'"
 COUNT=$(path_line_count)
 [ "$COUNT" = 1 ] || fail "PATH lines in ~/.zshrc after reinstall: got $COUNT, want 1"
+
+echo '== update --skills global stores the mode at the current version'
+# The scripted updates below then follow the stored mode and never read a
+# terminal; --skills applies to the links even with no newer release.
+OUT=$(docflow update --skills global)
+printf '%s\n' "$OUT" | grep -qxF 'up to date: 0.0.1' \
+    || fail "update --skills global: got '$OUT', want 'up to date: 0.0.1'"
+skills_mode_is 'update --skills global' global
+skill_links_present 'update --skills global'
 
 echo '== update to 0.0.2'
 build_release 0.0.2
@@ -209,6 +288,75 @@ GOT=$(docflow --version)
 [ "$GOT" = 0.0.3 ] || fail "docflow --version after update: got '$GOT', want '0.0.3'"
 GOT=$(ls "$HOME/.docflow/versions" | sort | tr '\n' ' ')
 [ "$GOT" = '0.0.2 0.0.3 ' ] || fail "versions/: got '$GOT', want '0.0.2 0.0.3 '"
+
+echo '== install with DOCFLOW_SKILLS=project leaves the personal directories clean'
+install_sh "$WORK/project-install.log" DOCFLOW_SKILLS=project \
+    || { cat "$WORK/project-install.log" >&2; fail 'DOCFLOW_SKILLS=project install.sh failed'; }
+GOT=$(docflow --version)
+[ "$GOT" = 0.0.3 ] \
+    || fail "docflow --version after the project install: got '$GOT', want '0.0.3'"
+skills_mode_is 'DOCFLOW_SKILLS=project install' project
+skill_links_absent 'DOCFLOW_SKILLS=project install'
+grep -qF 'skills: project mode' "$WORK/project-install.log" \
+    || fail "project install: no project-mode line in '$(cat "$WORK/project-install.log")'"
+
+echo '== update in project mode keeps the directories clean'
+OUT=$(docflow update)
+printf '%s\n' "$OUT" | grep -qxF 'up to date: 0.0.3' \
+    || fail "update in project mode: got '$OUT', want 'up to date: 0.0.3'"
+if printf '%s\n' "$OUT" | grep -q 'skills'; then
+    fail "update in project mode touched the links: '$OUT'"
+fi
+skills_mode_is 'update in project mode' project
+skill_links_absent 'update in project mode'
+
+echo '== update --skills global creates the personal links'
+OUT=$(docflow update --skills global)
+printf '%s\n' "$OUT" | grep -qxF 'up to date: 0.0.3' \
+    || fail "update --skills global: got '$OUT', want 'up to date: 0.0.3'"
+skills_mode_is 'update --skills global' global
+skill_links_present 'update --skills global'
+
+echo '== update --skills project keeps a foreign skill'
+FOREIGN=$WORK/foreign-skill
+mkdir "$FOREIGN"
+printf 'foreign\n' > "$FOREIGN/SKILL.md"
+if [ "$WINDOWS" = 1 ]; then
+    # MSYS ln -s needs a privilege the runner does not grant. A plain directory
+    # is the same case for the installer: not docflow's, must stay.
+    mkdir "$HOME/.claude/skills/foreign-skill"
+    cp "$FOREIGN/SKILL.md" "$HOME/.claude/skills/foreign-skill/SKILL.md"
+else
+    ln -s "$FOREIGN" "$HOME/.claude/skills/foreign-skill" \
+        || fail 'cannot create the foreign skill link'
+fi
+OUT=$(docflow update --skills project)
+printf '%s\n' "$OUT" | grep -qxF 'up to date: 0.0.3' \
+    || fail "update --skills project: got '$OUT', want 'up to date: 0.0.3'"
+printf '%s\n' "$OUT" | grep -qF 'skills: project mode' \
+    || fail "update --skills project: no project-mode line in '$OUT'"
+skills_mode_is 'update --skills project' project
+skill_links_absent 'update --skills project'
+if [ "$WINDOWS" = 0 ]; then
+    read_link "$HOME/.claude/skills/foreign-skill" >/dev/null \
+        || fail 'the foreign skill link is gone after the switch to project'
+fi
+[ -f "$HOME/.claude/skills/foreign-skill/SKILL.md" ] \
+    || fail 'the foreign skill is gone after the switch to project'
+
+echo '== update --skills global restores the personal links for the sections below'
+# install-dev.sh below must find the release links to report that it redirects
+# them to the checkout, so the mode returns to global here.
+OUT=$(docflow update --skills global)
+printf '%s\n' "$OUT" | grep -qxF 'up to date: 0.0.3' \
+    || fail "update --skills global (restore): got '$OUT', want 'up to date: 0.0.3'"
+skills_mode_is 'update --skills global (restore)' global
+skill_links_present 'update --skills global (restore)'
+[ -f "$HOME/.claude/skills/foreign-skill/SKILL.md" ] \
+    || fail 'update --skills global removed the foreign skill'
+# rm does not follow a link: this unlinks the link, the target stays.
+rm -rf "$HOME/.claude/skills/foreign-skill" \
+    || fail 'cannot remove the foreign skill'
 
 echo '== corrupted checksum aborts the update'
 build_release 0.0.4

@@ -70,6 +70,10 @@ change.
 - Update без нового релиза и без --skills не трогает ссылки и сохраняет сегодняшний точный вывод «up to date» (+hint, если режим не хранится) — без неожиданных relink на no-op — отклонено: всегда применять хранимый режим
 - Неопознанный ответ на вопрос повторяет вопрос; пустая строка/EOF даёт global — отклонено: падать на опечатке
 - Файл skills-mode валиден только со словами global/project, иное содержимое игнорируется (режим спросится заново) — отклонено: ошибка на испорченном файле
+- Хarness detachment через python subprocess start_new_session вместо ставки на отсутствие терминала в CI — человек запускает скрипт в терминале, лог перенаправлен, вопрос стал бы невидимым и чтение /dev/tty зависло — отклонено: читать ответ из stdin (docflow читает /dev/tty, не stdin), отклонено: завидеться на CI (локальный прогон виснет).
+- На Windows режим закрепляется (DOCFLOW_SKILLS=global + сохранённый skills-mode), а кейс «без терминала» помечен skip — CONIN$ открывается без консоли и setsid там нет, проверит только windows-latest CI — отклонено: гонять тот же кейс на Windows (риск зависания CI-шага).
+- Секция режима возвращает harness в global через docflow update --skills global — секция install-dev.sh ниже проверяет именно перелинковку релизных ссылок в checkout — отклонено: оставить project-режим и ослабить её утверждение.
+- Чужой скилл для кейса возврата в project: симлинк на Unix, обычный каталог на Windows — для removeReleaseSkillLinks это одинаковое «не своё» (таргет вне ~/.docflow / не симлинк), Windows-ветка не требует привилегии симлинков, которой нет у раннера — отклонено: ln -s на Windows, отклонено: пропускать кейс на Windows.
 
 ## Phase 1: Install mode
 
@@ -123,7 +127,7 @@ Handoff:
 - Unverified: Интерактивный вопрос на реальном терминале (текст, default G, запись ответа) — unit-тесты заменяют openSkillsTTY заглушкой, живой путь проверит только PTY-сценарий P046.2.1
 - Unverified: Windows: term.OpenTTY через CONIN$ (O_RDWR) и прохождение новых тестов режима на Windows — локально не запускалось, увидит CI/юнит P046.1.2 (test-install.sh)
 
-### [ ] P046.1.2 Cover the mode in the installer test and docs
+### [x] P046.1.2 Cover the mode in the installer test and docs
 Read:
 - install.sh
 - tools/test-install.sh:L1-130
@@ -151,6 +155,13 @@ Traps: `install.sh` is POSIX `sh` and runs under `dash` in CI
 `PATH` down to stubs; keep new cases inside that sandbox.
 Depends: P046.1.1
 Commit: P046.1.2: test and document skills install mode
+Handoff:
+- tools/test-install.sh запускает install.sh и docflow через no_tty (python3 subprocess start_new_session=True): /dev/tty тогда не открывается, docflow берёт скриптовый fallback. PTY-сценарию P046.2.1 нельзя идти через no_tty — звать бинарь напрямую или в собственном pty, иначе вопрос исчезнет.
+- На Windows харнесс закрепляет режим: export DOCFLOW_SKILLS=global для install.sh, дальше режим уже записан в ~/.docflow/skills-mode. Любой новый вызов install/update на Windows обязан нести --skills/DOCFLOW_SKILLS или опираться на сохранённый режим — CONIN$ открывается без консоли, чтения без ответа вешают шаг CI.
+- Секция режима заканчивается возвратом в global (docflow update --skills global) и удаляет созданный чужой скилл: секция install-dev.sh ниже требует, чтобы релизные ссылки были на месте, иначе вместо 'relinked' будет 'linked' и её проверка падает. Новую секцию нельзя оставлять в project-режиме.
+- Гейт go test ./... на хосте не компилирует windows-байт-код, а tools/release.sh в test-install.sh компилирует: P046.1.1 оставил неиспользуемый импорт term в internal/runner/terminal_windows.go, и test-install.sh падал на windows/amd64. Для правок Go в этом плане прогонять GOOS=windows go build ./... (и linux) руками — гейт этого не видит.
+- Живой интерактивный вопрос на терминале test-install.sh намеренно не трогает: все вызовы погашены режимом/сеansiрованием; путь вопроса остаётся за PTY-сценарием P046.2.1.
+- Unverified: Windows-ветка новых кейсов (export DOCFLOW_SKILLS=global для install.sh, install_sh через env, чужой скилл как каталог, очистка rm -rf, skip кейса без терминала) локально не запускалась — проверит её только шаг tools/test-install.sh на windows-latest в CI.
 
 ### [ ] P046.1.3 Review the install mode phase
 Read:

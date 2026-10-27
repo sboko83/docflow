@@ -37,10 +37,22 @@ sha256 по checksums.txt, распаковывает архив и запуск
 `~/.zcode/skills`, если существует каталог `~/.zcode`. Симлинки ведут в
 `~/.docflow/current/skills/<имя>` и не переписываются при обновлении.
 
+Режим скиллов спрашивается один раз: `global` — личные симлинки в каталоги
+агентов, как выше; `project` — каталоги агентов чистые, скиллы несут только
+проектные копии. Ответ хранится одним словом в `~/.docflow/skills-mode` и
+удаляется вместе с `~/.docflow`; `docflow update` следует ему без вопроса.
+Вопрос пишется в stderr, ответ читается с управляющего терминала, поэтому
+пайп `curl … | sh` его не гасит. Без терминала (скриптовая установка, CI)
+действует `global`, файл не пишется и печатается одна подсказка. В
+project-режиме скиллы в проект ставят `docflow init --skills` и
+`docflow install-skills --project`; сам режим ничего не копирует.
+
 Переменные окружения install.sh: `DOCFLOW_VERSION=X.Y.Z` — поставить
 конкретный релиз вместо последнего; `DOCFLOW_RELEASE_URL` — базовый URL
 релизов вместо GitHub Releases (по умолчанию
-`https://github.com/sboko83/docflow/releases`).
+`https://github.com/sboko83/docflow/releases`); `DOCFLOW_SKILLS=global|project`
+— ответить на вопрос о режиме скиллов заранее, install.sh передаёт его как
+`docflow install --skills`.
 
 После установки перезапустите оболочку или выполните
 `export PATH="$HOME/.docflow/bin:$PATH"` и проверьте версию:
@@ -91,6 +103,7 @@ docflow init --agent codex
 ~~~bash
 docflow update --check   # только сообщить о новом релизе
 docflow update           # скачать и активировать последний релиз
+docflow update --skills project   # переключить режим скиллов
 docflow --version
 docflow doctor --agent codex
 ~~~
@@ -109,6 +122,13 @@ docflow doctor --agent codex
 update проверяет только копии проекта, из которого запущен, и печатает для
 устаревших команду обновления. Остальные проекты проверяет `docflow doctor`
 в их каталоге.
+
+Режим скиллов `docflow update` берёт из `~/.docflow/skills-mode` и не
+спрашивает: в `global` ссылки ставятся, в `project` каталоги агентов остаются
+чистыми. `docflow update --skills global|project` переключает режим и
+применяет его к ссылкам, даже когда нового релиза нет: `global` создаёт личные
+симлинки, `project` убирает только свои (ведущие в `~/.docflow`), оставляя
+чужие ссылки и проектные копии. `docflow update --check` режим не трогает.
 
 Откат на предыдущую версию — переключить `current` вручную:
 

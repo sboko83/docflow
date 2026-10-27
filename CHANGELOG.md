@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The standalone install asks once how skills are installed: `global` links
+  them into the personal agent directories, `project` keeps those directories
+  clean and leaves the skills to project copies. The answer is stored in
+  `~/.docflow/skills-mode` and `docflow update` follows it; `docflow update
+  --skills global|project` switches the mode and applies it to the links even
+  when the release is up to date, and `DOCFLOW_SKILLS=global|project` answers
+  the question for `install.sh`. Without a terminal `global` applies and
+  nothing is stored, so scripted installs keep today's behavior.
+
 ## [0.15.1] - 2026-10-27
 
 ### Changed
