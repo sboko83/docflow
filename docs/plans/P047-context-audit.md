@@ -2,7 +2,7 @@
 id: P047
 title: Context growth audit
 type: perf
-status: draft
+status: active
 created: 2026-10-26
 permissions: auto
 gate: go test ./...
@@ -66,10 +66,14 @@ whose archive Gotchas grow with every plan linked from it.
   optional `docs/docflow.md` key, default 4000) is a `lint` warning, not an
   error — existing archived references and small projects stay valid —
   rejected: an error (breaks running plans on upgrade).
+- Средний рост на план считается по окну после squash (базовая точка — родитель коммита закрытия P035, 12 планов) — вся история до публичного релиза сжата в один коммит, P001–P034landed together — rejected: средняя по всей истории (делить на 46 закрытых плана занижает рост вчетверо).
+- Рост prompt-строк моделируется из их источников: сумма прироста `## Gotchas` каждой связанной записи плюс средний размер Gotchas на число новых связей в план, умноженное на долю ссылок, сохраняемую диапазонами — самого fixture-плана нет внутри git-окна, измерить его рост по истории нельзя — rejected: эмпирический рост prompt по историческим юнитам (таких fixture-планов в истории нет) и фиксированный нулевой рост (дешёвый prompt навсегда дешёвый, ловушки не видно).
+- В fixture целый ref и диапазон указывают на один и тот же docs/design/runner.md, вариант «только диапазоны» берёт runner.md:L10-12 и docs/design/cycle.md:L94-126 — `--check` бюджетит именно его — rejected: новый topic-файл для fixture (он не растёт с закрытыми планами и ничего не измеряет).
+- Юниты fixture остаются `[~]` в копии с одним `git init` — prompt для `[~]` не требует чистого дерева и не проверяет Depends — rejected: полная копия с коммитом (нужна конфигурация git-пользователя, медленнее, и prompt пачкает дерево сразу после первого вызова).
 
 ## Phase 1: Measure and bound
 
-### [ ] P047.1.1 Add the context audit tool
+### [x] P047.1.1 Add the context audit tool
 Read:
 - internal/format/ref.go:L180-340
 - internal/cycle/commands.go:L20-90
@@ -101,6 +105,16 @@ archive entry up to P034 lands in one commit; compute growth per plan
 from P035 on.
 Depends: -
 Commit: P047.1.1: add context audit tool
+Handoff:
+- --check падает на этой ветке: строка start-reads = 6887 токенов при 200 планах против start_budget 4000 (README.md +28 токенов/план, docs/design/README.md +0, вывод `docflow status` ~33 токена и не растёт). Трап P047.1.3 это допускает: правка — сокращение README.md или сужение start_read, повышение бюджета не является правкой размера.
+- Механика fixture-копии: `docflow prompt` требует git-репозиторий (git rev-parse/status) и для юнита `[ ]` отказывает на грязном дереве, при чужом `[~]` и на незакрытых Depends. Поэтому fixture копирует `git ls-files` во временный каталог, делает `git init` без коммита, а все три юнита записаны как `[~]`. Юниты плана — H3 под H2-фазой: заголовок `#### [ ] P999.1.1` даёт «no unit P999.1.1».
+- Цифры для P047.1.3: целый `Read:` на docs/design/runner.md тянет 22 связанные архивные записи — prompt 5484 токена против 1280 у варианта с диапазонами (at200: 57138 против 3924); сам runner.md 13907 токенов, его связанные Gotchas 4949 токена и +202 на план. Целый ref дороже диапазона на ~4200 токенов сегодня и на ~53000 при 200 планах.
+- Окно роста задаётся флагом `--window-plan` (default P035): базовая точка — родитель коммита закрытия этого плана, число планов = записи архива, добавленные от него до HEAD. Новый squash (например после P060) лечится флагом, правки кода не требует.
+- Колонки ent/gotch/g-at200 заполнены только у kind=design; у prompt-строк их архивная нагрузка внутри токенов, список вытянутых записей — в поле detail. P047.1.2 опирается на имена строк: prompt:regular:whole+range, prompt:regular:ranged, prompt:acceptance:whole+range.
+- tools/__pycache__ появляется, если tools/*.py импортируют (py_compile, importlib); в .gitignore строки нет, а `finish` берёт `git add -A` (P009) — удалять каталог перед finish. В этом юните он удалён, в коммит не попадёт.
+- Unverified: Ветка отказа `--check` (exit 1 и печать провалившихся строк) прогнана только вручную в этой сессии: Verify юнита запускает `--json` без `--check`, в CI (gate, test-install, parity) инструмент не вызывается — отсутствует сценарий, который гоняет `python3 tools/context-audit.py --check` и ждёт ненулевого кода на перерасходе бюджета (это берёт на себя Goal-пункт 1 в P047.2.1).
+- Unverified: Точность проекции: нет контрольной точки, на которой предсказанный рост строки совпадает с фактическим, — отсутствует проверка «закрыть следующий план и сравнить фактические размеры runner.md и его связанных Gotchas с предсказанием at(N+1)».
+- Unverified: Переносимость git-обвязки (`ls-tree -r`, `cat-file --batch`, `ls-files -z`, `git init` в копии) проверена только на macOS arm64 и python3 из Xcode — отсутствует прогон `python3 tools/context-audit.py --json` в矩阵 CI (ubuntu-latest, windows-latest/Git Bash), где parity-сценарии уже запускаются.
 
 ### [ ] P047.1.2 Report reads beyond a unit's Read list
 Read:
