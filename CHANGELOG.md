@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the question for `install.sh`. Without a terminal `global` applies and
   nothing is stored, so scripted installs keep today's behavior.
 
+### Fixed
+- On a Windows console the installed CLI now shows the new-release notice;
+  terminal detection there always reported no terminal before.
+
 ## [0.15.1] - 2026-10-27
 
 ### Changed

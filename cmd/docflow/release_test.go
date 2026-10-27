@@ -688,3 +688,61 @@ func TestUpdateSkillsFlagWhenUpToDateRelinks(t *testing.T) {
 		t.Fatalf("stored mode = %q, %v", data, err)
 	}
 }
+
+func answerSkillsTTY(t *testing.T, answer string) func() (*os.File, error) {
+	t.Helper()
+	return func() (*os.File, error) {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		writer.WriteString(answer)
+		writer.Close()
+		return reader, nil
+	}
+}
+
+func TestUpdateAnsweredModeWhenUpToDateApplies(t *testing.T) {
+	f := newReleaseFixture(t)
+	targets := releaseAgentTargets(t, f)
+	runRelease(t, 0, "install") // No terminal: global links, nothing stored.
+	f.executable = release.ExecutablePath(f.home)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "1.0.0")
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_RELEASE_URL", server.URL)
+	t.Chdir(t.TempDir()) // Outside any docflow project.
+	openSkillsTTY = answerSkillsTTY(t, "p\n")
+	stdout, _ := runRelease(t, 0, "update")
+	if !strings.Contains(stdout, "up to date: 1.0.0\n") || !strings.Contains(stdout, "skills: project mode — removed") {
+		t.Fatalf("stdout=%q", stdout)
+	}
+	for _, target := range targets {
+		if _, err := os.Lstat(filepath.Join(target, "sample")); !os.IsNotExist(err) {
+			t.Fatalf("answered project mode left a link in %s: %v", target, err)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(f.home, "skills-mode")); err != nil || strings.TrimSpace(string(data)) != "project" {
+		t.Fatalf("stored mode = %q, %v", data, err)
+	}
+}
+
+func TestUpdateSkillsFlagNotStoredOnNetworkError(t *testing.T) {
+	f := newReleaseFixture(t)
+	runRelease(t, 0, "install", "--skills", "global")
+	f.executable = release.ExecutablePath(f.home)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	t.Setenv("DOCFLOW_RELEASE_URL", server.URL)
+	t.Chdir(t.TempDir())
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"update", "--skills", "project"}, &stdout, &stderr); code == 0 {
+		t.Fatalf("update succeeded without a release server: %q", stdout.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(f.home, "skills-mode")); err != nil || strings.TrimSpace(string(data)) != "global" {
+		t.Fatalf("stored mode = %q, %v", data, err)
+	}
+}

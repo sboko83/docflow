@@ -56,32 +56,43 @@ func writeSkillsMode(home, mode string) error {
 }
 
 // resolveSkillsMode picks the skills mode: the --skills flag, else the stored
-// mode, else a question on the controlling terminal, else global. The mode is
-// stored when it came from the flag or the question, so later commands follow
-// it without asking; the no-terminal fallback returns one hint line instead.
-func resolveSkillsMode(home, flagMode string) (mode, hint string, err error) {
+// mode, else a question on the controlling terminal, else global. chosen
+// reports a mode taken from the flag or the question: the caller applies it
+// and only then stores it with writeSkillsMode, so a failed command never
+// leaves a stored mode the links do not follow. The no-terminal fallback
+// returns one hint line instead.
+func resolveSkillsMode(home, flagMode string) (mode, hint string, chosen bool, err error) {
 	if flagMode == skillsModeGlobal || flagMode == skillsModeProject {
-		if err := writeSkillsMode(home, flagMode); err != nil {
-			return "", "", err
-		}
-		return flagMode, "", nil
+		return flagMode, "", true, nil
 	}
 	if stored := readSkillsMode(home); stored != "" {
-		return stored, "", nil
+		return stored, "", false, nil
 	}
 	tty, err := openSkillsTTY()
 	if err != nil {
-		return skillsModeGlobal, "skills: global (set docflow update --skills project to keep agent directories clean)\n", nil
+		return skillsModeGlobal, "skills: global (set docflow update --skills project to keep agent directories clean)\n", false, nil
 	}
 	defer tty.Close()
 	mode, err = askSkillsMode(tty)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
-	if err := writeSkillsMode(home, mode); err != nil {
-		return "", "", err
+	return mode, "", true, nil
+}
+
+// applyChosenSkillsMode applies the mode to the personal links and stores it
+// when it was chosen by this command.
+func applyChosenSkillsMode(home, mode string, chosen bool) (docskills.Result, error) {
+	result, err := applySkillsMode(home, mode)
+	if err != nil {
+		return result, err
 	}
-	return mode, "", nil
+	if chosen {
+		if err := writeSkillsMode(home, mode); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
 }
 
 // askSkillsMode asks on the terminal: an empty answer or EOF takes the
@@ -318,11 +329,11 @@ func handleInstall(parsed *parsedArgs) error {
 	if err != nil {
 		return err
 	}
-	mode, hint, err := resolveSkillsMode(home, skillsFlagValue(parsed))
+	mode, hint, chosen, err := resolveSkillsMode(home, skillsFlagValue(parsed))
 	if err != nil {
 		return err
 	}
-	result, err := applySkillsMode(home, mode)
+	result, err := applyChosenSkillsMode(home, mode, chosen)
 	if err != nil {
 		return err
 	}
@@ -363,10 +374,11 @@ func handleUpdate(parsed *parsedArgs) error {
 	}
 	checkOnly, _ := parsed.values["--check"].(bool)
 	var mode, hint string
+	var chosen bool
 	if !checkOnly {
 		// Resolve the mode up front: a first update on a terminal asks once,
 		// later updates follow the stored answer without asking again.
-		mode, hint, err = resolveSkillsMode(home, skillsFlagValue(parsed))
+		mode, hint, chosen, err = resolveSkillsMode(home, skillsFlagValue(parsed))
 		if err != nil {
 			return err
 		}
@@ -380,9 +392,10 @@ func handleUpdate(parsed *parsedArgs) error {
 	if release.Compare(latest, version) <= 0 {
 		stdout := fmt.Sprintf("up to date: %s\n", version)
 		if !checkOnly {
-			if skillsFlagValue(parsed) != "" {
-				// An explicit mode applies even without a newer release.
-				result, err := applySkillsMode(home, mode)
+			if chosen {
+				// A mode chosen now (flag or answer) applies even without a
+				// newer release.
+				result, err := applyChosenSkillsMode(home, mode, chosen)
 				if err != nil {
 					return err
 				}
@@ -409,7 +422,7 @@ func handleUpdate(parsed *parsedArgs) error {
 	if err := activateRelease(home, dir, latest); err != nil {
 		return err
 	}
-	result, err := applySkillsMode(home, mode)
+	result, err := applyChosenSkillsMode(home, mode, chosen)
 	if err != nil {
 		return err
 	}
