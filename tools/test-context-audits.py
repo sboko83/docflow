@@ -18,6 +18,11 @@ Covers the two defects the P047.1.4 review found:
     the controls that a `Read:` path and a changed file are not extra and a
     path in neither the commit's tree nor on disk is not counted.
 
+`ShellReadsTest` is the table of shell commands the read audit parses: the
+file arguments of `cat`/`head`/`sed`/`grep`, the window their flags name, a
+redirection target that is not a read. `AuditableUnitsTest` keeps a unit known
+only from a Codex or `claude -p` log in the report, as `skipped`.
+
 The last class replays the review's own case on this repository's history:
 `tests/helpers.py` at the P011.1.1 commit, absent from the working tree,
 measured as 601 proxy tokens. The unit's tool calls are synthetic: no
@@ -379,6 +384,31 @@ class SkillDescriptionBudgetTest(unittest.TestCase):
         self.assertIn("skill descriptions now vs %d" % SKILL_BUDGET,
                       stdout_of(result))
 
+    def test_start_reads_over_budget_now_fail_whatever_the_projection(self):
+        """The same rule holds for every budget row: README.md is over
+        `start_budget` today and shrinks per plan, so its projection is under
+        the budget and the row still fails, on the `now` criterion."""
+        fixture = Fixture("start-now", KEEPERS[1])
+        fixture.docflow_doc()
+        fixture.write("README.md", "# Fixture\n\n" + "r" * 20000 + "\n")
+        fixture.write("docs/archive/P001-fixture.md", archive_entry("P001"))
+        fixture.commit("P999.1.0: fixture base")
+        fixture.write("docs/archive/P035-fixture.md", archive_entry("P035"))
+        fixture.commit("P035: close fixture plan")
+        fixture.write("docs/archive/P036-fixture.md", archive_entry("P036"))
+        fixture.write("README.md", "# Fixture\n\n" + "r" * 17000 + "\n")
+        fixture.commit("P036: close fixture plan")
+        by_name = {row["name"]: row for row in
+                   self.rows(fixture, ("--json", "--check"), expect=1)}
+        start = by_name["start-reads"]
+        self.assertGreater(start["tokens"], start["limit"])
+        self.assertLess(start["tokens_at200"], start["limit"],
+                        "the fixture's projection must be under")
+        self.assertEqual(start["check"], "fail")
+        result = run_tool(CONTEXT_AUDIT, ("--check",), fixture.root, self.docflow)
+        self.assertEqual(result.returncode, 1, stdout_of(result)[:2000])
+        self.assertIn("start reads now vs start_budget", stdout_of(result))
+
 
 class HistoricalReadTest(unittest.TestCase):
     """A file that exists only at the unit's commit is a read, through both
@@ -576,6 +606,81 @@ Commit: P999.1.4: fixture claude read
             r"extra 4 tokens \d+ extra_tokens \d+ files: tests/legacy\.py \d+"
             % self.fixture.commits["P999.1.1"])
         self.assertIn("unmeasured units 0", output)
+
+
+class ShellReadsTest(unittest.TestCase):
+    """`bash_reads` on a table of shell commands: which words are files, and
+    the window each read names. The files live on disk in a scratch root; the
+    tree argument adds one file only the measured commit has."""
+
+    CASES = [
+        ("cat a.md", [("a.md", None)]),
+        ("head -n 20 a.md", [("a.md", ("lines", 1, 20))]),
+        ("head -20 a.md", [("a.md", ("lines", 1, 20))]),
+        ("head -n20 a.md", [("a.md", ("lines", 1, 20))]),
+        ("head --lines=7 a.md", [("a.md", ("lines", 1, 7))]),
+        ("head -c 100 a.md", [("a.md", ("bytes", 100))]),
+        ("sed -n '10,12p' a.md", [("a.md", ("lines", 10, 12))]),
+        ("sed -n 40p a.md", [("a.md", ("lines", 40, 40))]),
+        ("sed -n '/x/,$p' a.md", [("a.md", None)]),
+        ("grep -n a.md a.md", [("a.md", None)]),
+        ("cat docs/*.md", [("docs/b.md", None), ("docs/gone.md", None)]),
+        ("FOO=1 cat a.md", [("a.md", None)]),
+        ("sudo cat a.md", [("a.md", None)]),
+        ("cat < a.md", [("a.md", None)]),
+        ("cat a.md > out.txt", [("a.md", None)]),
+        ("cat a.md >> out.txt 2>/dev/null", [("a.md", None)]),
+        ("cat a.md >out.txt", [("a.md", None)]),
+        ("true && cat a.md; head -2 docs/b.md",
+         [("a.md", None), ("docs/b.md", ("lines", 1, 2))]),
+        # `cd` is not followed: a word resolves against the repository root.
+        ("cd docs && cat ../a.md", []),
+        ("cat $(ls) `ls` missing.md", []),
+        ("wc -l a.md", []),
+        ("cat 'unclosed", []),
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("read_audit", str(READ_AUDIT))
+        cls.audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.audit)
+        cls.root = str(SCRATCH / "shell-reads")
+        for name in ("a.md", "docs/b.md", "docs/sub/c.md", "out.txt"):
+            path = Path(cls.root) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("line\n", encoding="utf-8")
+
+    def test_the_table(self):
+        tree = {"docs/gone.md", "docs/sub/c.md"}
+        for command, want in self.CASES:
+            with self.subTest(command=command):
+                self.assertEqual(self.audit.bash_reads(command, self.root, tree), want)
+
+    def test_a_glob_without_a_tree_reads_the_disk(self):
+        """The working tree of a unit in progress has no commit: the glob
+        matches the disk under the root, whatever the current directory."""
+        self.assertEqual(self.audit.bash_reads("cat docs/*.md", self.root),
+                         [("docs/b.md", None)])
+
+
+class AuditableUnitsTest(unittest.TestCase):
+    """A unit `docflow stats` knows only from a `codex exec` or `claude -p`
+    log (source `tokens`) is audited - and lands in `skipped` when it has no
+    tool calls - instead of vanishing from the report."""
+
+    def test_every_stats_unit_and_every_pi_log_is_audited(self):
+        spec = importlib.util.spec_from_file_location("read_audit", str(READ_AUDIT))
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        rows = [{"unit": "P001.1.2", "source": "tokens"},
+                {"unit": "P001.1.10", "source": "transcript"},
+                {"unit": "P001.1.1", "source": "-"}]
+        logs = {"P002.1.1": ["P002.1.1.1.out"]}
+        self.assertEqual(audit.auditable_units(rows, logs, 0),
+                         ["P001.1.1", "P001.1.2", "P001.1.10", "P002.1.1"])
+        self.assertEqual(audit.auditable_units(rows, logs, 2),
+                         ["P001.1.10", "P002.1.1"])
 
 
 class RealHistoryP011Test(unittest.TestCase):

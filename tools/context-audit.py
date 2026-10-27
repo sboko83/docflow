@@ -30,9 +30,10 @@ Rows:
 
 `--check` fails (exit 1) when at the target number of plans the start reads
 exceed `start_budget`, the regular-unit prompt with only ranged reads exceeds
-half of `read_budget`, or all skill descriptions together exceed 1500 tokens
-at the target number of plans (and already do now): a description grows by a
-few dozen bytes per plan, so the current size says nothing about the budget.
+half of `read_budget`, or all skill descriptions together exceed 1500 tokens:
+a description grows by a few dozen bytes per plan, so the current size says
+nothing about the budget. A row already over its budget now fails too: a
+projection that shrinks over the growth window cannot hide a breach.
 
 Projection. Per-plan growth is measured over the plans closed after the
 history squash: `git log` puts every archive entry up to `--window-plan`
@@ -658,21 +659,22 @@ def main():
     checks = []
     for row in rows:
         if row["kind"] == "start" and row["limit"]:
-            checks.append((row["name"], row["tokens_at200"], row["limit"],
-                           "start reads at %d plans vs start_budget" % args.plans))
-        if row["kind"] == "skills_all":
-            checks.append((row["name"], row["tokens_at200"], row["limit"],
-                           "skill descriptions at %d plans vs %d"
-                           % (args.plans, SKILL_DESC_BUDGET)))
-            # A shrinking projection cannot save a repository that is over the
-            # budget today.
-            if row["tokens"] > row["limit"]:
-                checks.append((row["name"], row["tokens"], row["limit"],
-                               "skill descriptions now vs %d" % SKILL_DESC_BUDGET))
-        if row["name"] == "prompt:regular:ranged" and read_budget:
-            checks.append((row["name"], row["tokens_at200"], read_budget // 2,
-                           "ranged-only prompt at %d plans vs read_budget / 2"
-                           % args.plans))
+            limit, what, against = row["limit"], "start reads", "start_budget"
+        elif row["kind"] == "skills_all":
+            limit, what, against = (row["limit"], "skill descriptions",
+                                    "%d" % SKILL_DESC_BUDGET)
+        elif row["name"] == "prompt:regular:ranged" and read_budget:
+            limit, what, against = (read_budget // 2, "ranged-only prompt",
+                                    "read_budget / 2")
+        else:
+            continue
+        checks.append((row["name"], row["tokens_at200"], limit,
+                       "%s at %d plans vs %s" % (what, args.plans, against)))
+        # A shrinking projection cannot save a repository that is over the
+        # budget today.
+        if row["tokens"] > limit:
+            checks.append((row["name"], row["tokens"], limit,
+                           "%s now vs %s" % (what, against)))
     failures = [(name, value, limit, why) for name, value, limit, why in checks
                 if value > limit]
 

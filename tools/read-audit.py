@@ -7,9 +7,9 @@ Run from the repository root:
     python3 tools/read-audit.py --limit 5   # the 5 newest units
     python3 tools/read-audit.py --json      # the same rows as JSON
 
-Units: every unit `docflow stats` reports with source `transcript` (Claude
-Code sessions under `~/.claude/projects/<project>`, found the way
-`internal/stats` finds them) plus every unit with a pi `.out` log in
+Units: every unit `docflow stats` reports (Claude Code sessions under
+`~/.claude/projects/<project>` are found the way `internal/stats` finds
+them) plus every unit with a pi `.out` log in
 `<git-dir>/docflow/run/` (`pi -p --mode json`). The log of a runner attempt on
 Claude (`claude -p`) and on Codex (`codex exec --json`) reports no per-unit
 tool calls this tool reads, so a unit known only from those logs lands in
@@ -89,6 +89,7 @@ PLAIN_LINES_RE = re.compile(r"^-[0-9]+$")
 NUMBER_RE = re.compile(r"^[0-9]+$")
 SED_RANGE_RE = re.compile(r"^([0-9]+)(?:,([0-9]+))?p$")
 SHELL_SPLIT_RE = re.compile(r"\|\||&&|[|\n;]")
+REDIRECT_RE = re.compile(r"^[0-9&]*>>?[|]?$")
 ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 PREFIX_COMMANDS = ("sudo", "env", "time", "command", "nice", "nohup")
 # Mirrors stats.commandPattern, stats.endPattern, stats.resultIDPattern.
@@ -537,8 +538,8 @@ def expand_paths(word, root, tree):
     if not os.path.isabs(pattern):
         pattern = os.path.normpath(os.path.join(root, pattern))
     seen, out = set(), []
-    for candidate in (sorted(glob.glob(word))
-                      + [path for path in sorted(tree)
+    for candidate in (sorted(glob.glob(pattern))
+                      + [path for path in sorted(tree or ())
                          if glob_match(pattern, os.path.join(root, path))]):
         resolved = resolve(root, candidate, tree)
         if resolved and resolved not in seen:
@@ -619,9 +620,12 @@ def bash_reads(command, root, tree=None):
         if program not in READ_COMMANDS:
             continue
         options = argv[index + 1:]
-        args = [item for item in options
+        # `> out.txt` splits into two words: the target is written, not read.
+        targets = {position + 1 for position, item in enumerate(options)
+                   if REDIRECT_RE.match(item)}
+        args = [item for position, item in enumerate(options)
                 if not item.startswith("-") and "<" not in item and ">" not in item
-                and item != "/dev/null"]
+                and item != "/dev/null" and position not in targets]
         bound = None
         if program in ("sed", "grep") and args:
             if program == "sed":
@@ -689,9 +693,11 @@ def pi_logs(git_dir):
 
 
 def auditable_units(rows, logs, limit):
-    """Units to audit: those `docflow stats` reports from a transcript, plus
-    those with a pi log, in plan order, the newest `limit` when asked."""
-    units = set(row["unit"] for row in rows if row["source"] == "transcript")
+    """Units to audit: every unit `docflow stats` reports, plus those with a
+    pi log, in plan order, the newest `limit` when asked. A unit known only
+    from a `codex exec` or `claude -p` log has no tool calls this tool reads
+    and is counted in `skipped`, not dropped."""
+    units = set(row["unit"] for row in rows)
     units.update(logs)
     ordered = sorted(units, key=unit_sort)
     return ordered[-limit:] if limit else ordered
