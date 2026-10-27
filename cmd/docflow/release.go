@@ -34,7 +34,16 @@ const (
 // openSkillsTTY is the controlling-terminal seam for tests: without a
 // terminal the mode question cannot be asked and install/update fall back to
 // global.
-var openSkillsTTY = term.OpenTTY
+// openSkillsTTY opens the terminal for the skills question. The question
+// goes to stderr, so it is asked only when stderr is a terminal: a redirected
+// stderr would hide it while the read waits, and a Windows CI runner opens
+// CONIN$ of a hidden console that never answers.
+var openSkillsTTY = func() (*os.File, error) {
+	if !term.IsTerminal(os.Stderr) {
+		return nil, errors.New("stderr is not a terminal")
+	}
+	return term.OpenTTY()
+}
 
 func skillsModePath(home string) string { return filepath.Join(home, "skills-mode") }
 

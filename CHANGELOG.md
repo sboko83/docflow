@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `docflow install` and `docflow update` ask the skills question only when
+  stderr is a terminal; with stderr redirected they take the `global`
+  fallback instead of waiting for an answer, which hung `curl | sh` on the
+  Windows CI runner.
+
 ## [0.16.0] - 2026-10-27
 
 ### Added

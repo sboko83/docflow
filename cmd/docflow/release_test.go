@@ -746,3 +746,20 @@ func TestUpdateSkillsFlagNotStoredOnNetworkError(t *testing.T) {
 		t.Fatalf("stored mode = %q, %v", data, err)
 	}
 }
+
+func TestSkillsQuestionNeedsTerminalStderr(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	old := os.Stderr
+	os.Stderr = writer
+	defer func() { os.Stderr = old }()
+	tty, err := openSkillsTTY()
+	if err == nil {
+		tty.Close()
+		t.Fatal("opened the terminal with stderr redirected to a pipe")
+	}
+}
