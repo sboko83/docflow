@@ -28,12 +28,16 @@ to the requested lines. A unit whose commit history lost - the public-release
 squash, a replanned unit - is measured at the commit that closed its plan, a
 unit in progress at the working tree; the `unit` row names the commit. When the
 path is not in that commit (an untracked file, a copy under /tmp, a file of
-another repository) the working-tree file is measured. A read of one file
-delivers at most `OUTPUT_CAP` bytes of `LINES_CAP` lines, the output cap of the
-`read` and `bash` tools: a shell read is measured as the window its flags name
-(`head -n N`, `head -c N`, `sed -n 'A,Bp'`) and, for `cat` and `grep`, as the
-file size capped by it; a command naming several files shares that cap between
-them.
+another repository) the working-tree file is measured. A path names a file when
+the measured commit's tree has it or the working tree has it: the tool asks the
+commit's file list first, so a file of the unit's epoch that the repository
+deleted later is measured from its blob, and a path in neither is not a read.
+A shell glob expands over the commit's tree as well as over the disk. A read of
+one file delivers at most `OUTPUT_CAP` bytes of `LINES_CAP` lines, the output
+cap of the `read` and `bash` tools: a shell read is measured as the window its
+flags name (`head -n N`, `head -c N`, `sed -n 'A,Bp'`) and, for `cat` and
+`grep`, as the file size capped by it; a command naming several files shares
+that cap between them.
 
 Proxy tokens are bytes / 4, the same proxy as `docflow lint` and
 tools/context-audit.py.
@@ -59,6 +63,7 @@ Rows:
 """
 
 import argparse
+import fnmatch
 import glob
 import json
 import os
@@ -100,6 +105,7 @@ KEY_RE = re.compile(r"^(Read|Do|Verify|Traps|Depends|Executor|Model|Role|Commit|
 META_RE = re.compile(r"^([A-Za-z0-9_]+):[ \t]*(.*)$")
 REF_SPLIT_RE = re.compile(r"^(.+?)(?::L[0-9]+(?:-[0-9]+)?)?(?:#\S*)?[.,;:]?\Z")
 SNAPSHOT = {}
+TREE = {}
 
 
 def tokens(nbytes):
@@ -472,20 +478,73 @@ def interactive_windows(calls, results):
     return windows
 
 
-def resolve(root, token):
+def tree_paths(root, commit):
+    """Every blob path tracked at `commit`, cached: the files the measured
+    epoch had. The working tree is not the epoch - a test helper deleted by a
+    later plan, a design topic renamed, an early `tests/` suite - so a path
+    the unit read and the disk lost is still a file."""
+    if not commit:
+        return set()
+    cached = TREE.get(commit)
+    if cached is None:
+        cached = set(git_text(root, "ls-tree", "-r", "--name-only", commit).splitlines())
+        TREE[commit] = cached
+    return cached
+
+
+def glob_match(pattern, path):
+    """Shell glob match per path component: `fnmatch`'s `*` crosses `/`, a
+    shell's does not, so a flat match would make `docs/*` name `docs/a/b.md`.
+    `**` matches one component, as bash without `globstar` does."""
+    pattern_parts, path_parts = pattern.split("/"), path.split("/")
+    if len(pattern_parts) != len(path_parts):
+        return False
+    return all(fnmatch.fnmatchcase(part, expression)
+               for part, expression in zip(path_parts, pattern_parts))
+
+
+def resolve(root, token, tree=None):
     """Repository-relative path of a token, the absolute path when it lives
-    outside the repository, `None` when it is not a regular file."""
+    outside the repository, `None` when it names no file. `tree` is the file
+    list of the measured commit: a path in it resolves without touching the
+    disk, so a file of the unit's epoch that the working tree no longer has is
+    a read; without `tree` only the disk decides (the working tree of a unit in
+    progress)."""
     if not token or token == "-" or "$" in token or "`" in token:
         return None
     candidate = os.path.expanduser(token)
     if not os.path.isabs(candidate):
         candidate = os.path.normpath(os.path.join(root, candidate))
+    prefix = root + os.sep
+    relative = candidate[len(prefix):] if candidate.startswith(prefix) else None
+    if relative is not None and tree is not None and relative in tree:
+        return relative
     if not os.path.isfile(candidate):
         return None
-    prefix = root + os.sep
-    if candidate.startswith(prefix):
-        return candidate[len(prefix):]
-    return candidate
+    return relative if relative is not None else candidate
+
+
+def expand_paths(word, root, tree):
+    """The paths a shell word names: the working-tree glob matches first, then
+    the commit's files the same pattern matches - `glob` walks the disk, so a
+    file of the epoch that the tree lost matches nothing there. A word without
+    glob magic names itself. Paths are resolved, duplicates of both sources
+    counted once: the shell expanded them into one argument list."""
+    if not glob.has_magic(word):
+        resolved = resolve(root, word, tree)
+        return [resolved] if resolved else []
+    pattern = os.path.expanduser(word)
+    if not os.path.isabs(pattern):
+        pattern = os.path.normpath(os.path.join(root, pattern))
+    seen, out = set(), []
+    for candidate in (sorted(glob.glob(word))
+                      + [path for path in sorted(tree)
+                         if glob_match(pattern, os.path.join(root, path))]):
+        resolved = resolve(root, candidate, tree)
+        if resolved and resolved not in seen:
+            seen.add(resolved)
+            out.append(resolved)
+    return out
 
 
 def shell_size(text, bound):
@@ -538,10 +597,12 @@ def sed_bound(script):
     return ("lines", start, end) if end >= start else None
 
 
-def bash_reads(command, root):
+def bash_reads(command, root, tree=None):
     """(path, bound) for every file named as an argument of
     `cat`/`sed`/`head`/`grep` in a shell command. The first non-flag argument
-    of `sed` and `grep` is the script and the pattern, not a file."""
+    of `sed` and `grep` is the script and the pattern, not a file. `tree` is
+    the file list of the measured commit: its paths resolve, and a glob matches
+    them, as the working tree's do."""
     found = []
     for segment in SHELL_SPLIT_RE.split(command):
         try:
@@ -569,11 +630,8 @@ def bash_reads(command, root):
         elif program == "head":
             bound = head_bound(options)
         for item in args:
-            paths = sorted(glob.glob(item)) if glob.has_magic(item) else [item]
-            for path in paths:
-                resolved = resolve(root, path)
-                if resolved:
-                    found.append((resolved, bound))
+            for path in expand_paths(item, root, tree):
+                found.append((path, bound))
     return found
 
 
@@ -641,15 +699,17 @@ def auditable_units(rows, logs, limit):
 
 def audit_unit(root, unit, calls, anchor):
     """Classify the calls of one unit measured at `anchor`: in-scope reads and
-    extra reads. One tool call is one group: a `bash` command naming ten files
-    delivers them through one output cap, so the sizes of a group are scaled
-    down to it together."""
+    extra reads. Paths resolve against the file list of that commit, so a file
+    the epoch had and the working tree lost is measured from its blob. One tool
+    call is one group: a `bash` command naming ten files delivers them through
+    one output cap, so the sizes of a group are scaled down to it together."""
     commit, kind = anchor
+    tree = tree_paths(root, commit)
     refs = unit_read_refs(plan_text(root, unit, commit), unit)
     read_paths = set()
     for item in refs or []:
         path = ref_path(item)
-        resolved = resolve(root, path) if path else None
+        resolved = resolve(root, path, tree) if path else None
         if resolved:
             read_paths.add(resolved)
     changed = changed_paths(root, commit)
@@ -657,12 +717,12 @@ def audit_unit(root, unit, calls, anchor):
     groups = []
     for call in calls:
         if call[1] == "read":
-            path = resolve(root, call[2])
+            path = resolve(root, call[2], tree)
             if path:
                 groups.append([(path, call[3], call[4], None)])
         else:
             items = [(path, None, None, bound) for path, bound in
-                     bash_reads(call[5], root)]
+                     bash_reads(call[5], root, tree)]
             if items:
                 groups.append(items)
     tracked = sorted(set(path for group in groups for path, _, _, _ in group

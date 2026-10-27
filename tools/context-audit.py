@@ -18,7 +18,8 @@ Rows:
   skill_desc  the frontmatter `description:` of a skill (always in an agent's
               context when the skill is installed)
   skill       the body of a skill
-  skills_all  every skill description together
+  skills_all  every skill description together, the row `--check` measures
+              against 1500 at the target number of plans
   design      `docs/design/<topic>.md` and `docs/usage.md`: size, the archive
               entries it links, the bytes of their `## Gotchas`
   docflow     `docs/docflow.md` total and its `## Backlog` section
@@ -28,9 +29,10 @@ Rows:
               with only ranged reads, and an acceptance unit
 
 `--check` fails (exit 1) when at the target number of plans the start reads
-exceed `start_budget`, when all skill descriptions together exceed 1500
-tokens, or when the regular-unit prompt with only ranged reads exceeds half of
-`read_budget`.
+exceed `start_budget`, the regular-unit prompt with only ranged reads exceeds
+half of `read_budget`, or all skill descriptions together exceed 1500 tokens
+at the target number of plans (and already do now): a description grows by a
+few dozen bytes per plan, so the current size says nothing about the budget.
 
 Projection. Per-plan growth is measured over the plans closed after the
 history squash: `git log` puts every archive entry up to `--window-plan`
@@ -659,8 +661,14 @@ def main():
             checks.append((row["name"], row["tokens_at200"], row["limit"],
                            "start reads at %d plans vs start_budget" % args.plans))
         if row["kind"] == "skills_all":
-            checks.append((row["name"], row["tokens"], row["limit"],
-                           "skill descriptions now vs %d" % SKILL_DESC_BUDGET))
+            checks.append((row["name"], row["tokens_at200"], row["limit"],
+                           "skill descriptions at %d plans vs %d"
+                           % (args.plans, SKILL_DESC_BUDGET)))
+            # A shrinking projection cannot save a repository that is over the
+            # budget today.
+            if row["tokens"] > row["limit"]:
+                checks.append((row["name"], row["tokens"], row["limit"],
+                               "skill descriptions now vs %d" % SKILL_DESC_BUDGET))
         if row["name"] == "prompt:regular:ranged" and read_budget:
             checks.append((row["name"], row["tokens_at200"], read_budget // 2,
                            "ranged-only prompt at %d plans vs read_budget / 2"
@@ -696,10 +704,12 @@ def main():
         if failures and not args.json:
             print("failing rows:")
             for row in rows:
-                if row["name"] in [f[0] for f in failures]:
-                    print("  %s: %s" % (row["name"], row["detail"] or
-                                         "at %d plans ~%d tokens"
-                                         % (args.plans, row["tokens_at200"])))
+                hit = [failure for failure in failures if failure[0] == row["name"]]
+                if hit:
+                    print("  %s: %s: now %d, at %d plans %d tokens, limit %d"
+                          % (row["name"], row["detail"] or "budget breach",
+                             row["tokens"], args.plans, row["tokens_at200"],
+                             hit[0][2]))
     if args.check and failures:
         return 1
     return 0
