@@ -9,8 +9,8 @@ gate: go test ./...
 executor: pi | strata/swift-1.5-iq3_s | high
 fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | max; claude | claude-sonnet-5-5 | high
 heavy: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
-review: codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
-acceptance: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
+review: claude | claude-sonnet-5-5 | high; codex | gpt-6.1-sol | high
+acceptance: claude | claude-sonnet-5-5 | high; codex | gpt-6.1-sol | high
 replan: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
 ---
 ## Goal
