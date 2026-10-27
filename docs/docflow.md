@@ -5,11 +5,19 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P047
 
 ## Frozen
 
 ## Backlog
+- Прогнать `python3 tools/test-context-audits.py` в CI на ubuntu-latest и
+  windows-latest (Git Bash): регрессии бюджетной проекции и исторических
+  чтений сегодня запускает только Verify приёмки, переносимость
+  git-обвязки и матчера путей проверена на macOS
+  ([P047](archive/P047-context-audit.md)).
+- read-audit: учесть флаги `grep -l/-c/-q` — вывод этих команд ограничен
+  именами или счётчиком, а размер чтения считается как полный текст и
+  завышает лишние токены (команда по 326 файлам дала +12k)
+  ([P047](archive/P047-context-audit.md)).
 - Проверить PTY-сценарии живости на Linux и кадры/спиннер в настоящей
   консоли Windows: время блока, квота used/left, сбросы, перенос на 30
   колонках, спиннер и активный кап закрытия; убедиться, что квота

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counting the archive gotchas the file pulls, and suggests a range or
   `#anchor` reference. `docs/design/runner.md` is split into H2 sections so
   such references can name a single topic.
+
 ## [0.16.1] - 2026-10-27
 
 ### Fixed
