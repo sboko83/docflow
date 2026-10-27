@@ -6,12 +6,12 @@ status: active
 created: 2026-10-26
 permissions: auto
 gate: go test ./...
-executor: pi | strata/swift-1.5-iq3_s | high
-fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | max; claude | claude-sonnet-5-5 | high
-heavy: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high
-review: claude | claude-sonnet-5-5 | high; codex | gpt-6.1-sol | high
-acceptance: claude | claude-sonnet-5-5 | high; codex | gpt-6.1-sol | high
-replan: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high
+executor: pi | zai/glm-5.3-flash | high
+fallback: pi | zai/glm-5.3 | high; pi | strata/swift-1.5-iq3_s | medium; claude | claude-sonnet-5-5 | high
+heavy: pi | zai/glm-5.3 | high; claude | claude-opus-5-5 | high
+review: claude | claude-sonnet-5-5 | high
+acceptance: claude | claude-opus-5-5 | high
+replan: claude | claude-opus-5-5 | high
 ---
 ## Goal
 
@@ -285,7 +285,7 @@ Handoff:
 - Unverified: Путь, именующий подмодуль (gitlink попадает в ls-tree -r --name-only), разрешается через tree и измеряется в 0 байт — отсутствует фикстура репозитория с подмодулем, который читает юнит.
 - Unverified: RealHistoryP011Test зависит от достижимости bbbfd76 (git log --all): после нового сквоша история потеряет коммит и тест skipнется, синтетическая фикстура форму ловит, а реальный блоб нет — отсутствует копия истории P011 в фикстуре.
 
-### [ ] P047.1.6 Review the corrected context audit
+### [x] P047.1.6 Review the corrected context audit
 Read:
 - docs/design/format.md:L55-80
 - tools/context-audit.py:L499-715
@@ -306,6 +306,17 @@ Verify: `go test ./...`
 Depends: P047.1.1, P047.1.2, P047.1.3, P047.1.5
 Role: review
 Commit: P047.1.6: review corrected context audit
+Handoff:
+- Ревью P047.1.1–1.3 и 1.5 по Goal/Constraints/Decisions/Do: дефектов нет, оба дефекта из P047.1.4 исправлены. Проверено на macOS arm64, python3 из Xcode.
+- Дефект 1 (проекция описаний скиллов): сценарий из tools/test-context-audits.py прогнан на версии 812350f (до фикса) — `--check` даёт exit 0 при проекции выше 1500 (ожидалось 1), падают test_check_fails_the_projected_budget и test_json_check_marks_the_descriptions_row_fail. На HEAD все 14 тестов проходят. На реальном репозитории при --plans 200/1000 и окнах P035/P040/P046 exit code текстового и JSON-прогона совпадают, `FAIL` в тексте совпадает с `check: fail` в JSON (в том числе FAIL по start-reads при --plans 1000).
+- Дефект 2 (исторические пути): на реальной истории `resolve(root,'tests/helpers.py')` — версия 8423ec2 даёт None, HEAD с деревом коммита bbbfd76 даёт путь; блоб 2405 байт = 601 токен; `bash_reads('cat tests/helpers.py')` — старая версия [], новая [('tests/helpers.py', None)]. Регрессии на версии 8423ec2 падают (8 FAIL + 1 ERROR из 12; RealHistory пропущен без .git), на HEAD проходят 14/14. Тесты идут с HOME во временном каталоге и синтетическими логами; личные транскрипты не нужны. RealHistoryP011Test читает только git-историю репозитория и пропускается, если коммита нет.
+- runner.md: тело файла идентично прежнему (без строк `## ` и пустых строк diff пуст), добавлены только 11 H2-заголовков; решения не изменены. Ссылки format.md:202,213 на #резервные-маршруты-и-таймаут целы. `bin/docflow lint`: ошибок нет, только 3 предупреждения «no fallback» плана P047.
+- lint: предупреждение whole_read_limit не блокирует activate/thaw (activate останавливается только по hasErrors, thaw лишь печатает issues); закрытые юниты и замороженные планы не проверяются. tools/__pycache__ отсутствует. Полный `docflow verify P047.1.6` (go test ./...) прошёл, rc=0.
+- Наблюдение (не дефект Do): в tools/context-audit.py `--check` сравнивает текущий размер с лимитом только для skills:descriptions. У start-reads и prompt:regular:ranged при отрицательном росте за окно (например `--window-plan P046` даёт tokens_at200 = -30284) проекция меньше текущего размера и может скрыть уже существующий пробой — тот же класс, что дефект 1. На дефолтном окне P035 рост положительный (2364 сейчас, 3958 при 200), текущий пробой не маскируется. Решение для P047.2.x: распространить правило «текущий размер тоже сверяется с лимитом» на остальные строки бюджета или зафиксировать, что отрицательное окно не поддерживается.
+- Наблюдение: поле JSON называется `tokens_at200` даже при --plans N≠200, а проекция может быть отрицательной; на `check` не влияет.
+- Наблюдение: в CHANGELOG.md нет пустой строки между добавленным блоком `### Added` и заголовком `## [0.16.1]`; поправить до релиза.
+- Мой временный каталог /tmp/p047-review.u2iSh2 (экспорт HEAD с версиями инструментов до фикса) не удалён: rm с подстановкой команды заблокирован проверкой безопасности; он вне репозитория, можно удалить вручную.
+- Unverified: Для start-reads и prompt:regular:ranged не проверен случай «текущий размер уже выше лимита, проекция убывает»: нет фикстуры с README больше start_budget, сжимающегося в окне роста, и ожидаемого exit 1.
 
 ## Phase 2: Acceptance
 
