@@ -427,6 +427,7 @@ class HistoricalReadTest(unittest.TestCase):
             ("read", {"path": "tests/legacy.py"}),
             ("read", {"path": "docs/never-existed.md"}),
             ("bash", {"command": "cat tests/legacy.py"}),
+            ("bash", {"command": "grep -l helper tests/legacy.py"}),
             ("bash", {"command": "cat src/main.py"}),
             ("bash", {"command": "head -n 2 tests/*.py"}),
             ("bash", {"command": "cat docs/never-existed.md"}),
@@ -529,9 +530,11 @@ Commit: P999.1.4: fixture claude read
                          {"tests/legacy.py", "notes/tmp.md"})
         self.assertEqual(
             self.merged["P999.1.1"]["tests/legacy.py"],
-            (2 * LEGACY_BYTES + window(self.helper, 2)) // 4,
-            "the read, the `cat` and the glob's `head -n 2` measure the blob "
-            "of the unit's commit, not the missing working-tree file")
+            (2 * LEGACY_BYTES + window(self.helper, 2)
+             + len(b"tests/legacy.py") + 1) // 4,
+            "the read, the `cat`, the glob's `head -n 2` and the summary "
+            "`grep -l` measure the blob of the unit's commit, not the missing "
+            "working-tree file")
 
     def test_one_read_of_the_epoch_file_costs_601_proxy_tokens(self):
         """A single whole read of the epoch-only file costs 601 proxy tokens:
@@ -549,7 +552,7 @@ Commit: P999.1.4: fixture claude read
         self.assertEqual((unit["refs"], unit["read_list"]), (1, 1))
         self.assertNotIn("docs/kept.md", self.merged["P999.1.1"])
         self.assertNotIn("src/main.py", self.merged["P999.1.1"])
-        self.assertEqual(unit["calls"], 6,
+        self.assertEqual(unit["calls"], 7,
                          "the two reads of a path that exists nowhere add no call")
 
     def test_shell_glob_over_a_deleted_file_is_a_read(self):
@@ -558,9 +561,10 @@ Commit: P999.1.4: fixture claude read
         names, not the file. The path reaches the aggregate top list over the
         three units that read it."""
         unit = self.units["P999.1.1"]
-        self.assertEqual(unit["extra"], 4)
+        self.assertEqual(unit["extra"], 5)
         self.assertEqual(unit["extra_tokens"],
-                        (2 * LEGACY_BYTES + window(self.helper, 2) + 100) // 4)
+                        (2 * LEGACY_BYTES + window(self.helper, 2)
+                         + len(b"tests/legacy.py") + 1 + 100) // 4)
         globber = self.units["P999.1.3"]
         self.assertEqual(globber["commit"], self.fixture.commits["P999.1.3"])
         self.assertEqual(globber["calls"], 1, "the glob resolved to the one "
@@ -570,7 +574,8 @@ Commit: P999.1.4: fixture claude read
         top = {item["path"]: item for item in self.data["top"]}
         self.assertEqual(top["tests/legacy.py"],
                          {"path": "tests/legacy.py", "units": 4,
-                          "tokens": (4 * LEGACY_BYTES + 2 * window(self.helper, 2)) // 4})
+                          "tokens": (4 * LEGACY_BYTES + 2 * window(self.helper, 2)
+                                      + len(b"tests/legacy.py") + 1) // 4})
 
     def test_the_claude_read_input_is_measured_like_pi_s(self):
         """The direct input of the other agent: Claude's `Read` names the file
@@ -602,8 +607,8 @@ Commit: P999.1.4: fixture claude read
         output = stdout_of(result)
         self.assertRegex(
             output,
-            r"(?m)^unit P999\.1\.1 source log commit %s read_list 1 reads 6 "
-            r"extra 4 tokens \d+ extra_tokens \d+ files: tests/legacy\.py \d+"
+            r"(?m)^unit P999\.1\.1 source log commit %s read_list 1 reads 7 "
+            r"extra 5 tokens \d+ extra_tokens \d+ files: tests/legacy\.py \d+"
             % self.fixture.commits["P999.1.1"])
         self.assertIn("unmeasured units 0", output)
 
@@ -624,6 +629,18 @@ class ShellReadsTest(unittest.TestCase):
         ("sed -n 40p a.md", [("a.md", ("lines", 40, 40))]),
         ("sed -n '/x/,$p' a.md", [("a.md", None)]),
         ("grep -n a.md a.md", [("a.md", None)]),
+        ("grep -o word a.md", [("a.md", None)]),
+        ("grep -rn word docs/b.md", [("docs/b.md", None)]),
+        ("grep -l word a.md", [("a.md", ("grep", "names"))]),
+        ("grep -L word a.md", [("a.md", ("grep", "names"))]),
+        ("grep --files-with-matches word a.md", [("a.md", ("grep", "names"))]),
+        ("grep -c word a.md", [("a.md", ("grep", "count"))]),
+        ("grep --count word a.md", [("a.md", ("grep", "count"))]),
+        ("grep -q word a.md", [("a.md", ("grep", "quiet"))]),
+        ("grep -il word a.md", [("a.md", ("grep", "names"))]),
+        ("grep -lq word a.md", [("a.md", ("grep", "quiet"))]),
+        ("grep -lc word a.md", [("a.md", ("grep", "names"))]),
+        ("grep -m 5 -c word a.md", [("a.md", ("grep", "count"))]),
         ("cat docs/*.md", [("docs/b.md", None), ("docs/gone.md", None)]),
         ("FOO=1 cat a.md", [("a.md", None)]),
         ("sudo cat a.md", [("a.md", None)]),
@@ -662,6 +679,16 @@ class ShellReadsTest(unittest.TestCase):
         matches the disk under the root, whatever the current directory."""
         self.assertEqual(self.audit.bash_reads("cat docs/*.md", self.root),
                          [("docs/b.md", None)])
+
+    def test_a_summary_grep_delivers_one_line_per_file(self):
+        """The `grep` flags that bound the output to names or counts bound the
+        read: `-q` delivers nothing, `-l`/`-c` one output line of the file,
+        whatever its size."""
+        self.assertEqual(self.audit.grep_size("docs/b.md", "quiet"), 0)
+        self.assertEqual(self.audit.grep_size("docs/b.md", "names"),
+                         len("docs/b.md") + 1)
+        self.assertEqual(self.audit.grep_size("docs/b.md", "count"),
+                         len("docs/b.md") + 16)
 
 
 class AuditableUnitsTest(unittest.TestCase):

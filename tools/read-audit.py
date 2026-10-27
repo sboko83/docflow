@@ -35,9 +35,11 @@ deleted later is measured from its blob, and a path in neither is not a read.
 A shell glob expands over the commit's tree as well as over the disk. A read of
 one file delivers at most `OUTPUT_CAP` bytes of `LINES_CAP` lines, the output
 cap of the `read` and `bash` tools: a shell read is measured as the window its
-flags name (`head -n N`, `head -c N`, `sed -n 'A,Bp'`) and, for `cat` and
-`grep`, as the file size capped by it; a command naming several files shares
-that cap between them.
+flags name (`head -n N`, `head -c N`, `sed -n 'A,Bp'`) and, for `cat` and for
+a `grep` that prints matches, as the file size capped by it; a summary
+`grep` (`-l`/`-L`, `-c`, `-q`) prints no matches, so the files it names are
+measured as their one output line - the name, or the name with a count - or
+as nothing; a command naming several files shares that cap between them.
 
 Proxy tokens are bytes / 4, the same proxy as `docflow lint` and
 tools/context-audit.py.
@@ -88,6 +90,14 @@ HEAD_LINES_RE = re.compile(r"^-(n|c)[0-9]+$")
 PLAIN_LINES_RE = re.compile(r"^-[0-9]+$")
 NUMBER_RE = re.compile(r"^[0-9]+$")
 SED_RANGE_RE = re.compile(r"^([0-9]+)(?:,([0-9]+))?p$")
+GREP_SUMMARY_LONG = {"--quiet": "quiet", "--silent": "quiet",
+                     "--files-with-matches": "names",
+                     "--files-without-match": "names",
+                     "--files-without-matches": "names", "--count": "count"}
+GREP_SUMMARY_SHORT = {"q": "quiet", "l": "names", "L": "names", "c": "count"}
+GREP_VALUE_FLAGS = ("-e", "--regexp", "-f", "--file", "-m", "--max-count",
+                    "-A", "-B", "-C", "--after-context", "--before-context",
+                    "--context", "--include", "--exclude", "--exclude-dir")
 SHELL_SPLIT_RE = re.compile(r"\|\||&&|[|\n;]")
 REDIRECT_RE = re.compile(r"^[0-9&]*>>?[|]?$")
 ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -551,8 +561,9 @@ def expand_paths(word, root, tree):
 def shell_size(text, bound):
     """Bytes a shell read of `text` delivers: the window its flags name
     (`head -n N`, `head -c N`, `sed -n 'A,Bp'`), the whole text for `cat` and
-    `grep`, whose output size no flag bounds; every window is capped by the
-    `bash` tool's output limit."""
+    for a `grep` that prints matches, whose output size no flag bounds - a
+    summary `grep` (`-l`/`-c`/`-q`) delivers `grep_size` instead; every window
+    is capped by the `bash` tool's output limit."""
     if bound and bound[0] == "bytes":
         return min(len(text.encode("utf-8")), bound[1], OUTPUT_CAP)
     if bound and bound[0] == "lines":
@@ -598,6 +609,46 @@ def sed_bound(script):
     return ("lines", start, end) if end >= start else None
 
 
+def grep_bound(options):
+    """The summary window `grep` names: `-q` prints nothing, `-l`/`-L` the
+    name of every file it reads, `-c` its count - `-q` wins over `-l`, `-l`
+    over `-c`, as in grep. Bundled short flags (`-il`, `-lc`) count, a flag
+    whose value is the next word (`-e pattern`, `-A N`) skips it, and `--`
+    ends the flags."""
+    modes = []
+    index = 0
+    while index < len(options):
+        item = options[index]
+        if item == "--":
+            break
+        if item in GREP_VALUE_FLAGS:
+            index += 2
+            continue
+        if item.startswith("--"):
+            mode = GREP_SUMMARY_LONG.get(item)
+            if mode:
+                modes.append(mode)
+        elif re.match(r"^-[A-Za-z]+$", item):
+            modes.extend(GREP_SUMMARY_SHORT[letter] for letter in item[1:]
+                         if letter in GREP_SUMMARY_SHORT)
+        index += 1
+    for mode in ("quiet", "names", "count"):
+        if mode in modes:
+            return ("grep", mode)
+    return None
+
+
+def grep_size(path, mode):
+    """Bytes a summary `grep` delivers per file it names: nothing with `-q`,
+    the file's one output line with `-l`/`-L`/`-c` - its name, or its name
+    with a count. The pattern is not evaluated, so every named file is
+    charged its line, matched or not."""
+    if mode == "quiet":
+        return 0
+    return min(len(path.encode("utf-8")) + (16 if mode == "count" else 1),
+               OUTPUT_CAP)
+
+
 def bash_reads(command, root, tree=None):
     """(path, bound) for every file named as an argument of
     `cat`/`sed`/`head`/`grep` in a shell command. The first non-flag argument
@@ -630,6 +681,8 @@ def bash_reads(command, root, tree=None):
         if program in ("sed", "grep") and args:
             if program == "sed":
                 bound = sed_bound(args[0])
+            else:
+                bound = grep_bound(options)
             args = args[1:]
         elif program == "head":
             bound = head_bound(options)
@@ -749,13 +802,16 @@ def audit_unit(root, unit, calls, anchor):
     for group in groups:
         sizes = []
         for path, offset, limit, bound in group:
-            text = text_of(path)
-            if text is None:
-                size = 0
-            elif bound is not None:
-                size = shell_size(text, bound)
+            if bound is not None and bound[0] == "grep":
+                size = grep_size(path, bound[1])
             else:
-                size = span_bytes(text, offset, limit)
+                text = text_of(path)
+                if text is None:
+                    size = 0
+                elif bound is not None:
+                    size = shell_size(text, bound)
+                else:
+                    size = span_bytes(text, offset, limit)
             sizes.append((path, size))
         total = sum(size for _, size in sizes)
         scale = float(OUTPUT_CAP) / total if len(sizes) > 1 and total > OUTPUT_CAP else 1.0

@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `#anchor` reference. `docs/design/runner.md` is split into H2 sections so
   such references can name a single topic.
 
+### Fixed
+- The read audit measures a `grep` run with `grep -l`/`-L`, `-c` or `-q` by
+  its output - a file name, a count or nothing - instead of the full text of
+  every file it names, which overstated extra reads (one 326-file `grep -l`
+  added about 12k extra tokens).
+
 ## [0.16.1] - 2026-10-27
 
 ### Fixed
