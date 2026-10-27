@@ -61,7 +61,7 @@ func TestPrerequisiteTimeoutAndClosedInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	code := runPrerequisitesWithTimeout(f.root, plan, newProgress(&out, &errOut, false), 100*time.Millisecond)
+	code := runPrerequisitesWithTimeout(f.root, plan, newProgress(&out, &errOut, false), time.Second)
 	if code != 2 {
 		t.Fatal(code)
 	}
