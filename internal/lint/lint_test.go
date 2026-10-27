@@ -608,6 +608,88 @@ func TestReadBudgetCountsPromptAndReadReferencesTogether(t *testing.T) {
 	issue(t, report, fmt.Sprintf("unit P001.2.1: ~%d tokens of context", tokens), "warning", 36)
 }
 
+func TestLintWholeReadLimit(t *testing.T) {
+	readPlan := func(refs ...string) string {
+		items := ""
+		for _, ref := range refs {
+			items += "- " + ref + "\n"
+		}
+		return strings.Replace(testPlan, "Read:\n- a.py\nDo:\n- b\nVerify: `true`\nCommit: P001.2.1", "Read:\n"+items+"Do:\n- b\nVerify: `true`\nCommit: P001.2.1", 1)
+	}
+	withLimit := func(limit string) string {
+		if limit == "" {
+			return testDocflow
+		}
+		return strings.Replace(testDocflow, "read_budget: 40000\n", "read_budget: 40000\nwhole_read_limit: "+limit+"\n", 1)
+	}
+	trapArchive := `---
+id: P009
+title: Trap
+closed: 2026-10-02
+---
+## Outcome
+Есть.
+
+## Decisions
+- решение — почему — альтернатива
+
+## Gotchas
+- ` + strings.Repeat("g", 400) + `
+
+## Follow-ups
+- нет
+`
+	big := strings.Repeat("x", 16000) + "\nsee docs/archive/P009-trap.md\n"
+	bigTokens := len(big) / 4
+	gotchaTokens := len(fmt.Sprintf("- (P009) %s", strings.Repeat("g", 400))) / 4
+	want := fmt.Sprintf("big.txt is ~%d tokens whole (+%d tokens of archive gotchas); reference a range or #anchor", bigTokens, gotchaTokens)
+	extra := map[string]string{
+		"big.txt":                   big,
+		"docs/archive/P009-trap.md": trapArchive,
+		"docs/d.md":                 "# T\n\ntext\n",
+	}
+	t.Run("whole file over default limit warns with gotchas", func(t *testing.T) {
+		plan := readPlan("a.py", "big.txt")
+		report, _ := lintProject(t, projectOptions{plan: &plan, extra: extra})
+		issue(t, report, want, "warning", 39)
+		if len(report.Errors()) > 0 {
+			t.Fatalf("errors = %#v", report.Errors())
+		}
+	})
+	t.Run("range and anchor do not warn", func(t *testing.T) {
+		plan := readPlan("big.txt:L2-3", "docs/d.md#t")
+		report, _ := lintProject(t, projectOptions{plan: &plan, extra: extra})
+		assertClean(t, report)
+	})
+	t.Run("done unit is not warned", func(t *testing.T) {
+		plan := strings.Replace(testPlan, "### [x] P001.1.1 First unit\nRead:\n- a.py", "### [x] P001.1.1 First unit\nRead:\n- big.txt", 1)
+		report, _ := lintProject(t, projectOptions{plan: &plan, extra: extra})
+		assertClean(t, report)
+	})
+	t.Run("context warned when a unit is open", func(t *testing.T) {
+		plan := strings.Replace(testPlan, "## Context\n", "## Context\n- big.txt\n", 1)
+		report, _ := lintProject(t, projectOptions{plan: &plan, extra: extra})
+		issue(t, report, want, "warning", 12)
+	})
+	t.Run("context silent when all units are closed", func(t *testing.T) {
+		plan := strings.Replace(testPlan, "## Context\n", "## Context\n- big.txt\n", 1)
+		plan = strings.Replace(plan, "### [ ] P001.2.1", "### [x] P001.2.1", 1)
+		report, _ := lintProject(t, projectOptions{plan: &plan, extra: extra})
+		assertClean(t, report)
+	})
+	t.Run("custom limit", func(t *testing.T) {
+		plan := readPlan("big.txt")
+		report, _ := lintProject(t, projectOptions{docflow: withLimit("5000"), plan: &plan, extra: extra})
+		assertClean(t, report)
+		report, _ = lintProject(t, projectOptions{docflow: withLimit("1000"), plan: &plan, extra: extra})
+		issue(t, report, want, "warning", 38)
+	})
+	t.Run("bad value errors", func(t *testing.T) {
+		report, _ := lintProject(t, projectOptions{docflow: withLimit("lots")})
+		issue(t, report, "whole_read_limit 'lots' must be a positive integer", "error", 4)
+	})
+}
+
 func TestLintStartBudget(t *testing.T) {
 	withStart := func(read, budget string) string {
 		return strings.Replace(testDocflow, "read_budget: 40000\n", "read_budget: 40000\nstart_read: "+read+"\nstart_budget: "+budget+"\n", 1)

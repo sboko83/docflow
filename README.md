@@ -7,7 +7,7 @@ process. A task is written up as a plan, the plan splits into one-session
 units, each unit is executed, verified, and committed on its own, and the
 closed plan collapses into an archive entry that keeps the decisions.
 The CLI is a single self-contained Go binary installed with one command;
-a Go toolchain is needed only for development.
+Go is needed only for development.
 
 ## Why
 
@@ -17,7 +17,7 @@ state in the repository instead of the agent's memory.
 
 - **Spec first.** A task becomes a plan of phases and one-session units.
   A unit carries Goal, Read list, Do, Verify, Traps, and a ready commit
-  subject; `lint` checks it against a read budget (target ~100k tokens
+  subject; `lint` checks it against a read budget (~100k tokens
   per session), so a session opens with its own bounded context instead
   of the whole repository.
 - **The cycle is enforced, not promised.** `prompt → work → finish`
@@ -26,16 +26,11 @@ state in the repository instead of the agent's memory.
   exactly that tree — what was verified is what landed; one unit is one
   commit.
 - **The whole plan can run unattended.** `docflow run` drives the units
-  without a human: prompts the agent, verifies, commits, retries a
-  failed unit with the failure tail, switches to the plan's fallback
-  executor on a provider limit or outage and waits only when all of them
-  are unavailable, and stops safely on a timeout, a stalled agent or a soft
-  stop. A
-  personal roster picks the executor and fallback chains per role
-  (`docflow roster show`, `docflow roster apply`); the runner reads the
-  plan, not the roster. Claude Code, Codex
-  CLI and Pi are built in, one run can mix them, and the plan routes each unit
-  to its own assistant, model, and reasoning effort
+  without a human: prompts the agent, verifies, commits, retries a failed
+  unit, switches to the fallback executor on a provider limit or outage,
+  and stops safely on a timeout or a stalled agent. Claude Code, Codex CLI
+  and Pi are built in; the plan (or a personal roster, `docflow roster`)
+  routes each unit to its own assistant, model, and reasoning effort
   ([details](docs/usage.md#автозапуск), in Russian).
 - **Sessions hand off.** A finished unit leaves Handoff lines and
   Decisions, and the next unit's prompt already carries the handoff of
@@ -66,40 +61,40 @@ docs/archive/P007-cache.md  Outcome · Decisions · Gotchas · Follow-ups
 
 `prompt` builds a unit's prompt from its block, the plan's Decisions, and
 the Handoff of its dependencies, and marks it `[~]`. `verify` runs the
-unit's `Verify:` command and fingerprints the tree, `done` marks it `[x]`
-and writes Handoff, `commit` commits that exact tree under the `Commit:`
-subject. A unit that cannot proceed is marked
-`[!]` by `block`: a plan that went stale goes to replanning, a step only a
-person can do is lifted by `docflow unblock <id> --note "…"`. `lint` checks the structure and the `Read:` budget;
-`docflow run` drives the same commands unit after unit.
+unit's `Verify:` command and fingerprints the tree; `done` marks it `[x]`
+and writes Handoff; `commit` commits that exact tree under the `Commit:`
+subject. A unit that cannot proceed is marked `[!]` by `block`: a stale
+plan goes to replanning, a human-only step waits for
+`docflow unblock <id> --note "…"`. `lint` checks the structure and the
+`Read:` budget; `docflow run` drives the same commands unit after unit.
 
 ## See it run
 
-A recorded `docflow run` of a small demo plan: a Go `slug` command built in
-three phases by Codex, Pi, and Claude. `bash tools/demo-run.sh` runs the
-same scenario with Codex and Pi/GLM Flash in a throwaway repository and
-spends their quota. Add `--dry-run` to inspect routes without model calls.
+A recorded `docflow run` of a small demo plan: a Go `slug` command built
+in three phases by Codex, Pi, and Claude. `bash tools/demo-run.sh`
+replays the scenario in a throwaway repository and spends their quota
+(`--dry-run`: routes only, no model calls).
 
 ![docflow run: start and the first units](docs/img/demo-run.svg)
 
 Each unit goes to the agent, model, and reasoning effort the plan routes
 it to. The runner verifies and commits the unit itself; whatever the agent
 could not check is reported as `Unverified` instead of being passed off as
-done. Quota bars show each subscription window as the share a unit spent, or —
-with `[display] quota = "left"` in the agents config — as the share left.
+done. Quota bars show each subscription window as the share a unit spent
+(or the share left, `[display] quota = "left"`).
 
 ![docflow run: a stale unit and an automatic replan](docs/img/demo-replan.svg)
 
 Unit 2.1 moved `main.go` under `cmd/slug/`, so unit 2.2 still read a file
-that no longer exists. `prompt` refuses a unit whose plan no longer
-matches the tree; the agent from the plan's `replan:` key repairs the plan
-and commits it, and the unit runs again in the same run.
+that no longer exists. `prompt` refuses such a unit; the agent from the
+plan's `replan:` key repairs the plan and commits it, and the unit runs
+again in the same run.
 
 ![docflow run: the last unit, the summary, and docflow status](docs/img/demo-finish.svg)
 
-The summary counts units, time, cost, unverified notes, and replans.
-`docflow status` reports the plan ready to close: closing turns it into an
-archive entry with its decisions.
+The summary counts units, time, cost, unverified notes, and replans;
+`docflow status` then reports the plan ready to close: closing turns it
+into an archive entry with its decisions.
 
 ## Skills
 
@@ -109,13 +104,13 @@ archive entry with its decisions.
 - [bsv-docflow-run](skills/bsv-docflow-run/SKILL.md) — running a plan unit.
 - [bsv-docflow-close](skills/bsv-docflow-close/SKILL.md) — closing a plan and the archive.
 
-The first two skills work without docflow. The other three cover the
-docflow planning cycle.
+The first two work without docflow; the rest cover the docflow planning
+cycle.
 
 ## Quick start
 
-Requirements: macOS, Linux, or Windows 10/11 with Git for Windows;
-amd64 or arm64. On Windows, run this command in Git Bash. No Go toolchain needed:
+Requirements: macOS, Linux, or Windows 10/11 with Git for Windows (run
+the command in Git Bash); amd64 or arm64. No Go toolchain needed:
 
 ~~~bash
 curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | sh
@@ -123,24 +118,18 @@ curl -fsSL https://raw.githubusercontent.com/sboko83/docflow/main/install.sh | s
 
 The installer downloads the latest release, verifies its sha256 checksum,
 and runs `docflow install`: the binary, skills, and LICENSE land under
-`~/.docflow` (`bin/docflow` → `current` → `versions/<version>` on macOS/Linux).
-Windows uses `%USERPROFILE%\.docflow\current\docflow.exe` and directory
-junctions, without Developer Mode or administrator rights. PATH is
-configured in the zsh/bash profile on macOS/Linux or the Windows user
-`Path`; restart your terminal after installation. Personal skill links are
-installed
-for agent CLIs found in `PATH`. `DOCFLOW_VERSION=X.Y.Z` installs a specific
-release.
+`~/.docflow` (on Windows `%USERPROFILE%\.docflow` with directory junctions,
+no Developer Mode or administrator rights), and PATH is configured in the
+shell profile — restart your terminal after installation. Personal skill
+links are installed for agent CLIs found in `PATH`. `DOCFLOW_VERSION=X.Y.Z`
+installs a specific release.
 
 `docflow install` asks once how skills go in: `global` links them into the
-personal agent directories, `project` keeps those directories clean and
-leaves the skills to project copies. The answer is stored in
-`~/.docflow/skills-mode` and `docflow update` follows it; `docflow update
---skills global|project` switches the mode and applies it to the links, and
-`DOCFLOW_SKILLS=global|project` answers the question for the installer.
-Without a terminal (a scripted install) `global` applies and nothing is
-stored. Switching to `project` removes only docflow's own personal links;
-project copies and other skills stay.
+personal agent directories, `project` leaves the skills to project copies.
+The answer is stored (`~/.docflow/skills-mode`) and `docflow update` follows
+it; `docflow update --skills global|project` switches the mode later, a
+scripted install takes `global`. Switching to `project` removes only
+docflow's own links. Details: [installation and updates](docs/usage.md).
 
 ~~~bash
 docflow doctor --agent codex
@@ -148,17 +137,15 @@ cd <project>
 docflow init --agent codex
 ~~~
 
-Claude Code is the default; omit `--agent codex` for it. For Pi use
-`--agent pi` (personal skills in `~/.pi/agent/skills/`, project copies in
-`.pi/skills/`). To copy the skills
-into a project, use `docflow init --skills`, or `docflow install-skills
---project` in an already connected project.
+Claude Code is the default; omit `--agent codex` for it, use `--agent pi`
+for Pi. To copy the skills into a project, use `docflow init --skills`, or
+`docflow install-skills --project` in an already connected project.
 
 `docflow update` downloads and activates the latest release, keeping the
-previous one for a manual rollback; `docflow update --check` only reports it. A daily terminal
-check announces new releases (`DOCFLOW_NO_UPDATE_CHECK=1` turns it off).
-`docflow uninstall` removes the installation. Details: [installation,
-updates, and usage](docs/usage.md) (in Russian).
+previous one for a manual rollback; `docflow update --check` only reports
+it; `docflow uninstall` removes the installation. A daily terminal check
+announces new releases (`DOCFLOW_NO_UPDATE_CHECK=1` turns it off). Details:
+[installation, updates, and usage](docs/usage.md) (in Russian).
 
 ### Development
 
@@ -170,22 +157,22 @@ cd bsv-docflow
 bash tools/install-dev.sh
 ~~~
 
-The script builds `bin/docflow`, creates its symlink (it points into the
-checkout, so keep the checkout in place), and installs skills for agent
+The script builds `bin/docflow`, symlinks it into place (the link points
+into the checkout, so keep the checkout), and installs skills for agent
 CLIs found in `PATH`. `docflow update` and `docflow uninstall` refuse in
 such a build; update by checking out a newer tag and rerunning the script.
 
-## Project links
+## Project links (docs in Russian)
 
-- [Decisions and format](docs/design/README.md) (in Russian)
-- [Command reference](docs/design/cli.md) (in Russian)
-- [Skill boundaries and installation](docs/design/skills.md) (in Russian)
-- [Task queue](docs/docflow.md) (in Russian)
+- [Decisions and format](docs/design/README.md)
+- [Command reference](docs/design/cli.md)
+- [Skill boundaries and installation](docs/design/skills.md)
+- [Task queue](docs/docflow.md)
 - [Changelog](CHANGELOG.md)
 
 ## Acknowledgements
 
-bsv-docflow was written with the assistance of Claude Code, Codex, ZCode, and Pi.
+Written with the assistance of Claude Code, Codex, ZCode, and Pi.
 
 ## License
 

@@ -22,7 +22,7 @@ const DocflowVersion = format.DocflowVersion
 
 var (
 	docflowKeys         = []string{"docflow", "read_budget"}
-	docflowOptionalKeys = []string{"start_read", "start_budget", "repos", "preflight"}
+	docflowOptionalKeys = []string{"start_read", "start_budget", "whole_read_limit", "repos", "preflight"}
 	docflowSections     = []string{"Queue", "Frozen", "Backlog"}
 	docflowOptionalSecs = []string{"Frozen"}
 	planKeys            = []string{"id", "title", "type", "status", "created"}
@@ -51,6 +51,10 @@ var (
 
 var unitFields = format.UnitFields
 var statuses = []string{" ", "~", "x", "-", "!"}
+
+// defaultWholeReadLimit is the token limit for whole-file Read references
+// when docs/docflow.md has no whole_read_limit key.
+const defaultWholeReadLimit = 4000
 
 // Issue is one lint finding.
 type Issue struct {
@@ -176,6 +180,15 @@ func checkSections(rep *Report, path string, sections []format.Section, expected
 
 func readBudget(doc *format.DocflowFile) int {
 	return positiveDecimal(doc.Meta["read_budget"])
+}
+
+// wholeReadLimit returns the whole-file Read token limit, defaulting to
+// defaultWholeReadLimit when the key is missing or invalid.
+func wholeReadLimit(doc *format.DocflowFile) int {
+	if n := positiveDecimal(doc.Meta["whole_read_limit"]); n > 0 {
+		return n
+	}
+	return defaultWholeReadLimit
 }
 
 func startRefs(doc *format.DocflowFile) []string { return splitComma(doc.Meta["start_read"]) }
@@ -319,6 +332,9 @@ func lintDocflow(rep *Report, root string, doc *format.DocflowFile) {
 	budget := doc.Meta["read_budget"]
 	if budget != "" && readBudget(doc) == 0 {
 		rep.Error(doc.Path, doc.MetaLines["read_budget"], fmt.Sprintf("read_budget '%s' must be a positive integer", budget))
+	}
+	if limit := doc.Meta["whole_read_limit"]; limit != "" && positiveDecimal(limit) == 0 {
+		rep.Error(doc.Path, doc.MetaLines["whole_read_limit"], fmt.Sprintf("whole_read_limit '%s' must be a positive integer", limit))
 	}
 	lintStart(rep, root, doc)
 	lintRepos(rep, root, doc)
@@ -771,7 +787,7 @@ func lintDepends(rep *Report, plan *format.Plan) {
 
 const contextHint = " (Context list items are file references; write repro as prose)"
 
-func lintRefs(rep *Report, root string, plan *format.Plan, budget int, repos []string) {
+func lintRefs(rep *Report, root string, plan *format.Plan, budget, wholeLimit int, repos []string) {
 	size := func(item format.Item, hint string) int {
 		value, err := format.RefSize(root, item.Text)
 		if err == nil {
@@ -789,8 +805,18 @@ func lintRefs(rep *Report, root string, plan *format.Plan, budget int, repos []s
 		return 0
 	}
 	context := 0
+	open := false
+	for _, unit := range plan.Units {
+		if unit.Status != "x" && unit.Status != "-" {
+			open = true
+			break
+		}
+	}
 	for _, item := range format.ContextRefs(plan) {
 		context += size(item, contextHint)
+		if open {
+			warnWholeRead(rep, root, plan.Path, item, wholeLimit)
+		}
 	}
 	for _, unit := range plan.Units {
 		if unit.Status == "x" || unit.Status == "-" {
@@ -808,12 +834,36 @@ func lintRefs(rep *Report, root string, plan *format.Plan, budget int, repos []s
 		if read != nil {
 			for _, item := range read.Items {
 				total += size(item, "")
+				warnWholeRead(rep, root, plan.Path, item, wholeLimit)
 			}
 		}
 		if budget > 0 && total/4 > budget {
 			rep.Warning(plan.Path, unit.Line, fmt.Sprintf("unit %s: ~%d tokens of context > read_budget %d", unit.ID, total/4, budget))
 		}
 	}
+}
+
+// warnWholeRead warns when a Read or Context item references a whole file
+// over the whole_read_limit: its archive links pull every linked entry's
+// Gotchas into each prompt, so a reference should name a range or #anchor.
+func warnWholeRead(rep *Report, root, path string, item format.Item, limit int) {
+	ref, err := format.ParseRef(item.Text)
+	if err != nil || ref.Start != nil || ref.Anchor != "" {
+		return
+	}
+	size, err := format.RefSize(root, item.Text)
+	if err != nil || size/4 <= limit {
+		return
+	}
+	gotchas := 0
+	if text, err := format.RefText(root, item.Text); err == nil {
+		for _, gotcha := range format.ArchiveGotchasForText(root, text) {
+			gotchas += len(gotcha)
+		}
+	}
+	rep.Warning(path, item.Line, fmt.Sprintf(
+		"%s is ~%d tokens whole (+%d tokens of archive gotchas); reference a range or #anchor",
+		ref.Path, size/4, gotchas/4))
 }
 
 // ActivationIssues runs the plan and reference checks used by `activate`,
@@ -833,7 +883,7 @@ func ActivationIssues(root string, plan *format.Plan) ([]string, bool, error) {
 	}
 	report := &Report{Issues: make([]Issue, 0)}
 	lintPlan(report, plan)
-	lintRefs(report, root, plan, readBudget(docflow), NestedRepos(root, docflow))
+	lintRefs(report, root, plan, readBudget(docflow), wholeReadLimit(docflow), NestedRepos(root, docflow))
 	issues := make([]string, 0, len(report.Issues))
 	for _, issue := range report.Issues {
 		issues = append(issues, issue.String())
@@ -856,7 +906,7 @@ func ReferenceIssues(root string, plan *format.Plan) ([]string, error) {
 		return nil, err
 	}
 	report := &Report{Issues: make([]Issue, 0)}
-	lintRefs(report, root, plan, readBudget(docflow), NestedRepos(root, docflow))
+	lintRefs(report, root, plan, readBudget(docflow), wholeReadLimit(docflow), NestedRepos(root, docflow))
 	issues := make([]string, 0, len(report.Issues))
 	for _, issue := range report.Issues {
 		issues = append(issues, issue.String())
@@ -1015,10 +1065,12 @@ func Lint(root string) (*Report, error) {
 		return nil, err
 	}
 	var budget int
+	whole := defaultWholeReadLimit
 	var repos []string
 	if docflow != nil {
 		lintDocflow(rep, root, docflow)
 		budget = readBudget(docflow)
+		whole = wholeReadLimit(docflow)
 		repos = NestedRepos(root, docflow)
 	}
 	ids := make(map[string]string)
@@ -1051,7 +1103,7 @@ func Lint(root string) (*Report, error) {
 				}
 				lintPlan(rep, plan)
 				if plan.Meta["status"] != "frozen" {
-					lintRefs(rep, root, plan, budget, repos)
+					lintRefs(rep, root, plan, budget, whole, repos)
 				}
 				id := plan.Meta["id"]
 				if id == "" {

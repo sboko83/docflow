@@ -297,6 +297,16 @@ func ArchiveGotchas(root string, plan *Plan, unit *Unit) []string {
 			}
 		}
 	}
+	return archiveGotchas(root, texts)
+}
+
+// ArchiveGotchasForText returns active Gotchas items from archive entries
+// linked inside a single text, e.g. one whole-file Read reference.
+func ArchiveGotchasForText(root, text string) []string {
+	return archiveGotchas(root, []string{text})
+}
+
+func archiveGotchas(root string, texts []string) []string {
 	seen := make(map[string]bool)
 	gotchas := make([]string, 0)
 	for _, match := range ARCHIVE_LINK_RE.FindAllStringSubmatch(strings.Join(texts, "\n"), -1) {
