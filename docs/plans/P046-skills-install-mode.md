@@ -163,7 +163,7 @@ Handoff:
 - Живой интерактивный вопрос на терминале test-install.sh намеренно не трогает: все вызовы погашены режимом/сеansiрованием; путь вопроса остаётся за PTY-сценарием P046.2.1.
 - Unverified: Windows-ветка новых кейсов (export DOCFLOW_SKILLS=global для install.sh, install_sh через env, чужой скилл как каталог, очистка rm -rf, skip кейса без терминала) локально не запускалась — проверит её только шаг tools/test-install.sh на windows-latest в CI.
 
-### [ ] P046.1.3 Review the install mode phase
+### [x] P046.1.3 Review the install mode phase
 Read:
 - docs/design/skills.md:L56-115
 Do:
@@ -176,6 +176,14 @@ Do:
 Verify: `go test ./...`
 Role: review
 Commit: P046.1.3: review skills install mode
+Handoff:
+- Ревью фазы (75b58d7..HEAD) без дефектов. Путь удаления один: projectSkillsMode -> removeReleaseSkillLinks, и только по личным каталогам (AgentSkillsDir(agent,"") и ~/.zcode/skills). Он удаляет лишь симлинки, чей путь лежит под ~/.docflow. Ссылка на чекаут (install-dev), чужая ссылка, обычный каталог и проектные копии не трогаются. Проектные каталоги install/update не пишут и не читают. Тесты TestInstallSkillsProjectFlag и tools/test-install.sh это проверяют (чужой скилл и проектная копия переживают переключение).
+- Проверено: go build ./... для GOOS=windows, linux, darwin — ок; go vet по cmd, internal/term и internal/runner для трёх ОС — ок; полный docflow verify P046.1.3 (go test ./...) — passed, darwin.
+- Наблюдение для P046.2.1: `docflow doctor` не знает режима. В project-режиме он печатает «not installed» по каждому личному скиллу и выходит с кодом 6 (EXIT_STALE) — проверено на временном HOME с skills-mode=project. Это буквально верно, но для project-пользователя шумит. В Goal и в планах P046 doctor не упомянут, поэтому не блокирую; решить стоит в docs/usage.md (где doctor описан для личных скиллов) или отдельной задачей в Backlog.
+- Наблюдение: в update режим пишется (--skills или ответ на вопрос) до запроса latest и до activate. Если сеть упала после записи, skills-mode уже сменён, а ссылки остались старыми. Выравнивает следующий `update --skills …` или новый релиз. Опасности нет, ссылки при этом не теряются.
+- Наблюдение: openSkillsTTY читает /dev/tty. Процесс в фоновой группе терминала (`docflow update &` из интерактивной оболочки без сохранённого режима) получит SIGTTIN и остановится. Вопрос идёт в stderr: при перенаправленном stderr на живом терминале он невидим, а чтение ждёт ответа. Это следствие принятых решений (stderr + /dev/tty), в обычном `curl | sh` не проявляется. PTY-сценарий P046.2.1 может зафиксировать это одной строкой.
+- Наблюдение: перенос isTerminal в internal/term сделал stderrIsTerminal на Windows настоящим (GetConsoleMode); раньше releaseTerminal там всегда возвращал false. Фоновая проверка нового релиза (checkReleaseUpdate) теперь может срабатывать на Windows-консоли. Это поведенческое изменение вне Goal; в CHANGELOG оно не отражено.
+- Наблюдение: releaseSkillOptions берёт агентов, найденных в PATH. Если агент ушёл из PATH, его личные ссылки остаются при переключении на project. Полностью их снимает только uninstall, у которого список целей фиксирован. Для project-режима достаточно, но пользователю это можно сказать в docs.
 
 ## Phase 2: Acceptance
 
