@@ -211,6 +211,9 @@ SERVER_PID=$!
 
 BASE_URL=http://127.0.0.1:$PORT
 export DOCFLOW_RELEASE_URL=$BASE_URL
+# The background new-release notice would print to the real terminal from
+# commands whose stderr the harness does not capture.
+export DOCFLOW_NO_UPDATE_CHECK=1
 
 for _ in $(seq 1 100); do
     curl -fsS -o /dev/null "$BASE_URL/latest/download/VERSION" 2>/dev/null && break
