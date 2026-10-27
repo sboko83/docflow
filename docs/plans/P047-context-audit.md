@@ -77,6 +77,7 @@ whose archive Gotchas grow with every plan linked from it.
 - Лечить падение --check урезанием README.md, а не блоком — ловушка юнита прямо разрешает size cut названного файла, а ~10% сжатия установочных абзацев переводит строку в ok; отвергнуто: blocked с blocker plan (цикл replan ради конденсации двух абзацев)
 - Context предупреждать только у планов с открытым юнитом — Context кормит промпты лишь открытых юнитов; отвергнуто: предупреждать Context всех планов (шум по закрытой истории)
 - M в сообщении — байты/4 отформатированных строк '- (id) …' ровно тех Gotchas, что тянет ArchiveGotchas (суперседенные записи пропускаются) — цифра совпадает с реальным размером ## Archive gotchas в промпте; отвергнуто: число связанных записей без размера (не показывает стоимость)
+- После дефектов ревью P047.1.4 заменить его юнитами P047.1.5 (исправления и регрессионные проверки) и P047.1.6 (повторное ревью) — проверка бюджета описаний обязана использовать проекцию, а исторические чтения не должны зависеть от наличия пути сегодня; отвергнуто: исправлять код в review-юните или принимать отчёт с потерянными чтениями.
 
 ## Phase 1: Measure and bound
 
@@ -208,7 +209,7 @@ Handoff:
 - Unverified: README.ru.md зеркалит урезание по смыслу, но автоматической сверки содержимого двух README нет — отсутствует проверка парности (диф-ревью или тест), русский текст мог потерять деталь, сохранённую в английском
 - Unverified: точный Windows-путь запуска (%USERPROFILE%\.docflow\current\docflow.exe) убран из README при сжатии, а docs/usage.md полную Windows-раскладку не описывает — отсутствует проверка полноты установочных доков; фактическая раскладка теперь видна только из install.sh
 
-### [ ] P047.1.4 Review the context audit
+### [-] P047.1.4 Review the context audit
 Read:
 - docs/design/format.md:L55-80
 Do:
@@ -221,6 +222,73 @@ Do:
 Verify: `go test ./...`
 Role: review
 Commit: P047.1.4: review context audit
+Handoff:
+- Blocked (plan): Обнаружены два дефекта. tools/context-audit.py:662 проверяет текущий размер описаний скиллов вместо проекции: воспроизведён exit 0 при 829 токенах сейчас и 3402 при 200 планах, лимит 1500. tools/read-audit.py:483 отбрасывает исторические пути, отсутствующие в рабочем дереве: чтение tests/helpers.py на коммите P011.1.1 теряет 601 токен, хотя файл отсутствует в Read и изменениях юнита. Нужны исправления и повторное ревью.
+
+### [ ] P047.1.5 Fix audit projection and historical reads
+Read:
+- tools/context-audit.py:L499-715
+- tools/read-audit.py:L148-183
+- tools/read-audit.py:L215-329
+- tools/read-audit.py:L475-579
+- tools/read-audit.py:L642-718
+- tools/test-check-plan-skill.py:L1-80
+Do:
+- В `tools/context-audit.py` сравнивать суммарные описания скиллов с
+  лимитом 1500 по проекции на `--plans` (по умолчанию 200), а не по
+  текущему размеру; согласовать текст отказа и поле `check` в JSON.
+- В `tools/read-audit.py` разрешать пути относительно выбранного
+  исторического snapshot, включая файлы, которых больше нет в рабочем
+  дереве. Сохранить правила выбора коммита, исключения `Read:` и
+  изменённых файлов, лимиты вывода и чтения внешних/незакоммиченных файлов.
+  Проверить оба входа: прямой `Read`/`read` и shell-команды.
+- Добавить `tools/test-context-audits.py` на python3 stdlib с временными
+  git-репозиториями и синтетическими логами, без живого агента и личных
+  транскриптов. Сценарий бюджета: сейчас ниже 1500, при 200 планах выше
+  1500, остальные бюджеты соблюдены — CLI `--check` возвращает 1,
+  сообщает строку описаний, `--json --check` помечает её `fail`;
+  контрольный сценарий с проекцией в бюджете возвращает 0 и `ok`.
+- В том же наборе воспроизвести чтение файла, существующего лишь на
+  коммите юнита и отсутствующего в его `Read:` и изменениях: файл
+  попадает в лишние чтения с размером исторического блоба через оба
+  входа. Контроли: путь из `Read:` и изменённый файл не лишние,
+  несуществующий ни в snapshot, ни на диске путь не учитывается.
+- Повторить исходный случай P011.1.1 с `tests/helpers.py`: подтвердить
+  восстановление 601 токена из Handoff P047.1.4; записать результат в
+  Handoff. Если исходный транскрипт недоступен, явно указать это как
+  `Unverified`, отдельно от результата синтетической регрессии.
+Verify: `go build -o bin/docflow ./cmd/docflow && PYTHONDONTWRITEBYTECODE=1 PATH="$PWD/bin:$PATH" python3 tools/test-context-audits.py && PATH="$PWD/bin:$PATH" python3 tools/context-audit.py --check && python3 tools/read-audit.py --limit 5`
+Traps: Не повышать бюджеты и не обнулять рост ради зелёной проверки.
+Исторический путь нельзя отбрасывать через `os.path.isfile` текущего
+дерева до обращения к snapshot; shell-глобы также не должны терять
+исторические файлы. Не менять закрытые Handoff с прежними цифрами.
+Если исправленная проекция выявит другой перерасход, требующий нового
+решения, вернуть `blocked` с `blocker: "plan"` и провалившейся строкой.
+Не оставлять `tools/__pycache__` после импортов тестового harness.
+Depends: P047.1.1, P047.1.2, P047.1.3
+Commit: P047.1.5: fix audit projection and historical reads
+
+### [ ] P047.1.6 Review the corrected context audit
+Read:
+- docs/design/format.md:L55-80
+- tools/context-audit.py:L499-715
+- tools/read-audit.py:L475-579
+- tools/read-audit.py:L642-718
+Do:
+- Повторно проверить весь diff фазы из `## Phase diff` по Goal,
+  Constraints, Decisions и Do всех реализационных юнитов, включая
+  P047.1.5. Проверить сохранение решений при разбиении runner.md.
+  Ничего не редактировать.
+- Независимо воспроизвести оба дефекта из Handoff P047.1.4 на
+  исправленном коде; проверить, что регрессии P047.1.5 действительно
+  ловят исходные ошибки и не требуют личных логов. Отдельно проверить
+  согласованность exit code, текста отказа и JSON `check` проекции.
+- При дефекте вернуть `blocked` с `blocker: "plan"`; наблюдения без
+  дефекта оставить обычными пунктами Handoff.
+Verify: `go test ./...`
+Depends: P047.1.1, P047.1.2, P047.1.3, P047.1.5
+Role: review
+Commit: P047.1.6: review corrected context audit
 
 ## Phase 2: Acceptance
 
@@ -239,11 +307,15 @@ Do:
      raised above the file size → no warning.
   3. `python3 tools/read-audit.py --limit 5` prints per-unit rows and the
      `top` list.
+- Запустить регрессии `tools/test-context-audits.py` из P047.1.5:
+  прогнозируемый перерасход описаний даёт exit 1 и JSON `fail`, бюджетный
+  контроль — exit 0 и `ok`; чтение удалённого исторического файла
+  учитывается без его восстановления в рабочем дереве.
 - Close every `Unverified:` item of earlier units with a test, or give it a
   disposition as the plan skill's Acceptance section requires.
-Verify: `go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow && PATH="$PWD/bin:$PATH" python3 tools/context-audit.py --check`
+Verify: `go build -o bin/docflow ./cmd/docflow && PYTHONDONTWRITEBYTECODE=1 PATH="$PWD/bin:$PATH" python3 tools/test-context-audits.py && bash tools/parity/run.sh bin/docflow bin/docflow && PATH="$PWD/bin:$PATH" python3 tools/context-audit.py --check`
 Traps: A failing scenario is fixed inside this unit when the fix is small;
 otherwise reply `blocked` with the reason.
-Depends: P047.1.1, P047.1.2, P047.1.3, P047.1.4
+Depends: P047.1.1, P047.1.2, P047.1.3, P047.1.4, P047.1.5, P047.1.6
 Role: acceptance
 Commit: P047.2.1: accept context bounds
