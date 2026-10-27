@@ -5,12 +5,15 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P046
 - P047
 
 ## Frozen
 
 ## Backlog
+- Проверить на windows-latest CI ветки режима скиллов: `term.OpenTTY` через
+  `CONIN$` и кейсы режима в `tools/test-install.sh` (закреплённый
+  `DOCFLOW_SKILLS=global`, чужой скилл каталогом); риск — зависание шага
+  на чтении консоли ([P046](archive/P046-skills-install-mode.md)).
 - Проверить PTY-сценарии живости на Linux и кадры/спиннер в настоящей
   консоли Windows: время блока, квота used/left, сбросы, перенос на 30
   колонках, спиннер и активный кап закрытия; убедиться, что квота
