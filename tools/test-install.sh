@@ -383,7 +383,7 @@ mkdir -p "$WORK/repo"
 DEV_REPO=$(cd "$WORK/repo" && pwd -P) || fail 'cannot resolve the development checkout'
 git init -q "$DEV_REPO"
 # install-dev must not rebuild the binary currently running docflow verify.
-for item in cmd internal templates skills tools go.mod LICENSE; do
+for item in cmd internal templates skills tools go.mod go.sum LICENSE; do
     cp -R "$REPO_DIR/$item" "$DEV_REPO/"
 done
 (cd "$DEV_REPO" && go build -o "bin/docflow$EXE" ./cmd/docflow) \

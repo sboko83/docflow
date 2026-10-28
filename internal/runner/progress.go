@@ -67,6 +67,10 @@ func newProgress(out, err io.Writer, verbose bool) *Progress {
 		err = os.Stderr
 	}
 	tty := term.IsTerminal(out)
+	if file, ok := out.(*os.File); ok && tty {
+		// Console hosts may start without ANSI processing enabled.
+		term.EnableVTProcessing(file)
+	}
 	columns := func() int { return terminalColumns(out) }
 	return &Progress{
 		out: out, err: err, verbose: verbose, tty: tty,

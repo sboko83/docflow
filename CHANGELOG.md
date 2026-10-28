@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Bash. Covered by CI on the Windows runner in both entry forms.
 
 ### Fixed
+- Windows: run frames, quota resets, and the spinner follow the console's
+  actual width; ANSI processing is enabled for console hosts that start
+  without it.
 - Windows: stopping a timed-out or stalled agent no longer leaks its
   shell descendants. The call now runs inside a kill-on-close job object;
   the previous `taskkill /T /F` could not reach processes spawned through

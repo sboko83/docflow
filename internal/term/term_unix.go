@@ -25,6 +25,8 @@ func IsTerminal(stream any) bool {
 	return errno == 0
 }
 
+func EnableVTProcessing(stream *os.File) {}
+
 // OpenTTY returns the controlling terminal for reading. /dev/tty stays the
 // user's terminal even when stdin carries other data, such as the script
 // pipe of curl … | sh.

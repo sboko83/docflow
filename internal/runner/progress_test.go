@@ -207,6 +207,7 @@ func TestUnitEndPlainAndNoColor(t *testing.T) {
 	}
 	out := &fakeTTY{}
 	t.Setenv("NO_COLOR", "1")
+	t.Setenv("TERM", "xterm")
 	p = newProgress(out, out, false)
 	p.setColumns(80)
 	p.unit("P001.1.1", "Unit", agents.Route{Agent: "claude"}, blockStart)

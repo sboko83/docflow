@@ -185,6 +185,7 @@ checkout_fixture() {
     cp -R "$e2e_source/cmd" "$e2e_source/internal" \
         "$e2e_source/skills" "$e2e_source/templates" "$checkout/"
     cp "$e2e_source/go.mod" "$checkout/go.mod"
+    cp "$e2e_source/go.sum" "$checkout/go.sum"
     # A shared Git-dir gives both copies the same version SHA, without
     # committing executable bytes (which necessarily differ by language).
     if [ "$e2e_windows" -eq 1 ]; then

@@ -6,9 +6,18 @@ import (
 	"io"
 	"os"
 	"syscall"
+
+	"bsv-docflow/internal/term"
 )
 
-func terminalColumns(stream io.Writer) int { return 80 }
+// terminalColumns follows the visible console window, including ConPTY.
+func terminalColumns(stream io.Writer) int {
+	file, ok := stream.(*os.File)
+	if !ok {
+		return 80
+	}
+	return term.Columns(file)
+}
 
 func disableEcho(file *os.File) func() { return func() {} }
 
