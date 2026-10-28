@@ -345,7 +345,7 @@ func noEcho(stream io.Reader) func() {
 
 func runnerPrompt(root string, plan *format.Plan, unit *format.Unit, agent map[string]any, permissions string) (string, error) {
 	var repos []string
-	if role := unit.Field("Role"); role != nil && role.Value == "review" {
+	if role := unit.Field("Role"); role != nil && (role.Value == "review" || role.Value == "acceptance") {
 		var err error
 		repos, err = lint.ProjectRepos(root)
 		if err != nil {

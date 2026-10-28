@@ -80,6 +80,13 @@ func PromptText(root string, plan *format.Plan, unit *format.Unit, repos []strin
 		}
 		out.WriteString(section)
 	}
+	if prefix := testChangesPrefix(plan, unit); prefix != "" {
+		section, err := testChangesSection(root, plan, unit, repos, prefix)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString(section)
+	}
 	out.WriteString(strings.ReplaceAll(cycleText, "{id}", unit.ID))
 	return out.String(), nil
 }
@@ -89,40 +96,64 @@ func reviewUnit(unit *format.Unit) bool {
 	return role != nil && role.Value == "review"
 }
 
-func phaseDiffSection(root string, plan *format.Plan, unit *format.Unit, repos []string) (string, error) {
-	if unit.Phase == nil {
-		return "", fmt.Errorf("review unit %s has no phase", unit.ID)
+func acceptanceUnit(unit *format.Unit) bool {
+	role := unit.Field("Role")
+	return role != nil && role.Value == "acceptance"
+}
+
+// testChangesPrefix is the commit subject prefix whose commits feed the
+// `## Test changes` section: the unit's phase for review, the whole plan for
+// acceptance, "" when the unit is neither.
+func testChangesPrefix(plan *format.Plan, unit *format.Unit) string {
+	switch {
+	case reviewUnit(unit) && unit.Phase != nil:
+		return fmt.Sprintf("%s.%d.", plan.Meta["id"], *unit.Phase)
+	case acceptanceUnit(unit):
+		return fmt.Sprintf("%s.", plan.Meta["id"])
 	}
-	prefix := fmt.Sprintf("%s.%d.", plan.Meta["id"], *unit.Phase)
-	type repository struct {
-		path string
-		root string
-	}
-	repositories := []repository{{path: ".", root: root}}
+	return ""
+}
+
+type promptRepository struct {
+	path string
+	root string
+}
+
+// promptRepositories lists the root and the nested repositories of repos:, in
+// the order of the prompt's per-repository blocks.
+func promptRepositories(root string, repos []string) []promptRepository {
+	list := []promptRepository{{path: ".", root: root}}
 	for _, repo := range repos {
 		if repo == "" || repo == "." {
 			continue
 		}
-		repositories = append(repositories, repository{
+		list = append(list, promptRepository{
 			path: filepath.ToSlash(repo),
 			root: filepath.Join(root, filepath.FromSlash(repo)),
 		})
 	}
-	sort.Slice(repositories, func(i, j int) bool {
-		if repositories[i].path == repositories[j].path {
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].path == list[j].path {
 			return false
 		}
-		if repositories[i].path == "." {
+		if list[i].path == "." {
 			return true
 		}
-		if repositories[j].path == "." {
+		if list[j].path == "." {
 			return false
 		}
-		return repositories[i].path < repositories[j].path
+		return list[i].path < list[j].path
 	})
+	return list
+}
 
+// perRepositorySection writes the section heading and one block per
+// repository of repos:; the blocks name their repository by path only when
+// there are nested repositories. label names the section in an error.
+func perRepositorySection(root string, repos []string, heading, label string, block func(repo string) (string, error)) (string, error) {
+	repositories := promptRepositories(root, repos)
 	var out strings.Builder
-	out.WriteString("## Phase diff\n\n")
+	fmt.Fprintf(&out, "## %s\n\n", heading)
 	for i, repo := range repositories {
 		if len(repos) > 0 {
 			if i > 0 {
@@ -130,35 +161,61 @@ func phaseDiffSection(root string, plan *format.Plan, unit *format.Unit, repos [
 			}
 			fmt.Fprintf(&out, "### %s\n\n", repo.path)
 		}
-		block, err := phaseDiffForRepository(repo.root, prefix, unit.ID)
+		text, err := block(repo.root)
 		if err != nil {
-			return "", fmt.Errorf("phase diff in %s: %w", repo.path, err)
+			return "", fmt.Errorf("%s in %s: %w", label, repo.path, err)
 		}
-		out.WriteString(block)
+		out.WriteString(text)
 		out.WriteByte('\n')
 	}
 	return out.String(), nil
 }
 
-func phaseDiffForRepository(root, prefix, reviewUnitID string) (string, error) {
+func phaseDiffSection(root string, plan *format.Plan, unit *format.Unit, repos []string) (string, error) {
+	if unit.Phase == nil {
+		return "", fmt.Errorf("review unit %s has no phase", unit.ID)
+	}
+	prefix := fmt.Sprintf("%s.%d.", plan.Meta["id"], *unit.Phase)
+	return perRepositorySection(root, repos, "Phase diff", "phase diff", func(repo string) (string, error) {
+		return phaseDiffForRepository(repo, prefix, unit.ID)
+	})
+}
+
+// testChangesSection lists the `Test changes:` items of the unit commits in
+// the range of prefix: the phase for review, the whole plan for acceptance.
+func testChangesSection(root string, plan *format.Plan, unit *format.Unit, repos []string, prefix string) (string, error) {
+	return perRepositorySection(root, repos, "Test changes", "test changes", func(repo string) (string, error) {
+		return testChangesForRepository(repo, prefix, unit.ID)
+	})
+}
+
+// phaseBase returns the parent of the first commit whose subject carries the
+// prefix, the unit's own commits skipped. ok is false when no commit does.
+func phaseBase(root, prefix, unitID string) (base string, ok bool, err error) {
 	log, err := gitx.Git(root, "log", "--reverse", "--format=%H%x00%P%x00%s", "HEAD")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	base := ""
 	for _, line := range strings.Split(strings.TrimRight(string(log), "\r\n"), "\n") {
 		fields := strings.SplitN(line, "\x00", 3)
-		if len(fields) != 3 || !strings.HasPrefix(fields[2], prefix) || reviewUnitCommit(fields[2], reviewUnitID) {
+		if len(fields) != 3 || !strings.HasPrefix(fields[2], prefix) || reviewUnitCommit(fields[2], unitID) {
 			continue
 		}
 		parents := strings.Fields(fields[1])
 		if len(parents) == 0 {
-			return "", fmt.Errorf("phase commit %s has no parent", fields[0])
+			return "", false, fmt.Errorf("phase commit %s has no parent", fields[0])
 		}
-		base = parents[0]
-		break
+		return parents[0], true, nil
 	}
-	if base == "" {
+	return "", false, nil
+}
+
+func phaseDiffForRepository(root, prefix, reviewUnitID string) (string, error) {
+	base, ok, err := phaseBase(root, prefix, reviewUnitID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
 		return "no commits with prefix " + prefix + "\n", nil
 	}
 	baseShort, err := gitx.Git(root, "rev-parse", "--short", base)
@@ -179,6 +236,43 @@ func phaseDiffForRepository(root, prefix, reviewUnitID string) (string, error) {
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "Base: %s\n\nCommits:\n%s\nCommand: `git diff %s HEAD`\n", baseShortText, strings.Join(commits, "\n"), baseShortText)
+	return out.String(), nil
+}
+
+// testChangesForRepository names every test change item of the commits in the
+// range base..HEAD as `- <subject>: <item>`, the same range and the same
+// commit-skipping as phaseDiffForRepository. The items come from the
+// `Test changes:` block each unit commit already carries: git stays the
+// source of truth for review and acceptance. `none` when the range has none.
+func testChangesForRepository(root, prefix, unitID string) (string, error) {
+	base, ok, err := phaseBase(root, prefix, unitID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "none\n", nil
+	}
+	log, err := gitx.Git(root, "log", "--reverse", "--format=%s%x00%b%x00", base+"..HEAD")
+	if err != nil {
+		return "", err
+	}
+	tokens := strings.Split(string(log), "\x00")
+	found := false
+	var out strings.Builder
+	for i := 0; i+1 < len(tokens); i += 2 {
+		subject := strings.TrimSpace(tokens[i])
+		if !strings.HasPrefix(subject, prefix) || reviewUnitCommit(subject, unitID) {
+			continue
+		}
+		body := strings.TrimRight(tokens[i+1], "\r\n")
+		for _, item := range commitTestChanges(body) {
+			fmt.Fprintf(&out, "- %s: %s\n", subject, item)
+			found = true
+		}
+	}
+	if !found {
+		return "none\n", nil
+	}
 	return out.String(), nil
 }
 
@@ -403,7 +497,7 @@ func Prompt(root, unitID string, projectRepos func(string) ([]string, error)) (R
 		return Result{Code: clierrors.EXIT_ORDER, Stderr: fmt.Sprintf("%s: commit pending; run docflow run or docflow finish %s\n", unit.ID, unit.ID)}, nil
 	}
 	var repos []string
-	if unit.Status == " " || reviewUnit(unit) {
+	if unit.Status == " " || reviewUnit(unit) || acceptanceUnit(unit) {
 		if projectRepos != nil {
 			repos, err = projectRepos(root)
 			if err != nil {

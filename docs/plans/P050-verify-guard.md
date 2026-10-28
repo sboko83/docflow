@@ -91,6 +91,10 @@ acceptance.
 - Пункты берутся из stdout коммита, а не пересчитываются раннером по дереву — why: источником правды остаётся cycle и git, раннер не парсит диффы; rejected alternative: пересчёт `stagedTestChanges` в раннере (расхождение с телом коммита и двойной учёт).
 - `unit_end` всегда несёт `test_changes` (0, когда пунктов нет) — why: у событий одно поле и читатель v: 1 не различает «нет поля» и «ноль пунктов», поле new для старых прогонов игнорируется; rejected alternative: опускать поле при нуле (разная форма событий у юнитов одного прогона).
 - Счётчик в сводке ставится после `, N checks changed by replan` и до `, N replans` — why: порядок строк, заложенный P050.1.3, сохраняется, новый счётчик его не ломает; rejected alternative: отдельная строка сводки про тесты.
+- Пункты `## Test changes` фильтруются по префиксу и юниту, а не берутся из всего диапазона base..HEAD — why: диапазон шире фазы, в промпт review попадали чужие фазы и собственный коммит юнита — rejected: только диапазон без фильтра по префиксу
+- Пункты читаются из тела коммита (`commitTestChanges` — инверсия `testChangesBody`), а не пересчитываются по дереву — why: git остаётся источником правды, промпт видит ровно то, что записал P050.2.1, и работает в интерактиве — rejected: пересчёт диффа в промпте (расхождение с телом коммита и двойной учёт)
+- Phase diff и Test changes строят секции общим кодом (`promptRepositories`, `perRepositorySection`) — why: один список репозиториев, одна расстановка `###` и один порядок блоков — rejected: отдельная расстановка заголовков во второй секции (блоки разъехались бы по оформлению)
+- `repos:` тянутся и для acceptance-роли — why: иначе у acceptance-промпта нет подразделов вложенных репозиториев и оценка read budget расходится с промптом — rejected: только корневой репозиторий в acceptance-промпте
 
 ## Phase 1: Replan guard
 
@@ -236,7 +240,7 @@ Handoff:
 - Unverified: Вложенный репо: строка прогона `test change: <repo>/<пункт>` не проверена — фикстура run_test с одним корневым репо, прогона с `repos:` в docs/docflow.md и коммитами вложенного репо нет.
 - Unverified: Возобновление незавершённого коммита: путь, где пункты приходят из `spanTestChanges` (коммит сделан до апгрейда, индекс чист против HEAD), в прогоне не проверен — нет сценария сбоя между `git commit` и выводом `docflow commit`, чтобы раннер напечатал восстановленные пункты.
 
-### [ ] P050.2.3 Feed test changes to review and acceptance
+### [x] P050.2.3 Feed test changes to review and acceptance
 Read:
 - internal/cycle/commands.go:L1-175
 - docs/design/cycle.md#цикл-юнита
@@ -248,6 +252,13 @@ Do:
 - В `docs/design/cycle.md` дополнить перечень «`prompt` содержит» разделом `## Test changes` для ролей review и acceptance.
 Verify: `go test ./internal/cycle/`
 Commit: P050.2.3: feed test changes to review and acceptance
+Handoff:
+- Форма строк раздела `## Test changes`: `- <subject коммита>: <пункт>`; при `repos:` блоки `### <path>` с пустой строкой между блоками, а когда пунктов нет — строка `none` (без тире); на эти строки опираются review и приёмка
+- Пункты раздела берутся из тела коммита (`commitTestChanges` в internal/cycle, не экспортирована): разбор тел коммитов строится как `git log --format=%s%x00%b%x00 base..HEAD` + этот парсер; экспорт для приёмки не делался
+- Фильтр по префиксу и собственный коммит юнита в `testChangesForRepository` обязательны: диапазон `base..HEAD` шире фазы и без фильтра тянул бы чужие фазы в промпт review
+- `repos:` теперь читается и для acceptance: `Prompt` в internal/cycle и `runnerPrompt` в internal/runner — у acceptance-промпта появились подразделы вложенных репозиториев, read budget `lint` это учитывает
+- Unverified: Изменение `internal/runner/runnerPrompt` (repos для acceptance) вне `gate:` — полный `go test ./internal/runner/` не запускался, проверялся только subset `-run 'Prompt|PhaseDiff|Role|Acceptance|Batch'`
+- Unverified: Подразделы вложенных репозиториев в acceptance-промпте тестом не покрыты: фикстура с `repos:` есть только для review-юнита — нет сценария acceptance с вложенным репозиторием
 
 ### [ ] P050.2.4 Review visible test changes
 Read:

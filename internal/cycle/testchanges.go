@@ -110,6 +110,25 @@ func testChangesBody(message string, items []string) string {
 	return body
 }
 
+// commitTestChanges picks the items of the `Test changes:` block out of the
+// body of a commit message, the inverse of testChangesBody. A body without
+// the block carries no items.
+func commitTestChanges(body string) []string {
+	items := []string{}
+	inBlock := false
+	for _, line := range strings.Split(normalizeNewlines(body), "\n") {
+		switch text := strings.TrimSpace(line); {
+		case !inBlock:
+			inBlock = text == "Test changes:"
+		case strings.HasPrefix(text, "- ") && len(text) > 2:
+			items = append(items, text[len("- "):])
+		default:
+			inBlock = false
+		}
+	}
+	return items
+}
+
 // testChangesFor runs three forms of one git diff and builds the items in the
 // diff's own path order: numstat gives the line counts, name-status gives the
 // file status letters, and the `-U0` patch gives the added lines.
