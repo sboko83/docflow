@@ -43,20 +43,29 @@ func TestKillStopsGrandchildren(t *testing.T) {
 			pidFile := filepath.Join(t.TempDir(), "pid")
 			cmd := exec.Command(os.Args[0], pidFile)
 			cmd.Env = append(os.Environ(), helperEnv+"=parent")
-			if err := cmd.Start(); err != nil {
+			var watch *Watch
+			var err error
+			if useWatch {
+				watch, err = Start(cmd)
+			} else {
+				err = cmd.Start()
+			}
+			if err != nil {
 				t.Fatal(err)
+			}
+			defer watch.Close()
+			if useWatch {
+				if watch == nil {
+					_ = cmd.Process.Kill()
+					_ = cmd.Wait()
+					t.Fatal("Start did not assign a job")
+				}
+				// Descendants exist before the caller starts waiting or killing.
+				// Starting first and assigning the job here leaks this child.
+				waitPID(t, pidFile)
 			}
 			done := make(chan error, 1)
 			go func() { done <- cmd.Wait() }()
-			var watch *Watch
-			if useWatch {
-				w, err := Track(cmd.Process)
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer w.Close()
-				watch = w
-			}
 			pid := waitPID(t, pidFile)
 			t.Cleanup(func() { _ = exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid)).Run() })
 			if !processExists(pid) {

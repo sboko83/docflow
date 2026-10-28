@@ -226,7 +226,8 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 		}
 		out.log = logFile
 	}
-	if err := cmd.Start(); err != nil {
+	watch, err := procgroup.Start(cmd)
+	if err != nil {
 		if logFile != nil {
 			logFile.Close()
 		}
@@ -234,7 +235,6 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	watch, _ := procgroup.Track(cmd.Process)
 	defer watch.Close()
 	var timer *time.Timer
 	var deadline <-chan time.Time

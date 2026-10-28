@@ -18,13 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actual width; ANSI processing is enabled for console hosts that start
   without it.
 - Windows: stopping a timed-out or stalled agent no longer leaks its
-  shell descendants. The call now runs inside a kill-on-close job object;
-  the previous `taskkill /T /F` could not reach processes spawned through
-  Git Bash (MSYS re-parents them), which kept pipes open and cost up to
-  5 s per forced stop.
+  shell descendants, including children spawned immediately or through
+  Git Bash. Leaked processes kept pipes open and delayed forced stops.
 - Windows: the closing prompt hands the agent the absolute path of the
   running CLI, so a foreign `docflow` on PATH can no longer answer the
-  close call.
+  close call. The invocation uses PowerShell syntax on Windows, including
+  paths with spaces or apostrophes.
 - Log paths of call attempts (event stream and the progress line) use
   forward slashes on every OS.
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -111,21 +112,28 @@ func closeRouteLine(args Args, config map[string]any, plan *format.Plan, out io.
 	return nil
 }
 
-// closePrompt hands the closing agent the absolute path of the running CLI:
+// closeCLICommand hands the closing agent the absolute path of the running CLI:
 // a PATH lookup inside the agent's shell can land on a foreign docflow (the
 // inherited PATH is not fully under the runner's control).
-func closePrompt(plan *format.Plan, cli string) string {
+func closeCLICommand(cli string) string {
 	if cli == "" {
-		cli = "docflow"
-	} else {
-		cli = "'" + strings.ReplaceAll(cli, "'", `'"'"'`) + "'"
+		return "docflow"
 	}
+	if runtime.GOOS == "windows" {
+		return "& '" + strings.ReplaceAll(cli, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(cli, "'", `'"'"'`) + "'"
+}
+
+func closePrompt(plan *format.Plan, cli string) string {
+	cli = closeCLICommand(cli)
 	return fmt.Sprintf(`# Close %s %s
 
 Read %s in full and follow the bsv-docflow-close skill.
 Run %s close %s yourself, then fill the archive entry's Outcome,
 Decisions, Gotchas and Follow-ups. Update documentation links, current state,
 CHANGELOG and Backlog as the skill requires. Run %s lint.
+These commands use PowerShell syntax on Windows and POSIX shell syntax on Unix.
 Edit only docs/, CHANGELOG.md, README.md and README.ru.md.
 Do not commit or rewrite Git history: the runner checks and commits the result.
 The runner owns this closing operation; ignore the skill's commit step.

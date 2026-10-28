@@ -3,9 +3,11 @@
 package procgroup
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -17,6 +19,53 @@ var StopSignals = []os.Signal{os.Interrupt}
 
 // Detach is a no-op on Windows.
 func Detach(cmd *exec.Cmd) {}
+
+// Start assigns the job before the child can spawn descendants. Assigning an
+// already running process does not bring its existing children into the job.
+func Start(cmd *exec.Cmd) (*Watch, error) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	flags := cmd.SysProcAttr.CreationFlags
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+	err := cmd.Start()
+	cmd.SysProcAttr.CreationFlags = flags
+	if err != nil {
+		return nil, err
+	}
+	watch, _ := Track(cmd.Process) // Preserve taskkill fallback if jobs are unavailable.
+	if err := resume(cmd.Process.Pid); err != nil {
+		_ = cmd.Process.Kill()
+		watch.Close()
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("resume child: %w", err)
+	}
+	return watch, nil
+}
+
+// Go closes CreateProcess's primary thread handle. Find that thread while the
+// process is still suspended, before any child code or descendants can run.
+func resume(pid int) error {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(snapshot)
+	entry := windows.ThreadEntry32{Size: uint32(unsafe.Sizeof(windows.ThreadEntry32{}))}
+	for err = windows.Thread32First(snapshot, &entry); err == nil; err = windows.Thread32Next(snapshot, &entry) {
+		if entry.OwnerProcessID != uint32(pid) {
+			continue
+		}
+		thread, err := windows.OpenThread(windows.THREAD_SUSPEND_RESUME, false, entry.ThreadID)
+		if err != nil {
+			return err
+		}
+		_, err = windows.ResumeThread(thread)
+		windows.CloseHandle(thread)
+		return err
+	}
+	return err
+}
 
 // Watch carries the kill-on-close job of one agent call. A nil Watch is valid
 // everywhere: the kill path falls back to the taskkill tree walk and Close is

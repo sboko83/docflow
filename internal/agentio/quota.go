@@ -178,7 +178,8 @@ func CodexProbe(argv []string, timeout time.Duration) map[string]any {
 		}
 	}}
 	cmd.Stdout = out
-	if cmd.Start() != nil {
+	watch, err := procgroup.Start(cmd)
+	if err != nil {
 		_ = in.Close()
 		return nil
 	}
@@ -188,7 +189,6 @@ func CodexProbe(argv []string, timeout time.Duration) map[string]any {
 		out.flush()
 		done <- err
 	}()
-	watch, _ := procgroup.Track(cmd.Process)
 	defer watch.Close()
 	defer in.Close()
 	_, _ = fmt.Fprintln(in, `{"id":1,"method":"initialize","params":{"clientInfo":{"name":"docflow","version":"0"}}}`+"\n"+`{"method":"initialized"}`+"\n"+`{"id":2,"method":"account/rateLimits/read"}`)

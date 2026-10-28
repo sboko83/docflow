@@ -198,9 +198,8 @@ func runVerifyCommand(root, command string) (string, int) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, procgroup.StopSignals...)
 	defer signal.Stop(signals)
-	err := cmd.Start()
+	watch, err := procgroup.Start(cmd)
 	if err == nil {
-		watch, _ := procgroup.Track(cmd.Process)
 		defer watch.Close()
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()

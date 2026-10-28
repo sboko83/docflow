@@ -2,11 +2,38 @@ package runner
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestCloseCLICommandInShell(t *testing.T) {
+	// Exercise the actual invocation, including spaces and an apostrophe in
+	// the executable path, instead of only comparing the generated text.
+	binary := filepath.Join(t.TempDir(), "agent's cli")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
+	data, err := os.ReadFile(runnerBinary(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := closeCLICommand(binary) + " --version"
+	cmd := exec.Command("/bin/sh", "-c", command)
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", command)
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(output)) == "" {
+		t.Fatalf("close command: %v\n%s", err, output)
+	}
+}
 
 // The fake invokes the runner's own binary by absolute path, as the closing
 // prompt instructs, exercising the closing call.
@@ -58,7 +85,7 @@ func TestRunCloseAfterUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := f.calls()[2].Stdin
-	for _, instruction := range []string{"bsv-docflow-close", shellQuote(f.binary) + " close P001", "Outcome", "Follow-ups", "Do not commit", `"blocker":""`} {
+	for _, instruction := range []string{"bsv-docflow-close", closeCLICommand(f.binary) + " close P001", "Outcome", "Follow-ups", "Do not commit", `"blocker":""`} {
 		if !strings.Contains(prompt, instruction) {
 			t.Errorf("close prompt missing %q", instruction)
 		}

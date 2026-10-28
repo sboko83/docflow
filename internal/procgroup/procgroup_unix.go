@@ -22,6 +22,9 @@ var StopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 // otherwise make itself the foreground group and stop docflow with SIGTTIN).
 func Detach(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
 
+// Start launches cmd; Unix process groups need no job assignment.
+func Start(cmd *exec.Cmd) (*Watch, error) { return nil, cmd.Start() }
+
 // Track is a no-op on Unix: Kill walks live parent links itself.
 func Track(p *os.Process) (*Watch, error) { return nil, nil }
 
