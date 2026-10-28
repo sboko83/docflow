@@ -33,5 +33,6 @@ jobs:
       - run: PYTHONDONTWRITEBYTECODE=1 python tools/test-context-audits.py
         if: runner.os == 'Windows'
       - run: bash tools/test-install.sh
+      - run: bash tools/test-smoke-run.sh
       - run: bash tools/test-install-ps1.sh
         if: runner.os == 'Windows'

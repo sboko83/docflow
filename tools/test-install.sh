@@ -73,13 +73,9 @@ if [ "$WINDOWS" = 1 ]; then
 fi
 mkdir "$HOME/.zcode"
 export SHELL=/bin/zsh
-if [ "$WINDOWS" = 1 ]; then
-    # The skills mode question reads the console (CONIN$), which stays openable
-    # without a console and has no setsid here: pin the mode so a scripted
-    # install never blocks on the question. The no-terminal fallback is a
-    # Unix-only case, marked as skipped on Windows below.
-    export DOCFLOW_SKILLS=global
-fi
+# install_sh redirects stderr, so the CLI must take the noninteractive
+# fallback even if Windows still exposes an inherited CONIN$ handle.
+unset DOCFLOW_SKILLS
 # Real agent CLIs and a development docflow on the inherited PATH would mask
 # the stubs: keep only the tools the test needs plus the system directories.
 TOOL_PATH=
@@ -229,16 +225,12 @@ install_sh "$WORK/install.log" || { cat "$WORK/install.log" >&2; fail 'install.s
 GOT=$(docflow --version)
 [ "$GOT" = 0.0.1 ] || fail "docflow --version: got '$GOT', want '0.0.1'"
 skill_links_present 'install 0.0.1'
-if [ "$WINDOWS" = 1 ]; then
-    echo 'skip: the no-terminal skills mode needs setsid, which Windows lacks'
-else
-    # No DOCFLOW_SKILLS and no controlling terminal: docflow install links
-    # globally, hints, and stores nothing, so scripted installs keep working.
-    [ ! -e "$HOME/.docflow/skills-mode" ] \
-        || fail "skills-mode written without a terminal: $(cat "$HOME/.docflow/skills-mode")"
-    grep -qF 'docflow update --skills project' "$WORK/install.log" \
-        || fail "install.sh: no global fallback hint in '$(cat "$WORK/install.log")'"
-fi
+# No DOCFLOW_SKILLS and redirected stderr: docflow install links globally,
+# hints, and stores nothing, so scripted installs keep working on every OS.
+[ ! -e "$HOME/.docflow/skills-mode" ] \
+    || fail "skills-mode written without a terminal: $(cat "$HOME/.docflow/skills-mode")"
+grep -qF 'docflow update --skills project' "$WORK/install.log" \
+    || fail "install.sh: no global fallback hint in '$(cat "$WORK/install.log")'"
 COUNT=$(path_line_count)
 [ "$COUNT" = 1 ] || fail "PATH lines in ~/.zshrc: got $COUNT, want 1"
 if [ "$WINDOWS" = 1 ]; then

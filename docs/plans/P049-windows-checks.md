@@ -80,10 +80,13 @@ human-блоке в настоящей консоли Windows закрыт ConPT
   временного репозитория с `executor:` на strata-маршруте.
 - На Windows `python3` — заглушка из Microsoft Store, в скриптах нужен
   `python`; parity требует собранного `bin/docflow`.
-- Закрытие плана — живой прогон `docflow run --close P049` по скиллу
+- Закрытие плана — живой прогон `docflow run --close` по скиллу
   `bsv-docflow-close`: это и есть проверка строки бэклола на реальном
   плане. План закрывается этим прогоном, когда все юниты `[x]`, а не
   ручным `docflow close`.
+- Архивы P038, P041, P045 и P048 не переписывать: выполнение их
+  Follow-ups фиксируется в новой записи P049. P041, P045 и P048
+  восстановлены к содержимому до приёмки P049.3.1.
 
 ## Decisions
 
@@ -96,17 +99,13 @@ human-блоке в настоящей консоли Windows закрыт ConPT
 - Закрытие P049 через `docflow run --close` живым агентом: реальным
   планом проверяется и сам закрывающий прогон — отвергнут ручной
   `docflow close`.
-- Ручной опт-ин тест удалён целиком, а не переформулирован — Decision плана отвергает ручной режим у консоли, вместо него ConPTY-покрытие — отвергнуто: сохранить тест с переформулированным skip
-- Ответ препечатывается в момент старта хоста без ожидания вопроса — буфер консольного ввода хранит вставленные строки до чтения, гонок нет — отвергнуто: ждать в выводе ребёнка строку вопроса перед записью
-- the guarded unit's Do says reply blocked with blocker human instead of running docflow block — in runner mode the runner records the block itself and cycle step 3 forbids self-block; rejected: literal `docflow block --needs human` in the unit Do (contradicts the runner cycle)
-- smoke-run.sh drops DOCFLOW_RUNNER_UNIT for all its docflow calls, not just unblock — the script must behave as a standalone context wherever launched; rejected: env -u on the Verify command line (leaves the trap for the next caller)
-- --dry-run --close check sits between unit completion and the live close — only there the selection resolves to close and the route line prints; rejected: before the unit run (plan not ready, no close: line)
-- close route line asserted exactly as `close: pi | zai/glm-5.3-flash | high` — catches route regressions; rejected: loose `^close: ` prefix
+- `smoke-run.sh` снимает `DOCFLOW_RUNNER_UNIT` для всех своих вызовов:
+  сценарий работает и из гейта раннера — отвергнута очистка окружения
+  только в команде Verify одного плана.
 - Приёмка использует успешный живой прогон закрытия из P049.2.1,
   если проверенный код не менялся: повтор требует дополнительных вызовов
   zai сверх ограничения плана — отвергнут обязательный повтор `--close`
   в P049.3.1 без расширения бюджета.
-- Reuse the successful P049.2.1 close result because the verified code is unchanged and the plan reserves no repeat zai calls; a repeat was rejected to stay within the quota.
 
 ## Phase 1: Windows-консоль и живая проверка unblock
 
@@ -251,7 +250,9 @@ Depends: P049.1.1, P049.1.2, P049.2.1
 Role: acceptance
 Commit: P049.3.1: accept Windows checks on codex
 Handoff:
-- Blocked (plan): На Windows 11 (Go 1.27.0, amd64) сборка, go test ./..., полный parity (70 сценариев, 0 пропусков), tools/test-install.sh, tools/test-install-ps1.sh, smoke-run.sh --unblock и полный docflow verify прошли. tools/test-install.sh сообщил, что проверку no-terminal skills mode пропустил: в Windows нет setsid. Для test-install-ps1.sh понадобилось явно передать системный PSModulePath в Git Bash. Не выполнен обязательный smoke-run.sh --close: сценарий расходует два вызова zai, а ограничение юнита резервирует zai только для P049.2.1. План должен согласовать повторный расход квоты или изменить способ проверки --close без нарушения его маршрутного assert.
-- After the runner completes and commits P049.3.1, run `docflow run --close P049` on the real plan; then close P038’s remaining Follow-up. It cannot run before this unit is committed and the tree is clean.
-- `tools/test-install.sh` skipped no-terminal skills mode because Windows lacks `setsid`.
-- P049.2.1’s close scenario ran once; retry and repeatability paths remain untested. The default `smoke-run.sh` path was not run to preserve the plan’s zai budget.
+- Accepted: живое закрытие временного плана подтверждено в `.git/docflow/run/P049.2.1.verify.log`; `tools/smoke-run.sh` и код раннера после этого не менялись. Повтор сценария на Z.ai не требуется по согласованному бюджету.
+- Accepted: повторяемость ответов живой модели не проверяется повторным расходом квоты; состояния отказа, fallback и продолжения нумерации логов закреплены `TestRunCloseFallback`, `TestRunCloseRefusalExhausted`, `TestRunCloseRetryKeepsLogs`.
+- Обычный smoke-сценарий проверен живым агентом Strata в отдельной копии скрипта с заменой только маршрута плана; производственный маршрут Z.ai сохранён. Повторная живая проверка `--unblock` тоже завершена.
+- `tools/test-install.sh` больше не принуждает `global` на Windows: перенаправленный stderr позволяет проверить fallback без `setsid`, как и на Unix. `tools/test-smoke-run.sh` проверяет успех закрытия, отказ при оставшемся плане в Queue, обычный путь и dry-run без живой модели; запускается в CI.
+- После чистого коммита проверки запустить `bin/docflow.exe run --yes --close`: в Queue только P049. Результат закрывает Follow-up P038, но записывается только в новый архив P049; старый архив не редактируется.
+- Linux/macOS из Follow-ups P048 ждут CI на этих ОС; цель P049 ограничена Windows. Новая задача в Backlog для этого не нужна.
