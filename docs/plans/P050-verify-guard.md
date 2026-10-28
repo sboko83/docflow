@@ -159,7 +159,7 @@ Handoff:
 - Unverified: Не покрыт комбинированный кейс: открытый юнит одновременно помечен в [x] и ослабил Verify — должен быть единственный problem marked [x] by replan и пустой check_changes; такого элемента в таблице TestCheckReplan нет.
 - Unverified: Linux-ветка не проверялась: parity (70 сценариев) и Go-набор прогнаны только на Windows Git Bash, тестов на Linux для этой правки не запускалось.
 
-### [ ] P050.1.3 Review replan guard
+### [x] P050.1.3 Review replan guard
 Read:
 - internal/runner/replan.go:L1-130
 - internal/runner/replan_rules.go
@@ -172,6 +172,9 @@ Role: review
 Commit: P050.1.3: review replan guard
 Handoff:
 - Blocked (plan): План ожидал, что replan не может обойти защиту опорных проверок; в реальности replan помечает открытый юнит review/acceptance (или обычный) как [x]: checkReplan не запрещает переход открытых юнитов в [x] (только [-]), replanCheckChanges его не записывает, раннер юнит [x] пропускает — опорная проверка стирается молча. Нужен юнит-исправление: запрет v.Status == "x" для открытых юнитов старого плана в checkReplan, правило 3 replanRules и docs/design/runner.md
+- Ревью пройдено, дефектов нет: четыре обхода закрыты — удаление Role: у опоры даёт Role changed (anchorRole читает старый план), замена опоры новым id даёт unit removed, перенос Verify в другое поле у опоры даёт Verify changed, а у обычного юнита — записанный пункт Decisions; открытый юнит в [x] ловит marked [x] by replan до разбора опоры (P050.1.4)
+- Replan может менять Read:, Commit: и заголовок опорного юнита — это не ослабление проверки и так задумано (Goal объявляет неприкосновенными только Verify/Do/Role); приёмка P050.4.1 не должна считать это дефектом
+- Дублированное поле Verify: в новой версии плана не ослабляет проверку: format/doc.go Field берёт первое поле с ключом, и guard, и исполнитель юнита читают одно и то же первое поле
 
 ## Phase 2: Visible test changes
 
