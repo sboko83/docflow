@@ -48,7 +48,9 @@ acceptance.
 - Replan законно снимает блок с юнита review или acceptance (`[!]` →
   `[ ]`/`[~]`) и добавляет юниты исправления в его `Depends:`: маркер
   статуса и `Depends:` у опорных юнитов меняться могут, неприкосновенны
-  только `Verify:`, `Do:`, `Role:` и переход в `[-]`.
+  только `Verify:`, `Do:`, `Role:` и переход в `[-]` или `[x]`: открытый
+  юнит (любой, не только опорный) replan не помечает `[x]` — раннер юнит
+  `[x]` пропускает, проверка исчезла бы молча (запрет — P050.1.4).
 - Раннер берёт sha коммита первым словом stdout `docflow commit`
   (`firstWord`): новые строки вывода идут только после существующих.
 - Тесты гоняются и на Windows (Git Bash): вывод git — с `/`, у фикстур
@@ -78,6 +80,7 @@ acceptance.
 - Записывать только то, что replan прошёл: опора и [x]/[-] не пишут пунктов, их смены останавливает checkReplan; отвергнуто: писать и смены опоры (план при этом восстанавливается, запись ушла бы в корзину).
 - Печатать строку с префиксом `<uid>: ` как у остальных строк раннера; отвергнуто: голый `<uid> replan changed check: ...` (в терминальном фрейме префикс юнита теряется, строка повисает без контекста).
 - Не давать пункта удалённому юиту: `unit removed` уже есть в проблемах checkReplan; отвергнуто: пункт `<id> Verify: ... -> ` для удаления (исчезнувшую проверку нельзя назвать изменённой).
+- Переход открытого юнита в `[x]` запрещён replan для всех юнитов, не только опорных: раннер юнит `[x]` пропускает, replanCheckChanges переход в `[x]` не записывает — проверка стиралась бы молча (обход нашёл review P050.1.3); отвергнуто: записывать переход пунктом `Replan changed check` (юнит `[x]` раннер не запускает — запись создавала бы видимость пройденной проверки вместо стёртой).
 
 ## Phase 1: Replan guard
 
@@ -130,16 +133,33 @@ Handoff:
 - Unverified: Правка плана с CRLF не проверена: фикстуры — LF, insertRaw берёт перевод строки из первой строки файла, на Windows-плане с CRLFappend не гонялся.
 - Unverified: Терминальный (fancy) вид жёлтой строки не виден: тестовый конвейер даёт некрашеный вывод, блок-фрейм с `! ` и срезанным префиксом юнита не проверялся ни одним прогоном.
 
+### [ ] P050.1.4 Forbid replan marking open units done
+Read:
+- internal/runner/replan.go:L48-135
+- internal/runner/replan_rules.go
+- internal/runner/replan_test.go:L99-159
+- docs/design/runner.md#авто-replan
+Do:
+- В `checkReplan` (`internal/runner/replan.go`) в цикле по юнитам старого плана: открытый (не `[x]`/`[-]`) юнит, чья новая версия имеет статус `x`, — проблема `unit <id> marked [x] by replan` с `continue`, проверка стоит до разбора опорных юнитов и действует на обычные юниты и опорные одинаково; `replanCheckChanges` не меняется — запрещённое checkReplan не записывается.
+- В `replanRules` (`internal/runner/replan_rules.go`) в пункте 3 после «such a unit never moves to `[-]`» дописать: юниты старого плана, открытые на момент replan, replan не помечает `[x]` — раннер юнит `[x]` пропускает, проверка исчезла бы молча.
+- Тесты в `TestCheckReplan`: открытый обычный юнит → `[x]` — проблема; опорный (review) `[!]` → `[x]` — проблема; `[!]` → `[~]` и `[ ]` — без проблем; юнит старого плана `[x]` остаётся `[x]` — без проблем.
+- В `docs/design/runner.md` в разделе «Авто-replan» в перечень проверок `check_replan` дописать запрет помечать открытые юниты `[x]`.
+Verify: `go test ./internal/runner/ -run 'TestCheckReplan|TestReplanPrompt'`
+Commit: P050.1.4: forbid replan marking open units done
+
 ### [ ] P050.1.3 Review replan guard
 Read:
 - internal/runner/replan.go:L1-130
 - internal/runner/replan_rules.go
 Do:
-- Проверить дифф фазы из раздела `## Phase diff` промпта против Goal, Constraints, `## Decisions` плана и `Do:` юнитов P050.1.1 и P050.1.2; ничего не править.
-- Отдельно проверить: может ли replan обойти защиту — удалить `Role:` у опорного юнита, заменить опорный юнит новым с другим id, перенести `Verify` в другое поле; найденный обход — дефект.
+- Проверить дифф фазы из раздела `## Phase diff` промпта против Goal, Constraints, `## Decisions` плана и `Do:` юнитов P050.1.1, P050.1.2 и P050.1.4; ничего не править.
+- Отдельно проверить: может ли replan обойти защиту — удалить `Role:` у опорного юнита, заменить опорный юнит новым с другим id, перенести `Verify` в другое поле, пометить открытый юнит `[x]`; найденный обход — дефект.
 Verify: `go build ./... && go vet ./... && go test ./internal/cycle/ ./internal/format/ ./internal/lint/`
+Depends: P050.1.4
 Role: review
 Commit: P050.1.3: review replan guard
+Handoff:
+- Blocked (plan): План ожидал, что replan не может обойти защиту опорных проверок; в реальности replan помечает открытый юнит review/acceptance (или обычный) как [x]: checkReplan не запрещает переход открытых юнитов в [x] (только [-]), replanCheckChanges его не записывает, раннер юнит [x] пропускает — опорная проверка стирается молча. Нужен юнит-исправление: запрет v.Status == "x" для открытых юнитов старого плана в checkReplan, правило 3 replanRules и docs/design/runner.md
 
 ## Phase 2: Visible test changes
 
@@ -212,7 +232,7 @@ Do:
 - `skills/bsv-docflow-run/SKILL.md`, «What not to do»: не удалять и не ослаблять существующие тесты и не добавлять skip-маркеры, чтобы пройти `Verify`; неверный тест — исправление с объяснением в Handoff либо блок `--needs plan`; такие правки помечаются в коммите (`Test changes:`) и видны ревью и приёмке.
 - `skills/bsv-docflow-plan/SKILL.md`, «Review»: каждый пункт `## Test changes` промпта разобран — обоснован дифом и `Do:` или дефект (блок `plan`).
 - Там же, «Acceptance»: каждый пункт `## Test changes` и каждая строка `Replan changed check:` в `## Decisions` закрываются как пункты `Unverified:` — тестом, `Accepted: … — …` или остаются `Unverified:`.
-- Там же, «Replan under the runner»: `Verify`, `Do`, `Role` юнитов review/acceptance не меняются и не переводятся в `[-]`; смены `Verify` обычных юнитов docflow записывает в `## Decisions` сам.
+- Там же, «Replan under the runner»: `Verify`, `Do`, `Role` юнитов review/acceptance не меняются и не переводятся в `[-]`; открытые юниты replan не помечает `[x]`; смены `Verify` обычных юнитов docflow записывает в `## Decisions` сам.
 - `docs/usage.md`, «Блок и replan»: одна-две фразы про опорные юниты и запись изменений.
 - `CHANGELOG.md`, `## [Unreleased]`: `Added` — пометка ослабленных тестов в коммите, выводе и промптах review/acceptance; `Changed` — replan не меняет проверки review/acceptance и записывает смены `Verify`.
 Verify: `docflow lint && grep -q 'Test changes' skills/bsv-docflow-run/SKILL.md && grep -q 'Replan changed check' skills/bsv-docflow-plan/SKILL.md && grep -q '^- .*Test changes' CHANGELOG.md`
@@ -231,9 +251,10 @@ Do:
 - Сценарий 2: в той же фикстуре `docflow prompt` юнита `Role: review` фазы и юнита `Role: acceptance` содержит раздел `## Test changes` с этими пунктами.
 - Сценарий 3: юнит блокируется с `blocker: plan`, replan-агент меняет `Verify:` юнита `Role: acceptance` → план восстановлен текстом до вызова, код 3, вывод называет юнит и поле.
 - Сценарий 4: replan-агент меняет `Verify:` обычного юнита → коммит replan содержит `Replan changed check:` в `## Decisions`, сводка — `1 checks changed by replan`, событие `replan` — непустой `check_changes`.
+- Сценарий 5: replan-агент помечает открытый юнит `[x]` (обычный и `Role: acceptance`) → план восстановлен текстом до вызова, код 3, вывод называет юнит.
 - Каждый пункт `Unverified:` из Handoff зависимостей закрыть тестом, `Accepted: … — …` или оставить `Unverified:` только при разрыве с Goal.
 Verify: `go test ./...`
 Traps: полный `go test ./...` идёт ~7 минут на Windows — для итераций `go test ./internal/runner/ -run VerifyGuard`.
-Depends: P050.1.1, P050.1.2, P050.1.3, P050.2.1, P050.2.2, P050.2.3, P050.2.4, P050.3.1
+Depends: P050.1.1, P050.1.2, P050.1.3, P050.1.4, P050.2.1, P050.2.2, P050.2.3, P050.2.4, P050.3.1
 Role: acceptance
 Commit: P050.4.1: accept verify guard end to end
