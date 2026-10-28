@@ -98,6 +98,8 @@ human-блоке в настоящей консоли Windows закрыт ConPT
   `docflow close`.
 - Ручной опт-ин тест удалён целиком, а не переформулирован — Decision плана отвергает ручной режим у консоли, вместо него ConPTY-покрытие — отвергнуто: сохранить тест с переформулированным skip
 - Ответ препечатывается в момент старта хоста без ожидания вопроса — буфер консольного ввода хранит вставленные строки до чтения, гонок нет — отвергнуто: ждать в выводе ребёнка строку вопроса перед записью
+- the guarded unit's Do says reply blocked with blocker human instead of running docflow block — in runner mode the runner records the block itself and cycle step 3 forbids self-block; rejected: literal `docflow block --needs human` in the unit Do (contradicts the runner cycle)
+- smoke-run.sh drops DOCFLOW_RUNNER_UNIT for all its docflow calls, not just unblock — the script must behave as a standalone context wherever launched; rejected: env -u on the Verify command line (leaves the trap for the next caller)
 
 ## Phase 1: Windows-консоль и живая проверка unblock
 
@@ -131,7 +133,7 @@ Handoff:
 - ConPTY-хост принимает DOCFLOW_TEST_CONSOLE_INPUT и препечатывает ответ сразу после CreateProcess: typed-ahead безопасен, потому что вопрос о human-блоке — первое чтение stdin (стартовый confirm возвращается раньше для планов без permissions/prerequisites)
 - TestAskUnblockWindowsConsoleTyped и DOCFLOW_WINDOWS_CONSOLE_ASK удалены; покрытие — TestWindowsConsoleUnblockAsk/{yes,no}; оставшийся skip с фразой 'recorded as Unverified' в TestIsTerminalWindowsConsoleHandle относится к другому тесту и сознательно не тронут
 
-### [ ] P049.1.2 Сценарий живой проверки условия после unblock
+### [x] P049.1.2 Сценарий живой проверки условия после unblock
 Read:
 - tools/smoke-run.sh
 - docs/design/cycle.md:L44-60
@@ -159,6 +161,11 @@ Traps: внутренний прогон идёт с `--yes` (вопроса о 
 создаётся в `$PWD` временного репозитория, а не в `$work`.
 Depends: -
 Commit: P049.1.2: add live unblock re-check scenario
+Handoff:
+- smoke-run.sh unsets DOCFLOW_RUNNER_UNIT at the top: launched from an agent session inside `docflow run`, hand `docflow block/unblock/finish/done/commit` calls are refused with exit 5 — any new scenario flag in tools/ must keep that unset
+- unblock-branch asserts speak plan text (`^### [!] P001.1.1`, `^- Blocked (human): ` count >= 2) and exit codes 3/3/0; the agent's reason wording is free text and is never asserted — new live branches should follow the same shape
+- the unblock plan asserts the second unit stays `### [ ] P001.1.2`: --max-units 1 plus a trailing unit is what proves a blocked run does not skip ahead
+- Unverified: the plain live smoke path (zai/codex) after the if/else plan restructure is only dry-run-checked; a live run spends zai quota the plan reserves for P049.2.1 — missing check: `bash tools/smoke-run.sh` without flags
 
 ## Phase 2: Живое закрытие плана
 
