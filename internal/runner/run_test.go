@@ -1074,6 +1074,41 @@ func TestRunUnverifiedRepeatedFromDepends(t *testing.T) {
 	}
 }
 
+// A unit whose commit marks tests as weakened says so in the run: the lines
+// `test change: <item>` under the unit, the count in the run summary, the
+// items in the unit's `commit` event and their number in `unit_end`.
+func TestRunTestChanges(t *testing.T) {
+	f := newRunFixture(t)
+	f.write("a_test.go", "package a\nfunc TestA() {}\nfunc TestB() {}\n")
+	f.commit("tests")
+	steps := []string{
+		"printf 'a\\n' > a.txt\nprintf 'package a\\nfunc TestA() {}\\n' > a_test.go\n" + doneReply(),
+		writeReply("b.txt"),
+	}
+	r := f.run(steps)
+	f.check(r, 0, "test change: a_test.go: -1 lines", ", 1 test changes", "run: 2 units")
+	var items []any
+	for _, record := range fixtureEvents(t, f) {
+		switch record["event"] {
+		case "commit":
+			if record["unit"] == "P001.1.1" {
+				items, _ = record["test_changes"].([]any)
+			}
+		case "unit_end":
+			want := float64(0)
+			if record["unit"] == "P001.1.1" {
+				want = 1
+			}
+			if record["test_changes"] != want {
+				t.Fatalf("unit_end %v test_changes = %v, want %v", record["unit"], record["test_changes"], want)
+			}
+		}
+	}
+	if len(items) != 1 || items[0] != "a_test.go: -1 lines" {
+		t.Fatalf("commit event test_changes = %v:\n%s", items, r.out)
+	}
+}
+
 func TestRunNotify(t *testing.T) {
 	for _, mode := range []string{"ready", "blocked", "soft-stop", "prerequisite", "flag-off", "env-off"} {
 		t.Run(mode, func(t *testing.T) {

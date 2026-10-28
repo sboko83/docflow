@@ -32,6 +32,11 @@ var ansiStyleRE = regexp.MustCompile(`\x1b\[[\d;]*m`)
 
 const unverifiedLabel = "Unverified: "
 
+// testChangeLabel is the prefix `docflow commit` prints a test change item
+// with and the same prefix the run line keeps: one form for the commit
+// output, the run output and the parser that reads the items back.
+const testChangeLabel = "test change: "
+
 // Progress writes ordinary progress to out and interactive terminal output to
 // the same stream. Styles and the spinner are enabled only when out is a TTY.
 type Progress struct {
@@ -456,6 +461,28 @@ func (p *Progress) unverified(text string) {
 	p.clearLocked()
 	p.wrappedLocked("! Unverified:", "│  ", "yellow", p.out, "")
 	p.wrappedLocked(text, "│    ", "", p.out, "")
+}
+
+// testChanges prints the test change items of the unit's commit — the tests
+// its commit marks as weakened — under the unit in the style of Unverified.
+// A unit without such items prints nothing.
+func (p *Progress) testChanges(items []string) {
+	if len(items) == 0 {
+		return
+	}
+	if !p.fancy {
+		for _, item := range items {
+			p.line("  "+testChangeLabel+item, false, "yellow")
+		}
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clearLocked()
+	p.wrappedLocked("! Test changes:", "│  ", "yellow", p.out, "")
+	for _, item := range items {
+		p.wrappedLocked(item, "│    ", "", p.out, "")
+	}
 }
 
 // resume reports an attempt the time cap ended while the agent was still

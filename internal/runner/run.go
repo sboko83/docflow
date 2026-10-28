@@ -48,6 +48,7 @@ type runTotals struct {
 	planID, stop, notification string
 	unverified, replans        int
 	checkChanges               int
+	testChanges                int
 	switches                   int
 	mu                         sync.Mutex
 	unit, activity             string
@@ -550,6 +551,9 @@ func runSummary(p *Progress, totals *runTotals) {
 	if totals.checkChanges > 0 {
 		text += fmt.Sprintf(", %d checks changed by replan", totals.checkChanges)
 	}
+	if totals.testChanges > 0 {
+		text += fmt.Sprintf(", %d test changes", totals.testChanges)
+	}
 	if totals.replans > 0 {
 		text += fmt.Sprintf(", %d replan%s", totals.replans, plural(totals.replans))
 	}
@@ -623,8 +627,12 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	}
 	start := time.Now()
 	var cost *float64
+	// testChanges counts the `test change:` items of the unit's commit: the
+	// weakened tests a unit's own commit marks in its body. unit_end reports
+	// them and the run summary counts them across the run.
+	var testChanges int
 	defer func() {
-		fields := map[string]any{"status": eventStatus(code, runErr), "seconds": time.Since(start).Seconds()}
+		fields := map[string]any{"status": eventStatus(code, runErr), "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
 		if cost != nil {
 			fields["cost"] = *cost
 		}
@@ -1092,7 +1100,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			return res.Code, "", nil
 		}
 		seconds := time.Since(start).Seconds()
-		totals.events.emit("commit", uid, map[string]any{"sha": firstWord(res.Stdout)})
+		changes := testChangeItems(res.Stdout)
+		testChanges = len(changes)
+		totals.events.emit("commit", uid, map[string]any{"sha": firstWord(res.Stdout), "test_changes": changes})
 		summary := fmt.Sprintf("%d attempt%s", attempt, plural(attempt))
 		if !p.fancy {
 			summary += ", " + agentio.Summary(seconds, cost)
@@ -1106,7 +1116,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		for _, u := range unverified {
 			p.unverified(u)
 		}
+		p.testChanges(changes)
 		totals.unverified += len(unverified)
+		totals.testChanges += len(changes)
 		totals.rows = append(totals.rows, unitRow{uid, seconds, cost, unitIn, unitOut, attempt})
 		if args.Verbose {
 			if err := unitDetail(root, p, totals); err != nil {
@@ -1326,6 +1338,19 @@ func firstWord(s string) string {
 		return f[0]
 	}
 	return "?"
+}
+
+// testChangeItems picks the test change items out of the stdout of
+// `docflow commit`: each is one line starting with the label and the lines
+// before them carry the sha and the files.
+func testChangeItems(stdout string) []string {
+	var items []string
+	for _, line := range strings.Split(stdout, "\n") {
+		if item, ok := strings.CutPrefix(line, testChangeLabel); ok && item != "" {
+			items = append(items, strings.TrimSuffix(item, "\r"))
+		}
+	}
+	return items
 }
 func writeFailure(p *Progress, r cycle.Result) { p.output(r.Stdout + r.Stderr) }
 func oneLine(s string) string                  { return strings.Join(strings.FieldsFunc(s, unicode.IsSpace), " ") }
