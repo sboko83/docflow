@@ -84,6 +84,14 @@ func checkReplan(before, after, uid string) []string {
 			}
 			continue
 		}
+		// A unit open when replan runs must not become [x]: the runner skips
+		// a [x] unit and its check would vanish without a trace, so replan
+		// ends the run instead of recording it - the guard against an agent
+		// silencing a check. Reference units read the same rule.
+		if v.Status == "x" {
+			problems = append(problems, "unit "+u.ID+" marked [x] by replan")
+			continue
+		}
 		role := anchorRole(u)
 		if role == "" {
 			continue

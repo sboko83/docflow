@@ -81,6 +81,8 @@ acceptance.
 - Печатать строку с префиксом `<uid>: ` как у остальных строк раннера; отвергнуто: голый `<uid> replan changed check: ...` (в терминальном фрейме префикс юнита теряется, строка повисает без контекста).
 - Не давать пункта удалённому юиту: `unit removed` уже есть в проблемах checkReplan; отвергнуто: пункт `<id> Verify: ... -> ` для удаления (исчезнувшую проверку нельзя назвать изменённой).
 - Переход открытого юнита в `[x]` запрещён replan для всех юнитов, не только опорных: раннер юнит `[x]` пропускает, replanCheckChanges переход в `[x]` не записывает — проверка стиралась бы молча (обход нашёл review P050.1.3); отвергнуто: записывать переход пунктом `Replan changed check` (юнит `[x]` раннер не запускает — запись создавала бы видимость пройденной проверки вместо стёртой).
+- Проверка placed внутри существующего цикла по старым юнитам, сразу после ветки [x]/[-] и до разбора опоры, один problem плюс continue — why: смена статуса у опоры даёт одну проблему, а не набор Verify/Do/Role changed — rejected alternative: отдельный цикл по статусам, он дублировал бы тексты unit removed и unit changed.
+- Новый текст правила дописан в конец правила 3, а не отдельным пунктом — why: правило 3 агент читает как блок о том, чего replan не меняет — rejected alternative: новый нумерованный пункт, он сдвигает нумерацию, которую зеркалит скилл (P025 gotcha).
 
 ## Phase 1: Replan guard
 
@@ -133,7 +135,7 @@ Handoff:
 - Unverified: Правка плана с CRLF не проверена: фикстуры — LF, insertRaw берёт перевод строки из первой строки файла, на Windows-плане с CRLFappend не гонялся.
 - Unverified: Терминальный (fancy) вид жёлтой строки не виден: тестовый конвейер даёт некрашеный вывод, блок-фрейм с `! ` и срезанным префиксом юнита не проверялся ни одним прогоном.
 
-### [ ] P050.1.4 Forbid replan marking open units done
+### [x] P050.1.4 Forbid replan marking open units done
 Read:
 - internal/runner/replan.go:L48-135
 - internal/runner/replan_rules.go
@@ -146,6 +148,16 @@ Do:
 - В `docs/design/runner.md` в разделе «Авто-replan» в перечень проверок `check_replan` дописать запрет помечать открытые юниты `[x]`.
 Verify: `go test ./internal/runner/ -run 'TestCheckReplan|TestReplanPrompt'`
 Commit: P050.1.4: forbid replan marking open units done
+Handoff:
+- Проблема ровно такая: unit <id> marked [x] by replan. Печатается в цикле по старым юнитам до ветки разбора опоры и с continue: опорный юнит, помеченный в [x], даёт только эту проблему, без Verify/Do/Role changed; в check_changes и ## Decisions переход не попадает — запрещённое останавливает checkReplan, replanCheckChanges для отклонённого вызова не запускается.
+- Новые кейсы TestCheckReplan используют id P001.1.2/1.3/1.5/1.6 и хелпер lifted; кейс done-stays-done вставляет юнит P001.1.4 Extra только в after-текст, в самой фикстуре replanCheckPlan id P001.1.4 свободен — новым юнитам его занимать нельзя.
+- Правило 3 в REPLAN_RULES теперь кончается фразой про [x]: P050.3.1 обязан перенести её в раздел Replan under the runner скилла bsv-docflow-plan (P025 gotcha: правила живут в двух местах).
+- tools/parity/scenarios/run_replan.sh запускается только через tools/parity/run.sh: прямой запуск делает git init и git commit в репозитории вызывающего. Нужен гард в сценарии или запись в tools/parity/README.md.
+- Коммит юнита: 5 файлов — internal/runner/replan.go, internal/runner/replan_rules.go, internal/runner/replan_test.go, docs/design/runner.md и файл плана (статус [~]).
+- Unverified: Сквозного сценария нет: ни один тест не гоняет путь CLI, где replan-агент помечает открытый юнит в [x], а раннер восстанавливает план кодом 3 — Go-тесты вызывают checkReplan напрямую, parity-сценария с таким кейсом нет; нужен сценарий P050.4.1.
+- Unverified: Не проверен паритет текстов правил: replanRules (правило 3) изменён, раздел Replan under the runner в skills/bsv-docflow-plan/SKILL.md — нет; ни один тест и ни один grep эти тексты не сверяет — нет команды, ловящей расхождение.
+- Unverified: Не покрыт комбинированный кейс: открытый юнит одновременно помечен в [x] и ослабил Verify — должен быть единственный problem marked [x] by replan и пустой check_changes; такого элемента в таблице TestCheckReplan нет.
+- Unverified: Linux-ветка не проверялась: parity (70 сценариев) и Go-набор прогнаны только на Windows Git Bash, тестов на Linux для этой правки не запускалось.
 
 ### [ ] P050.1.3 Review replan guard
 Read:

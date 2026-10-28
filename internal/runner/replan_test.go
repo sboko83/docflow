@@ -118,6 +118,15 @@ func TestCheckReplan(t *testing.T) {
 		{"acceptance-skipped", replanCheckPlan, strings.ReplaceAll(lifted, "### [ ] P001.1.6 Acceptance", "### [-] P001.1.6 Acceptance"), "unit P001.1.6 (acceptance) skipped"},
 		{"review-lift", strings.ReplaceAll(replanCheckPlan, "### [!] P001.1.5 Review", "### [ ] P001.1.5 Review"), strings.ReplaceAll(strings.ReplaceAll(lifted, "### [~] P001.1.5 Review", "### [ ] P001.1.7 Fix\nRead:\n- a.py\nDo:\n- fix the phase\nVerify: `true`\nCommit: P001.1.7: fix\n\n### [ ] P001.1.5 Review"), "Verify: `echo review`\nRole: review", "Verify: `echo review`\nDepends: P001.1.7\nRole: review"), ""},
 		{"plain-verify", replanCheckPlan, strings.ReplaceAll(lifted, "Verify: `true`\nCommit: P001.1.3: todo", "Verify: `echo fine`\nCommit: P001.1.3: todo"), ""},
+		// An open unit, plain and reference, never becomes [x]: the runner
+		// skips a [x] unit, so its check would vanish without a trace.
+		{"open-marked-done", replanCheckPlan, strings.ReplaceAll(lifted, "### [ ] P001.1.3 Todo", "### [x] P001.1.3 Todo"), "unit P001.1.3 marked [x] by replan"},
+		{"blocked-marked-done", replanCheckPlan, strings.ReplaceAll(lifted, "### [~] P001.1.2 Stuck", "### [x] P001.1.2 Stuck"), "unit P001.1.2 marked [x] by replan"},
+		{"review-marked-done", replanCheckPlan, strings.ReplaceAll(lifted, "### [~] P001.1.5 Review", "### [x] P001.1.5 Review"), "unit P001.1.5 marked [x] by replan"},
+		{"acceptance-marked-done", replanCheckPlan, strings.ReplaceAll(lifted, "### [ ] P001.1.6 Acceptance", "### [x] P001.1.6 Acceptance"), "unit P001.1.6 marked [x] by replan"},
+		{"blocked-lifted", replanCheckPlan, strings.ReplaceAll(lifted, "### [~] P001.1.2 Stuck", "### [ ] P001.1.2 Stuck"), ""},
+		{"review-lifted", replanCheckPlan, strings.ReplaceAll(lifted, "### [~] P001.1.5 Review", "### [ ] P001.1.5 Review"), ""},
+		{"done-stays-done", replanCheckPlan, strings.ReplaceAll(lifted, "### [ ] P001.1.3 Todo", "### [ ] P001.1.4 Extra\nRead:\n- a.py\nDo:\n- e\nVerify: `true`\nCommit: P001.1.4: extra\n\n### [ ] P001.1.3 Todo"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := checkReplan(tc.before, tc.after, "P001.1.2")
