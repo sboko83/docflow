@@ -102,6 +102,10 @@ human-блоке в настоящей консоли Windows закрыт ConPT
 - smoke-run.sh drops DOCFLOW_RUNNER_UNIT for all its docflow calls, not just unblock — the script must behave as a standalone context wherever launched; rejected: env -u on the Verify command line (leaves the trap for the next caller)
 - --dry-run --close check sits between unit completion and the live close — only there the selection resolves to close and the route line prints; rejected: before the unit run (plan not ready, no close: line)
 - close route line asserted exactly as `close: pi | zai/glm-5.3-flash | high` — catches route regressions; rejected: loose `^close: ` prefix
+- Приёмка использует успешный живой прогон закрытия из P049.2.1,
+  если проверенный код не менялся: повтор требует дополнительных вызовов
+  zai сверх ограничения плана — отвергнут обязательный повтор `--close`
+  в P049.3.1 без расширения бюджета.
 
 ## Phase 1: Windows-консоль и живая проверка unblock
 
@@ -218,8 +222,14 @@ Do:
 - собрать `bin/docflow` и прогнать полный набор: `go test ./...`,
   `bash tools/parity/run.sh bin/docflow bin/docflow`,
   `bash tools/test-install.sh`, `bash tools/test-install-ps1.sh`
-- прогнать новые ConPTY-тесты и живые сценарии
-  `bash tools/smoke-run.sh --unblock` и `bash tools/smoke-run.sh --close`
+- прогнать новые ConPTY-тесты и живой сценарий
+  `bash tools/smoke-run.sh --unblock`
+- принять живое закрытие по успешному Verify P049.2.1 из
+  `.git/docflow/run/P049.2.1.verify.log`: проверить код 0 у сценария
+  `bash tools/smoke-run.sh --close`, строку `smoke-run: ok close` и
+  отсутствие изменений проверенного кода после коммита P049.2.1;
+  записать `Accepted:` с причиной использования результата без повтора;
+  если свидетельства нет или код изменился, блокировать для перепланирования
 - снять с собой каждый пункт `Unverified:` из Handoff первых юнитов:
   закрыть тестом, принять `Accepted:` с причиной, либо оставить
   `Unverified:` со сценарием, который его воспроизводит
@@ -233,7 +243,11 @@ Verify: `bash tools/parity/run.sh bin/docflow bin/docflow && go test ./...`
 Traps: parity считает все 70 сценариев без `PARITY_SKIP`; на Windows в
 CI нужен `python` вместо `python3`; `tools/test-install.sh` и
 `tools/test-install-ps1.sh` работают с локальной раскладкой релиза без
-сети.
+сети. Повтор `smoke-run.sh --close` в приёмке не запускается: два
+вызова zai уже выполнены в P049.2.1; повторяемость отказов и retry
+остаётся ограничением этого результата, её нельзя объявлять проверенной.
 Depends: P049.1.1, P049.1.2, P049.2.1
 Role: acceptance
 Commit: P049.3.1: accept Windows checks on codex
+Handoff:
+- Blocked (plan): На Windows 11 (Go 1.27.0, amd64) сборка, go test ./..., полный parity (70 сценариев, 0 пропусков), tools/test-install.sh, tools/test-install-ps1.sh, smoke-run.sh --unblock и полный docflow verify прошли. tools/test-install.sh сообщил, что проверку no-terminal skills mode пропустил: в Windows нет setsid. Для test-install-ps1.sh понадобилось явно передать системный PSModulePath в Git Bash. Не выполнен обязательный smoke-run.sh --close: сценарий расходует два вызова zai, а ограничение юнита резервирует zai только для P049.2.1. План должен согласовать повторный расход квоты или изменить способ проверки --close без нарушения его маршрутного assert.
