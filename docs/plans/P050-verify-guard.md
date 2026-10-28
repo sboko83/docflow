@@ -96,6 +96,9 @@ acceptance.
 - Phase diff и Test changes строят секции общим кодом (`promptRepositories`, `perRepositorySection`) — why: один список репозиториев, одна расстановка `###` и один порядок блоков — rejected: отдельная расстановка заголовков во второй секции (блоки разъехались бы по оформлению)
 - `repos:` тянутся и для acceptance-роли — why: иначе у acceptance-промпта нет подразделов вложенных репозиториев и оценка read budget расходится с промптом — rejected: только корневой репозиторий в acceptance-промпте
 - Отсутствие раздела ## Test changes в промптах прогона и блоков в телах коммитов фазы 2 классифицировано как артефакт окружения (раннер-процесс старше правок юнита — bootstrap самоприменения), а не дефект диффа — ревью не блокирует, механизм в исходнике корректен и проверяется P050.4.1 через собранный CLI — отвергнуто: блок plan (правка плана не чинит бинарник прогона)
+- Стка CHANGELOG написана так, что первая строка пункта Added начинается с `- ` и содержит `Test changes:` — why: Verify юнита грепает `^- .*Test changes` по одной строке, перенос фразы на продолжение даёт падение грепа — rejected: разбить формулировку на несколько строк (grep не нашёл бы совпадения.
+- Текст об опорных юнитах размещён в конце правила 3 «Replan» и отдельным пунктом в «Replan under the runner» — why: правило 3 читается как блок о том, чего replan не меняет, и зеркалит правило 3 replanRules в коде, а пункт секции про раннера описывает действие агента — rejected: новый нумерованный пункт (сдвигает нумерацию, которую зеркалит скилл).
+- Скилл run формулирует запрет тестов как запрет ослабления с явным списком skip-маркеров (`t.Skip(`, `it.skip(`, `@skip`, `@Ignore`, `@Disabled`) — why: маркеры берутся из skipMarkers в internal/cycle/testchanges.go и агенту нужно знать, что именно поймает детектор, а не выдумывать список — rejected: описать запрет общими словами (агент не знает, какие маркеры детектируются).
 
 ## Phase 1: Replan guard
 
@@ -276,7 +279,7 @@ Handoff:
 
 ## Phase 3: Skills and docs
 
-### [ ] P050.3.1 Teach skills about guarded checks
+### [x] P050.3.1 Teach skills about guarded checks
 Read:
 - skills/bsv-docflow-run/SKILL.md
 - skills/bsv-docflow-plan/SKILL.md#review
@@ -293,6 +296,13 @@ Do:
 - `CHANGELOG.md`, `## [Unreleased]`: `Added` — пометка ослабленных тестов в коммите, выводе и промптах review/acceptance; `Changed` — replan не меняет проверки review/acceptance и записывает смены `Verify`.
 Verify: `docflow lint && grep -q 'Test changes' skills/bsv-docflow-run/SKILL.md && grep -q 'Replan changed check' skills/bsv-docflow-plan/SKILL.md && grep -q '^- .*Test changes' CHANGELOG.md`
 Commit: P050.3.1: teach skills about guarded checks
+Handoff:
+- Установленные копии скиллов для pi — симлинки на ~/.docflow/current/skills (релиз 0.18.0), а не на рабочее дерево: в установленной копии bsv-docflow-plan нового текста нет (grep -c 'Replan changed check' = 0), ~/.local/bin/docflow на машине отсутствует. Новые формулировки P050.3.1 агент прочитает только после `docflow install-skills --agent pi` (или tools/install-dev.sh); утверждение AGENTS.md «рабочие правки видны сразу» для релизной установки на Windows не выполняется — прогнать установку скиллов после релиза/закрытия P050.
+- CHANGELOG: до этого в ## [Unreleased] не было ни одной записи (фазы 1 и 2 P050 коммитили только код) — новые Added/Changed закрывают записи за весь P050; при закрытии плана и при cut-release читать их как записи фичи, новых строк от фаз 1/2 не добавлять.
+- Формы строк, которыми оперируют скиллы, сверены с кодом на HEAD: пункты коммита `<path>: -N lines`/`deleted`/`+skip`, вывод `test change: <пункт>` (у вложенного репо `<repo>/<пункт>`), секции промпта `## Test changes` (префикс фазы для review, префикс плана для acceptance), пункты `Replan changed check: <id> Verify: <old> -> <new>` и `<id> skipped`, счётчики сводки `, N checks changed by replan` и `, N test changes`. При правке вывода/промптов синхронно правятся скиллы bsv-docflow-run/plan и docs/usage.md.
+- Тело правила об опоре в скилле: конец правила 3 списка «Replan» и новый пункт в «Replan under the runner» — они зеркалят правило 3 из internal/runner/replan_rules.go; менять их нужно парами, нумерацию правил скилла не сдвигать.
+- Unverified: Новые тексты скиллов не прочитаны агентом в установленной копии: проверки что `docflow install-skills` донёс правки skills/ в ~/.docflow/current/skills (скиллы pi — симлинки на релизную копию) нет ни в Verify, ни в gate — нужен прогон install-skills с грепом по установленной копии.
+- Unverified: Согласованность формулировок скиллов с реальным выводом промпта review/acceptance в живом прогоне не проверена: нет сценария, где фаза с помеченным пунктом `Test changes:` и строкой `Replan changed check:` попадает в промпт review и acceptance (e2e-сценарии P050.4.1 этого не делают).
 
 ## Phase 4: Acceptance
 

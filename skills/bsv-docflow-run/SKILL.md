@@ -200,6 +200,16 @@ nor to the nested repos — `docflow commit` does all of it.
   inside a unit. Do not rewrite history (`rebase`, `amend`, `reset`), even
   when a `Do:` asks for it: that is a plan error — block the unit with
   that reason.
+- Do not delete existing tests, do not weaken them (drop an assertion,
+  narrow a check), and do not add a skip marker (`t.Skip(`, `it.skip(`,
+  `@skip`, `@Ignore`, `@Disabled`) to make `Verify:` pass. A test that is
+  wrong — fix it and say why in the Handoff, or block with
+  `--needs plan`. Editing tests is not forbidden: a legit refactor
+  changes them. `docflow commit` marks every such edit — a test file that
+  lost lines, a deleted test file, an added skip marker — in the commit
+  body under `Test changes:` and in its output as `test change: …` lines;
+  the review and acceptance prompts carry them as `## Test changes`, so a
+  weakening with no explanation shows up in front of a reviewer.
 - Do not widen the unit: something found along the way is a Handoff item
   or a question to the user, not a "while I'm here" fix.
 - Do not take up the next unit without the user's request.

@@ -251,6 +251,10 @@ does not replace it.
   `Unverified:` item of earlier Handoffs ends one of three ways: closed by
   a test; `Accepted: <item> — <why it is not a risk>`; `Unverified:` only
   when it is a Goal gap or a risk with a concrete failing scenario.
+- Every `## Test changes` item of the prompt and every
+  `Replan changed check:` line of `## Decisions` is a check that shrank:
+  each one ends as an `Unverified:` item — closed by a test,
+  `Accepted: <item> — <why it is not a risk>`, or left `Unverified:`.
 - `Verify:` — the full test run of the application or module, not
   `-only-testing` of one suite.
 - In `Traps:` — a failing scenario is fixed inside this same unit when the
@@ -269,6 +273,12 @@ routes — visible in `docflow roster show`) ends with a review unit.
 - `Do:` template — review the diff named in the prompt's `## Phase diff`
   against `Goal`, `Constraints`, `## Decisions`, and each unit's `Do:`.
   The reviewer edits nothing.
+- The prompt's `## Test changes` section lists the test edits of the
+  phase's commits — a test file that lost lines, a deleted test file, an
+  added skip marker. Every item is taken apart: justified by the diff and
+  the unit's `Do:` — it passes; a test weakened to make `Verify:` pass —
+  a defect, `blocked` with `blocker: "plan"`. `none` means the phase
+  touched no tests.
 - A defect — `blocked` with `blocker: "plan"` (outside the runner,
   `docflow block --needs plan`): the plan's `replan:` schedules the fix.
   Observations without a defect — a plain Handoff item, not `Unverified:`:
@@ -335,7 +345,14 @@ plan has drifted from reality.
 2. Edit only `[ ]` and `[!]` units. Do not touch `[x]` and `[-]` units —
    they are history.
 3. New units take the next numbers of the phase; do not renumber the
-   existing ones: `Depends` and commits refer to them.
+   existing ones: `Depends` and commits refer to them. What replan does
+   not change: the checks of the reference units — `Verify:`, `Do:`,
+   `Role:` of a `Role: review`/`Role: acceptance` unit — and their move
+   into `[-]`; their status marker and `Depends:` do change, replan
+   lifts the block and adds the fix units. No open unit becomes `[x]`:
+   the runner skips a `[x]` unit and its check disappears silently.
+   `Verify:` of an ordinary unit changes freely — `docflow` records that
+   in `## Decisions` itself, the agent records nothing there.
 4. Lift the block:
    - the blocked unit has uncommitted work in the tree, and after the
      edit that work still stands → `[!]` → `[~]`: a repeated `prompt` of a
@@ -362,6 +379,14 @@ and the run continues when it succeeds. The replan agent's part:
   `Traps:`, an append to `## Decisions`. Never the frontmatter, `Goal`,
   `Constraints`, or `Prerequisites`, never a `[x]`/`[-]` unit, no unit
   id disappears, no renumbering.
+- The reference checks are untouchable: `Verify:`, `Do:`, `Role:` of the
+  `Role: review`/`Role: acceptance` units stay as they are and those
+  units never move to `[-]` — their status marker and `Depends:` do
+  change. An open unit never becomes `[x]`. A `Verify:` change and a
+  move into `[-]` on an ordinary unit are allowed and need no record from
+  the agent: `docflow` writes `Replan changed check: <id> Verify: <old>
+  -> <new>` (and `<id> skipped`) into `## Decisions`, prints it in the
+  run, counts it in the summary.
 - Lift the block by step 4 above: the prompt lists the uncommitted
   files under `## Tree`; `[ ]` over uncommitted work is rejected, since
   the next `prompt` refuses a dirty tree. Every `Read:`/Context link of

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Unit commits mark weakened tests: a `Test changes:` block in the commit
+  body, `test change: …` lines in `docflow commit` output, a count in the
+  run summary, and a `## Test changes` section in the review and
+  acceptance prompts. The items name a test file that lost lines, a
+  deleted test file, and an added skip marker.
+
+### Changed
+- Replan no longer touches the checks of the reference units: the
+  `Verify:`, `Do:`, `Role:` of a `Role: review` or `Role: acceptance`
+  unit and their move into `[-]` are rejected, and an open unit cannot
+  be marked `[x]`. The `Verify:` changes replan makes on ordinary units
+  are recorded in the plan's `## Decisions` as `Replan changed check: …`
+  and counted in the run summary.
+
 ## [0.18.0] - 2026-10-28
 
 ### Added
