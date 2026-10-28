@@ -47,6 +47,7 @@ type runTotals struct {
 	rows                       []unitRow
 	planID, stop, notification string
 	unverified, replans        int
+	checkChanges               int
 	switches                   int
 	mu                         sync.Mutex
 	unit, activity             string
@@ -545,6 +546,9 @@ func runSummary(p *Progress, totals *runTotals) {
 	}
 	if totals.unverified > 0 {
 		text += fmt.Sprintf(", %d unverified", totals.unverified)
+	}
+	if totals.checkChanges > 0 {
+		text += fmt.Sprintf(", %d checks changed by replan", totals.checkChanges)
 	}
 	if totals.replans > 0 {
 		text += fmt.Sprintf(", %d replan%s", totals.replans, plural(totals.replans))

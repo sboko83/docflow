@@ -74,6 +74,10 @@ acceptance.
 - Anchor fields are compared as raw field lines from Field Line to End, not as Value and Items: raw text catches a rewritten Do list and a deleted Role line. Rejected: compare field.Value only, a Do field is a list and Value does not cover it.
 - The anchor role is read from the old plan, not the new one: deleting the Role line of an anchor unit becomes the problem Role changed and the unit never stops being an anchor silently. Rejected: read the role from the new version.
 - The guard lives inside the existing loop over old units with a continue structure: a removed anchor unit is already covered by unit removed and a done anchor unit by unit changed, so no duplicate problem text.
+- Сравнивать обычные юниты по field.Value, а не по сырому тексту поля — пункт показывает старое и новое значение; отвергнуто: сырой текст поля (в пункте дважды печатался бы ключ Verify: и терялись бы переносы строк в многострочном значении).
+- Записывать только то, что replan прошёл: опора и [x]/[-] не пишут пунктов, их смены останавливает checkReplan; отвергнуто: писать и смены опоры (план при этом восстанавливается, запись ушла бы в корзину).
+- Печатать строку с префиксом `<uid>: ` как у остальных строк раннера; отвергнуто: голый `<uid> replan changed check: ...` (в терминальном фрейме префикс юнита теряется, строка повисает без контекста).
+- Не давать пункта удалённому юиту: `unit removed` уже есть в проблемах checkReplan; отвергнуто: пункт `<id> Verify: ... -> ` для удаления (исчезнувшую проверку нельзя назвать изменённой).
 
 ## Phase 1: Replan guard
 
@@ -99,7 +103,7 @@ Handoff:
 - Unverified: No end to end check: no test runs the CLI path where a replanning agent rewrites the Verify field of an acceptance unit and the run restores the plan with code 3. The guard is covered by direct checkReplan calls in Go unit tests only, the scenario is scheduled for P050.4.1.
 - Unverified: No parity check: replanRules text changed and the section Replan under the runner in skills/bsv-docflow-plan/SKILL.md did not, nothing compares the two rule texts, no test and no grep checks it (the P025 gotcha).
 
-### [ ] P050.1.2 Record check changes made by replan
+### [x] P050.1.2 Record check changes made by replan
 Read:
 - internal/runner/replan.go:L130-540
 - internal/runner/run.go:L40-70
@@ -115,6 +119,16 @@ Do:
 - В `docs/design/runner.md` описать запись изменений в разделе «Авто-replan» и поле `check_changes` в таблице раздела «Поток событий».
 Verify: `go test ./internal/runner/ -run 'TestReplan|TestCheckReplan'`
 Commit: P050.1.2: record check changes made by replan
+Handoff:
+- Строка записи ровно такая: `- Replan changed check: <id> Verify: <старое> -> <новое>` и `- Replan changed check: <id> skipped`; значения — field.Value, то есть бэтики и пробел сохраняются. P050.3.1 в Verify ищет `Replan changed check` в skills/bsv-docflow-plan/SKILL.md — совпадать должен префикс `- Replan changed check: ` (префикс `- ` добавляет AppendSectionItems).
+- Один юнит, сменивший Verify и упавший в [-], даёт два пункта подряд: сначала Verify, затем skipped; удалённый юнит пункта не даёт, опора ([x]/[-], review, acceptance) — не даёт никогда: их смены останавливает checkReplan. P050.4.1 (сценарий 4) опирается на этот порядок.
+- Режим check-change живёт в таблице режимов TestReplanRun: агент слабит Verify юнита P001.1.2 до `true` (единственная уникальная строка `test -f d.txt` в фикстуре newReplanFixture) и снимает блок liftReply; editPlan меняет только первое вхождение, поэтому новые режимы обязаны брать уникальные строки. Строка вывода — с префиксом `P001.1.1: replan changed check: ...` (в fancy-режиме префикс срезается).
+- Событие replan теперь всегда несёт check_changes: при успехе — массив пунктов, при отказе/отклонении — пустой массив []; читатель v: 1 обязан игнорировать поле у старых прогонов. Итог прогона вставляется после `, N unverified` и до `, N replans, M switches` — точный порядок строк сводки меняется, если P050.2.2 добавит свой счётчик test changes.
+- recordReplanChecks парит файл плана с диска и сохраняет plan.Save до коммита: коммит replan содержит дифф Decisions, а план после реплана становится изменённым; base проверки чужих коммитов юнит берёт заново после коммита replan.
+- Unverified: Путь `[-]` не гоняется сквозным прогоном: в TestReplanRun/сcheck-change слабится только Verify, нет сценария, где replan переводит открытый юнит в [-] и проверяют строку Decisions, строку прогона и check_changes — нужен отдельный режим прогона.
+- Unverified: Не проверен отказ recordReplanChecks (нет секции ## Decisions, незаписываемый файл): код 2 с восстановлением плана; docflow lint такие планы отсекает раньше, сценария нет.
+- Unverified: Правка плана с CRLF не проверена: фикстуры — LF, insertRaw берёт перевод строки из первой строки файла, на Windows-плане с CRLFappend не гонялся.
+- Unverified: Терминальный (fancy) вид жёлтой строки не виден: тестовый конвейер даёт некрашеный вывод, блок-фрейм с `! ` и срезанным префиксом юнита не проверялся ни одним прогоном.
 
 ### [ ] P050.1.3 Review replan guard
 Read:

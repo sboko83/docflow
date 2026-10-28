@@ -152,6 +152,38 @@ func TestCheckReplan(t *testing.T) {
 	}
 }
 
+// TestReplanCheckChanges covers what docflow records when a replan moves a
+// check it is allowed to move: the Verify: value of a plain unit and the move
+// into [-]. Reference units and [x]/[-] units read as anchors and record
+// nothing: checkReplan stops the run on their changes.
+func TestReplanCheckChanges(t *testing.T) {
+	plainVerify := "Verify: `true`\nCommit: P001.1.3: todo"
+	for _, tc := range []struct{ name, before, after, want string }{
+		{"unchanged", replanCheckPlan, replanCheckPlan, ""},
+		{"plain-verify", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, plainVerify, "Verify: `echo fine`\nCommit: P001.1.3: todo"), "P001.1.3 Verify: `true` -> `echo fine`"},
+		{"blocked-verify", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "Verify: `true`\nCommit: P001.1.2: stuck", "Verify: `echo blocked`\nCommit: P001.1.2: stuck"), "P001.1.2 Verify: `true` -> `echo blocked`"},
+		{"verify-removed", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, plainVerify, "Commit: P001.1.3: todo"), "P001.1.3 Verify: `true` -> "},
+		{"verify-added", strings.ReplaceAll(replanCheckPlan, plainVerify, "Commit: P001.1.3: todo"), replanCheckPlan, "P001.1.3 Verify:  -> `true`"},
+		{"skipped", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "### [ ] P001.1.3 Todo", "### [-] P001.1.3 Todo"), "P001.1.3 skipped"},
+		{"verify-and-skipped", replanCheckPlan, strings.ReplaceAll(strings.ReplaceAll(replanCheckPlan, plainVerify, "Verify: `echo fine`\nCommit: P001.1.3: todo"), "### [ ] P001.1.3 Todo", "### [-] P001.1.3 Todo"), "P001.1.3 Verify: `true` -> `echo fine`\nP001.1.3 skipped"},
+		{"acceptance-verify", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "Verify: `echo accept`", "Verify: `echo accept now`"), ""},
+		{"review-verify", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "Verify: `echo review`", "Verify: `echo review now`"), ""},
+		{"acceptance-skipped", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "### [ ] P001.1.6 Acceptance", "### [-] P001.1.6 Acceptance"), ""},
+		{"done-changed", strings.ReplaceAll(replanCheckPlan, "### [x] P001.1.1 Done", "### [ ] P001.1.1 Done"), replanCheckPlan, ""},
+		{"cancelled", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "### [x] P001.1.1 Done", "### [-] P001.1.1 Done"), ""},
+		{"removed", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "P001.1.3", "P001.1.9"), ""},
+		{"before-broken", "broken", replanCheckPlan, ""},
+		{"after-broken", replanCheckPlan, "----\nbroken", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := replanCheckChanges(tc.before, tc.after)
+			if strings.Join(got, "\n") != tc.want {
+				t.Fatalf("got %v, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReplanPrompt(t *testing.T) {
 	plan, err := format.ParsePlan(replanCheckPlan, planFile)
 	if err != nil {
@@ -216,7 +248,7 @@ func editPlan(old, new string) string {
 }
 
 func TestReplanRun(t *testing.T) {
-	for _, mode := range []string{"success", "quota", "stale-read", "broken-link", "unchanged", "dirty-open", "dirty-resume", "other-file", "permissions", "agent-commit", "human", "replan-blocked", "unit-limit", "run-limit", "no-key", "disabled", "skills"} {
+	for _, mode := range []string{"success", "quota", "stale-read", "broken-link", "unchanged", "dirty-open", "dirty-resume", "other-file", "permissions", "agent-commit", "human", "replan-blocked", "check-change", "unit-limit", "run-limit", "no-key", "disabled", "skills"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newReplanFixture(t)
 			steps := []string{blockReply(), liftReply("P001.1.1"), writeReply("b.txt"), writeReply("d.txt")}
@@ -259,6 +291,8 @@ func TestReplanRun(t *testing.T) {
 			case "replan-blocked":
 				steps = []string{blockReply(), doneReply(map[string]any{"status": "blocked", "reason": "без пользователя план не починить", "blocker": "human"})}
 				code, needle, calls = 3, "replan blocked (needs human): без пользователя план не починить", 2
+			case "check-change":
+				steps = []string{blockReply(), editPlan("Verify: `test -f d.txt`", "Verify: `true`") + liftReply("P001.1.1"), writeReply("b.txt"), writeReply("d.txt")}
 			case "unit-limit":
 				steps = []string{blockReply(), liftReply("P001.1.1"), blockReply(), liftReply("P001.1.1"), blockReply()}
 				code, needle, calls = 3, "P001.1.1: replan limit reached", 5
@@ -312,9 +346,11 @@ func TestReplanRun(t *testing.T) {
 				if strings.Contains(gotCalls[1].Stdin, "## Cycle") {
 					t.Fatal("unit instructions in replan prompt")
 				}
-				argv := strings.Join(gotCalls[1].Argv, " ")
-				if !strings.Contains(argv, "--model haiku") || !strings.Contains(argv, "low") {
+				if argv := strings.Join(gotCalls[1].Argv, " "); !strings.Contains(argv, "--model haiku") || !strings.Contains(argv, "low") {
 					t.Fatal(argv)
+				}
+				if strings.Contains(f.read(planFile), "Replan changed check:") {
+					t.Fatalf("replan without a check change touched Decisions:\n%s", f.read(planFile))
 				}
 			}
 			if mode == "quota" {
@@ -327,6 +363,31 @@ func TestReplanRun(t *testing.T) {
 				want := []string{"quota: claude 5h 8% · 7d 7%", "quota: claude 5h 8% (+0) · 7d 7% (+0)", "quota: claude 5h 8% (+0) · 7d 7% (+0)", "quota: claude 5h 8% (+0) · 7d 7% (+0)"}
 				if !reflect.DeepEqual(lines, want) {
 					t.Fatalf("%v != %v", lines, want)
+				}
+			}
+			if mode == "check-change" {
+				item := "P001.1.2 Verify: `test -f d.txt` -> `true`"
+				if subjects != "P001.1.2: second unit\nP001.1.1: first unit\nP001: replan P001.1.1\nfixture\ninit" {
+					t.Fatal(subjects)
+				}
+				if got := f.git("log", "-S- Replan changed check: "+item, "--format=%s"); !strings.Contains(got, "P001: replan P001.1.1") {
+					t.Fatalf("replan commit does not carry the Decisions line: %s", got)
+				}
+				if !strings.Contains(f.read(planFile), "- Replan changed check: "+item) {
+					t.Fatalf("plan Decisions:\n%s", f.read(planFile))
+				}
+				if !strings.Contains(r.out, "P001.1.1: replan changed check: "+item) || !strings.Contains(r.out, ", 1 checks changed by replan") {
+					t.Fatal(r.out)
+				}
+				var record map[string]any
+				for _, rec := range fixtureEvents(t, f) {
+					if rec["event"] == "replan" {
+						record = rec
+					}
+				}
+				changes, ok := record["check_changes"].([]any)
+				if record == nil || !ok || len(changes) != 1 || changes[0] != item {
+					t.Fatalf("replan event check_changes = %v", record)
 				}
 			}
 			if mode == "dirty-open" && !strings.Contains(gotCalls[1].Stdin, "?? b.txt") {

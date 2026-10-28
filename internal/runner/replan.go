@@ -136,6 +136,77 @@ func fieldText(plan *format.Plan, u *format.Unit, key string) string {
 	return strings.TrimFunc(rawPlan(plan, field.Line, field.End), replanSpace)
 }
 
+// replanCheckChanges lists the checks a replan moved on the units it may
+// edit: every unit of the old plan that has no reference role and is not
+// `[x]`/`[-]` reports a changed `Verify:` value and a move into `[-]`. The
+// reference units read as anchors in checkReplan - their changes stop the
+// replan, so they need no record here. docflow writes the items into the
+// plan's ## Decisions, prints them in the run and puts them in the replan
+// event: the agent does not record what it weakened, docflow does.
+func replanCheckChanges(before, after string) []string {
+	old, err := format.ParsePlan(before, "plan")
+	if err != nil {
+		return nil
+	}
+	new, err := format.ParsePlan(after, "plan")
+	if err != nil {
+		return nil
+	}
+	units := make(map[string]*format.Unit, len(new.Units))
+	for _, u := range new.Units {
+		units[u.ID] = u
+	}
+	var items []string
+	for _, u := range old.Units {
+		if doneStatus(u.Status) || anchorRole(u) != "" {
+			continue
+		}
+		v := units[u.ID]
+		if v == nil {
+			continue
+		}
+		if was, now := fieldPlainValue(old, u, "Verify"), fieldPlainValue(new, v, "Verify"); was != now {
+			items = append(items, fmt.Sprintf("%s Verify: %s -> %s", u.ID, was, now))
+		}
+		if v.Status == "-" {
+			items = append(items, u.ID+" skipped")
+		}
+	}
+	return items
+}
+
+// fieldPlainValue returns a field's trimmed value; units that replan may
+// edit are compared by value, the anchor units by raw text in checkReplan.
+func fieldPlainValue(plan *format.Plan, u *format.Unit, key string) string {
+	field := u.Field(key)
+	if field == nil {
+		return ""
+	}
+	return strings.TrimSpace(field.Value)
+}
+
+// recordReplanChecks appends the checks replan moved to the plan's
+// ## Decisions section: ## Decisions reaches the review and acceptance
+// prompts and the git history, so the record survives a run and outlives it.
+func recordReplanChecks(planPath string, items []string) error {
+	text, err := os.ReadFile(planPath)
+	if err != nil {
+		return err
+	}
+	plan, err := format.ParsePlan(string(text), planPath)
+	if err != nil {
+		return err
+	}
+	lines := make([]string, len(items))
+	for i, item := range items {
+		lines[i] = "Replan changed check: " + item
+	}
+	if err := plan.AppendSectionItems("Decisions", lines); err != nil {
+		return err
+	}
+	return plan.Save(planPath)
+}
+
 func replanTreeProblems(root, before, after, uid string, dirty []string) []string {
 	if before == after {
 		return []string{"the plan is unchanged"}
@@ -212,8 +283,13 @@ func unitPhase(uid string) string {
 
 func replanUnit(ctx context.Context, root string, args Args, config map[string]any, uid, trigger string, p *Progress, totals *runTotals, unavailable map[string]time.Time) (code int, runErr error) {
 	var route agents.Route
+	var checkChanges []string
 	defer func() {
-		totals.events.emit("replan", uid, map[string]any{"route": eventRoute(route), "result": eventStatus(code, runErr), "exit_code": code})
+		items := checkChanges
+		if items == nil {
+			items = []string{}
+		}
+		totals.events.emit("replan", uid, map[string]any{"route": eventRoute(route), "result": eventStatus(code, runErr), "exit_code": code, "check_changes": items})
 	}()
 	plan, _, err := cycle.FindUnit(root, uid)
 	if err != nil {
@@ -563,6 +639,19 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			}
 			totals.stop = uid + ": replan rejected"
 			return 3, nil
+		}
+		// The checks replan moved on the units it may edit are recorded by
+		// docflow, not by the agent: ## Decisions, the run output, the run
+		// summary and the replan event all carry them.
+		if changes := replanCheckChanges(string(before), string(after)); len(changes) > 0 {
+			if err := recordReplanChecks(planPath, changes); err != nil {
+				return stop(2, uid+": replan: "+err.Error(), uid+": replan: "+err.Error()+"; the plan is restored", "")
+			}
+			checkChanges = changes
+			for _, item := range changes {
+				p.line(uid+": replan changed check: "+item, false, "yellow")
+			}
+			totals.checkChanges += len(changes)
 		}
 		sha, err := cycle.CommitReplan(root, plan.Path, uid)
 		if err != nil {
