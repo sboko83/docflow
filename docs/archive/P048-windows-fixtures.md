@@ -9,13 +9,10 @@ Unix shell fixtures `internal/runner` и `internal/agentio` работают н�
 Windows: весь `go test ./...` зелёный на Windows 11 (Git for Windows),
 включая интеграционные прогоны раннера на fake-агентах. Убийство дерева
 процессов переведено с `taskkill /T /F` на kill-on-close Job Object —
-`taskkill` по родительским PID не видит потомков MSYS. Проверен в
-настоящей консоли Windows вопрос старта о human-блоке: `y` и заметка
-снимают блок, прогон продолжает юнит до готовности; перенаправленный
-stdin, `--yes` и блок `plan` вопросов не задают; `TestIsTerminalWindows*`
-и `TestAskUnblockWindowsConsoleTyped` (`DOCFLOW_WINDOWS_CONSOLE_ASK=1`)
-пройдены под ConPTY. Не проверены Linux/macOS после изменений (кросс-компиляция и vet — да) и 4 паритетных сценария установки,
-падавших и до изменений ([P040](P040-windows-support.md) follow-up).
+`taskkill` по родительским PID не видит потомков MSYS. Вопрос старта о
+human-блоке проверяется автоматическими ConPTY-тестами; полный parity и обе
+установки проверены на Windows. Linux/macOS после изменений не проверялись
+(кросс-компиляция и vet — да).
 
 ## Decisions
 
@@ -75,11 +72,10 @@ stdin, `--yes` и блок `plan` вопросов не задают; `TestIsTer
 
 - Прогнать `go test ./...`, `tools/test-install.sh` и parity на Linux и
   macOS после изменений (CI после push).
-- 4 паритетных сценария (bootstrap install ×2, checkout user path ×2)
-  падают на Windows и до этих изменений — проверить релизную установку
-  отдельно ([P040](P040-windows-support.md) follow-up).
-- Проверить на живом агенте правило повторной проверки после `unblock`
-  ([P041](P041-human-unblock.md)).
-- ConPTY-драйвер для проверок в настоящей консоли лежал в scratchpad
-  сессии; если такие проверки понадобятся регулярно — вынести в `tools/`
-  и завести на него тест.
+- Accepted: четыре parity-сценария установки и checkout user path прошли на
+  Windows; установщики проверены отдельными локальными сценариями.
+- Accepted: правило повторной проверки после `unblock` проверяется живым
+  сценарием P049.1.2 ([P041](P041-human-unblock.md)).
+- Accepted: ConPTY-покрытие вопроса старта находится в
+  `internal/runner/terminal_console_windows_test.go`.
+- Linux/macOS после изменений остаются непроверенными; см. выше.

@@ -106,6 +106,7 @@ human-блоке в настоящей консоли Windows закрыт ConPT
   если проверенный код не менялся: повтор требует дополнительных вызовов
   zai сверх ограничения плана — отвергнут обязательный повтор `--close`
   в P049.3.1 без расширения бюджета.
+- Reuse the successful P049.2.1 close result because the verified code is unchanged and the plan reserves no repeat zai calls; a repeat was rejected to stay within the quota.
 
 ## Phase 1: Windows-консоль и живая проверка unblock
 
@@ -211,7 +212,7 @@ Handoff:
 
 ## Phase 3: Приёмка на Windows
 
-### [ ] P049.3.1 Приёмка полного Windows-набора
+### [x] P049.3.1 Приёмка полного Windows-набора
 Read:
 - tools/parity/run.sh:L28-70
 - tools/test-install-ps1.sh
@@ -251,3 +252,6 @@ Role: acceptance
 Commit: P049.3.1: accept Windows checks on codex
 Handoff:
 - Blocked (plan): На Windows 11 (Go 1.27.0, amd64) сборка, go test ./..., полный parity (70 сценариев, 0 пропусков), tools/test-install.sh, tools/test-install-ps1.sh, smoke-run.sh --unblock и полный docflow verify прошли. tools/test-install.sh сообщил, что проверку no-terminal skills mode пропустил: в Windows нет setsid. Для test-install-ps1.sh понадобилось явно передать системный PSModulePath в Git Bash. Не выполнен обязательный smoke-run.sh --close: сценарий расходует два вызова zai, а ограничение юнита резервирует zai только для P049.2.1. План должен согласовать повторный расход квоты или изменить способ проверки --close без нарушения его маршрутного assert.
+- After the runner completes and commits P049.3.1, run `docflow run --close P049` on the real plan; then close P038’s remaining Follow-up. It cannot run before this unit is committed and the tree is clean.
+- `tools/test-install.sh` skipped no-terminal skills mode because Windows lacks `setsid`.
+- P049.2.1’s close scenario ran once; retry and repeatability paths remain untested. The default `smoke-run.sh` path was not run to preserve the plan’s zai budget.
