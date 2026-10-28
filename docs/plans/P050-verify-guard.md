@@ -2,7 +2,7 @@
 id: P050
 title: Verify guard against self-weakened checks
 type: feature
-status: draft
+status: active
 created: 2026-10-28
 executor: pi | strata/swift-1.5-iq3_s | high
 fallback: pi | zai/glm-5.3-flash | high
