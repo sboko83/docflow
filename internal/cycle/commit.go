@@ -154,11 +154,13 @@ func Commit(root, unitID string, projectRepos func(string) ([]string, error)) (R
 		}
 	}
 	sha, files := "", ""
+	var testLines []string
 	for _, repo := range append(repos, "") {
 		cwd := root
 		if repo != "" {
 			cwd = filepath.Join(root, filepath.FromSlash(repo))
 		}
+		var changes []string
 		expected := message
 		if repo == "" && len(committed) > 0 {
 			var details strings.Builder
@@ -188,9 +190,15 @@ func Commit(root, unitID string, projectRepos func(string) ([]string, error)) (R
 			if previous, ok := before.(string); ok && previous != "" {
 				wantParents = []string{previous}
 			}
+			span, err := spanTestChanges(cwd, before)
+			if err != nil {
+				return Result{}, err
+			}
+			expected = testChangesBody(expected, span)
 			if !equalStrings(parents, wantParents) || strings.TrimSpace(string(bodyOutput.stdout)) != strings.TrimSpace(expected) {
 				return Result{Code: clierrors.EXIT_ORDER, Stderr: fmt.Sprintf("%s: unexpected HEAD in %s; inspect the pending commit\n", unit.ID, repoOrDot(repo))}, nil
 			}
+			changes = span
 			sha, files, err = committedResult(cwd)
 			if err != nil {
 				return Result{}, err
@@ -203,6 +211,13 @@ func Commit(root, unitID string, projectRepos func(string) ([]string, error)) (R
 			if head == nil || !strings.HasPrefix(*head, recorded.SHA) || len(status) != 0 {
 				return Result{Code: clierrors.EXIT_ORDER, Stderr: fmt.Sprintf("%s: already committed repo %s changed; inspect the pending commit\n", unit.ID, repo)}, nil
 			}
+			span, err := spanTestChanges(cwd, before)
+			if err != nil {
+				return Result{}, err
+			}
+			for _, item := range span {
+				testLines = append(testLines, repoSlash(repo)+item)
+			}
 			continue
 		} else if repo != "" {
 			status, err := gitx.StatusLines(cwd)
@@ -212,7 +227,7 @@ func Commit(root, unitID string, projectRepos func(string) ([]string, error)) (R
 			if len(status) == 0 {
 				continue
 			}
-			sha, files, err = commitRepo(cwd, expected)
+			sha, files, changes, err = commitRepo(cwd, expected)
 			if err != nil {
 				done := ""
 				for _, item := range committed {
@@ -224,7 +239,7 @@ func Commit(root, unitID string, projectRepos func(string) ([]string, error)) (R
 				return Result{}, wrapCommitError(err, fmt.Sprintf("%s%s%s", repoPrefix(repo), err.Error(), done))
 			}
 		} else {
-			sha, files, err = commitRepo(cwd, expected)
+			sha, files, changes, err = commitRepo(cwd, expected)
 			if err != nil {
 				done := ""
 				for _, item := range committed {
@@ -235,6 +250,9 @@ func Commit(root, unitID string, projectRepos func(string) ([]string, error)) (R
 				}
 				return Result{}, wrapCommitError(err, fmt.Sprintf("%s%s%s", repoPrefix(repo), err.Error(), done))
 			}
+		}
+		for _, item := range changes {
+			testLines = append(testLines, repoSlash(repo)+item)
 		}
 		if repo == "" {
 			break
@@ -283,6 +301,9 @@ func Commit(root, unitID string, projectRepos func(string) ([]string, error)) (R
 			fmt.Fprintf(&output, "%s/%s\n", item.Path, name)
 		}
 	}
+	for _, item := range testLines {
+		fmt.Fprintf(&output, "test change: %s\n", item)
+	}
 	return Result{Code: clierrors.EXIT_OK, Stdout: output.String()}, nil
 }
 
@@ -306,18 +327,37 @@ func splitGitFiles(files string) []string {
 	return strings.Split(files, "\n")
 }
 
-func commitRepo(root, message string) (string, string, error) {
+// commitRepo stages the tree, marks weakened tests in the message, and makes
+// the commit. It returns the commit's sha, its file list, and the test change
+// items it marked.
+func commitRepo(root, message string) (string, string, []string, error) {
 	if _, err := gitx.Git(root, "add", "-A"); err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	result, events, err := traceCommit(root, []string{"-F", "-"}, []byte(message), true)
+	changes, err := stagedTestChanges(root)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
+	}
+	result, events, err := traceCommit(root, []string{"-F", "-"}, []byte(testChangesBody(message, changes)), true)
+	if err != nil {
+		return "", "", nil, err
 	}
 	if result.code != 0 {
-		return "", "", commitError(result, events)
+		return "", "", nil, commitError(result, events)
 	}
-	return committedResult(root)
+	sha, files, err := committedResult(root)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return sha, files, changes, nil
+}
+
+// repoSlash prefixes an output item with the nested repository's path.
+func repoSlash(repo string) string {
+	if repo == "" {
+		return ""
+	}
+	return repo + "/"
 }
 
 func traceCommit(root string, args []string, stdin []byte, feedStdin bool) (commandOutput, []traceEvent, error) {
