@@ -60,6 +60,7 @@ func TestTerminalLayoutUnitResultsAndUnverified(t *testing.T) {
 	p.line("P001.1.1: attempt 1: invalid JSON", true, "")
 	p.result("P001.1.1", "done", "abc123 (2 attempts, 4m34s)")
 	p.unverified("Проверка на сопряжённых Apple Watch не выполнялась.")
+	p.testChanges([]string{"a_test.go: -1 lines", "b_test.go: +skip"})
 	p.quotas([]NamedQuota{{Name: "codex", Quota: agentio.Quota{{Label: "5h", Used: .3}}}}, nil, "")
 	ranFor(p, 48)
 	p.unitEnd("P001.1.1")
@@ -70,6 +71,7 @@ func TestTerminalLayoutUnitResultsAndUnverified(t *testing.T) {
 		"│  ! attempt 1: invalid JSON",
 		"│  ✓ Done: abc123 (2 attempts, 4m34s)",
 		"│  ! Unverified:\n│    Проверка на сопряжённых",
+		"│  ! Test changes:\n│    a_test.go: -1 lines\n│    b_test.go: +skip",
 		"│  Quota · used  Codex \n│  5h",
 	} {
 		if !strings.Contains(text, expected) {

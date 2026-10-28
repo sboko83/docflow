@@ -99,6 +99,11 @@ acceptance.
 - Стка CHANGELOG написана так, что первая строка пункта Added начинается с `- ` и содержит `Test changes:` — why: Verify юнита грепает `^- .*Test changes` по одной строке, перенос фразы на продолжение даёт падение грепа — rejected: разбить формулировку на несколько строк (grep не нашёл бы совпадения.
 - Текст об опорных юнитах размещён в конце правила 3 «Replan» и отдельным пунктом в «Replan under the runner» — why: правило 3 читается как блок о том, чего replan не меняет, и зеркалит правило 3 replanRules в коде, а пункт секции про раннера описывает действие агента — rejected: новый нумерованный пункт (сдвигает нумерацию, которую зеркалит скилл).
 - Скилл run формулирует запрет тестов как запрет ослабления с явным списком skip-маркеров (`t.Skip(`, `it.skip(`, `@skip`, `@Ignore`, `@Disabled`) — why: маркеры берутся из skipMarkers в internal/cycle/testchanges.go и агенту нужно знать, что именно поймает детектор, а не выдумывать список — rejected: описать запрет общими словами (агент не знает, какие маркеры детектируются).
+- Recovery-путь раннера печатает, считает и репортит test changes восстановленного коммита — docflow commit выводил пункты, а раннер их отбрасывал: молчаливая потеря пометки ослабленных тестов в прогоне против Goal — отвергнуто: оставить как было (пометка видна только в теле коммита, счётчик и события показывают ноль)
+- Паритет replanRules ↔ скилл bsv-docflow-plan проверяется инвариантными фразами (the runner skips a `[x]` unit, Role: review/acceptance, Replan changed check), а не полным текстом — тексты в двух местах перефразированы (P025), побайтовое сравнение ломало бы законные переформулировки — отвергнуто: точное текстовое равенство
+- CRLF-план в тестах правится perl -pi — awk/sed Git Bash перекодируют CRLF→LF — отвергнуто: sed + unix2dos (unix2dos отсутствует на macOS)
+- Unverified P050.1.4 про Linux закрыт как Accepted: CI-матрица (ubuntu/macos/windows) гоняет go test ./... на каждом пуше, локальная верификация — Windows Git Bash
+- Unverified P050.1.2 про отказ recordReplanChecks закрыт как Accepted: путь недостижим через CLI — план без ## Decisions это lint-ошибка, checkReplan гоняет lint нового плана и отклоняет реплан до recordReplanChecks
 
 ## Phase 1: Replan guard
 
@@ -306,7 +311,7 @@ Handoff:
 
 ## Phase 4: Acceptance
 
-### [ ] P050.4.1 Accept verify guard end to end
+### [x] P050.4.1 Accept verify guard end to end
 Read:
 - internal/runner/run_test.go:L81-242
 - internal/runner/replan_test.go:L166-328
@@ -324,3 +329,11 @@ Traps: полный `go test ./...` идёт ~7 минут на Windows — дл
 Depends: P050.1.1, P050.1.2, P050.1.3, P050.1.4, P050.2.1, P050.2.2, P050.2.3, P050.2.4, P050.3.1
 Role: acceptance
 Commit: P050.4.1: accept verify guard end to end
+Handoff:
+- Дефект, найденный приёмкой и исправленный в internal/runner/run.go: recovery-путь (resuming pending commit) не печатал строки test change:, не считал их в сводке и эмитил событие commit без test_changes — тест TestVerifyGuardRecoveredCommitPrintsTestChanges строит крах честно (done → ручной git commit с точным сообщением docflow commit → run) и закрывает путь целиком
+- Бинарный удалённый тест-файл ДАЁТ пункт `<path>: deleted`: numstat пишет «-», но name-status D срабатывает — предположение handoff P050.2.1 о потере опровергнуто тестом TestStagedTestChangesEdgeContent/deleted_binary_test_file; при будущей правке детектора это поведение зафиксировано
+- awk и sed в Git Bash перекодируют CRLF→LF даже при RS=\034; побайтовая правка плана в тестах — perl -pi (хелпер perlEdit в verify_guard_acceptance_test.go), perl есть в Git Bash, macOS и ubuntu по умолчанию
+- docflow prompt помечает юнит [~]: два промпта подряд в одной фикстуре невозможны — сценарий 2 это два подтеста, nested-тест откатывает файл плана между промптами
+- План с executor: нельзя запускать с --config и его цепочки требуют встроенных агентов: guardFixture ставит claude-stub в PATH (как newReplanFixture) и запускает через runBare без --config
+- Полный go test ./... прошёл на Windows Git Bash (runner ~400s) — закрыт Unverified P050.2.3 о полном прогоне runner-пакета; юнит с executor: в прогоне обязан идти без --config
+- Unverified: Новые тесты (включая perl-правку и PATH-stub) прогнаны только на Windows Git Bash: запуска на Linux и macOS не было — их закрывает CI-матрица go test ./... на пуше коммита юнита

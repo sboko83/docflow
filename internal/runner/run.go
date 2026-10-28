@@ -671,12 +671,17 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	if committing {
 		p.line(uid+": resuming pending commit", false, "")
 		var result cycle.Result
+		var changes []string
 		for _, step := range []string{"verify", "commit"} {
 			result = cycle.Self(root, step, uid)
 			if step == "verify" {
 				totals.events.emit("verify", uid, map[string]any{"exit_code": result.Code})
 			} else if result.Code == 0 {
-				totals.events.emit("commit", uid, map[string]any{"sha": firstWord(result.Stdout)})
+				// The recovered commit reports the test change items of the
+				// commit it found at HEAD: the same items the interrupted
+				// commit had marked in its own body.
+				changes = testChangeItems(result.Stdout)
+				totals.events.emit("commit", uid, map[string]any{"sha": firstWord(result.Stdout), "test_changes": changes})
 			}
 			if result.Code != 0 {
 				if result.Code != 4 {
@@ -689,7 +694,10 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 		}
 		if problem == "" {
+			testChanges = len(changes)
 			p.result(uid, "done", firstWord(result.Stdout)+" (recovered commit)")
+			p.testChanges(changes)
+			totals.testChanges += len(changes)
 			totals.rows = append(totals.rows, unitRow{id: uid})
 			return 0, "", nil
 		}

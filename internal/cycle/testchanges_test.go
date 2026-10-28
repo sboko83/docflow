@@ -103,6 +103,65 @@ func TestStagedTestChangesItems(t *testing.T) {
 	}
 }
 
+// The edge content and paths of the diff parser: CRLF line endings, a path
+// git would quote in plain output, a binary test file, and a skip marker
+// split across added lines (the detector is line-based by design).
+func TestStagedTestChangesEdgeContent(t *testing.T) {
+	t.Run("crlf content", func(t *testing.T) {
+		root := makeCommitProject(t, commitPlan(" "), map[string]string{
+			"a_test.go": "package a\r\nfunc TestA() {}\r\nfunc TestB() {}\r\n",
+		})
+		// No core.autocrlf override: under any one config the baseline and the
+		// edit normalize the same way, so the deleted count stays 1.
+		writeCycleFile(t, root, "a_test.go", "package a\r\nfunc TestA() {}\r\n")
+		gitCycle(t, root, "add", "-A")
+		items, err := stagedTestChanges(root)
+		if err != nil || strings.Join(items, "|") != "a_test.go: -1 lines" {
+			t.Fatalf("stagedTestChanges() = %#v, %v", items, err)
+		}
+	})
+
+	t.Run("path with a space", func(t *testing.T) {
+		root := makeCommitProject(t, commitPlan(" "), map[string]string{
+			"sp ace/a_test.go": "package a\nfunc TestA() {}\nfunc TestB() {}\n",
+		})
+		writeCycleFile(t, root, "sp ace/a_test.go", "package a\nfunc TestA() {}\n")
+		gitCycle(t, root, "add", "-A")
+		items, err := stagedTestChanges(root)
+		if err != nil || strings.Join(items, "|") != "sp ace/a_test.go: -1 lines" {
+			t.Fatalf("stagedTestChanges() = %#v, %v", items, err)
+		}
+	})
+
+	t.Run("deleted binary test file", func(t *testing.T) {
+		root := makeCommitProject(t, commitPlan(" "), map[string]string{
+			"tests/blob.bin": "\x00\x01binary\x00\n",
+		})
+		if err := os.Remove(filepath.Join(root, "tests", "blob.bin")); err != nil {
+			t.Fatal(err)
+		}
+		gitCycle(t, root, "add", "-A")
+		items, err := stagedTestChanges(root)
+		// numstat counts no lines for a binary file, but the file is gone:
+		// the name-status letter still names the deletion.
+		if err != nil || strings.Join(items, "|") != "tests/blob.bin: deleted" {
+			t.Fatalf("stagedTestChanges() = %#v, %v", items, err)
+		}
+	})
+
+	t.Run("skip marker split across lines", func(t *testing.T) {
+		root := makeCommitProject(t, commitPlan(" "), map[string]string{
+			"c_test.go": "package c\nfunc TestC() {}\n",
+		})
+		writeCycleFile(t, root, "c_test.go", "package c\nfunc TestC() {}\nfunc TestD() { t.\nSkip(\"why\") }\n")
+		gitCycle(t, root, "add", "-A")
+		items, err := stagedTestChanges(root)
+		if err != nil || len(items) != 0 {
+			t.Fatalf("stagedTestChanges() = %#v, %v; a split marker is not detected by the line-based detector", items, err)
+		}
+	})
+}
+
 func TestCommitWithoutTestChangeItems(t *testing.T) {
 	root := makeCommitProject(t, commitPlan(" "), map[string]string{
 		"a.py":        "print(1)\n",
