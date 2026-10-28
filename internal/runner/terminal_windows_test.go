@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
-	"time"
 
 	"bsv-docflow/internal/term"
 )
@@ -105,23 +104,4 @@ func TestIsTerminalWindowsConsoleHandle(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("unblock ran: %v", *calls)
 	}
-}
-
-// TestAskUnblockWindowsConsoleTyped is the interactive console run: the person
-// answers `done?` and types a note at the real console. Opt-in — it needs a
-// human at the keyboard.
-func TestAskUnblockWindowsConsoleTyped(t *testing.T) {
-	if os.Getenv("DOCFLOW_WINDOWS_CONSOLE_ASK") != "1" {
-		t.Skip("needs a person at the console: run with DOCFLOW_WINDOWS_CONSOLE_ASK=1 in a Windows terminal; recorded as Unverified")
-	}
-	if !term.IsTerminal(os.Stdin) {
-		t.Skip("stdin is not a Windows console; recorded as Unverified")
-	}
-	calls := recordUnblock(t)
-	p, out := newUnblockProgress(t)
-	unblocked, cancelled := askWithin(t, 60*time.Second, context.Background(), t.TempDir(), "P001.1.1", "human", "нужен вход", false, p, newRunInput(os.Stdin), os.Stdout)
-	if cancelled {
-		t.Fatalf("the question was cancelled: unblocked=%v\n%s", unblocked, out)
-	}
-	t.Logf("unblocked=%v calls=%v output:\n%s", unblocked, *calls, out)
 }

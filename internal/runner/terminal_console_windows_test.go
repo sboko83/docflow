@@ -22,6 +22,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// conptyANSI strips the VT and OSC sequences the ConPTY renderer adds to the
+// child's output: the checks run on semantic text, not on emitted widths.
+var conptyANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\a]*\a)`)
+
 // The host runs in a subprocess: clearing its inherited standard handles must
 // never change the test runner's handles. The child gets real ConPTY handles.
 func TestWindowsConsoleProgress(t *testing.T) {
@@ -120,6 +124,14 @@ func consoleProgressHost() int {
 	defer windows.CloseHandle(process.Thread)
 	input.Close()
 	output.Close()
+	// The unblock-ask test pre-types the answer: the console input buffer
+	// keeps it until the child's question reads it, like a paste at the
+	// keyboard.
+	if typed := os.Getenv("DOCFLOW_TEST_CONSOLE_INPUT"); typed != "" {
+		if _, err := io.WriteString(writer, typed); err != nil {
+			return fail(err)
+		}
+	}
 	drained := make(chan []byte, 1)
 	go func() { data, _ := io.ReadAll(reader); drained <- data }()
 	status, err := windows.WaitForSingleObject(process.Process, 40000)
@@ -159,7 +171,7 @@ func TestWindowsConsoleRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("console run: %v\n%s", err, output)
 	}
-	text := regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\a]*\a)`).ReplaceAllString(string(output), "")
+	text := conptyANSI.ReplaceAllString(string(output), "")
 	for _, want := range []string{"P001: close plan", "close attempt 1: time cap 4s reached while active", "resuming the session", "Quota · used", "86%", "hint: P001 needs more than 4s"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q:\n%s", want, text)
@@ -167,6 +179,92 @@ func TestWindowsConsoleRun(t *testing.T) {
 	}
 	if len(f.calls()) != 2 {
 		t.Fatalf("close did not resume exactly once: %d calls", len(f.calls()))
+	}
+}
+
+// TestWindowsConsoleUnblockAsk covers the human-block question at the start of
+// a run on a real console: the host stage pre-types the answer into the ConPTY
+// input pipe, the child runs `docflow run` on a plan whose unit is
+// `Blocked (human)`. Answering yes reads a note, lifts the block and the unit
+// runs to its commit; answering no keeps the block and stops the run.
+func TestWindowsConsoleUnblockAsk(t *testing.T) {
+	t.Setenv("TERM", "xterm")
+	t.Setenv("NO_COLOR", "")
+	for _, tc := range []struct {
+		name, typed string
+		code        int
+	}{
+		{"yes", "y\rвошёл\r", 0},
+		{"no", "n\r", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRunFixture(t)
+			f.replace(planFile, "[ ] P001.1.1", "[!] P001.1.1")
+			f.replace(planFile, "Commit: P001.1.1: first unit\n", "Commit: P001.1.1: first unit\nHandoff:\n- Blocked (human): нужен вход\n")
+			f.steps(writeReply("a.txt"))
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, exe, "-test.run=^TestWindowsConsoleProgress$")
+			cmd.Dir = f.root
+			cmd.Env = append(os.Environ(), "DOCFLOW_TEST_CONSOLE_STAGE=host", "DOCFLOW_TEST_CONSOLE_WIDTH=120",
+				"DOCFLOW_TEST_CONSOLE_INPUT="+tc.typed,
+				"DOCFLOW_TEST_CONSOLE_COMMAND="+windows.ComposeCommandLine([]string{f.binary, "run", "--no-wait", "--config", f.config, "--max-units", "1"}))
+			output, err := cmd.CombinedOutput()
+			text := conptyANSI.ReplaceAllString(string(output), "")
+			code := 0
+			if err != nil {
+				e, ok := err.(*exec.ExitError)
+				if !ok {
+					t.Fatalf("console run: %v\n%s", err, text)
+				}
+				code = e.ExitCode()
+			}
+			if code != tc.code {
+				t.Fatalf("exit %d, want %d\n%s", code, tc.code, text)
+			}
+			for _, want := range []string{"P001.1.1 is blocked (needs human): нужен вход", "done? [y/N]"} {
+				if !strings.Contains(text, want) {
+					t.Errorf("missing %q:\n%s", want, text)
+				}
+			}
+			if tc.name != "yes" {
+				for _, want := range []string{"P001.1.1 is blocked", `unblock: docflow unblock P001.1.1 --note "…", then docflow run`} {
+					if !strings.Contains(text, want) {
+						t.Errorf("missing %q:\n%s", want, text)
+					}
+				}
+				if plan := f.read(planFile); !strings.Contains(plan, "[!] P001.1.1") || !strings.Contains(plan, "- Blocked (human): нужен вход\n") {
+					t.Fatalf("the plan changed:\n%s", plan)
+				}
+				if calls := f.calls(); len(calls) != 0 {
+					t.Fatalf("the fake agent ran: %d calls", len(calls))
+				}
+				return
+			}
+			for _, want := range []string{"note:", "P001.1.1: unblocked; the unit resumes and checks the blocked step first"} {
+				if !strings.Contains(text, want) {
+					t.Errorf("missing %q:\n%s", want, text)
+				}
+			}
+			if plan := f.read(planFile); !strings.Contains(plan, "[x] P001.1.1") || !strings.Contains(plan, "- Unblocked: вошёл\n") {
+				t.Fatalf("plan after the unblock:\n%s", plan)
+			}
+			if head := f.git("log", "-1", "--format=%s"); head != "P001.1.1: first unit" {
+				t.Fatalf("last commit = %q", head)
+			}
+			calls := f.calls()
+			if len(calls) != 1 {
+				t.Fatalf("calls = %d", len(calls))
+			}
+			prompt := strings.Join(strings.Fields(calls[0].Stdin), " ")
+			if !strings.Contains(prompt, "Unblocked: вошёл") || !strings.Contains(prompt, "Blocked (human): нужен вход") {
+				t.Fatalf("prompt misses the unblock:\n%s", prompt)
+			}
+		})
 	}
 }
 

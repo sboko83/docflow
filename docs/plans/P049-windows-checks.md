@@ -2,7 +2,7 @@
 id: P049
 title: Windows checks of console and live runner rules
 type: feature
-status: draft
+status: active
 created: 2026-10-28
 executor: pi | zai/glm-5.3-flash | high
 fallback: pi | strata/swift-1.5-iq3_s | -; codex | gpt-6-luna | high
@@ -96,10 +96,12 @@ human-блоке в настоящей консоли Windows закрыт ConPT
 - Закрытие P049 через `docflow run --close` живым агентом: реальным
   планом проверяется и сам закрывающий прогон — отвергнут ручной
   `docflow close`.
+- Ручной опт-ин тест удалён целиком, а не переформулирован — Decision плана отвергает ручной режим у консоли, вместо него ConPTY-покрытие — отвергнуто: сохранить тест с переформулированным skip
+- Ответ препечатывается в момент старта хоста без ожидания вопроса — буфер консольного ввода хранит вставленные строки до чтения, гонок нет — отвергнуто: ждать в выводе ребёнка строку вопроса перед записью
 
 ## Phase 1: Windows-консоль и живая проверка unblock
 
-### [ ] P049.1.1 ConPTY-тест вопроса старта о human-блоке
+### [x] P049.1.1 ConPTY-тест вопроса старта о human-блоке
 Read:
 - internal/runner/terminal_console_windows_test.go
 - internal/runner/terminal_windows_test.go:L95-127
@@ -125,6 +127,9 @@ Traps: хост-процесс получает `DOCFLOW_TEST_CONSOLE_STAGE=host
 обычные консольные тесты скипаются, а ConPTY-тест обязан пройти.
 Depends: -
 Commit: P049.1.1: cover human-block start prompt on Windows console
+Handoff:
+- ConPTY-хост принимает DOCFLOW_TEST_CONSOLE_INPUT и препечатывает ответ сразу после CreateProcess: typed-ahead безопасен, потому что вопрос о human-блоке — первое чтение stdin (стартовый confirm возвращается раньше для планов без permissions/prerequisites)
+- TestAskUnblockWindowsConsoleTyped и DOCFLOW_WINDOWS_CONSOLE_ASK удалены; покрытие — TestWindowsConsoleUnblockAsk/{yes,no}; оставшийся skip с фразой 'recorded as Unverified' в TestIsTerminalWindowsConsoleHandle относится к другому тесту и сознательно не тронут
 
 ### [ ] P049.1.2 Сценарий живой проверки условия после unblock
 Read:
