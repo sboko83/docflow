@@ -5,10 +5,10 @@ type: feature
 status: draft
 created: 2026-10-28
 executor: pi | strata/swift-1.5-iq3_s | high
-fallback: pi | zai/glm-5.3-flash | high
+fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | high
 review: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium
-acceptance: codex | gpt-6.1-sol | high; pi | zai/glm-5.3 | max
-replan: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | medium
+acceptance: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high
+replan: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium
 permissions: auto
 timeout: 7200
 gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
