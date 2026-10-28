@@ -23,6 +23,9 @@ title: Plan
 type: feature
 status: active
 created: 2026-10-12
+executor: pi | zai/m | high
+review: pi | zai/m | high; codex | c | high
+acceptance: pi | zai/m2 | high; codex | c2 | high
 ---
 ## Goal
 
@@ -73,6 +76,24 @@ Do:
 - d
 Verify: ` + "`true`" + `
 Commit: P001.1.3: todo
+
+### [!] P001.1.5 Review
+Read:
+- a.py
+Do:
+- review the phase
+Verify: ` + "`echo review`" + `
+Role: review
+Commit: P001.1.5: review
+
+### [ ] P001.1.6 Acceptance
+Read:
+- a.py
+Do:
+- accept the plan
+Verify: ` + "`echo accept`" + `
+Role: acceptance
+Commit: P001.1.6: acceptance
 `
 
 func TestCheckReplan(t *testing.T) {
@@ -92,6 +113,11 @@ func TestCheckReplan(t *testing.T) {
 		{"open-removed", replanCheckPlan, strings.ReplaceAll(lifted, "P001.1.3", "P001.1.9"), "unit P001.1.3 removed"},
 		{"still-blocked", replanCheckPlan, strings.ReplaceAll(replanCheckPlan, "- b.py", "- a.py"), "unit P001.1.2 is still [!]"},
 		{"cancelled", strings.ReplaceAll(replanCheckPlan, "[x]", "[-]"), strings.ReplaceAll(lifted, "[x]", "[ ]"), "unit P001.1.1 [-] changed"},
+		{"acceptance-verify", replanCheckPlan, strings.ReplaceAll(lifted, "`echo accept`", "`echo accept now`"), "unit P001.1.6 (acceptance): Verify changed"},
+		{"review-do", replanCheckPlan, strings.ReplaceAll(lifted, "- review the phase", "- review the phase and the commits"), "unit P001.1.5 (review): Do changed"},
+		{"acceptance-skipped", replanCheckPlan, strings.ReplaceAll(lifted, "### [ ] P001.1.6 Acceptance", "### [-] P001.1.6 Acceptance"), "unit P001.1.6 (acceptance) skipped"},
+		{"review-lift", strings.ReplaceAll(replanCheckPlan, "### [!] P001.1.5 Review", "### [ ] P001.1.5 Review"), strings.ReplaceAll(strings.ReplaceAll(lifted, "### [~] P001.1.5 Review", "### [ ] P001.1.7 Fix\nRead:\n- a.py\nDo:\n- fix the phase\nVerify: `true`\nCommit: P001.1.7: fix\n\n### [ ] P001.1.5 Review"), "Verify: `echo review`\nRole: review", "Verify: `echo review`\nDepends: P001.1.7\nRole: review"), ""},
+		{"plain-verify", replanCheckPlan, strings.ReplaceAll(lifted, "Verify: `true`\nCommit: P001.1.3: todo", "Verify: `echo fine`\nCommit: P001.1.3: todo"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := checkReplan(tc.before, tc.after, "P001.1.2")
@@ -135,7 +161,7 @@ func TestReplanPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"# Replan P001.1.2 Stuck\n", "Plan: P001 Plan (" + planFile + ")", "## Trigger\nP001.1.2: blocked (needs plan): b.py is gone\n\n", "## Handoff of P001.1.2", "- Blocked (plan): b.py is gone", "## Tree\nclean: no uncommitted work", "bsv-docflow-plan", "Replan mode", "Edit only the plan file", "new units with the next", "Context links", "Traps", "append to Decisions", "frontmatter", "Goal", "Constraints", "Prerequisites", "`[x]`", "`[-]`", "Do not do the unit", "docflow lint", "Do not commit", `"blocker"`, `"human"`} {
+	for _, s := range []string{"# Replan P001.1.2 Stuck\n", "Plan: P001 Plan (" + planFile + ")", "## Trigger\nP001.1.2: blocked (needs plan): b.py is gone\n\n", "## Handoff of P001.1.2", "- Blocked (plan): b.py is gone", "## Tree\nclean: no uncommitted work", "bsv-docflow-plan", "Replan mode", "Edit only the plan file", "new units with the next", "Context links", "Traps", "append to Decisions", "frontmatter", "Goal", "Constraints", "Prerequisites", "`[x]`", "`[-]`", "reference checks", "Do not do the unit", "docflow lint", "Do not commit", `"blocker"`, `"human"`} {
 		if !strings.Contains(prompt, s) {
 			t.Errorf("missing %q", s)
 		}

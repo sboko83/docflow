@@ -76,8 +76,26 @@ func checkReplan(before, after, uid string) []string {
 				gone += " ([" + u.Status + "])"
 			}
 			problems = append(problems, gone)
-		} else if doneStatus(u.Status) && (v.Status != u.Status || rawPlan(old, u.Line, u.End) != rawPlan(new, v.Line, v.End)) {
-			problems = append(problems, fmt.Sprintf("unit %s [%s] changed", u.ID, u.Status))
+			continue
+		}
+		if doneStatus(u.Status) {
+			if v.Status != u.Status || rawPlan(old, u.Line, u.End) != rawPlan(new, v.Line, v.End) {
+				problems = append(problems, fmt.Sprintf("unit %s [%s] changed", u.ID, u.Status))
+			}
+			continue
+		}
+		role := anchorRole(u)
+		if role == "" {
+			continue
+		}
+		if v.Status == "-" {
+			problems = append(problems, fmt.Sprintf("unit %s (%s) skipped", u.ID, role))
+			continue
+		}
+		for _, name := range []string{"Verify", "Do", "Role"} {
+			if fieldText(old, u, name) != fieldText(new, v, name) {
+				problems = append(problems, fmt.Sprintf("unit %s (%s): %s changed", u.ID, role, name))
+			}
 		}
 	}
 	if target := newUnits[uid]; target != nil && target.Status == "!" {
@@ -89,6 +107,33 @@ func checkReplan(before, after, uid string) []string {
 		problems = append(problems, fmt.Sprintf("lint: %d: %s", issue.Line, issue.Text))
 	}
 	return problems
+}
+
+// anchorRole returns the role key of a unit whose checks replan must not
+// touch: review and acceptance units are the reference checks of the plan,
+// the guard against an agent weakening its own work. The status marker and
+// Depends: of such a unit do change - replan lifts the block and adds the
+// fix units it depends on.
+func anchorRole(u *format.Unit) string {
+	field := u.Field("Role")
+	if field == nil {
+		return ""
+	}
+	switch field.Value {
+	case "review", "acceptance":
+		return field.Value
+	}
+	return ""
+}
+
+// fieldText returns the raw lines of a unit field; a missing field reads as
+// "" so adding, removing or rewriting an anchor field is one problem.
+func fieldText(plan *format.Plan, u *format.Unit, key string) string {
+	field := u.Field(key)
+	if field == nil {
+		return ""
+	}
+	return strings.TrimFunc(rawPlan(plan, field.Line, field.End), replanSpace)
 }
 
 func replanTreeProblems(root, before, after, uid string, dirty []string) []string {

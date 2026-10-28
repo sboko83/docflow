@@ -71,10 +71,13 @@ acceptance.
   источником правды для ревью, приёмки и бенчмарка, работает и в
   интерактиве, и в раннере — отвергнуто: только поле события (теряется в
   интерактиве, локально в git-dir).
+- Anchor fields are compared as raw field lines from Field Line to End, not as Value and Items: raw text catches a rewritten Do list and a deleted Role line. Rejected: compare field.Value only, a Do field is a list and Value does not cover it.
+- The anchor role is read from the old plan, not the new one: deleting the Role line of an anchor unit becomes the problem Role changed and the unit never stops being an anchor silently. Rejected: read the role from the new version.
+- The guard lives inside the existing loop over old units with a continue structure: a removed anchor unit is already covered by unit removed and a done anchor unit by unit changed, so no duplicate problem text.
 
 ## Phase 1: Replan guard
 
-### [ ] P050.1.1 Protect review and acceptance checks from replan
+### [x] P050.1.1 Protect review and acceptance checks from replan
 Read:
 - internal/runner/replan.go:L1-130
 - internal/runner/replan_rules.go
@@ -88,6 +91,13 @@ Do:
 - В `docs/design/runner.md` раздела «Авто-replan» дописать в перечень проверок `check_replan` неприкосновенность опорных юнитов.
 Verify: `go test ./internal/runner/ -run 'TestCheckReplan|TestReplanPrompt'`
 Commit: P050.1.1: protect review and acceptance checks from replan
+Handoff:
+- New fixture units in replanCheckPlan: P001.1.5 with Role review and P001.1.6 with Role acceptance. Their Verify and Do lines are unique strings: echo review, echo accept, review the phase, accept the plan. Cases about anchor fields are built by ReplaceAll on those strings, so later units must reuse these ids and texts.
+- The fixture frontmatter now carries executor, review and acceptance chains. Without an executor key lint reports Role needs executor mode and that error enters checkReplan problems, so anchor fixtures must stay in executor mode.
+- The test helper lifted replaces the whole status marker, so it moves the review unit P001.1.5 from blocked to tilde. Cases that assert an anchor status must build before and after explicitly, and a new fix unit referenced in Depends has to be inserted before the anchor unit: Depends to a later unit is a lint error.
+- Unit P050.3.1 has to update the section Replan under the runner in skills/bsv-docflow-plan/SKILL.md to match the new rule 3 text. Replan rules exist in two places, the P025 gotcha, this unit changed only the Go rule string.
+- Unverified: No end to end check: no test runs the CLI path where a replanning agent rewrites the Verify field of an acceptance unit and the run restores the plan with code 3. The guard is covered by direct checkReplan calls in Go unit tests only, the scenario is scheduled for P050.4.1.
+- Unverified: No parity check: replanRules text changed and the section Replan under the runner in skills/bsv-docflow-plan/SKILL.md did not, nothing compares the two rule texts, no test and no grep checks it (the P025 gotcha).
 
 ### [ ] P050.1.2 Record check changes made by replan
 Read:
