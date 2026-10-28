@@ -100,6 +100,8 @@ human-блоке в настоящей консоли Windows закрыт ConPT
 - Ответ препечатывается в момент старта хоста без ожидания вопроса — буфер консольного ввода хранит вставленные строки до чтения, гонок нет — отвергнуто: ждать в выводе ребёнка строку вопроса перед записью
 - the guarded unit's Do says reply blocked with blocker human instead of running docflow block — in runner mode the runner records the block itself and cycle step 3 forbids self-block; rejected: literal `docflow block --needs human` in the unit Do (contradicts the runner cycle)
 - smoke-run.sh drops DOCFLOW_RUNNER_UNIT for all its docflow calls, not just unblock — the script must behave as a standalone context wherever launched; rejected: env -u on the Verify command line (leaves the trap for the next caller)
+- --dry-run --close check sits between unit completion and the live close — only there the selection resolves to close and the route line prints; rejected: before the unit run (plan not ready, no close: line)
+- close route line asserted exactly as `close: pi | zai/glm-5.3-flash | high` — catches route regressions; rejected: loose `^close: ` prefix
 
 ## Phase 1: Windows-консоль и живая проверка unblock
 
@@ -169,7 +171,7 @@ Handoff:
 
 ## Phase 2: Живое закрытие плана
 
-### [ ] P049.2.1 Сценарий `docflow run --close` живым агентом
+### [x] P049.2.1 Сценарий `docflow run --close` живым агентом
 Read:
 - tools/smoke-run.sh
 - docs/design/runner.md:L155-180
@@ -198,6 +200,10 @@ Traps: закрывающий агент сам вызывает `docflow close`
 Depends: -
 Executor: pi | zai/glm-5.3-flash | high
 Commit: P049.2.1: add live close-run scenario
+Handoff:
+- smoke-run.sh --close spends two zai calls per run (unit + closing agent); the closing call passed on the first attempt, retry path and second-run log numbering (P001.close2.out) stay unexercised
+- the closing agent gets a PowerShell-syntax CLI command from closeCLICommand on Windows while pi agents drive Git Bash; the zai agent adapted on its own — if a close run stalls on `& '...'`, that mismatch is the place to look
+- Unverified: the live close scenario ran once; the agent-driven close procedure varies between runs, so flakes on refusal/retry paths are possible — missing check: a repeat `bash tools/smoke-run.sh --close` (each run spends two zai calls)
 
 ## Phase 3: Приёмка на Windows
 

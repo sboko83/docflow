@@ -7,6 +7,8 @@
 # Z.ai and Codex quota. --dry-run checks the plan without agent calls.
 # --unblock: the live re-check rule after `docflow unblock` — three runs
 # of one guarded unit on the local strata model, no subscription quota.
+# --close: the live `docflow run --close` of a ready one-unit plan on
+# GLM Flash; one unit run plus one closing agent call.
 set -euo pipefail
 # The script drives docflow by hand, like a person: drop the runner guard
 # so it also works when launched from an agent session inside `docflow run`.
@@ -15,12 +17,14 @@ unset DOCFLOW_RUNNER_UNIT
 mixed=0
 dry_run=0
 unblock=0
+close=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --mixed) mixed=1 ;;
         --dry-run) dry_run=1 ;;
         --unblock) unblock=1 ;;
-        *) echo "usage: $0 [--mixed] [--unblock] [--dry-run]" >&2; exit 2 ;;
+        --close) close=1 ;;
+        *) echo "usage: $0 [--mixed] [--unblock] [--close] [--dry-run]" >&2; exit 2 ;;
     esac
     shift
 done
@@ -104,6 +108,43 @@ Do:
 - Create `bye.txt` containing the single line `bye`.
 Verify: `grep -qx bye bye.txt`
 Commit: P001.1.2: write bye
+EOF
+elif [ "$close" -eq 1 ]; then
+    cat > docs/plans/P001-close.md <<'EOF'
+---
+id: P001
+title: Close smoke
+type: feature
+status: active
+created: 2026-10-12
+executor: pi | zai/glm-5.3-flash | high
+---
+## Goal
+One trivial unit; once it is done the plan is closed by a live
+`docflow run --close`.
+
+## Context
+
+## Constraints
+Use the absolute docflow executable path from README.md for verification;
+an agent's shell profile may replace the inherited PATH.
+
+## Traps
+- `grep -qx` demands the exact single line, nothing around it.
+
+## Decisions
+- plain file over a template — the content is checked verbatim — rejected: templating
+
+## Phase 1: File
+
+### [ ] P001.1.1 Write hello
+Read:
+- docs/docflow.md
+- README.md
+Do:
+- Create `hello.txt` containing the single line `hello`.
+Verify: `grep -qx hello hello.txt`
+Commit: P001.1.1: write hello
 EOF
 else
     cat > docs/plans/P001-smoke.md <<'EOF'
@@ -213,6 +254,69 @@ if [ "$unblock" -eq 1 ]; then
     cd /
     rm -rf "$work" "$out"
     echo 'smoke-run: ok unblock'
+    exit 0
+fi
+
+if [ "$close" -eq 1 ]; then
+    plan=docs/plans/P001-close.md
+    out="$work.out"
+    run_dir="$work/.git/docflow/run"
+
+    # A live run finishes the single unit and leaves the plan ready to close.
+    code=0
+    "$docflow" run --yes --max-units 1 >"$out" || code=$?
+    cat "$out"
+    [ "$code" -eq 0 ] || fail "unit run exited with $code, want 0"
+    grep -q '^### \[x\] P001.1.1' "$plan" || fail 'unit is not [x]'
+    grep -qx hello hello.txt || fail 'hello.txt is wrong'
+    "$docflow" status | grep -q 'ready to close' || fail 'plan is not ready to close'
+
+    # --dry-run --close prints the close route and calls no agent.
+    logs_before="$(ls "$run_dir"/*.out 2>/dev/null | sort)"
+    dry="$work.dry.out"
+    "$docflow" run --dry-run --close >"$dry" || fail 'dry-run --close failed'
+    cat "$dry"
+    grep -q '^close: pi | zai/glm-5.3-flash | high$' "$dry" \
+        || fail 'no close route line in --dry-run --close output'
+    [ "$logs_before" = "$(ls "$run_dir"/*.out 2>/dev/null | sort)" ] \
+        || fail '--dry-run --close made an agent call'
+
+    # The live close: the agent closes the plan per bsv-docflow-close,
+    # the runner checks the result and commits it.
+    code=0
+    "$docflow" run --yes --close >"$out" || code=$?
+    cat "$out"
+    [ "$code" -eq 0 ] || fail "close run exited with $code, want 0"
+
+    entry="$(ls "$work"/docs/archive/P001-*.md 2>/dev/null)"
+    [ -n "$entry" ] || fail 'no archive entry docs/archive/P001-*.md'
+    for section in '## Outcome' '## Decisions' '## Gotchas' '## Follow-ups'; do
+        grep -q "^$section" "$entry" || fail "archive entry has no $section"
+    done
+    [ -z "$(ls "$work"/docs/plans/P001*.md 2>/dev/null)" ] \
+        || fail 'plan file still exists'
+    grep -qxF 'P001: close plan' <<<"$(git log --format=%s)" \
+        || fail 'no close commit'
+    grep -qx -- '- P001' docs/docflow.md \
+        && fail 'P001 is still in the Queue' || true
+
+    # The close event carries the plan, the route and the outcome; the
+    # closing agent call is marked close: true and logged.
+    ev="$(grep -h '"event":"close"' "$run_dir"/*.events.jsonl)"
+    [ -n "$ev" ] || fail 'no close event in the run events'
+    grep -q '"plan":"P001"' <<<"$ev" || fail 'close event has no plan'
+    grep -q '"result":"done"' <<<"$ev" || fail 'close event is not done'
+    grep -q '"exit_code":0' <<<"$ev" || fail 'close event has no exit_code 0'
+    grep -q '"model":"zai/glm-5.3-flash"' <<<"$ev" \
+        || fail 'close event route is not zai glm-5.3-flash'
+    grep -hq '"close":true,"event":"attempt"' "$run_dir"/*.events.jsonl \
+        || fail 'no attempt event with close: true'
+    [ -n "$(ls "$run_dir"/P001.close*.out 2>/dev/null)" ] \
+        || fail 'no close call log'
+
+    cd /
+    rm -rf "$work" "$out" "$dry"
+    echo 'smoke-run: ok close'
     exit 0
 fi
 
