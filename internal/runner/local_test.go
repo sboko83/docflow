@@ -44,7 +44,7 @@ func TestLocalTerminalDisplay(t *testing.T) {
 		p, out := newTTYProgress(t)
 		p.setColumns(width)
 		p.unit("P001.1.1", "Local work", route, blockStart)
-		if !strings.Contains(out.String(), "\x1b[1;30;47m Local \x1b[0m") || strings.Contains(plainTTY(out.String()), " Pi ") {
+		if !strings.Contains(out.String(), "\x1b[1;38;2;0;0;0;47m Local \x1b[0m") || strings.Contains(plainTTY(out.String()), " Pi ") {
 			t.Fatalf("local badge at width %d: %q", width, out.String())
 		}
 	}

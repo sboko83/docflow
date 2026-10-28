@@ -24,7 +24,8 @@ var STYLES = map[string]string{
 	// Pi colours come from the pi.dev logo: coral P and yellow i on its
 	// dark background.
 	"pi": "1;38;2;234;123;111;48;2;17;21;28", "pi-i": "1;38;2;236;178;71;48;2;17;21;28",
-	"agent": "1;30;47",
+	// Bold 30 renders as grey in many terminals; true-colour black stays black.
+	"agent": "1;38;2;0;0;0;47",
 }
 
 var ansiStyleRE = regexp.MustCompile(`\x1b\[[\d;]*m`)
