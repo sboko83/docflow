@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/testshim"
 )
 
 // zaiFixtureBody mirrors the live response shape from the plan context.
@@ -50,13 +50,8 @@ func TestIsZaiModel(t *testing.T) {
 // real key store.
 func fakeZaiPi(t *testing.T, script string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fake pi requires Unix")
-	}
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "pi"), []byte("#!/bin/sh\n"+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testshim.Script(t, bin, "pi", "#!/bin/sh\n"+script)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
@@ -78,9 +73,6 @@ func TestProbeZaiQuotaHTTP(t *testing.T) {
 }
 
 func TestProbeZaiQuotaNoPi(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fake pi requires Unix")
-	}
 	t.Setenv("PATH", t.TempDir())
 	equal(t, ProbeZaiQuota(time.Second), Quota{})
 }

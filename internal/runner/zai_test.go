@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -56,9 +55,6 @@ func (s *zaiQuotaServer) authorized() bool {
 // key (FAKE_ZAI_KEY) and DOCFLOW_ZAI_QUOTA_URL points at the server.
 func zaiRunFixture(t *testing.T) (*runFixture, *zaiQuotaServer) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fake pi requires Unix")
-	}
 	f := fallbackExecutorRunFixture(t)
 	server := newZaiQuotaServer(t)
 	return f, server
@@ -192,9 +188,6 @@ func TestRunZaiLimitWithoutResetWaitsForQuotaReset(t *testing.T) {
 }
 
 func TestReplanZaiQuotaProbesAfterCall(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fake pi requires Unix")
-	}
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nreplan: pi | zai/glm-5.3 | max")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
@@ -219,9 +212,6 @@ func TestReplanZaiQuotaProbesAfterCall(t *testing.T) {
 }
 
 func TestReplanZaiLimitWithoutResetUsesServerQuotaReset(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fake pi requires Unix")
-	}
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")

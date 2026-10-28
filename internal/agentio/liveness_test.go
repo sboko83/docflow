@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -121,7 +122,11 @@ func TestCallAgentStall(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(b)
-	order := []string{"$ ", "--- stdout", `"type":"message_end"`, "--- stderr", "--- exit -15 (stalled)"}
+	killCode := -15
+	if runtime.GOOS == "windows" {
+		killCode = 1 // no signals: the job terminates the tree with code 1
+	}
+	order := []string{"$ ", "--- stdout", `"type":"message_end"`, "--- stderr", "--- exit " + strconv.Itoa(killCode) + " (stalled)"}
 	at := 0
 	for _, marker := range order {
 		i := strings.Index(text[at:], marker)
@@ -184,7 +189,11 @@ func TestCallAgentLogStreamsWhileRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(b)
-	order := []string{"$ ", "--- stdout", `"type":"ready"`, "--- stderr", "--- exit -15 (timed out)"}
+	killCode := -15
+	if runtime.GOOS == "windows" {
+		killCode = 1 // no signals: the job terminates the tree with code 1
+	}
+	order := []string{"$ ", "--- stdout", `"type":"ready"`, "--- stderr", "--- exit " + strconv.Itoa(killCode) + " (timed out)"}
 	at := 0
 	for _, marker := range order {
 		i := strings.Index(text[at:], marker)

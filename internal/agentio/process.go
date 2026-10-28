@@ -234,6 +234,8 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+	watch, _ := procgroup.Track(cmd.Process)
+	defer watch.Close()
 	var timer *time.Timer
 	var deadline <-chan time.Time
 	if options.Timeout > 0 {
@@ -261,19 +263,19 @@ wait:
 			break wait
 		case <-deadline:
 			run.TimedOut = true
-			waitErr = procgroup.Kill(cmd, done, KillGrace)
+			waitErr = procgroup.Kill(cmd, watch, done, KillGrace)
 			break wait
 		case <-stall:
 			// Silence with no tool in flight means a hung agent: no line for
 			// the idle limit and nothing running that could still answer.
 			if state := options.Liveness.State(); state.Tools == 0 && time.Since(state.LastLine) >= options.Idle {
 				run.Stalled = true
-				waitErr = procgroup.Kill(cmd, done, KillGrace)
+				waitErr = procgroup.Kill(cmd, watch, done, KillGrace)
 				break wait
 			}
 		case <-ctx.Done():
 			canceled = true
-			waitErr = procgroup.Kill(cmd, done, KillGrace)
+			waitErr = procgroup.Kill(cmd, watch, done, KillGrace)
 			break wait
 		}
 	}

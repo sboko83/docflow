@@ -86,7 +86,7 @@ func TestBatchEventStreamRecordsRouteSwitch(t *testing.T) {
 
 func TestBatchRunCloseArchivesReadyPlan(t *testing.T) {
 	f := readyCloseFixture(t)
-	r := f.run([]string{closeArchiveStep + doneReply()}, "--close")
+	r := f.run([]string{closeArchiveStep(f.binary) + doneReply()}, "--close")
 	f.check(r, 0, "P001: closed")
 	if _, err := os.Stat(filepath.Join(f.root, planFile)); !os.IsNotExist(err) {
 		t.Fatalf("plan still in docs/plans: %v", err)

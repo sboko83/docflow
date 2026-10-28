@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"bsv-docflow/internal/dirlink"
 	"bsv-docflow/internal/format"
+	"bsv-docflow/internal/testshim"
 )
 
 const loopDoc = "---\ndocflow: 3\nread_budget: 40000\n---\n## Queue\n- P001\n- P002\n\n## Backlog\n"
@@ -34,9 +36,9 @@ func TestMain(m *testing.M) {
 
 func runnerBinary(t *testing.T) string {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("shell integration fixtures require Unix")
-	}
+	// The fixtures and plan commands need a POSIX shell; skip when Windows
+	// has no Git Bash.
+	testshim.Bash(t)
 	buildOnce.Do(func() {
 		source, _ := filepath.Abs("../..")
 		dir, err := os.MkdirTemp("", "docflow-run-tests-")
@@ -45,8 +47,12 @@ func runnerBinary(t *testing.T) string {
 			return
 		}
 		// The CLI's editable skills live beside the executable checkout.
-		_ = os.Symlink(filepath.Join(source, "skills"), filepath.Join(dir, "skills"))
-		testBinary = filepath.Join(dir, "docflow")
+		_ = dirlink.Create(filepath.Join(source, "skills"), filepath.Join(dir, "skills"))
+		name := "docflow"
+		if runtime.GOOS == "windows" {
+			name = "docflow.exe"
+		}
+		testBinary = filepath.Join(dir, name)
 		cmd := exec.Command("go", "build", "-o", testBinary, "./cmd/docflow")
 		cmd.Dir = source
 		if b, err := cmd.CombinedOutput(); err != nil {
@@ -99,7 +105,7 @@ func newRunFixture(t *testing.T) *runFixture {
 	f.git("config", "commit.gpgsign", "false")
 	f.commit("init")
 	fake, _ := filepath.Abs("../agentio/testdata/fake_agent.sh")
-	f.setConfig("[tiers]\nfast = {agent = \"fake\", model = \"fast\"}\ndefault = {agent = \"fake\", model = \"\"}\nstrong = {agent = \"fake\", model = \"strong\"}\n[agents.fake]\ncmd = [\"/bin/bash\", " + jsonString(fake) + "]\nmodel_args = [\"--model\", \"{model}\"]\nresume_args = [\"--resume\", \"{session}\"]\nresult = \"json:structured_output\"\ntext = \"json:result\"\nsession = \"json:session_id\"\n")
+	f.setConfig("[tiers]\nfast = {agent = \"fake\", model = \"fast\"}\ndefault = {agent = \"fake\", model = \"\"}\nstrong = {agent = \"fake\", model = \"strong\"}\n[agents.fake]\ncmd = [" + jsonString(testshim.Bash(t)) + ", " + jsonString(filepath.ToSlash(fake)) + "]\nmodel_args = [\"--model\", \"{model}\"]\nresume_args = [\"--resume\", \"{session}\"]\nresult = \"json:structured_output\"\ntext = \"json:result\"\nsession = \"json:session_id\"\n")
 	return f
 }
 
@@ -1072,6 +1078,11 @@ func TestRunNotify(t *testing.T) {
 	for _, mode := range []string{"ready", "blocked", "soft-stop", "prerequisite", "flag-off", "env-off"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
+			if !strings.HasSuffix(mode, "off") && runtime.GOOS == "windows" {
+				// Desktop notifications do not exist on Windows
+				// (docs/design/runner.md): nothing stubs osascript here.
+				t.Skip("no desktop notification command on Windows")
+			}
 			stub := filepath.Join(f.tmp, "bin")
 			log := filepath.Join(f.tmp, "notify.log")
 			for _, name := range []string{"osascript", "notify-send"} {

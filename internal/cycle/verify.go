@@ -200,6 +200,8 @@ func runVerifyCommand(root, command string) (string, int) {
 	defer signal.Stop(signals)
 	err := cmd.Start()
 	if err == nil {
+		watch, _ := procgroup.Track(cmd.Process)
+		defer watch.Close()
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
 		select {
@@ -207,7 +209,7 @@ func runVerifyCommand(root, command string) (string, int) {
 		case sig := <-signals:
 			// The detached group misses terminal signals; stop it, then die
 			// the way an uncaught signal would.
-			_ = procgroup.Kill(cmd, done, verifyKillGrace)
+			_ = procgroup.Kill(cmd, watch, done, verifyKillGrace)
 			procgroup.Reraise(sig)
 		}
 	}

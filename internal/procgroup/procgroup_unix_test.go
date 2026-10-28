@@ -37,7 +37,7 @@ func TestKillStopsGrandchildren(t *testing.T) {
 	go func() { done <- cmd.Wait() }()
 	pid := waitPID(t, pidFile)
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
-	_ = Kill(cmd, done, 5*time.Second)
+	_ = Kill(cmd, nil, done, 5*time.Second)
 	waitGone(t, pid)
 }
 
@@ -63,7 +63,7 @@ wait
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	pid := waitPID(t, pidFile)
-	_ = Kill(cmd, done, 5*time.Second)
+	_ = Kill(cmd, nil, done, 5*time.Second)
 	waitGone(t, pid)
 }
 

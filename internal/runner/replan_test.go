@@ -14,6 +14,7 @@ import (
 	"bsv-docflow/internal/agentio"
 	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/format"
+	"bsv-docflow/internal/testshim"
 )
 
 const replanCheckPlan = `---
@@ -172,11 +173,7 @@ func newReplanFixture(t *testing.T) *runFixture {
 	f.commit("fixture")
 	fake, _ := filepath.Abs("../agentio/testdata/fake_agent.sh")
 	bin := filepath.Join(f.tmp, "bin")
-	wrapper := filepath.Join(bin, "claude")
-	f.write(wrapper, "#!/bin/sh\ncase \"$*\" in *\"/usage\"*) exit 0 ;; esac\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
-	if err := os.Chmod(wrapper, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testshim.Script(t, bin, "claude", "#!/bin/sh\ncase \"$*\" in *\"/usage\"*) exit 0 ;; esac\nexec "+shellQuote(testshim.Bash(t))+" "+shellQuote(filepath.ToSlash(fake))+" \"$@\"\n")
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return f
 }

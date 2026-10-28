@@ -158,7 +158,7 @@ func TestAcceptTerminalCloseBlock(t *testing.T) {
 		"sleep 1\n" + tick + "sleep 1\n" +
 		emit(map[string]any{"type": "result", "is_error": false, "result": "working", "session_id": "s1"}) +
 		"sleep 60\n"
-	f.steps(active, closeArchiveStep+quotaEvent(.86, .6, 1791904200)+doneReply())
+	f.steps(active, closeArchiveStep(f.binary)+quotaEvent(.86, .6, 1791904200)+doneReply())
 	// 120 columns keep the resume and hint lines unwrapped.
 	code, text, raw := runInSizedTerminal(t, f, 120, "--config", f.config, "--close", "--attempts", "2")
 	if code != 0 {

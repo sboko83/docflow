@@ -22,10 +22,19 @@ var StopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
 // otherwise make itself the foreground group and stop docflow with SIGTTIN).
 func Detach(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
 
+// Track is a no-op on Unix: Kill walks live parent links itself.
+func Track(p *os.Process) (*Watch, error) { return nil, nil }
+
+// Watch carries the Windows kill-on-close job; on Unix it is always nil.
+type Watch struct{}
+
+// Close is a no-op on Unix.
+func (w *Watch) Close() {}
+
 // Kill sends SIGTERM to cmd's process group and every descendant process group,
 // waits up to grace for the process tree to stop, then sends SIGKILL to those
 // groups and the captured PIDs. done must deliver the result of cmd.Wait.
-func Kill(cmd *exec.Cmd, done <-chan error, grace time.Duration) error {
+func Kill(cmd *exec.Cmd, watch *Watch, done <-chan error, grace time.Duration) error {
 	pids, groups := descendantTree(cmd.Process.Pid)
 	signalGroups(groups, syscall.SIGTERM)
 	timer := time.NewTimer(grace)

@@ -310,6 +310,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 				return 2, err
 			}
 			rel, _ := filepath.Rel(root, log)
+			rel = filepath.ToSlash(rel)
 			p.detail(fmt.Sprintf("replan attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel, "replan": true})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))

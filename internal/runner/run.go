@@ -780,6 +780,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				return 2, "", err
 			}
 			rel, _ := filepath.Rel(root, log)
+			rel = filepath.ToSlash(rel)
 			p.detail(fmt.Sprintf("attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))

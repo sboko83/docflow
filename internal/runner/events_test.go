@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -184,6 +185,9 @@ func TestRunEventStreamUnwritableDirectory(t *testing.T) {
 	f := newRunFixture(t)
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses directory write permissions")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod cannot make a directory unwritable on NTFS")
 	}
 	dir := filepath.Join(f.root, ".git/docflow/run")
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })

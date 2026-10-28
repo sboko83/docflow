@@ -14,18 +14,10 @@ start_budget: 4000
   колонках, спиннер и активный кап закрытия; убедиться, что квота
   не выходит за рамку, а обрезка спиннера сохраняет её
   ([P045](archive/P045-run-liveness-output.md)).
-- Проверить в настоящей консоли Windows вопрос старта о human-блоке:
-  `y` и заметка снимают блок и прогон продолжается; перенаправленный stdin,
-  `--yes` и блок `plan` не спрашивают. Запустить `TestIsTerminalWindows*` и
-  `TestAskUnblockWindowsConsoleTyped` с `DOCFLOW_WINDOWS_CONSOLE_ASK=1`
-  ([P041](archive/P041-human-unblock.md)).
 - Проверить на живом агенте, что юнит после `docflow unblock` сначала
   проверяет условие блока командой, а при невыполненном условии снова
   блокируется с `human` — при случае на рабочем прогоне
   ([P041](archive/P041-human-unblock.md)).
-- Перенести Unix shell fixtures `internal/runner` и `internal/agentio`
-  на Windows, где они пока пропускаются
-  ([P040](archive/P040-windows-support.md)).
 - `docflow run`: сверить классификатор отказов с живыми отказами Claude и
   Codex по лимиту, проверить возврат к основному исполнителю после сброса
   на живом прогоне — при случае на рабочем прогоне, подписку ради проверки

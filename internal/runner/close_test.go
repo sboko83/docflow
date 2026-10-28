@@ -8,12 +8,15 @@ import (
 	"testing"
 )
 
-// The fake invokes docflow by name, exercising the closing call's PATH.
-const closeArchiveStep = `docflow close P001
+// The fake invokes the runner's own binary by absolute path, as the closing
+// prompt instructs, exercising the closing call.
+func closeArchiveStep(binary string) string {
+	return shellQuote(binary) + ` close P001
 archive=docs/archive/P001-plan.md
 awk '{ print; if ($0 ~ /^## /) print "\nNone.\n" }' "$archive" > "$HOME/filled-archive"
 mv "$HOME/filled-archive" "$archive"
 `
+}
 
 func readyCloseFixture(t *testing.T) *runFixture {
 	t.Helper()
@@ -24,7 +27,7 @@ func readyCloseFixture(t *testing.T) *runFixture {
 
 func TestRunCloseAfterUnits(t *testing.T) {
 	f := newRunFixture(t)
-	r := f.run([]string{writeReply("a.txt"), writeReply("b.txt"), closeArchiveStep + doneReply()}, "--close")
+	r := f.run([]string{writeReply("a.txt"), writeReply("b.txt"), closeArchiveStep(f.binary) + doneReply()}, "--close")
 	f.check(r, 0, "P001: closed", "run: 2 units,")
 	if subject := f.git("log", "-1", "--format=%s"); subject != "P001: close plan" {
 		t.Fatalf("closing commit = %q", subject)
@@ -55,7 +58,7 @@ func TestRunCloseAfterUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := f.calls()[2].Stdin
-	for _, instruction := range []string{"bsv-docflow-close", "docflow close P001", "Outcome", "Follow-ups", "Do not commit", `"blocker":""`} {
+	for _, instruction := range []string{"bsv-docflow-close", shellQuote(f.binary) + " close P001", "Outcome", "Follow-ups", "Do not commit", `"blocker":""`} {
 		if !strings.Contains(prompt, instruction) {
 			t.Errorf("close prompt missing %q", instruction)
 		}
@@ -71,7 +74,7 @@ func TestRunCloseReadyAtStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	r := f.run([]string{closeArchiveStep + doneReply()}, "--close")
+	r := f.run([]string{closeArchiveStep(f.binary) + doneReply()}, "--close")
 	f.check(r, 0, "P001: closed", "run: 0 units,")
 	if len(f.calls()) != 1 || f.git("log", "-1", "--format=%s") != "P001: close plan" {
 		t.Fatal("ready plan was skipped")
@@ -79,17 +82,20 @@ func TestRunCloseReadyAtStart(t *testing.T) {
 }
 
 func TestRunCloseChecksLeaveTree(t *testing.T) {
-	for _, tc := range []struct{ name, step, want string }{
-		{"source", closeArchiveStep + "printf changed > source.go\n", "changed path outside closing scope: source.go"},
-		{"staged source", closeArchiveStep + "printf changed > source.go\ngit add source.go\n", "changed path outside closing scope: source.go"},
-		{"plan remains", "", "plan file still exists"},
-		{"archive missing", "docflow close P001\nrm docs/archive/P001-plan.md\n", "archive entry missing"},
-		{"lint", "docflow close P001\n", "docflow lint failed"},
+	for _, tc := range []struct {
+		name, want string
+		step       func(string) string
+	}{
+		{"source", "changed path outside closing scope: source.go", func(b string) string { return closeArchiveStep(b) + "printf changed > source.go\n" }},
+		{"staged source", "changed path outside closing scope: source.go", func(b string) string { return closeArchiveStep(b) + "printf changed > source.go\ngit add source.go\n" }},
+		{"plan remains", "plan file still exists", func(b string) string { return "" }},
+		{"archive missing", "archive entry missing", func(b string) string { return closeArchiveStep(b) + "rm docs/archive/P001-plan.md\n" }},
+		{"lint", "docflow lint failed", func(b string) string { return shellQuote(b) + " close P001\n" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := readyCloseFixture(t)
 			head := f.git("rev-parse", "HEAD")
-			r := f.run([]string{tc.step + doneReply()}, "--close")
+			r := f.run([]string{tc.step(f.binary) + doneReply()}, "--close")
 			f.check(r, 2, tc.want)
 			if f.git("rev-parse", "HEAD") != head {
 				t.Fatal("failed close committed changes")
@@ -120,7 +126,7 @@ func TestRunCloseRoutes(t *testing.T) {
 				f.replace(planFile, "status: active", "status: active\ncheap: claude | claude-haiku-5-5 | -")
 				want = "claude-haiku-5-5"
 			}
-			f.steps(closeArchiveStep + doneReply())
+			f.steps(closeArchiveStep(f.binary) + doneReply())
 			f.check(f.cli("run", "--close", "--no-wait"), 0, "P001: closed")
 			calls := f.calls()
 			if len(calls) != 1 || !strings.Contains(strings.Join(calls[0].Argv, " "), want) {
@@ -151,7 +157,7 @@ func testRunCloseFallback(t *testing.T, cheap bool) {
 	}
 	refusal := emit(map[string]any{"type": "result", "is_error": true, "result": "API Error: 429 rate_limit_error", "session_id": "refused-session"})
 	result := emit(map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": `{"status":"done","handoff":["closed"]}`}})
-	f.steps(refusal, closeArchiveStep+result)
+	f.steps(refusal, closeArchiveStep(f.binary)+result)
 	f.check(f.cli("run", "--close", "--no-wait", "--attempts", "1"), 0, "P001: closed")
 	calls := f.calls()
 	if len(calls) != 2 || !strings.Contains(strings.Join(calls[1].Argv, " "), "gpt-5.5") || strings.Contains(strings.Join(calls[1].Argv, " "), "refused-session") {
@@ -183,7 +189,7 @@ func TestRunCloseRefusalExhausted(t *testing.T) {
 func TestRunCloseRetryKeepsLogs(t *testing.T) {
 	f := readyCloseFixture(t)
 	f.write(".git/docflow/run/P001.close4.out", "previous run")
-	f.check(f.run([]string{"printf 'missing result JSON\\n'\n", closeArchiveStep + doneReply()}, "--close", "--attempts", "2"), 0, "P001: closed")
+	f.check(f.run([]string{"printf 'missing result JSON\\n'\n", closeArchiveStep(f.binary) + doneReply()}, "--close", "--attempts", "2"), 0, "P001: closed")
 	if f.read(".git/docflow/run/P001.close4.out") != "previous run" {
 		t.Fatal("prior closing log was overwritten")
 	}
@@ -209,7 +215,7 @@ func TestRunCloseTimeCapWhileActive(t *testing.T) {
 		"sleep 1\n" + tick + "sleep 1\n" +
 		emit(map[string]any{"type": "result", "is_error": false, "result": "working", "session_id": "s1"}) +
 		"sleep 60\n"
-	r := f.run([]string{step, closeArchiveStep + doneReply()}, "--close", "--attempts", "2")
+	r := f.run([]string{step, closeArchiveStep(f.binary) + doneReply()}, "--close", "--attempts", "2")
 	f.check(r, 0, "P001: closed")
 	text := r.out + r.err
 	if !regexp.MustCompile(`↻ close attempt 1: time cap 4s reached while active \(\d+ turns\); resuming the session`).MatchString(text) {
@@ -230,7 +236,7 @@ func TestRunCloseTimeCapWhileActive(t *testing.T) {
 func TestRunCloseTimeCapDuringToolNamesTheActivity(t *testing.T) {
 	f := readyCloseFixture(t)
 	f.configure("stream = \"claude\"\ntimeout = 2\n")
-	r := f.run([]string{toolStep(), closeArchiveStep + doneReply()}, "--close", "--attempts", "2")
+	r := f.run([]string{toolStep(), closeArchiveStep(f.binary) + doneReply()}, "--close", "--attempts", "2")
 	f.check(r, 0, "P001: closed",
 		"↻ close attempt 1: time cap 2s reached during Bash go test ./... (1 turn); resuming the session")
 }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/testshim"
 )
 
 func gitTest(t *testing.T, root string, args ...string) string {
@@ -33,9 +35,6 @@ func writeFile(t *testing.T, path, text string) {
 func quote(text string) string { return "'" + strings.ReplaceAll(text, "'", `'"'"'`) + "'" }
 func fakeScenario(t *testing.T, steps ...string) (string, []string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fake agent requires Unix")
-	}
 	root := t.TempDir()
 	scenario := filepath.Join(root, "steps")
 	if err := os.Mkdir(scenario, 0o755); err != nil {
@@ -48,8 +47,8 @@ func fakeScenario(t *testing.T, steps ...string) (string, []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("FAKE_AGENT_SCENARIO", scenario)
-	return root, []string{"/bin/bash", path}
+	t.Setenv("FAKE_AGENT_SCENARIO", filepath.ToSlash(scenario))
+	return root, []string{testshim.Bash(t), filepath.ToSlash(path)}
 }
 
 func fakeRun(t *testing.T, stdout, stderr string, code int) AgentRun {
@@ -217,6 +216,15 @@ func TestCallAgentKillEscalation(t *testing.T) {
 		t.Fatal(err)
 	}
 	equal(t, run.TimedOut, true)
+	if runtime.GOOS == "windows" {
+		// No signals: the TERM trap cannot be honored, the job force-kills
+		// the tree at once instead of escalating.
+		equal(t, run.Code, 1)
+		if elapsed := time.Since(start); elapsed >= KillGrace {
+			t.Fatalf("force kill took %s, want well under the grace", elapsed)
+		}
+		return
+	}
 	equal(t, run.Code, -9)
 	if elapsed := time.Since(start); elapsed < KillGrace || elapsed > KillGrace+3*time.Second {
 		t.Fatalf("kill escalation took %s", elapsed)
@@ -278,15 +286,12 @@ func TestProbeQuotaCodex(t *testing.T) {
 }
 
 func TestProbeQuotaSilentServer(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell requires Unix")
-	}
 	start := time.Now()
-	equal(t, ProbeQuota(map[string]any{"stream": "codex", "quota": []string{"/bin/sh", "-c", "sleep 60"}}, 100*time.Millisecond), Quota{})
+	equal(t, ProbeQuota(map[string]any{"stream": "codex", "quota": []string{testshim.Bash(t), "-c", "sleep 60"}}, 100*time.Millisecond), Quota{})
 	if time.Since(start) > 3*time.Second {
 		t.Fatal("probe failed to time out")
 	}
-	equal(t, ProbeQuota(map[string]any{"stream": "codex", "quota": []string{"/bin/sh", "-c", "exit 0"}}, time.Second), Quota{})
+	equal(t, ProbeQuota(map[string]any{"stream": "codex", "quota": []string{testshim.Bash(t), "-c", "exit 0"}}, time.Second), Quota{})
 }
 
 func TestProbeQuotaFinalLineWithoutNewline(t *testing.T) {

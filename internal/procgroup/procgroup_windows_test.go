@@ -3,6 +3,7 @@
 package procgroup
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,21 +38,34 @@ func TestMain(m *testing.M) {
 }
 
 func TestKillStopsGrandchildren(t *testing.T) {
-	pidFile := filepath.Join(t.TempDir(), "pid")
-	cmd := exec.Command(os.Args[0], pidFile)
-	cmd.Env = append(os.Environ(), helperEnv+"=parent")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
+	for _, useWatch := range []bool{true, false} {
+		t.Run(fmt.Sprint(useWatch), func(t *testing.T) {
+			pidFile := filepath.Join(t.TempDir(), "pid")
+			cmd := exec.Command(os.Args[0], pidFile)
+			cmd.Env = append(os.Environ(), helperEnv+"=parent")
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			var watch *Watch
+			if useWatch {
+				w, err := Track(cmd.Process)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer w.Close()
+				watch = w
+			}
+			pid := waitPID(t, pidFile)
+			t.Cleanup(func() { _ = exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid)).Run() })
+			if !processExists(pid) {
+				t.Fatalf("grandchild %d does not run before Kill", pid)
+			}
+			_ = Kill(cmd, watch, done, 5*time.Second)
+			waitGone(t, pid)
+		})
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	pid := waitPID(t, pidFile)
-	t.Cleanup(func() { _ = exec.Command("taskkill", "/F", "/PID", strconv.Itoa(pid)).Run() })
-	if !processExists(pid) {
-		t.Fatalf("grandchild %d does not run before Kill", pid)
-	}
-	_ = Kill(cmd, done, 5*time.Second)
-	waitGone(t, pid)
 }
 
 func waitPID(t *testing.T, path string) int {

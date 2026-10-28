@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/testshim"
 )
 
 func fallbackExecutorRunFixture(t *testing.T) *runFixture {
@@ -30,11 +32,7 @@ func fallbackExecutorRunFixture(t *testing.T) *runFixture {
 // without FAKE_ZAI_KEY the stub reports no key, so probes stay empty.
 func writeFakePi(t *testing.T, f *runFixture, fake string) {
 	t.Helper()
-	path := filepath.Join(f.tmp, "bin", "pi")
-	f.write(path, "#!/bin/sh\ncase \"$*\" in *'auth print-api-key'*) if [ -n \"$FAKE_ZAI_KEY\" ]; then printf '%s\\n' \"$FAKE_ZAI_KEY\"; exit 0; fi; exit 1;; esac\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
-	if err := os.Chmod(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testshim.Script(t, filepath.Join(f.tmp, "bin"), "pi", "#!/bin/sh\ncase \"$*\" in *'auth print-api-key'*) if [ -n \"$FAKE_ZAI_KEY\" ]; then printf '%s\\n' \"$FAKE_ZAI_KEY\"; exit 0; fi; exit 1;; esac\nexec "+shellQuote(testshim.Bash(t))+" "+shellQuote(filepath.ToSlash(fake))+" \"$@\"\n")
 }
 
 func piLimitStep(t *testing.T) string {
@@ -191,11 +189,7 @@ func TestRunQuotaSkipRoleChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claude := filepath.Join(f.tmp, "bin", "claude")
-	f.write(claude, "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
-	if err := os.Chmod(claude, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testshim.Script(t, filepath.Join(f.tmp, "bin"), "claude", "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec "+shellQuote(testshim.Bash(t))+" "+shellQuote(filepath.ToSlash(fake))+" \"$@\"\n")
 	f.steps(codexFallbackSuccessStep(f))
 	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
 	f.check(r, 0, "claude: quota exhausted until", "via codex gpt-6.1-sol")
@@ -226,11 +220,7 @@ func TestRunQuotaSkip(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				claude := filepath.Join(f.tmp, "bin", "claude")
-				f.write(claude, "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec /bin/bash "+shellQuote(fake)+" \"$@\"\n")
-				if err := os.Chmod(claude, 0o755); err != nil {
-					t.Fatal(err)
-				}
+				testshim.Script(t, filepath.Join(f.tmp, "bin"), "claude", "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec "+shellQuote(testshim.Bash(t))+" "+shellQuote(filepath.ToSlash(fake))+" \"$@\"\n")
 				if mode == "fallback-probe" {
 					piRefusal := strings.Replace(piLimitStep(t), "printf partial > partial.txt\n", "", 1)
 					steps = []string{piRefusal, codexFallbackSuccessStep(f)}

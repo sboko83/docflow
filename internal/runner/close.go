@@ -111,13 +111,21 @@ func closeRouteLine(args Args, config map[string]any, plan *format.Plan, out io.
 	return nil
 }
 
-func closePrompt(plan *format.Plan) string {
+// closePrompt hands the closing agent the absolute path of the running CLI:
+// a PATH lookup inside the agent's shell can land on a foreign docflow (the
+// inherited PATH is not fully under the runner's control).
+func closePrompt(plan *format.Plan, cli string) string {
+	if cli == "" {
+		cli = "docflow"
+	} else {
+		cli = "'" + strings.ReplaceAll(cli, "'", `'"'"'`) + "'"
+	}
 	return fmt.Sprintf(`# Close %s %s
 
 Read %s in full and follow the bsv-docflow-close skill.
-Run docflow close %s yourself, then fill the archive entry's Outcome,
+Run %s close %s yourself, then fill the archive entry's Outcome,
 Decisions, Gotchas and Follow-ups. Update documentation links, current state,
-CHANGELOG and Backlog as the skill requires. Run docflow lint.
+CHANGELOG and Backlog as the skill requires. Run %s lint.
 Edit only docs/, CHANGELOG.md, README.md and README.ru.md.
 Do not commit or rewrite Git history: the runner checks and commits the result.
 The runner owns this closing operation; ignore the skill's commit step.
@@ -125,7 +133,7 @@ The runner owns this closing operation; ignore the skill's commit step.
 End with the same result JSON contract as a runner unit, every key present:
 `+"```json\n"+`{"status":"done","handoff":["Closing outcome"],"decisions":[],"unverified":[],"reason":"","blocker":""}
 `+"```\n"+`If blocked, use status "blocked", blocker "plan" or "human", and a concrete reason.
-`, plan.Meta["id"], plan.Meta["title"], plan.Path, plan.Meta["id"])
+`, plan.Meta["id"], plan.Meta["title"], plan.Path, cli, plan.Meta["id"], cli)
 }
 
 // The closing agent invokes this binary's close subcommand, even when the
@@ -148,9 +156,15 @@ func closeEnvironment() ([]string, error) {
 	}
 	env := []string{}
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "PATH=") && !strings.HasPrefix(entry, agentio.RunnerEnv+"=") {
-			env = append(env, entry)
+		// Windows spells the variable Path; match any case or the old value
+		// survives next to the new one and wins the child's lookup.
+		if len(entry) >= 5 && strings.EqualFold(entry[:5], "PATH=") {
+			continue
 		}
+		if strings.HasPrefix(entry, agentio.RunnerEnv+"=") {
+			continue
+		}
+		env = append(env, entry)
 	}
 	return append(env, "PATH="+path), nil
 }
@@ -254,7 +268,11 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 	if err := os.WriteFile(schema, append(data, '\n'), 0o644); err != nil {
 		return 2, err
 	}
-	prompt, problem, session := closePrompt(plan), "", ""
+	executable, err := os.Executable()
+	if err != nil {
+		executable = ""
+	}
+	prompt, problem, session := closePrompt(plan, executable), "", ""
 	stalled, opened := false, false
 	beforeQuota := make(map[string]agentio.Quota)
 	for _, name := range chain.routeAgents() {
@@ -327,6 +345,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 				return 2, err
 			}
 			rel, _ := filepath.Rel(root, log)
+			rel = filepath.ToSlash(rel)
 			// One block per closing: a retry or a route switch continues it.
 			if opened {
 				p.executor(route)
@@ -394,7 +413,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 					if err != nil {
 						return 2, err
 					}
-					prompt = closePrompt(plan) + context
+					prompt = closePrompt(plan, executable) + context
 					session, text, resume = "", prompt, ""
 					if ok {
 						totals.switches++
