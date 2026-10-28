@@ -56,9 +56,12 @@ for agent in claude codex pi; do
     fi
 done
 
-# Keep the Go build cache when HOME moves to the sandbox.
+# Keep Go caches outside the temporary HOME. Downloaded modules are read-only
+# and would prevent cleanup from removing the temporary directory on Unix.
 GO_CACHE=$(go env GOCACHE 2>/dev/null) || fail 'cannot read go env GOCACHE'
 [ -n "$GO_CACHE" ] && export GOCACHE="$GO_CACHE"
+GO_MOD_CACHE=$(go env GOMODCACHE 2>/dev/null) || fail 'cannot read go env GOMODCACHE'
+[ -n "$GO_MOD_CACHE" ] && export GOMODCACHE="$GO_MOD_CACHE"
 
 export HOME="$HOME_DIR"
 if [ "$WINDOWS" = 1 ]; then

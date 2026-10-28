@@ -50,7 +50,8 @@ func Bash(t testing.TB) string {
 // Script installs a shell-script command named name in dir: the script itself
 // plus, on Windows, a name.exe shim that runs it through Bash, so exec finds
 // the command and arguments with quotes and newlines survive. The shebang
-// line, if any, is a comment under that shell.
+// line, if any, is a comment under that shell. On Unix, a missing shebang
+// defaults to /bin/sh so the command can be executed directly.
 func Script(t testing.TB, dir, name, script string) {
 	t.Helper()
 	bash := Bash(t)
@@ -59,6 +60,9 @@ func Script(t testing.TB, dir, name, script string) {
 	}
 	path := filepath.ToSlash(filepath.Join(dir, name))
 	if runtime.GOOS != "windows" {
+		if !strings.HasPrefix(script, "#!") {
+			script = "#!/bin/sh\n" + script
+		}
 		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
