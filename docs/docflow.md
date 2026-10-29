@@ -5,7 +5,6 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P050
 - P051
 
 ## Frozen
@@ -99,3 +98,9 @@ start_budget: 4000
   свидетельств не содержат
   ([P015](archive/P015-multi-agent-runner.md),
   [P039](archive/P039-e2e-and-live-checks.md)).
+- Сценарии `tools/parity/scenarios/*.sh` без `tools/parity/run.sh` не
+  имеют `parity_repo` и выполняются в текущем каталоге: прямой запуск
+  перезаписывает `docs/docflow.md` и делает `git init`/`git commit` в
+  репозитории вызывающего. Гард в начале сценария (выход, если не задан
+  флаг раннера parity) или запись в `tools/parity/README.md`
+  ([P050](archive/P050-verify-guard.md)).
