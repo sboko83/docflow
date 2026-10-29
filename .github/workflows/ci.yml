@@ -23,7 +23,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./...
+      # Runner integration tests spawn Git and Bash repeatedly; Windows
+      # needs more than Go's default ten-minute package timeout.
+      - run: go test -timeout 20m ./...
       - run: go build -o "bin/docflow$(go env GOEXE)" ./cmd/docflow
       - run: bash tools/parity/run.sh "bin/docflow$(go env GOEXE)" "bin/docflow$(go env GOEXE)"
       # python3 is the Microsoft Store stub on Windows; python is the same
