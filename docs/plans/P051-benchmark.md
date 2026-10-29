@@ -140,6 +140,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - Use journal version 3 with USD assigned to version 1/2 records — keeps legacy data readable while storing currency per entry — rejected changing legacy amounts or requiring migration first.
 - Use direct directed rates with integer numerator/denominator and round down — makes conversion deterministic — rejected implicit inverse and multi-hop conversion.
 - Make recurring entries virtual and expand only with an explicit --through date — keeps reads deterministic and the journal unchanged — rejected writing generated occurrences.
+- Читать `# ledger-v2` с присвоением `USD`, поддерживая трёх- и четырёхполевые записи — для совместимости с legacy-форматом и промежуточным форматом категорий — отвергнуто: принимать только один layout.
 
 ## Phase 1: Bench tool and result store
 
@@ -288,13 +289,15 @@ Commit: P051.2.4: write the large bench task plan and oracle
 Handoff:
 - Large task plan and 40 CLI oracle tests are in bench/tasks/large/. The oracle fails on the base as expected (0/40); solution validation is deferred to the next unit.
 
-### [ ] P051.2.5 Add the large bench task solution
+### [x] P051.2.5 Add the large bench task solution
 Read:
 - bench/tasks/large/plan.md
 Do:
 - `bench/tasks/large/solution/` — эталонная реализация плана `bench/tasks/large/plan.md` поверх базы, с тестами пакетов; оракул и план не менять — расхождение оракула с текстом плана исправляется блоком `--needs plan`.
 Verify: `go run ./tools/bench validate --task large`
 Commit: P051.2.5: add the large bench task solution
+Handoff:
+- Актуальный oracle содержит 39 тестов; `validate` прошёл 39/39 на решении и 14/39 на базе. В предыдущей записи handoff указано 40 тестов.
 
 ### [ ] P051.2.6 Review the reference corpus
 Read:
