@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are recorded in the plan's `## Decisions` as `Replan changed check: …`
   and counted in the run summary.
 
+### Fixed
+- The Z.ai and Local quota badges draw their text in true black; terminals
+  that render bold black as dark grey no longer wash it out.
+
 ## [0.18.0] - 2026-10-28
 
 ### Added
