@@ -2,11 +2,11 @@
 id: P051
 title: Reference benchmark with recorded results
 type: feature
-status: draft
+status: active
 created: 2026-10-28
-executor: pi | strata/swift-1.5-iq3_s | high
-fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | high
-review: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium
+executor: codex | gpt-6-luna | high
+fallback: pi | zai/glm-5.3 | high
+review: pi | zai/glm-5.3 | medium; codex | gpt-6.1-sol | medium
 acceptance: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high
 replan: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium
 permissions: auto
@@ -106,10 +106,12 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
   собранный CLI базового проекта через `os/exec`; счёт — число
   прошедших тестов из общего — отвергнуто: LLM-судья и собственные тесты
   ветки.
+- Использовать cycle.PlanShell для команд оракула — он уже экспортирует общий выбор POSIX shell — отвергнута отдельная логика поиска bash.exe.
+- При сбое сборки оракула считать объявленные тесты проваленными — сборочная ошибка не должна выглядеть как пустой успешный прогон — отвергнуто завершение без счёта тестов.
 
 ## Phase 1: Bench tool and result store
 
-### [ ] P051.1.1 Materialize and validate bench tasks
+### [x] P051.1.1 Materialize and validate bench tasks
 Read:
 - internal/cycle/verify.go:L185-225
 - internal/cycle/testchanges.go
@@ -123,6 +125,9 @@ Do:
 - Тесты в `tools/bench/`: фикстура `tools/bench/testdata/` с мини-базой (свой `go.mod`) и задачей `tiny` — `validate` зелёный; оракул, проходящий на базе, — код 1; решение, не проходящее оракул, — код 1.
 Verify: `go test ./tools/bench/...`
 Commit: P051.1.1: materialize and validate bench tasks
+Handoff:
+- Команды run и report пока зарегистрированы, но возвращают «not implemented yet»; их реализация остаётся следующим юнитам.
+- Изменения docs/plans/P051-benchmark.md существовали до этой работы и сохранены без правок.
 
 ### [ ] P051.1.2 Record bench results and render the trend
 Read:
@@ -176,9 +181,9 @@ Read:
 Do:
 - `bench/go.mod` (`module bench-fixtures`, без кода) — забор от модуля `bsv-docflow`.
 - `bench/base/`: модуль `benchledger` (свой `go.mod`, только стандартная библиотека), CLI `ledger` для записей личных расходов в текстовом журнале: файл из `--file` или `LEDGER_FILE`, команды `add <YYYY-MM-DD> <amount> <description...>`, `list`, `balance`; сумма — целое в минимальных единицах, вывод — фиксированный текст, ошибки — код 1 и сообщение в stderr. 600–900 строк Go вместе с тестами, раскладка `cmd/ledger/` + `internal/journal/`, `go test ./...` зелёный; `README.md` с синтаксисом команд и форматом журнала; `AGENTS.md` из двух строк (тесты — `go test ./...`).
-- `bench/roster.toml` — ростер бенчмарка, у которого `docflow roster show --roster bench/roster.toml` даёт: `executor: pi | strata/swift-1.5-iq3_s | high`, `fallback: pi | zai/glm-5.3-flash | high`, `review: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium`, `acceptance: codex | gpt-6.1-sol | high; pi | zai/glm-5.3 | max`, `replan: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | medium`.
+- `bench/roster.toml` — ростер бенчмарка, у которого `docflow roster show --roster bench/roster.toml` даёт: `executor: codex | gpt-6-luna | high`, `fallback: pi | zai/glm-5.3 | high`, `review: pi | zai/glm-5.3 | medium; codex | gpt-6.1-sol | medium`, `acceptance: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high`, `replan: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium`.
 - `bench/README.md`: что лежит в `bench/`, ссылка на `docs/design/bench.md` (её напишет P051.3.1).
-Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: pi | strata/swift-1.5-iq3_s | high'`
+Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high'`
 Commit: P051.2.1: add the bench base project and roster
 
 ### [ ] P051.2.2 Add the small bench task
