@@ -120,24 +120,10 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/sboko83/docflow/main/install.ps1 | iex
 ~~~
 
-Команда с install.sh работает и в Git Bash на Windows.
-
-Установщик скачивает последний релиз, сверяет sha256 и запускает
-`docflow install`: бинарник, скиллы и LICENSE попадают в `~/.docflow`
-(на Windows — `%USERPROFILE%\.docflow` с directory junction, без Developer
-Mode и прав администратора), PATH настраивается в профиле оболочки на
-macOS и Linux и в пользовательском PATH на Windows —
-после установки перезапустите терминал. Личные ссылки скиллов ставятся
-агентам, чьи CLI найдены в PATH. `DOCFLOW_VERSION=X.Y.Z` ставит
-конкретный релиз.
-
-`docflow install` один раз спрашивает, как ставить скиллы: `global` — личные
-ссылки в каталоги агентов, `project` — скиллы только в проектных копиях.
-Ответ хранится (`~/.docflow/skills-mode`), и `docflow update` следует ему;
-`docflow update --skills global|project` переключает режим позже,
-скриптовая установка берёт `global`. Переключение в `project` убирает
-только личные ссылки docflow. Подробно: [установка и
-обновление](docs/usage.md).
+Установщик сверяет контрольную сумму релиза и запускает `docflow install`:
+всё попадает в `~/.docflow`, PATH настраивается (перезапустите терминал),
+скиллы линкуются агентам, чьи CLI найдены в PATH, — или остаются
+проектным копиям, о чём `install` спрашивает один раз.
 
 ~~~bash
 docflow doctor --agent codex
@@ -146,16 +132,9 @@ docflow init --agent codex
 ~~~
 
 По умолчанию используется Claude Code; для него опустите --agent codex,
-для Pi используйте --agent pi. Чтобы скопировать скиллы в проект,
-используйте docflow init --skills или, в уже подключённом проекте,
-docflow install-skills --project.
-
-`docflow update` скачивает и активирует последний релиз, сохраняя
-предыдущий для ручного отката; `docflow update --check` только сообщает
-о нём; `docflow uninstall` убирает установку. Раз в сутки при терминальном
-запуске docflow сообщает о новом релизе
-(`DOCFLOW_NO_UPDATE_CHECK=1` отключает). Подробно: [установка,
-обновление и использование](docs/usage.md).
+для Pi используйте --agent pi. `docflow update` активирует последний
+релиз, `docflow uninstall` убирает установку. Подробно — Git Bash, версии,
+режим скиллов, откат: [установка и обновление](docs/usage.md#установка).
 
 ### Разработка
 
@@ -167,11 +146,8 @@ cd bsv-docflow
 bash tools/install-dev.sh
 ~~~
 
-Скрипт собирает bin/docflow и симлинкует его на место (ссылка ведёт
-внутрь checkout, поэтому сохраните checkout) и ставит скиллы агентам,
-чьи CLI найдены в PATH. `docflow update` и `docflow uninstall` в такой
-сборке отказывают; обновление — переключиться на новый тег и повторить
-скрипт.
+Скрипт собирает bin/docflow и линкует его из checkout (сохраните
+checkout); `docflow update` в такой сборке отказывает.
 
 ## Ссылки по проекту (доки на русском)
 

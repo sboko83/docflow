@@ -21,6 +21,8 @@ Windows, PowerShell:
 irm https://raw.githubusercontent.com/sboko83/docflow/main/install.ps1 | iex
 ~~~
 
+Команда с install.sh работает и в Git Bash на Windows.
+
 Установщик определяет OS и архитектуру, скачивает последний релиз, сверяет
 sha256 по checksums.txt, распаковывает архив и запускает из него
 `docflow install`. Тот укладывает бинарник, скиллы и LICENSE в
@@ -39,7 +41,8 @@ sha256 по checksums.txt, распаковывает архив и запуск
 
 Затем `docflow install` добавляет `~/.docflow/bin` в PATH (блок в
 `.zshrc`, `.bashrc` или `.bash_profile`; на Windows — каталог `current`
-в пользовательский PATH) и ставит личные симлинки скиллов
+в пользовательский PATH, а симлинки заменяют directory junction, без
+Developer Mode и прав администратора) и ставит личные симлинки скиллов
 агентам, чьи CLI найдены в PATH (`claude`, `codex`, `pi`), и в
 `~/.zcode/skills`, если существует каталог `~/.zcode`. Симлинки ведут в
 `~/.docflow/current/skills/<имя>` и не переписываются при обновлении.

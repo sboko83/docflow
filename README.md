@@ -124,23 +124,10 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/sboko83/docflow/main/install.ps1 | iex
 ~~~
 
-The install.sh command also works in Git Bash on Windows.
-
-The installer downloads the latest release, verifies its sha256 checksum,
-and runs `docflow install`: the binary, skills, and LICENSE land under
-`~/.docflow` (on Windows `%USERPROFILE%\.docflow` with directory junctions,
-no Developer Mode or administrator rights), and PATH is configured in the
-shell profile on macOS and Linux and in the user PATH on Windows — restart
-your terminal after installation. Personal skill
-links are installed for agent CLIs found in `PATH`. `DOCFLOW_VERSION=X.Y.Z`
-installs a specific release.
-
-`docflow install` asks once how skills go in: `global` links them into the
-personal agent directories, `project` leaves the skills to project copies.
-The answer is stored (`~/.docflow/skills-mode`) and `docflow update` follows
-it; `docflow update --skills global|project` switches the mode later, a
-scripted install takes `global`. Switching to `project` removes only
-docflow's own links. Details: [installation and updates](docs/usage.md).
+The installer verifies the release checksum and runs `docflow install`:
+everything lands under `~/.docflow`, PATH is configured (restart your
+terminal), and skills are linked for agent CLIs found in `PATH` — or left
+to project copies, as `install` asks once.
 
 ~~~bash
 docflow doctor --agent codex
@@ -149,14 +136,9 @@ docflow init --agent codex
 ~~~
 
 Claude Code is the default; omit `--agent codex` for it, use `--agent pi`
-for Pi. To copy the skills into a project, use `docflow init --skills`, or
-`docflow install-skills --project` in an already connected project.
-
-`docflow update` downloads and activates the latest release, keeping the
-previous one for a manual rollback; `docflow update --check` only reports
-it; `docflow uninstall` removes the installation. A daily terminal check
-announces new releases (`DOCFLOW_NO_UPDATE_CHECK=1` turns it off). Details:
-[installation, updates, and usage](docs/usage.md) (in Russian).
+for Pi. `docflow update` activates the latest release, `docflow uninstall`
+removes it. Details — Git Bash, versions, skills mode, rollback:
+[installation and updates](docs/usage.md#установка) (in Russian).
 
 ### Development
 
@@ -168,10 +150,8 @@ cd bsv-docflow
 bash tools/install-dev.sh
 ~~~
 
-The script builds `bin/docflow`, symlinks it into place (the link points
-into the checkout, so keep the checkout), and installs skills for agent
-CLIs found in `PATH`. `docflow update` and `docflow uninstall` refuse in
-such a build; update by checking out a newer tag and rerunning the script.
+The script builds `bin/docflow` and links it from the checkout (keep the
+checkout); `docflow update` refuses in such a build.
 
 ## Project links (docs in Russian)
 
