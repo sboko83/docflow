@@ -57,6 +57,12 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 ## Traps
 
 - Не путать режимы `docflow run`: `--plan` и `--all` валидны только с `--dry-run` (выбор плана для показа); живой запуск берёт текущий план Queue и ведёт его до конца сам, а его нормальное завершение — код 1 с `nothing to do`, не 0.
+- Квота-пробы раннера ломают бенчмарк на фейковых агентах:
+  план после `roster apply` — executor-режим, `docflow run` грузит только
+  встроенный agents-конфиг (override через XDG_CONFIG_HOME не действует)
+  и на старте зовёт `codex app-server` (JSON-RPC, таймаут 30s) и `pi
+  auth print-api-key`; фейк без ответа висит 30s и пишет файлы в дерево
+  копии — грязное дерево отказывает prompt-шагу кодом 5.
 - Go-файлы корпуса (`bench/base/`, оракулы и решения задач) не должны
   войти в модуль `bsv-docflow`: `bench/go.mod` — забор, иначе
   `go vet ./...` и `go test ./...` репозитория соберут фикстуры.
@@ -112,6 +118,17 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - `ts` uses epoch seconds to match runner events v: 1 — keeps timestamp semantics consistent — rejected a separate timestamp encoding.
 - Absolute paths are redacted from public result notes and oracle tails — results stay safe to publish — rejected storing raw local output.
 - Ветка `docflow` запускается одним `docflow run --yes` без `--plan`/`--all`: живой запуск CLI берёт текущий план Queue и доводит его до конца (внутренний цикл раннера), а `--plan`/`--all` CLI принимает только с `--dry-run` — отвергнуто `docflow run --all --yes` (то же ограничение CLI) и внешний цикл повторных вызовов (раннер уже циклится сам; лишние вызовы дают лишние события).
+- Таймаут ветки docflow в тесте — квота-пробы раннера: после `roster apply`
+  план в executor-режиме, `RunConfig` берёт только встроенный agents-конфиг
+  (`LoadAgents("", false)`), и `quota = []` из XDG_CONFIG_HOME не действует;
+  раннер зовёт `codex app-server` (30s JSON-RPC) и `pi auth print-api-key`,
+  старые фейки не отвечали и писали `value.go` прямо в дерево — 30s
+  зависания плюс грязное дерево (отказ prompt-шага, код 5). Фиксура по
+  образцу `internal/runner`: фейки отвечают пробы, тестовый ростер ведёт
+  executor на pi-маршрут с ценой (встроенный профиль codex без `cost`,
+  разбор его потока выкидывает цену) — отвергнуто поднимать таймаут ветки
+  или чинить раннера: причина в фикстуре, живой запуск без проб
+  заканчивается за секунды кодом 0.
 
 ## Phase 1: Bench tool and result store
 
@@ -155,20 +172,24 @@ Read:
 - internal/agentio/process.go:L184-300
 - internal/agentio/usage.go:L140-180
 - internal/runner/role_acceptance_test.go:L1-50
+- internal/agentio/testdata/fake_agent.sh
+- internal/runner/fallback_test.go:L30-36
 Do:
 - `run --task NAME|all [--arms single,docflow] [--single-route "agent | model | effort"] [--roster bench/roster.toml] [--docflow PATH] [--timeout SECONDS] [--dry-run]`; по умолчанию ветки `single,docflow`, маршрут `codex | gpt-6.1-sol | high`, таймаут 21600 на ветку.
 - Без `--docflow` — `go build -o work/bench/<run-id>/bin/docflow ./cmd/docflow`; `docflow_version` — вывод `--version` бинаря, `docflow_commit` и `docflow_dirty` — HEAD и `git status --porcelain` checkout.
 - Ветка `single`: `materialize` в `work/bench/<run-id>/<task>-single/`, один вызов агента маршрута через `agents.BuildCommand` и `agentio.CallAgent` (`permissions` `auto`); промпт — весь текст плана задачи без статусов и инструкций цикла плюс указание реализовать всё в этой сессии, гонять `go test ./...`, плана docflow не создавать. Стоимость и токены — `agentio.RunCost`/`agentio.RunTokens`.
-- Ветка `docflow`: `materialize`, `docflow init`, план в `docs/plans/P001-<task>.md`, в Queue, `status: active`, коммит; `docflow roster apply P001 --roster <roster>` и коммит; один вызов `docflow run --yes` — без `--plan` и `--all` (CLI даёт их только с `--dry-run`): живой запуск сам берёт текущий план Queue и ведёт его до конца, а в изолированной копии Queue содержит только P001; выход 1 с `nothing to do` — нормальное завершение ветки, код 2 или 3 — провал ветки; таймаут ветки покрывает вызов целиком. Метрики — из `<git-dir>/docflow/run/*.events.jsonl` копии (юниты, попытки, replan, стоимость, `test_changes`, `check_changes`) и пунктов `Unverified:` в телах коммитов юнитов.
+- Ветка `docflow`: `materialize`, `docflow init`, план в `docs/plans/P001-<task>.md`, в Queue, `status: active`, коммит; `docflow roster apply P001 --roster <roster>` и коммит; один вызов `docflow run --yes` — без `--plan` и `--all` (CLI даёт их только с `--dry-run`): живой запуск сам берёт текущий план Queue и ведёт его до конца, а в изолированной копии Queue содержит только P001; код 0 (план доведён, `ready to close`) или 1 с `nothing to do` — нормальное завершение ветки, код 2 или 3 — провал ветки; таймаут ветки покрывает вызов целиком. Метрики — из `<git-dir>/docflow/run/*.events.jsonl` копии (юниты, попытки, replan, стоимость, `test_changes`, `check_changes`) и пунктов `Unverified:` в телах коммитов юнитов.
 - Ветка `docflow-one`: как `docflow`, но после `roster apply` все ключи маршрутов шапки заменены одним маршрутом `--single-route`, `fallback:` удалён.
 - Оценка каждой ветки: оракул поверх итогового дерева, `go test -json ./benchoracle/...`, счёт; `diff` — `git diff --shortstat` против коммита `base` без файлов оракула.
 - Таймаут ветки — `status: timeout` с оценкой того, что успело появиться в дереве; ошибка запуска — `status: error`.
 - `--dry-run` печатает задачи, ветки, маршрут `single`, цепочки ростера (`roster show --roster`) и пути, агентов не зовёт и ничего не пишет.
 - Тесты в `tools/bench/`: фейковые `codex` и `pi` в PATH (как `internal/runner` с `internal/agentio/testdata/fake_agent.sh`) на задаче `tiny` — обе ветки дают записи с оракулом и стоимостью; таймаут ветки — `timeout`.
+- Фейки отвечают и на квота-пробы раннера: `codex app-server` — JSON-RPC по образцу `internal/agentio/testdata/fake_agent.sh` (`id:1` → `{}`, `id:2` → `rateLimits`, выход, никаких записей в дерево), `pi auth print-api-key --provider zai` — выход 1 без ключа (как `writeFakePi`, `internal/runner/fallback_test.go:L30-36`). Override `[agents.codex] quota = []` через XDG_CONFIG_HOME не работает: после `roster apply` план в executor-режиме, и `docflow run` грузит только встроенный agents-конфиг.
+- Тестовый ростер — собственный файл, не `internal/roster/testdata/draft.toml`: executor — `pi | test-model | high` (встроенный профиль codex не задаёт `cost`, а разбор потока codex выкидывает цену — исполнитель codex не даст `cost` в записи), все шесть ролей в `[role]`, у strong-цепочек два провайдера; фейковый `pi` на юнит-вызове возвращает text = результат-JSON юнита и `usage` с `cost.total`, а не только заглушку для ветки `single`.
 Verify: `go test ./tools/bench/...`
 Commit: P051.1.3: run single and docflow arms
 Handoff:
-- План юнита пересобран replan'ом (см. `## Decisions`): ветки `docflow`/`docflow-one` завершаются одним вызовом `docflow run --yes`, выход 1 с `nothing to do` — нормальный конец ветки. Незакоммиченная работа (`tools/bench/main.go`, `main_test.go`, `run.go`) действительна и продолжается, но `run.go` ещё зовёт `docflow run --plan P001 --all --yes` — заменить на `docflow run --yes` и считать код 1 с `nothing to do` успехом ветки, а 2/3 — провалом.
+- Второй replan (см. `## Decisions`): таймаут ветки docflow в тесте — квота-пробы раннера, не `docflow run`. Незакоммиченная работа (`tools/bench/main.go`, `main_test.go`, `run.go`) действительна: `run.go` уже зовёт `docflow run --yes` и считает код 1 с `nothing to do` успехом — осталось переделать фикстуру `TestRunTinySingleAndDocflowArms` по новым пунктам `Do:` (ответы проб у фейков, собственный ростер с pi-executor, результат-JSON в фейковом pi).
 
 ### [ ] P051.1.4 Review bench tool
 Read:
