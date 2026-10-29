@@ -108,6 +108,8 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
   ветки.
 - Использовать cycle.PlanShell для команд оракула — он уже экспортирует общий выбор POSIX shell — отвергнута отдельная логика поиска bash.exe.
 - При сбое сборки оракула считать объявленные тесты проваленными — сборочная ошибка не должна выглядеть как пустой успешный прогон — отвергнуто завершение без счёта тестов.
+- `ts` uses epoch seconds to match runner events v: 1 — keeps timestamp semantics consistent — rejected a separate timestamp encoding.
+- Absolute paths are redacted from public result notes and oracle tails — results stay safe to publish — rejected storing raw local output.
 
 ## Phase 1: Bench tool and result store
 
@@ -129,7 +131,7 @@ Handoff:
 - Команды run и report пока зарегистрированы, но возвращают «not implemented yet»; их реализация остаётся следующим юнитам.
 - Изменения docs/plans/P051-benchmark.md существовали до этой работы и сохранены без правок.
 
-### [ ] P051.1.2 Record bench results and render the trend
+### [x] P051.1.2 Record bench results and render the trend
 Read:
 - docs/design/runner.md#поток-событий
 Do:
@@ -142,6 +144,8 @@ Do:
 - Тесты в `tools/bench/`: две записи разных прогонов → README с двумя строками и дельтой; грязный каталог результатов — код 2; коммит во временном репо содержит только файлы результатов при других staged-правках; запись без `cost` читается.
 Verify: `go test ./tools/bench/...`
 Commit: P051.1.2: record bench results and render the trend
+Handoff:
+- P051.1.3: `run` is still a stub; connect each completed branch to `appendResult`, `writeRunSummary`, `report`, and `commitResults`, preserving interrupted-run recording.
 
 ### [ ] P051.1.3 Run single and docflow arms
 Read:

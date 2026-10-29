@@ -14,8 +14,6 @@ import (
 	"bsv-docflow/internal/cycle"
 )
 
-var errNotImplemented = errors.New("command not implemented")
-
 func main() {
 	if len(os.Args) < 2 {
 		usage(os.Stderr)
@@ -25,15 +23,21 @@ func main() {
 	switch os.Args[1] {
 	case "validate":
 		err = validateCommand(os.Args[2:], os.Stdout)
-	case "run", "report":
-		fmt.Fprintf(os.Stderr, "%s: not implemented yet\n", os.Args[1])
-		err = errNotImplemented
+	case "run":
+		fmt.Fprintln(os.Stderr, "run: not implemented yet")
+		err = fmt.Errorf("command not implemented")
+	case "report":
+		err = reportCommand(os.Args[2:], os.Stdout)
 	default:
 		usage(os.Stderr)
 		os.Exit(2)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		var coded *exitError
+		if errors.As(err, &coded) {
+			os.Exit(coded.code)
+		}
 		os.Exit(1)
 	}
 }
