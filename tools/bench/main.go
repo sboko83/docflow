@@ -24,8 +24,7 @@ func main() {
 	case "validate":
 		err = validateCommand(os.Args[2:], os.Stdout)
 	case "run":
-		fmt.Fprintln(os.Stderr, "run: not implemented yet")
-		err = fmt.Errorf("command not implemented")
+		err = runCommand(os.Args[2:], os.Stdout)
 	case "report":
 		err = reportCommand(os.Args[2:], os.Stdout)
 	default:

@@ -129,6 +129,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
   разбор его потока выкидывает цену) — отвергнуто поднимать таймаут ветки
   или чинить раннера: причина в фикстуре, живой запуск без проб
   заканчивается за секунды кодом 0.
+- Тестовый ростер направляет executor на Pi с ценой, а сильные цепочки содержат также Codex — так тест проверяет стоимость и отвечает на startup-пробы раннера без зависаний.
 
 ## Phase 1: Bench tool and result store
 
@@ -166,7 +167,7 @@ Commit: P051.1.2: record bench results and render the trend
 Handoff:
 - P051.1.3: `run` is still a stub; connect each completed branch to `appendResult`, `writeRunSummary`, `report`, and `commitResults`, preserving interrupted-run recording.
 
-### [~] P051.1.3 Run single and docflow arms
+### [x] P051.1.3 Run single and docflow arms
 Read:
 - internal/agents/agents.go:L895-1020
 - internal/agentio/process.go:L184-300
@@ -190,6 +191,7 @@ Verify: `go test ./tools/bench/...`
 Commit: P051.1.3: run single and docflow arms
 Handoff:
 - Второй replan (см. `## Decisions`): таймаут ветки docflow в тесте — квота-пробы раннера, не `docflow run`. Незакоммиченная работа (`tools/bench/main.go`, `main_test.go`, `run.go`) действительна: `run.go` уже зовёт `docflow run --yes` и считает код 1 с `nothing to do` успехом — осталось переделать фикстуру `TestRunTinySingleAndDocflowArms` по новым пунктам `Do:` (ответы проб у фейков, собственный ростер с pi-executor, результат-JSON в фейковом pi).
+- Полная проверка P051.1.3 прошла: `go test ./tools/bench/...`; gate `go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...`. `docflow run` с кодом 1 и `nothing to do` считается нормальным завершением.
 
 ### [ ] P051.1.4 Review bench tool
 Read:
