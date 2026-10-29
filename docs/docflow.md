@@ -5,12 +5,16 @@ start_read: README.md, docs/design/README.md
 start_budget: 4000
 ---
 ## Queue
-- P051
 - P052
 
 ## Frozen
 
 ## Backlog
+- Бенчмарк на Windows: проверить `go run ./tools/bench validate --task all`,
+  добавить исполняемые фейки Codex/Pi вместо POSIX-скриптов и прогнать
+  ветки single/docflow/docflow-one, прерывание и таймаут. Сейчас эти
+  сценарии скипаются и остаются непроверенными даже в Windows CI
+  ([P051](archive/P051-benchmark.md)).
 - Проверить PTY-сценарии живости на Linux: время блока, квота used/left,
   сбросы, перенос на 30 колонках, спиннер и активный кап закрытия;
   убедиться, что квота не выходит за рамку, а обрезка спиннера сохраняет её

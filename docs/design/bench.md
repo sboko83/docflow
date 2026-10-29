@@ -8,6 +8,8 @@
 `bench/tasks/<name>/`. Модуль `bench/go.mod` не даёт фикстурам Go попасть в
 сборку основного модуля.
 
+Решения — [P051](../archive/P051-benchmark.md).
+
 ## Проверка корпуса
 
 `go run ./tools/bench validate --task NAME` сначала проверяет план через
