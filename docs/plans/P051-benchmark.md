@@ -320,7 +320,7 @@ Handoff:
 
 ## Phase 3: Docs
 
-### [ ] P051.3.1 Document the benchmark
+### [x] P051.3.1 Document the benchmark
 Read:
 - docs/design/README.md
 - docs/usage.md#ростер
@@ -333,6 +333,9 @@ Do:
 - `docs/docflow.md`, Backlog: в строке про медленный GLM на pi заменить «часть бенчмарка» на `go run ./tools/bench run --single-route` с двумя уровнями `thinking`.
 Verify: `docflow lint && grep -q 'bench.md' docs/design/README.md && grep -q 'tools/bench' docs/usage.md && grep -q 'bench/results' AGENTS.md`
 Commit: P051.3.1: document the benchmark
+Handoff:
+- Тренд `bench/results/README.md` начнёт показывать динамику после первого разрешённого живого прогона.
+- Unverified: Живые команды бенчмарка на моделях не проверялись; такой прогон расходует квоту и выходит за рамки этого юнита.
 
 ## Phase 4: Acceptance
 

@@ -36,6 +36,9 @@ explicitly instead.
   `go build -o bin/docflow ./cmd/docflow`.
 - Format spec, `templates/` and `lint` change together. Bumping `docflow: N`
   requires a migration path.
+- The benchmark runs with `go run ./tools/bench`; every run is committed in
+  `bench/results/`. Change benchmark tasks only with `go run
+  ./tools/bench validate` passing.
 
 ## Release
 - The version is `var version` in `cmd/docflow/main.go`; the tag `vX.Y.Z`
