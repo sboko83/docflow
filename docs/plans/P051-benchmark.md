@@ -57,6 +57,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 ## Traps
 
 - Не путать режимы `docflow run`: `--plan` и `--all` валидны только с `--dry-run` (выбор плана для показа); живой запуск берёт текущий план Queue и ведёт его до конца сам, а его нормальное завершение — код 1 с `nothing to do`, не 0.
+- Цепочки `bench/roster.toml` обязаны быть собираемыми текущим подбором ростера: цепочка идёт в порядке `spend` (требование `trusted` ставит провайдеров с `trusted` вперёд), `check` исключает провайдера из review целиком, у одного провайдера один маршрут на ступень. Сверять с `docflow roster show --roster bench/roster.toml`.
 - Квота-пробы раннера ломают бенчмарк на фейковых агентах:
   план после `roster apply` — executor-режим, `docflow run` грузит только
   встроенный agents-конфиг (override через XDG_CONFIG_HOME не действует)
@@ -130,6 +131,8 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
   или чинить раннера: причина в фикстуре, живой запуск без проб
   заканчивается за секунды кодом 0.
 - Тестовый ростер направляет executor на Pi с ценой, а сильные цепочки содержат также Codex — так тест проверяет стоимость и отвечает на startup-пробы раннера без зависаний.
+- Ростер бенчмарка переписан под достижимые цепочки: подбор даёт цепочку в порядке `spend`, `check` исключает провайдера из review целиком, а у одного провайдера один маршрут на ступень — поэтому цепочки «Pi первым в review при Codex-исполнителе» и своя настройка effort по ролям у одного провайдера недостижимы (подтверждено чтением `internal/roster/roster.go` и прогоном `roster show` на макете ростера); вместо этого `trusted` у zai и `review`/`acceptance`/`replan` = `"trusted"` — Pi первым во всех проверяющих ролях, executor и fallback прежние — отвергнуто менять логику ростера ради бенчмарка: семантика отбора закрыта дизайном P036, бенчмарк измеряет текущий docflow, а не меняет его.
+- Replan changed check: P051.2.1 Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high'` -> `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high' && docflow roster show --roster bench/roster.toml | grep -q '^review: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high'`
 
 ## Phase 1: Bench tool and result store
 
@@ -219,10 +222,12 @@ Read:
 Do:
 - `bench/go.mod` (`module bench-fixtures`, без кода) — забор от модуля `bsv-docflow`.
 - `bench/base/`: модуль `benchledger` (свой `go.mod`, только стандартная библиотека), CLI `ledger` для записей личных расходов в текстовом журнале: файл из `--file` или `LEDGER_FILE`, команды `add <YYYY-MM-DD> <amount> <description...>`, `list`, `balance`; сумма — целое в минимальных единицах, вывод — фиксированный текст, ошибки — код 1 и сообщение в stderr. 600–900 строк Go вместе с тестами, раскладка `cmd/ledger/` + `internal/journal/`, `go test ./...` зелёный; `README.md` с синтаксисом команд и форматом журнала; `AGENTS.md` из двух строк (тесты — `go test ./...`).
-- `bench/roster.toml` — ростер бенчмарка, у которого `docflow roster show --roster bench/roster.toml` даёт: `executor: codex | gpt-6-luna | high`, `fallback: pi | zai/glm-5.3 | high`, `review: pi | zai/glm-5.3 | medium; codex | gpt-6.1-sol | medium`, `acceptance: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high`, `replan: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium`.
+- `bench/roster.toml` — ростер бенчмарка, собираемый текущим подбором: `spend = ["codex", "zai"]`, `trusted` у zai, без `check`; в `[role]` — `cheap = "cheap"`, `executor = "standard"`, `heavy = "strong"`, `review`/`acceptance`/`replan` = `"trusted"`; маршруты — `codex | gpt-6-luna | high` (standard), `codex | gpt-6.1-sol | high` (strong), `pi | zai/glm-5.3 | high` (standard), `pi | zai/glm-5.3 | max` (strong). `docflow roster show --roster bench/roster.toml` даёт: `executor: codex | gpt-6-luna | high`, `fallback: pi | zai/glm-5.3 | high`, а `review:`, `acceptance:` и `replan:` — `pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high`.
 - `bench/README.md`: что лежит в `bench/`, ссылка на `docs/design/bench.md` (её напишет P051.3.1).
-Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high'`
+Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high' && docflow roster show --roster bench/roster.toml | grep -q '^review: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high'`
 Commit: P051.2.1: add the bench base project and roster
+Handoff:
+- План юнита пересобран replan'ом (см. `## Decisions`): требование к `bench/roster.toml` переписано под цепочки, которые текущий подбор реально собирает, — `trusted` у zai и `review`/`acceptance`/`replan` = `"trusted"` дают Pi первым во всех проверяющих ролях; прежние цепочки (свои effort по ролям у одного провайдера) недостижимы, логика ростера не меняется. Файлов юнита нет — начинать с нуля.
 
 ### [ ] P051.2.2 Add the small bench task
 Read:
