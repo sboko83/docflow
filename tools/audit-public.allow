@@ -19,9 +19,12 @@ cmd/docflow/main_test.go:email
 internal/agents/agents_test.go:email
 internal/cycle/commit_test.go:email
 internal/cycle/cycle_test.go:email
+internal/cycle/testchanges_prompt_test.go:email
+internal/cycle/testchanges_test.go:email
 internal/cycle/verify_test.go:email
 internal/roster/apply_test.go:email
 internal/runner/run_test.go:email
+internal/runner/verify_guard_acceptance_test.go:email
 tools/test-context-audits.py:email
 tools/parity/driver.sh:email
 tools/parity/e2e.sh:email
