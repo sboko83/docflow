@@ -146,6 +146,23 @@ func TestPromptTestChangesAcceptance(t *testing.T) {
 			t.Errorf("no items do not print none:\n%s", result.Stdout)
 		}
 	})
+	t.Run("repository without commits", func(t *testing.T) {
+		// An in-progress unit is not gated on a clean tree, so its prompt
+		// runs before the first commit.
+		started := strings.Replace(plan, "### [ ] P001.2.1", "### [~] P001.2.1", 1)
+		root := promptProject(t, started, nil)
+		if err := os.RemoveAll(filepath.Join(root, ".git")); err != nil {
+			t.Fatal(err)
+		}
+		gitCycle(t, root, "init", "-q")
+		result, err := Prompt(root, "P001.2.1", nil)
+		if err != nil || result.Code != 0 {
+			t.Fatalf("Prompt() = %#v, %v", result, err)
+		}
+		if !strings.Contains(result.Stdout, "## Test changes\n\nnone\n") {
+			t.Errorf("a repository without HEAD does not print none:\n%s", result.Stdout)
+		}
+	})
 }
 
 func TestCommitTestChangesBody(t *testing.T) {

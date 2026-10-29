@@ -245,6 +245,9 @@ func phaseDiffForRepository(root, prefix, reviewUnitID string) (string, error) {
 // `Test changes:` block each unit commit already carries: git stays the
 // source of truth for review and acceptance. `none` when the range has none.
 func testChangesForRepository(root, prefix, unitID string) (string, error) {
+	if head(root) == nil {
+		return "none\n", nil
+	}
 	base, ok, err := phaseBase(root, prefix, unitID)
 	if err != nil {
 		return "", err
