@@ -193,7 +193,7 @@ Handoff:
 - Второй replan (см. `## Decisions`): таймаут ветки docflow в тесте — квота-пробы раннера, не `docflow run`. Незакоммиченная работа (`tools/bench/main.go`, `main_test.go`, `run.go`) действительна: `run.go` уже зовёт `docflow run --yes` и считает код 1 с `nothing to do` успехом — осталось переделать фикстуру `TestRunTinySingleAndDocflowArms` по новым пунктам `Do:` (ответы проб у фейков, собственный ростер с pi-executor, результат-JSON в фейковом pi).
 - Полная проверка P051.1.3 прошла: `go test ./tools/bench/...`; gate `go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...`. `docflow run` с кодом 1 и `nothing to do` считается нормальным завершением.
 
-### [ ] P051.1.4 Review bench tool
+### [x] P051.1.4 Review bench tool
 Read:
 - docs/plans/P051-benchmark.md:L1-120
 Do:
@@ -202,6 +202,13 @@ Do:
 Verify: `go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...`
 Role: review
 Commit: P051.1.4: review bench tool
+Handoff:
+- BUG tools/bench/run.go:419,464: docflow-one ломает шапку плана — routeHeader.ReplaceAllString роняет имя ключа (executor: и т.п.), получаем голую строку 'pi | test-model | high'; проверено на собранном CLI: docflow lint -> bad frontmatter line, код 2, ветка всегда status:error. Фикс: сохранять ключ ($1: <route>) и заменить только значение; добавить тест на docflow-one (сейчас ветка не покрыта)
+- BUG tools/bench/run.go:579: fmt.Sscanf не парсит единственное число ('1 file changed, 1 insertion(+)') — insertions/deletions остаются 0 для однофайловых диффов (проверено); нужен парсер, устойчивый к singular/plural
+- Мелкие отклонения от Do: у run нет --results DIR (есть только у report); status 'failed' из схемы никогда не пишется (код 2/3 docflow run -> 'error'); блок 'oracle failures' в summary.md появляется и у зелёных прогонов (runOracleDetailed собирает любые Output-строки, не только провалы) и 40-строчный хвост может вытеснить реальные ошибки; Ctrl-C между ветками пишет interrupted-запись для неначавшейся ветки; roster_sha/chains пишутся и в ветку single; подтесты считаются отдельными тестами ('без подтестов-дублей' из Do P051.1.1); diff ветки single не видит новых неотслеживаемых файлов агента
+- Отдельные проверки Do сошлись: оракул/решение недоступны веткам до оценки (materialize только base, оракул в finalizeArm); прерванный прогон дописывается и коммитится (NotifyContext гасит повторные Ctrl-C, CallAgent убивает группу по отмене, затем summary/report/commit, код 130); абсолютных путей в runs.jsonl/summary нет; коммит результатов не захватывает чужое staged (pathspec-commits, тест есть). Остаточный риск: копия ветки лежит внутри checkout (work/bench/...), ФС-изоляции от bench/tasks/<name>/solution нет — санкционировано Decision плана
+- Unverified: Путь прерывания по Ctrl-C (status:interrupted + коммит) проверен только трассировкой кода — автоматизированного теста в фазе нет; покрывается сценарием 3 приёмки P051.4.1
+- Unverified: Ветка docflow-one подтверждена сломанной ручной репродукцией lint на собранном CLI; автоматического теста, гоняющего эту ветку целиком, нет ни в фазе, ни (сейчас) в приёмке до её сценария 1
 
 ## Phase 2: Reference corpus
 
