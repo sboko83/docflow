@@ -141,6 +141,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - Use direct directed rates with integer numerator/denominator and round down — makes conversion deterministic — rejected implicit inverse and multi-hop conversion.
 - Make recurring entries virtual and expand only with an explicit --through date — keeps reads deterministic and the journal unchanged — rejected writing generated occurrences.
 - Читать `# ledger-v2` с присвоением `USD`, поддерживая трёх- и четырёхполевые записи — для совместимости с legacy-форматом и промежуточным форматом категорий — отвергнуто: принимать только один layout.
+- Отклонение P051.2.3 (inline Role-фикстура вместо testdata/tasks) зачитано как выполненное — Do требовал зелёный validate на плане с Role:-юнитами и зелёный tiny, оба покрыты TestValidatePlanWithRoleUnits — отвергнуто требовать перенос фикстуры в testdata: тот же прогон, лишний файл.
 
 ## Phase 1: Bench tool and result store
 
@@ -299,7 +300,7 @@ Commit: P051.2.5: add the large bench task solution
 Handoff:
 - Актуальный oracle содержит 39 тестов; `validate` прошёл 39/39 на решении и 14/39 на базе. В предыдущей записи handoff указано 40 тестов.
 
-### [ ] P051.2.6 Review the reference corpus
+### [x] P051.2.6 Review the reference corpus
 Read:
 - bench/tasks/small/plan.md
 - bench/tasks/medium/plan.md
@@ -310,6 +311,12 @@ Do:
 Verify: `go build ./... && go vet ./... && go run ./tools/bench validate --task all`
 Role: review
 Commit: P051.2.6: review the reference corpus
+Handoff:
+- Дефект bench/tasks/large/plan.md:41: «Write new journals with first line `# ledger-v2`» противоречит :42 (v3) и оракулу; решение пишет `# ledger-v3`. Правка — одна строка (v2→v3 в :41) плюс, желательно, уточнение layout записей v2 (оракул гоняет 3-польную запись под `# ledger-v2`, план layout не фиксирует); до правки живой прогон large меряет противоречивый план.
+- Оракул строже текста планов: medium TestLegacyListShowsUncategorized и large TestListReadsVersionThreeCurrencies/TestRecurExpandsThroughRequestedDate требуют точный 4-колоночный list (CATEGORY/CURRENCY), который планы не фиксируют; small TestListJSONDateFilterAndEmptyArray сравнивает байт-точную JSON-сериализацию (порядок ключей, компактность), план фиксирует только состав полей, порядок и []. План-конформная ветка теряет очки за угадывание — кандидаты на смягчение тестов или дополнение планов до живого прогона.
+- docs/design/bench.md и строка в docs/design/README.md уже закоммичены коммитом aefdf3e (P051.2.3) вопреки его Traps — работа P051.3.1 частично сделана: юниту остаётся проверить и дополнить документ против фактического корпуса, не писать с нуля.
+- Отказ от буквы Do P051.2.3: Role-задача для validate — inline-фикстура в TestValidatePlanWithRoleUnits (временный каталог), а не tools/bench/testdata/tasks/<name>; только tiny закоммичена. По существу покрытие есть.
+- Unverified: Справедливость оракула не подтверждена прогоном против альтернативной план-конформной реализации (например, list без новой колонки или JSON с другим порядком ключей): подчеркнутые тесты могут снимать очки за угадывание — проверка: оракул на такой реализации или первый живой bench run.
 
 ## Phase 3: Docs
 
