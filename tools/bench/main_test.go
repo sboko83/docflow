@@ -27,6 +27,88 @@ func TestValidateTiny(t *testing.T) {
 	}
 }
 
+func TestValidatePlanWithRoleUnits(t *testing.T) {
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := filepath.Join(root, "tools", "bench", "testdata")
+	tasks := t.TempDir()
+	if err := copyTree(filepath.Join(fixture, "tasks", "tiny"), filepath.Join(tasks, "roles")); err != nil {
+		t.Fatal(err)
+	}
+	plan := `---
+docflow: 3
+id: P001
+title: Role fixture
+type: feature
+status: active
+created: 2026-10-29
+permissions: auto
+---
+## Goal
+
+Tinybase returns two.
+
+## Context
+
+Fixture.
+
+## Constraints
+
+Keep the public function signature.
+
+## Traps
+
+None.
+
+## Decisions
+
+None.
+
+## Phase 1: Implementation
+
+### [ ] P001.1.1 Change the value
+Read:
+- value.go
+Do:
+- Change Value to return 2.
+Verify: go test ./...
+Commit: P001.1.1: change value
+
+### [ ] P001.1.2 Review the change
+Read:
+- value.go
+Do:
+- Review the phase diff; do not edit files.
+Verify: go test ./...
+Role: review
+Commit: P001.1.2: review the change
+
+## Phase 2: Acceptance
+
+### [ ] P001.2.1 Accept the behavior
+Read:
+- value.go
+Do:
+- Confirm the public behavior.
+Verify: go test ./...
+Role: acceptance
+Commit: P001.2.1: accept the behavior
+`
+	plan = strings.ReplaceAll(plan, "Verify: go test ./...", "Verify: `go test ./...`")
+	if err := os.WriteFile(filepath.Join(tasks, "roles", "plan.md"), []byte(plan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := validateCommand([]string{"--task", "roles", "--tasks", tasks, "--base", filepath.Join(fixture, "base")}, &output); err != nil {
+		t.Fatalf("validate Role plan: %v", err)
+	}
+	if got := output.String(); got != "roles: base 0/1, solution 1/1, lint ok\n" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func TestValidateRejectsOraclePassingOnBase(t *testing.T) {
 	root, err := repoRoot()
 	if err != nil {

@@ -406,7 +406,8 @@ func runDocflow(parent context.Context, branch, binary string, rosterValue *rost
 		result.Status = "error"
 		return
 	}
-	if _, err := commandOutput(branch, binary, "roster", "apply", "P001", "--roster", rosterValue.Path); err != nil {
+	if output, err := commandOutput(branch, binary, "roster", "apply", "P001", "--roster", rosterValue.Path); err != nil {
+		_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), []byte(redactAbsolutePaths(output)), 0o644)
 		result.Status = "error"
 		return
 	}

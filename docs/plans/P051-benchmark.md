@@ -248,7 +248,7 @@ Handoff:
 - P051.2.3 should add `docs/design/bench.md`, referenced by `bench/README.md`.
 - Unverified: Windows validation was not run; the task was validated on macOS arm64.
 
-### [~] P051.2.3 Add the medium bench task
+### [x] P051.2.3 Add the medium bench task
 Read:
 - bench/base/README.md
 - bench/tasks/small/plan.md
@@ -267,6 +267,8 @@ Commit: P051.2.3: add the medium bench task
 Handoff:
 - Replan снял блок расширением Do (см. `## Decisions`): фикстура lint в `validate` — теперь часть юнита. Корпус medium уже написан (`bench/tasks/medium/`: план, оракул, решение) и валиден: вручную проверено, что в копии базы с git-репозиторием после `roster apply bench/roster.toml` план проходит `docflow lint` без ошибок (остаётся warning `docflow: 3` — как у закоммиченного small).
 - Осталось: переделать `validatePlan`, добавить `--roster` и тесты, затем прогнать Verify целиком; коммит юнита берёт только `tools/bench/` и `bench/tasks/medium/`.
+- `docs/design/README.md` и `docs/design/bench.md` остаются отдельной незавершённой работой P051.3.1; не включать их в коммит этого юнита.
+- Проверка прошла на macOS arm64; Windows-валидация остаётся открытой по Handoff зависимого юнита.
 
 ### [ ] P051.2.4 Write the large bench task plan and oracle
 Read:

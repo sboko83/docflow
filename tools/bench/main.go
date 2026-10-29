@@ -68,25 +68,27 @@ func validateCommand(args []string, out io.Writer) error {
 	task := flags.String("task", "", "task name or all")
 	tasksDir := flags.String("tasks", "bench/tasks", "task directory")
 	baseDir := flags.String("base", "bench/base", "base project directory")
+	rosterPath := flags.String("roster", "bench/roster.toml", "benchmark roster")
 	noSolution := flags.Bool("no-solution", false, "skip solution validation")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *task == "" {
-		return fmt.Errorf("usage: bench validate --task NAME|all [--tasks DIR] [--base DIR] [--no-solution]")
+		return fmt.Errorf("usage: bench validate --task NAME|all [--tasks DIR] [--base DIR] [--roster PATH] [--no-solution]")
 	}
 	root, err := repoRoot()
 	if err != nil {
 		return err
 	}
 	base := resolve(root, *baseDir)
+	roster := resolve(root, *rosterPath)
 	tasks := resolve(root, *tasksDir)
 	names, err := taskNames(tasks, *task)
 	if err != nil {
 		return err
 	}
 	for _, name := range names {
-		counts, err := validateTask(root, base, filepath.Join(tasks, name), name, *noSolution)
+		counts, err := validateTask(root, base, roster, filepath.Join(tasks, name), name, *noSolution)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -152,7 +154,7 @@ func taskNames(tasks, requested string) ([]string, error) {
 	return names, nil
 }
 
-func validateTask(root, base, taskDir, name string, noSolution bool) (validationCounts, error) {
+func validateTask(root, base, roster, taskDir, name string, noSolution bool) (validationCounts, error) {
 	var counts validationCounts
 	for _, file := range []string{"plan.md", "oracle", "solution"} {
 		if file == "solution" && noSolution {
@@ -212,7 +214,7 @@ func validateTask(root, base, taskDir, name string, noSolution bool) (validation
 			return counts, fmt.Errorf("oracle fails on solution (%d/%d)", counts.solution.passed, counts.solution.total)
 		}
 	}
-	if err := validatePlan(root, base, taskDir, name, plan); err != nil {
+	if err := validatePlan(root, base, roster, name, plan); err != nil {
 		return counts, err
 	}
 	return counts, nil
@@ -301,16 +303,13 @@ func oracleTestCount(root string) int {
 	return count
 }
 
-func validatePlan(root, base, taskDir, name string, plan []byte) error {
+func validatePlan(root, base, roster, name string, plan []byte) error {
 	dir, err := os.MkdirTemp("", "docflow-bench-lint-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	if err := copyTree(base, dir); err != nil {
-		return err
-	}
-	if err := copyTree(filepath.Join(root, "cmd"), filepath.Join(dir, "cmd")); err != nil {
+	if err := materialize(base, dir); err != nil {
 		return err
 	}
 	// Use the checkout CLI so lint behavior matches this source tree.
@@ -337,8 +336,17 @@ func validatePlan(root, base, taskDir, name string, plan []byte) error {
 	if err := os.MkdirAll(filepath.Join(dir, "docs", "plans"), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "docs", "plans", "P001-"+name+".md"), plan, 0o644); err != nil {
+	planPath := filepath.Join(dir, "docs", "plans", "P001-"+name+".md")
+	if err := os.WriteFile(planPath, plan, 0o644); err != nil {
 		return err
+	}
+	if err := gitAddCommit(dir, "benchmark plan"); err != nil {
+		return err
+	}
+	apply := exec.Command(bin, "roster", "apply", "P001", "--roster", roster)
+	apply.Dir = dir
+	if output, err := apply.CombinedOutput(); err != nil {
+		return fmt.Errorf("docflow roster apply: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	lint := exec.Command(bin, "lint")
 	lint.Dir = dir
