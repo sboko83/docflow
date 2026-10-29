@@ -133,6 +133,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - Тестовый ростер направляет executor на Pi с ценой, а сильные цепочки содержат также Codex — так тест проверяет стоимость и отвечает на startup-пробы раннера без зависаний.
 - Ростер бенчмарка переписан под достижимые цепочки: подбор даёт цепочку в порядке `spend`, `check` исключает провайдера из review целиком, а у одного провайдера один маршрут на ступень — поэтому цепочки «Pi первым в review при Codex-исполнителе» и своя настройка effort по ролям у одного провайдера недостижимы (подтверждено чтением `internal/roster/roster.go` и прогоном `roster show` на макете ростера); вместо этого `trusted` у zai и `review`/`acceptance`/`replan` = `"trusted"` — Pi первым во всех проверяющих ролях, executor и fallback прежние — отвергнуто менять логику ростера ради бенчмарка: семантика отбора закрыта дизайном P036, бенчмарк измеряет текущий docflow, а не меняет его.
 - Replan changed check: P051.2.1 Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high'` -> `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high' && docflow roster show --roster bench/roster.toml | grep -q '^review: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high'`
+- Журнал хранится как UTF-8 TSV с датой, положительной суммой и описанием — формат прост для чтения и тестирования — отвергнуты более сложные форматы хранения.
 
 ## Phase 1: Bench tool and result store
 
@@ -215,7 +216,7 @@ Handoff:
 
 ## Phase 2: Reference corpus
 
-### [ ] P051.2.1 Add the bench base project and roster
+### [x] P051.2.1 Add the bench base project and roster
 Read:
 - docs/usage.md#ростер
 - internal/roster/testdata/draft.toml
@@ -228,6 +229,7 @@ Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow r
 Commit: P051.2.1: add the bench base project and roster
 Handoff:
 - План юнита пересобран replan'ом (см. `## Decisions`): требование к `bench/roster.toml` переписано под цепочки, которые текущий подбор реально собирает, — `trusted` у zai и `review`/`acceptance`/`replan` = `"trusted"` дают Pi первым во всех проверяющих ролях; прежние цепочки (свои effort по ролям у одного провайдера) недостижимы, логика ростера не меняется. Файлов юнита нет — начинать с нуля.
+- Следующий юнит должен добавить `docs/design/bench.md`, на который уже ссылается `bench/README.md`.
 
 ### [ ] P051.2.2 Add the small bench task
 Read:

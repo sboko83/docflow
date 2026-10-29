@@ -1,0 +1,28 @@
+spend = ["codex", "zai"]
+
+[provider.zai]
+trusted = true
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "trusted"
+acceptance = "trusted"
+replan     = "trusted"
+
+[route.codex-standard]
+run  = "codex | gpt-6-luna | high"
+tier = "standard"
+
+[route.codex-strong]
+run  = "codex | gpt-6.1-sol | high"
+tier = "strong"
+
+[route.zai-standard]
+run  = "pi | zai/glm-5.3 | high"
+tier = "standard"
+
+[route.zai-strong]
+run  = "pi | zai/glm-5.3 | max"
+tier = "strong"
