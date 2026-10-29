@@ -135,6 +135,8 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - Replan changed check: P051.2.1 Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high'` -> `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high' && docflow roster show --roster bench/roster.toml | grep -q '^review: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high'`
 - Журнал хранится как UTF-8 TSV с датой, положительной суммой и описанием — формат прост для чтения и тестирования — отвергнуты более сложные форматы хранения.
 - Oracle tests assert the documented CLI contract, including rejecting `--json` for `balance`; this keeps the benchmark scoped to the plan.
+- Фикстура lint в `validate` повторяет подготовку docflow-ветки: `materialize` (git init + коммит), `docflow init`, план и Queue, `roster apply` — план задачи попадает на lint в executor-режиме и внутри git-репозитория, какие бы `Role:`-юниты в нём ни были (без ростера `Role:` требует executor-режима, а phase diff review-юнита зовёт `git log`); подтверждено вручную на medium-плане — lint без ошибок. Фикс вшит в Do P051.2.3, а не отдельным юнитом перед ним: SelectUnit берёт любой `[~]` раньше любого `[ ]`, и отдельный юнит не встал бы перед возобновляемым корпусом. Отвергнуто: убрать `Role:`-юниты из планов корпуса — ослабляет docflow-ветку бенчмарка, которая меряет именно цикл review/acceptance (small без Role-юнитов — осознанное исключение).
+- Replan changed check: P051.2.3 Verify: `go run ./tools/bench validate --task medium` -> `go test ./tools/bench/... && go run ./tools/bench validate --task medium`
 
 ## Phase 1: Bench tool and result store
 
@@ -246,17 +248,25 @@ Handoff:
 - P051.2.3 should add `docs/design/bench.md`, referenced by `bench/README.md`.
 - Unverified: Windows validation was not run; the task was validated on macOS arm64.
 
-### [ ] P051.2.3 Add the medium bench task
+### [~] P051.2.3 Add the medium bench task
 Read:
 - bench/base/README.md
 - bench/tasks/small/plan.md
 - skills/bsv-docflow-plan/SKILL.md#unit
+- tools/bench/main.go:L304-347
+- tools/bench/run.go:L380-410
 Do:
 - `bench/tasks/medium/plan.md` — план `P001` той же шапки: категории и месячные бюджеты — `add --category NAME`, журнал версии 2 с категорией, который читает и файлы базы без неё, `budget set <category> <amount>` (файл бюджетов рядом с журналом), `report --month YYYY-MM` с суммой по категориям и пометкой превышения. Две фазы, 3–5 юнитов: формат журнала и миграция чтения; бюджеты и отчёт; юнит `Role: review` в конце фазы 1 и юнит `Role: acceptance` в конце плана.
 - `bench/tasks/medium/oracle/benchoracle/` — 15–25 тестов через собранный CLI: старый журнал читается, отчёт и превышения на фикстурах.
 - `bench/tasks/medium/solution/` — эталонная реализация.
-Verify: `go run ./tools/bench validate --task medium`
+- `validatePlan` в `tools/bench/main.go` готовит lint-копию так же, как docflow-ветка готовит свою (`runDocflow` в `tools/bench/run.go`): `materialize` (git-репозиторий с одним коммитом базы) вместо `copyTree`, `docflow init --agent codex`, план в `docs/plans/P001-<name>.md` и P001 в Queue, `roster apply P001 --roster <roster>`, затем `docflow lint` чекаут-CLI в этой копии; копию `cmd/` из репозитория в фикстуру больше не класть. `validate` получает флаг `--roster` с умолчанием `bench/roster.toml` — как `run`. Причина: `Role:` требует executor-режима, а ключи маршрутов у плана задачи появляются только после `roster apply`; кроме того, prompt review-юнита строит phase diff через `git log`, которому нужен git-репозиторий — сейчас фикстура голая, и оба юнита с `Role:` роняют lint.
+- Тесты в `tools/bench/`: задача в `tools/bench/testdata/tasks/` с юнитами `Role: review` и `Role: acceptance` в плане — `validate` зелёный; задача `tiny` остаётся зелёной.
+Verify: `go test ./tools/bench/... && go run ./tools/bench validate --task medium`
+Traps: незакоммиченные `docs/design/bench.md` и правка `docs/design/README.md` — работа P051.3.1, написанная блокированной сессией по устаревшему Handoff P051.2.2: не править их и не коммитить с этой задачей. `roster apply` сам делает коммит — дополнительный коммит после него в фикстуре не нужен.
 Commit: P051.2.3: add the medium bench task
+Handoff:
+- Replan снял блок расширением Do (см. `## Decisions`): фикстура lint в `validate` — теперь часть юнита. Корпус medium уже написан (`bench/tasks/medium/`: план, оракул, решение) и валиден: вручную проверено, что в копии базы с git-репозиторием после `roster apply bench/roster.toml` план проходит `docflow lint` без ошибок (остаётся warning `docflow: 3` — как у закоммиченного small).
+- Осталось: переделать `validatePlan`, добавить `--roster` и тесты, затем прогнать Verify целиком; коммит юнита берёт только `tools/bench/` и `bench/tasks/medium/`.
 
 ### [ ] P051.2.4 Write the large bench task plan and oracle
 Read:
