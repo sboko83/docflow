@@ -5,6 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -109,16 +112,17 @@ func parseGoTestJSON(data []byte) testCounts {
 	seen := map[string]bool{}
 	for _, line := range strings.Split(string(data), "\n") {
 		var event struct {
-			Action string
-			Test   string
+			Action  string
+			Package string
+			Test    string
 		}
-		if json.Unmarshal([]byte(line), &event) != nil || event.Test == "" || seen[event.Test] {
+		if json.Unmarshal([]byte(line), &event) != nil || event.Test == "" || strings.Contains(event.Test, "/") || seen[event.Package+"/"+event.Test] {
 			continue
 		}
 		if event.Action != "pass" && event.Action != "fail" {
 			continue
 		}
-		seen[event.Test] = true
+		seen[event.Package+"/"+event.Test] = true
 		counts.total++
 		if event.Action == "pass" {
 			counts.passed++
@@ -183,6 +187,9 @@ func validateTask(root, base, roster, taskDir, name string, noSolution bool) (va
 	if err := materialize(base, baseCopy); err != nil {
 		return counts, fmt.Errorf("materialize base: %w", err)
 	}
+	if err := checkProjectTests(baseCopy, "base"); err != nil {
+		return counts, err
+	}
 	if err := overlay(filepath.Join(taskDir, "oracle"), baseCopy); err != nil {
 		return counts, fmt.Errorf("copy oracle: %w", err)
 	}
@@ -206,6 +213,9 @@ func validateTask(root, base, roster, taskDir, name string, noSolution bool) (va
 		if err := overlay(filepath.Join(taskDir, "solution"), solutionCopy); err != nil {
 			return counts, fmt.Errorf("copy solution: %w", err)
 		}
+		if err := checkProjectTests(solutionCopy, "solution"); err != nil {
+			return counts, err
+		}
 		if err := overlay(filepath.Join(taskDir, "oracle"), solutionCopy); err != nil {
 			return counts, fmt.Errorf("copy oracle: %w", err)
 		}
@@ -218,6 +228,16 @@ func validateTask(root, base, roster, taskDir, name string, noSolution bool) (va
 		return counts, err
 	}
 	return counts, nil
+}
+
+func checkProjectTests(root, label string) error {
+	argv := cycle.PlanShell("go test ./...")
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = root
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s tests: %s: %w", label, strings.TrimSpace(string(output)), err)
+	}
+	return nil
 }
 
 func materialize(base, dest string) error {
@@ -292,9 +312,13 @@ func oracleTestCount(root string) int {
 		if err != nil {
 			return err
 		}
-		for _, line := range strings.Split(string(data), "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "func Test") && strings.Contains(trimmed, "(") {
+		file, err := parser.ParseFile(token.NewFileSet(), path, data, 0)
+		if err != nil {
+			return nil
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") && fn.Name.Name != "TestMain" {
 				count++
 			}
 		}

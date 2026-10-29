@@ -417,7 +417,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens
 func TestDocflowRunCompletedAcceptsNothingToDoExit(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'nothing to do\\n'; exit 1")
 	output, err := cmd.CombinedOutput()
-	if !docflowRunCompleted(err, output) {
+	if !docflowExitCompleted(cmd.ProcessState.ExitCode(), output) {
 		t.Fatalf("docflow run completion rejected exit 1 with nothing to do: err=%v output=%q", err, output)
 	}
 }
@@ -426,7 +426,7 @@ func TestDocflowRunCompletedRejectsOtherErrors(t *testing.T) {
 	for _, script := range []string{"printf 'failed\\n'; exit 1", "printf 'nothing to do\\n'; exit 2"} {
 		cmd := exec.Command("sh", "-c", script)
 		output, err := cmd.CombinedOutput()
-		if docflowRunCompleted(err, output) {
+		if docflowExitCompleted(cmd.ProcessState.ExitCode(), output) {
 			t.Fatalf("docflow run completion accepted %q: err=%v output=%q", script, err, output)
 		}
 	}

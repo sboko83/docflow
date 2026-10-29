@@ -608,3 +608,56 @@ func TestAcceptanceShortStat(t *testing.T) {
 		}
 	}
 }
+
+// A docflow timeout must reap the nested agent and its children before
+// scoring and committing the partial result.
+func TestAcceptanceDocflowTimeout(t *testing.T) {
+	e := newAcceptanceEnv(t)
+	writeAcceptanceFile(t, e.binDir, "pi", `#!/bin/sh
+case "$*" in *'auth print-api-key'*) exit 1 ;; esac
+cat >/dev/null
+sleep 60 &
+echo $! > child.pid
+wait
+`, 0o755)
+	args := append(e.tinyRunArgs("docflow"), "--timeout", "2")
+	started := time.Now()
+	out, errOut, code := e.run(args...)
+	if code != 0 || time.Since(started) > 25*time.Second {
+		t.Fatalf("timeout exit %d, elapsed %s\n%s\n%s", code, time.Since(started), out, errOut)
+	}
+	rows := e.rows()
+	if len(rows) != 1 || rows[0].Status != "timeout" {
+		t.Fatalf("timeout rows = %+v", rows)
+	}
+	runID := runIDFromOutput(t, out)
+	pidPath := filepath.Join(e.root, "work", "bench", runID, "tiny-docflow", "child.pid")
+	pid, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("sh", "-c", `kill -0 "$1" 2>/dev/null`, "sh", strings.TrimSpace(string(pid))).Run(); err == nil {
+		t.Fatalf("agent child %s survived timeout", pid)
+	}
+	if got := e.lastCommitSubject(); got != "bench: run "+runID {
+		t.Fatalf("partial results not committed: %s", got)
+	}
+}
+
+func TestAcceptanceCustomResults(t *testing.T) {
+	e := newAcceptanceEnv(t)
+	args := append(e.tinyRunArgs("single"), "--results", "bench/custom-results")
+	out, errOut, code := e.run(args...)
+	if code != 0 {
+		t.Fatalf("custom results exit %d\n%s\n%s", code, out, errOut)
+	}
+	rows, err := readResults(filepath.Join(e.root, "bench", "custom-results", "runs.jsonl"))
+	if err != nil || len(rows) != 1 || rows[0].Status != "done" {
+		t.Fatalf("custom rows = %+v, err=%v", rows, err)
+	}
+	for _, file := range e.lastCommitFiles() {
+		if !strings.HasPrefix(filepath.ToSlash(file), "bench/custom-results/") {
+			t.Fatalf("unexpected commit path %s", file)
+		}
+	}
+}

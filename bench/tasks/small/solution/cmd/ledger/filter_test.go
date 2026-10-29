@@ -53,3 +53,12 @@ func TestBalanceCommandFiltersInclusiveRange(t *testing.T) {
 		t.Fatalf("balance output = %q", stdout.String())
 	}
 }
+
+func TestParseFiltersRejectsEmptyDatesAndExtraArguments(t *testing.T) {
+	for _, args := range [][]string{{"--since", ""}, {"--until", ""}, {"--since", "2025-01-01", "extra"}} {
+		var stderr bytes.Buffer
+		if _, _, err := parseFilters("list", args, &stderr, true); err == nil {
+			t.Fatalf("accepted %q", args)
+		}
+	}
+}

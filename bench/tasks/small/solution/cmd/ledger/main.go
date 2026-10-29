@@ -81,8 +81,13 @@ func parseFilters(command string, args []string, stderr io.Writer, allowJSON boo
 	if err := flags.Parse(args); err != nil {
 		return filters{}, false, err
 	}
+	if flags.NArg() != 0 {
+		return filters{}, false, fmt.Errorf("unexpected arguments for %s", command)
+	}
+	provided := map[string]bool{}
+	flags.Visit(func(f *flag.Flag) { provided["--"+f.Name] = true })
 	for label, value := range map[string]string{"--since": *since, "--until": *until} {
-		if value == "" {
+		if value == "" && !provided[label] {
 			continue
 		}
 		date, err := time.Parse("2006-01-02", value)

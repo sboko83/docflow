@@ -311,6 +311,8 @@ func writeRunSummary(dir string, rows []benchResult, oracleTails map[string][]st
 			route = row.Route.Agent + " | " + row.Route.Model + " | " + row.Route.Effort
 		}
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %.1f | %d (%d done, %d blocked) | %d | %d |\n", escapeCell(row.Task), escapeCell(row.Arm), escapeCell(route), oracle, cost, row.Seconds/60, row.Units.Total, row.Units.Done, row.Units.Blocked, row.Attempts, row.Replans)
+	}
+	for _, row := range rows {
 		if tail := oracleTails[row.Task+"/"+row.Arm]; len(tail) > 0 {
 			b.WriteString("\n### " + row.Task + " / " + row.Arm + " oracle failures\n\n```text\n")
 			if len(tail) > 40 {

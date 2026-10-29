@@ -29,9 +29,9 @@ import (
 const defaultSingleRoute = "codex | gpt-6.1-sol | high"
 
 type runOptions struct {
-	task, arms, singleRoute, rosterPath, docflowPath string
-	timeout                                          time.Duration
-	dryRun                                           bool
+	task, arms, singleRoute, rosterPath, docflowPath, resultsPath string
+	timeout                                                       time.Duration
+	dryRun                                                        bool
 }
 
 func runCommand(args []string, out io.Writer) error {
@@ -47,6 +47,7 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 	flags.SetOutput(io.Discard)
 	opt := runOptions{}
 	flags.StringVar(&opt.task, "task", "", "task name or all")
+	flags.StringVar(&opt.resultsPath, "results", "bench/results", "results directory inside the checkout")
 	flags.StringVar(&opt.arms, "arms", "single,docflow", "comma-separated benchmark arms")
 	flags.StringVar(&opt.singleRoute, "single-route", defaultSingleRoute, "single route: agent | model | effort")
 	flags.StringVar(&opt.rosterPath, "roster", "bench/roster.toml", "benchmark roster")
@@ -74,6 +75,10 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	resultsRel, err := filepath.Rel(root, resolve(root, opt.resultsPath))
+	if err != nil || resultsRel == "." || resultsRel == ".." || strings.HasPrefix(resultsRel, ".."+string(filepath.Separator)) {
+		return &exitError{code: 2, message: "results must name a directory inside the checkout"}
+	}
 	rm, err := rosterMetadata(root, resolve(root, opt.rosterPath))
 	if err != nil {
 		return err
@@ -82,7 +87,7 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 		fmt.Fprintf(out, "tasks: %s\narms: %s\nsingle: %s\n", strings.Join(names, ", "), strings.Join(requestedArms, ", "), routeText(route))
 		fmt.Fprintln(out, "roster:")
 		fmt.Fprint(out, rm.value.Show())
-		fmt.Fprintf(out, "base: %s\nwork: work/bench/<run-id>\nresults: %s\n", filepath.ToSlash(filepath.Join("bench", "base")), filepath.ToSlash(filepath.Join("bench", "results")))
+		fmt.Fprintf(out, "base: %s\nwork: work/bench/<run-id>\nresults: %s\n", filepath.ToSlash(filepath.Join("bench", "base")), filepath.ToSlash(resultsRel))
 		for _, name := range names {
 			for _, arm := range requestedArms {
 				fmt.Fprintf(out, "path: work/bench/<run-id>/%s-%s\n", name, arm)
@@ -90,7 +95,6 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 		}
 		return nil
 	}
-	resultsRel := "bench/results"
 	if err := ensureResultsClean(root, resultsRel); err != nil {
 		return err
 	}
@@ -124,21 +128,14 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 	for _, input := range taskRecords {
 		for _, arm := range requestedArms {
 			if ctx.Err() != nil {
-				row := benchResult{Status: "interrupted", Cost: nil, Unverified: []string{}}
-				row.V, row.RunID, row.TS, row.Task, row.TaskSHA, row.Arm = 1, runID, float64(time.Now().Unix()), input.name, input.digest, arm
-				row.RosterSHA, row.Chains = rm.sha, rm.chains
-				row.DocflowVersion, row.DocflowCommit, row.DocflowDirty = docflowVersion, docflowCommit, docflowDirty
-				rows = append(rows, row)
-				if err := appendResult(resultsDir, row); err != nil {
-					return err
-				}
 				interrupted = true
 				break
 			}
 			row, tail := executeArm(ctx, root, workDir, docflowBin, docflowVersion, docflowCommit, docflowDirty, rm.value, route, input, arm, opt.timeout)
 			row.V, row.RunID, row.TS, row.Task, row.TaskSHA, row.Arm = 1, runID, float64(time.Now().Unix()), input.name, input.digest, arm
-			row.RosterSHA = rm.sha
-			row.Chains = rm.chains
+			if arm == "docflow" {
+				row.RosterSHA, row.Chains = rm.sha, rm.chains
+			}
 			if arm == "single" || arm == "docflow-one" {
 				row.Route = &benchRoute{Agent: route.Agent, Model: route.Model, Effort: route.Effort}
 			}
@@ -300,6 +297,7 @@ func executeArm(ctx context.Context, root, work, docflowBin, version, commit str
 
 func finalizeArm(branch string, task taskInput, arm string, result benchResult, started time.Time, baseCommit string) (benchResult, []string) {
 	result.Seconds = time.Since(started).Seconds()
+	result.Diff = diffFromBase(branch, baseCommit)
 	if _, err := os.Stat(filepath.Join(task.dir, "oracle")); err != nil {
 		result.Status = "error"
 		return result, nil
@@ -310,7 +308,6 @@ func finalizeArm(branch string, task taskInput, arm string, result benchResult, 
 	}
 	counts, tail := runOracleDetailed(branch)
 	result.Oracle = oracleResult{Passed: counts.passed, Total: counts.total, Failed: counts.total - counts.passed}
-	result.Diff = diffFromBase(branch, baseCommit)
 	return result, tail
 }
 
@@ -434,28 +431,31 @@ func runDocflow(parent context.Context, branch, binary string, rosterValue *rost
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, "run", "--yes")
-	cmd.Dir = branch
-	out, err := cmd.CombinedOutput()
-	_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), []byte(redactAbsolutePaths(string(out))), 0o644)
+	run, err := agentio.CallAgent(branch, []string{binary, "run", "--yes"}, nil, "", agentio.CallOptions{Context: ctx, Timeout: timeout})
+	out := []byte(run.Stdout + "\n" + run.Stderr)
+	_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), out, 0o644)
+
 	if parent.Err() != nil {
 		result.Status = "interrupted"
 	} else if ctx.Err() == context.DeadlineExceeded {
 		result.Status = "timeout"
-	} else if !docflowRunCompleted(err, out) {
+	} else if run.TimedOut {
+		result.Status = "timeout"
+	} else if err != nil {
 		result.Status = "error"
+	} else if !docflowExitCompleted(run.Code, out) {
+		result.Status = "failed"
 	} else {
 		result.Status = "done"
 	}
 	collectRunMetrics(branch, result)
 }
 
-func docflowRunCompleted(err error, output []byte) bool {
-	if err == nil {
+func docflowExitCompleted(code int, output []byte) bool {
+	if code == 0 {
 		return true
 	}
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+	if code != 1 {
 		return false
 	}
 	for _, line := range strings.Split(string(output), "\n") {
@@ -483,6 +483,9 @@ func collectRunMetrics(branch string, result *benchResult) {
 		return
 	}
 	eventsDir := filepath.Join(branch, strings.TrimSpace(gitDir), "docflow", "run")
+	config, _ := agents.LoadAgents("", false)
+	profiles, _ := config["agents"].(map[string]any)
+	var callCost, unitCost *float64
 	entries, _ := os.ReadDir(eventsDir)
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".events.jsonl") {
@@ -500,8 +503,9 @@ func collectRunMetrics(branch string, result *benchResult) {
 			}
 			kind := stringField(event, "event", "type", "kind")
 			switch kind {
+			case "run_start":
+				result.Units.Total = intField(event, "units")
 			case "unit_end":
-				result.Units.Total++
 				if event["status"] == "done" {
 					result.Units.Done++
 				}
@@ -510,23 +514,42 @@ func collectRunMetrics(branch string, result *benchResult) {
 				}
 			case "attempt":
 				result.Attempts++
+				route, _ := event["route"].(map[string]any)
+				profile, _ := profiles[stringField(route, "agent")].(map[string]any)
+				log, err := os.ReadFile(filepath.Join(branch, filepath.FromSlash(stringField(event, "log"))))
+				if err == nil && profile != nil {
+					stdout := string(log)
+					if _, after, ok := strings.Cut(stdout, "--- stdout\n"); ok {
+						stdout = after
+					}
+					stdout, _, _ = strings.Cut(stdout, "\n--- stderr\n")
+					call := agentio.AgentRun{Stdout: stdout}
+					callCost = agentio.Add(callCost, agentio.RunCost(profile, call))
+					if tokens := agentio.RunTokens(profile, call); tokens != nil {
+						result.Tokens += *tokens
+					}
+				}
 			case "replan":
 				result.Replans++
 				result.CheckChanges += sliceLen(event["check_changes"])
 			case "commit":
 				result.TestChanges += sliceLen(event["test_changes"])
 			}
-			if value, ok := event["cost"].(float64); ok {
-				if result.Cost == nil {
-					result.Cost = new(float64)
+			if kind == "unit_end" {
+				if value, ok := event["cost"].(float64); ok {
+					unitCost = agentio.Add(unitCost, &value)
 				}
-				*result.Cost += value
 			}
-			result.Tokens += intField(event, "tokens", "total_tokens")
 		}
 		file.Close()
 	}
-	commits, _ := gitOutput(branch, "log", "--format=%B", "base..HEAD")
+	result.Cost = callCost
+	if result.Cost == nil {
+		result.Cost = unitCost
+	}
+	roots, _ := gitOutput(branch, "rev-list", "--max-parents=0", "HEAD")
+	base := strings.TrimSpace(roots)
+	commits, _ := gitOutput(branch, "log", "--format=%B", "--extended-regexp", "--grep=^P[0-9]+\\.[0-9]+\\.[0-9]+:", base+"..HEAD")
 	for _, line := range strings.Split(commits, "\n") {
 		trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
 		if strings.HasPrefix(trimmed, "Unverified:") {
@@ -572,12 +595,26 @@ func runOracleDetailed(root string) (testCounts, []string) {
 	if counts.total == 0 {
 		counts.total = oracleTestCount(filepath.Join(root, "benchoracle"))
 	}
+	type oracleEvent struct{ Action, Package, Test, Output string }
+	var events []oracleEvent
+	failed := map[string]bool{}
+	for _, line := range strings.Split(string(output), "\n") {
+		var event oracleEvent
+		if json.Unmarshal([]byte(line), &event) == nil {
+			events = append(events, event)
+			if event.Action == "fail" {
+				failed[event.Package+"/"+event.Test] = true
+			}
+		} else if strings.TrimSpace(line) != "" {
+			events = append(events, oracleEvent{Output: line + "\n"})
+		}
+	}
 	var tail []string
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.Contains(line, `"Action":"fail"`) || strings.Contains(line, `"Output"`) {
-			tail = append(tail, redactAbsolutePaths(line))
+	if len(failed) > 0 || counts.passed != counts.total {
+		for _, event := range events {
+			if event.Output != "" && (event.Test == "" || failed[event.Package+"/"+event.Test]) {
+				tail = append(tail, strings.Split(strings.TrimRight(redactAbsolutePaths(event.Output), "\n"), "\n")...)
+			}
 		}
 	}
 	return counts, tail
@@ -609,7 +646,11 @@ func diffFromBase(branch, baseCommit string) diffResult {
 	if baseCommit == "" {
 		return diffResult{}
 	}
-	out, err := gitOutput(branch, "diff", "--shortstat", baseCommit, "--", ".", ":(exclude)benchoracle/**")
+	paths := []string{".", ":(exclude)benchoracle/**", ":(exclude).bench-*"}
+	if _, err := gitOutput(branch, append([]string{"add", "-A", "--"}, paths...)...); err != nil {
+		return diffResult{}
+	}
+	out, err := gitOutput(branch, append([]string{"diff", "--cached", "--shortstat", baseCommit, "--"}, paths...)...)
 	if err != nil {
 		return diffResult{}
 	}
