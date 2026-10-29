@@ -134,6 +134,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - Ростер бенчмарка переписан под достижимые цепочки: подбор даёт цепочку в порядке `spend`, `check` исключает провайдера из review целиком, а у одного провайдера один маршрут на ступень — поэтому цепочки «Pi первым в review при Codex-исполнителе» и своя настройка effort по ролям у одного провайдера недостижимы (подтверждено чтением `internal/roster/roster.go` и прогоном `roster show` на макете ростера); вместо этого `trusted` у zai и `review`/`acceptance`/`replan` = `"trusted"` — Pi первым во всех проверяющих ролях, executor и fallback прежние — отвергнуто менять логику ростера ради бенчмарка: семантика отбора закрыта дизайном P036, бенчмарк измеряет текущий docflow, а не меняет его.
 - Replan changed check: P051.2.1 Verify: `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high'` -> `go vet ./... && cd bench/base && go test ./... && cd ../.. && docflow roster show --roster bench/roster.toml | grep -q '^executor: codex | gpt-6-luna | high' && docflow roster show --roster bench/roster.toml | grep -q '^review: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high'`
 - Журнал хранится как UTF-8 TSV с датой, положительной суммой и описанием — формат прост для чтения и тестирования — отвергнуты более сложные форматы хранения.
+- Oracle tests assert the documented CLI contract, including rejecting `--json` for `balance`; this keeps the benchmark scoped to the plan.
 
 ## Phase 1: Bench tool and result store
 
@@ -231,7 +232,7 @@ Handoff:
 - План юнита пересобран replan'ом (см. `## Decisions`): требование к `bench/roster.toml` переписано под цепочки, которые текущий подбор реально собирает, — `trusted` у zai и `review`/`acceptance`/`replan` = `"trusted"` дают Pi первым во всех проверяющих ролях; прежние цепочки (свои effort по ролям у одного провайдера) недостижимы, логика ростера не меняется. Файлов юнита нет — начинать с нуля.
 - Следующий юнит должен добавить `docs/design/bench.md`, на который уже ссылается `bench/README.md`.
 
-### [ ] P051.2.2 Add the small bench task
+### [x] P051.2.2 Add the small bench task
 Read:
 - bench/base/README.md
 - skills/bsv-docflow-plan/SKILL.md#unit
@@ -241,6 +242,9 @@ Do:
 - `bench/tasks/small/solution/` — эталонная реализация поверх базы (полные файлы по путям базы), с тестами пакета.
 Verify: `go run ./tools/bench validate --task small`
 Commit: P051.2.2: add the small bench task
+Handoff:
+- P051.2.3 should add `docs/design/bench.md`, referenced by `bench/README.md`.
+- Unverified: Windows validation was not run; the task was validated on macOS arm64.
 
 ### [ ] P051.2.3 Add the medium bench task
 Read:
