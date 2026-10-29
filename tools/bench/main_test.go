@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -252,6 +253,9 @@ func TestCommitResultsDoesNotCommitOtherStagedChanges(t *testing.T) {
 }
 
 func TestRunTinySingleAndDocflowArms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake codex and pi agents are POSIX shell scripts; bare-name PATH lookup does not resolve them on Windows")
+	}
 	root := t.TempDir()
 	configHome := filepath.Join(root, "config")
 	t.Setenv("XDG_CONFIG_HOME", configHome)

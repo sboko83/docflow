@@ -282,17 +282,23 @@ func executeArm(ctx context.Context, root, work, docflowBin, version, commit str
 	_ = os.RemoveAll(branch)
 	if err := materialize(task.base, branch); err != nil {
 		result.Status = "error"
-		return finalizeArm(root, branch, task, arm, result, started)
+		return finalizeArm(branch, task, arm, result, started, "")
+	}
+	// The materialized base commit has no ref; diff by its hash.
+	baseCommit, err := gitOutput(branch, "rev-parse", "HEAD")
+	if err != nil {
+		result.Status = "error"
+		return finalizeArm(branch, task, arm, result, started, "")
 	}
 	if arm == "single" {
 		runSingle(ctx, root, branch, task.plan, route, timeout, &result)
 	} else {
 		runDocflow(ctx, branch, docflowBin, rosterValue, route, task, arm == "docflow-one", timeout, &result)
 	}
-	return finalizeArm(root, branch, task, arm, result, started)
+	return finalizeArm(branch, task, arm, result, started, strings.TrimSpace(baseCommit))
 }
 
-func finalizeArm(root, branch string, task taskInput, arm string, result benchResult, started time.Time) (benchResult, []string) {
+func finalizeArm(branch string, task taskInput, arm string, result benchResult, started time.Time, baseCommit string) (benchResult, []string) {
 	result.Seconds = time.Since(started).Seconds()
 	if _, err := os.Stat(filepath.Join(task.dir, "oracle")); err != nil {
 		result.Status = "error"
@@ -304,7 +310,7 @@ func finalizeArm(root, branch string, task taskInput, arm string, result benchRe
 	}
 	counts, tail := runOracleDetailed(branch)
 	result.Oracle = oracleResult{Passed: counts.passed, Total: counts.total, Failed: counts.total - counts.passed}
-	result.Diff = diffFromBase(branch)
+	result.Diff = diffFromBase(branch, baseCommit)
 	return result, tail
 }
 
@@ -417,9 +423,7 @@ func runDocflow(parent context.Context, branch, binary string, rosterValue *rost
 			result.Status = "error"
 			return
 		}
-		text := routeHeader.ReplaceAllString(string(planText), routeText(route)+"\n")
-		text = fallbackHeader.ReplaceAllString(text, "")
-		if err := os.WriteFile(planPath, []byte(text), 0o644); err != nil {
+		if err := os.WriteFile(planPath, []byte(rewritePlanRoutes(string(planText), route)), 0o644); err != nil {
 			result.Status = "error"
 			return
 		}
@@ -462,8 +466,16 @@ func docflowRunCompleted(err error, output []byte) bool {
 	return false
 }
 
-var routeHeader = regexp.MustCompile(`(?m)^(?:executor|cheap|standard|strong|heavy|review|acceptance|replan):.*\n`)
-var fallbackHeader = regexp.MustCompile(`(?m)^fallback:.*\n`)
+var routeHeader = regexp.MustCompile(`(?m)^(executor|cheap|standard|strong|heavy|review|acceptance|replan):.*`)
+var fallbackHeader = regexp.MustCompile(`(?m)^fallback:.*\n?`)
+
+// rewritePlanRoutes points every route key of a plan header at one route and
+// drops the fallback chain, keeping the key names: a bare route value would
+// break the frontmatter and fail lint in the docflow run.
+func rewritePlanRoutes(plan string, route agents.Route) string {
+	text := routeHeader.ReplaceAllString(plan, "${1}: "+routeText(route))
+	return fallbackHeader.ReplaceAllString(text, "")
+}
 
 func collectRunMetrics(branch string, result *benchResult) {
 	gitDir, err := gitOutput(branch, "rev-parse", "--git-dir")
@@ -571,14 +583,37 @@ func runOracleDetailed(root string) (testCounts, []string) {
 	return counts, tail
 }
 
-func diffFromBase(branch string) diffResult {
-	out, err := gitOutput(branch, "diff", "--shortstat", "base", "--", ".", ":(exclude)benchoracle/**")
+var (
+	filesChangedRE = regexp.MustCompile(`(\d+) files? changed`)
+	insertionsRE   = regexp.MustCompile(`(\d+) insertions?\(\+\)`)
+	deletionsRE    = regexp.MustCompile(`(\d+) deletions?\(-\)`)
+)
+
+// parseShortStat reads a `git diff --shortstat` line, tolerating the
+// singular forms and missing sections ("1 file changed, 1 insertion(+)").
+func parseShortStat(text string) diffResult {
+	var d diffResult
+	if m := filesChangedRE.FindStringSubmatch(text); m != nil {
+		d.Files, _ = strconv.Atoi(m[1])
+	}
+	if m := insertionsRE.FindStringSubmatch(text); m != nil {
+		d.Insertions, _ = strconv.Atoi(m[1])
+	}
+	if m := deletionsRE.FindStringSubmatch(text); m != nil {
+		d.Deletions, _ = strconv.Atoi(m[1])
+	}
+	return d
+}
+
+func diffFromBase(branch, baseCommit string) diffResult {
+	if baseCommit == "" {
+		return diffResult{}
+	}
+	out, err := gitOutput(branch, "diff", "--shortstat", baseCommit, "--", ".", ":(exclude)benchoracle/**")
 	if err != nil {
 		return diffResult{}
 	}
-	var d diffResult
-	fmt.Sscanf(strings.TrimSpace(out), "%d files changed, %d insertions(+), %d deletions(-)", &d.Files, &d.Insertions, &d.Deletions)
-	return d
+	return parseShortStat(strings.TrimSpace(out))
 }
 
 func gitOutput(dir string, args ...string) (string, error) { return commandOutput(dir, "git", args...) }

@@ -48,6 +48,7 @@ Do:
 - Add the required `--category NAME` option after `add`; accept the documented positional date, amount, and description after the option.
 - Write version 2 journals with the first line `# ledger-v2` and records `YYYY-MM-DD<TAB>amount<TAB>category<TAB>description`.
 - Read existing version 1 records `YYYY-MM-DD<TAB>amount<TAB>description` and expose their category as `Uncategorized`; when adding to a version 1 journal, migrate its records to version 2 before appending the new record.
+- Print `list` rows as `DATE<TAB>AMOUNT<TAB>CATEGORY<TAB>DESCRIPTION`, one row per record in insertion order, with each record's category (`Uncategorized` for version 1 records).
 - Reject an empty category or one containing tab, carriage return, or newline with exit code 1 and a diagnostic on stderr.
 - Add package tests for version 1 reading, version 2 reading and writing, migration, and invalid categories.
 Verify: `go test ./...`

@@ -142,6 +142,10 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - Make recurring entries virtual and expand only with an explicit --through date — keeps reads deterministic and the journal unchanged — rejected writing generated occurrences.
 - Читать `# ledger-v2` с присвоением `USD`, поддерживая трёх- и четырёхполевые записи — для совместимости с legacy-форматом и промежуточным форматом категорий — отвергнуто: принимать только один layout.
 - Отклонение P051.2.3 (inline Role-фикстура вместо testdata/tasks) зачитано как выполненное — Do требовал зелёный validate на плане с Role:-юнитами и зелёный tiny, оба покрыты TestValidatePlanWithRoleUnits — отвергнуто требовать перенос фикстуры в testdata: тот же прогон, лишний файл.
+- Приёмка гоняет собранный bench CLI отдельным процессом — покрывает main-диспетчер, флаги и коды выхода; отвергнуто переиспользование in-process runCommandAt из main_test (не проверяет CLI как программу)
+- Дифф ветки считается против SHA базового коммита копии — ref `base` никогда не существовал, поля всегда были нулями; отвергнуто создание тега/ветки base в materialize (лишний ref, затрагивает и validate)
+- Справедливость оракула закрыта с двух сторон: планы medium/large теперь буквально фиксируют формат list (4 колонки), small-оракул сравнивает JSON семантически; отвергнуто смягчение list-тестов оракула (ослабило бы шкалу — угадывание исключается текстом плана)
+- Windows-скип вместо .bat-фейков — .bat непроверяем с macOS и сломал бы CI первым прогоном; отвергнуто компилировать pi.exe/codex.exe-фейки (дороже самой приёмки)
 
 ## Phase 1: Bench tool and result store
 
@@ -339,7 +343,7 @@ Handoff:
 
 ## Phase 4: Acceptance
 
-### [ ] P051.4.1 Accept the benchmark end to end
+### [x] P051.4.1 Accept the benchmark end to end
 Read:
 - internal/runner/run_test.go:L81-242
 - internal/runner/role_acceptance_test.go:L1-50
@@ -355,3 +359,10 @@ Traps: полный `go test ./...` идёт ~7 минут на Windows — дл
 Depends: P051.1.1, P051.1.2, P051.1.3, P051.1.4, P051.2.1, P051.2.2, P051.2.3, P051.2.4, P051.2.5, P051.2.6, P051.3.1
 Role: acceptance
 Commit: P051.4.1: accept the benchmark end to end
+Handoff:
+- Корпусные правки (планы medium/large, small-оракул) изменили task_sha всех трёх задач; bench/results пока пуст — ряд начнётся с первого живого прогона
+- diff-поля записей всегда писались нулями: ref `base` в копии ветки не существовал, git diff молча падал; теперь дифф идёт по SHA базового коммита, старых записей нет — ряд чистый
+- Тесты на фейковых агентах (приёмка сценариев 1–3 и TestRunTinySingleAndDocflowArms) скипаются на Windows: bare-name PATH-lookup не резолвит sh-скрипты без расширения; для Windows нужны pi.exe/codex.exe или .bat-фейки
+- Живой `bench run` на реальных моделях запускает человек после закрытия плана: квота, часы; после первого прогона тренд в bench/results/README.md станет осмысленным
+- Unverified: Windows: сценарии 1–3 приёмки и тест фейк-агентов скипируются; недостающая проверка — `go test ./tools/bench/...` на Windows (CI после push)
+- Unverified: Живой bench run на реальных моделях не прогонялся — расходует квоту и по Constraints запускается человеком после закрытия плана

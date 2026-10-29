@@ -38,8 +38,9 @@ Read:
 - internal/journal/store.go
 Do:
 - Add `ledger [--file PATH] currency set XXX`; persist the default currency as one three-letter code plus newline in `<journal path>.settings`. If no setting exists, use `USD`.
-- Add `--currency XXX` after `add`; when omitted, use the configured default. Write new journals with first line `# ledger-v2`, then records `YYYY-MM-DD<TAB>amount<TAB>currency<TAB>description`.
-- Read base version 1 records as `USD`; read version 2 records as `USD`; read version 3 journals whose first line is `# ledger-v3` and records have the four fields above. When adding to a version 1 or 2 journal, migrate it to version 3 without changing existing values except assigning `USD` to legacy records.
+- Add `--currency XXX` after `add`; when omitted, use the configured default. Write new journals with first line `# ledger-v3`, then records `YYYY-MM-DD<TAB>amount<TAB>currency<TAB>description`.
+- Read base version 1 records as `USD`; read version 2 journals whose first line is `# ledger-v2` and whose records keep the base fields `YYYY-MM-DD<TAB>amount<TAB>description`, as `USD`; read version 3 journals whose first line is `# ledger-v3` and records have the four fields above. When adding to a version 1 or 2 journal, migrate it to version 3 without changing existing values except assigning `USD` to legacy records.
+- Print `list` rows as `DATE<TAB>AMOUNT<TAB>CURRENCY<TAB>DESCRIPTION`, one row per record in insertion order, with each record's currency.
 - Reject invalid currency codes, nonpositive amounts, malformed settings and malformed journal records with exit code 1 and a diagnostic on stderr.
 - Add tests for settings, default currency, explicit currency, version 1 and 2 migration, version 3 read/write, and invalid input.
 Verify: `go test ./...`

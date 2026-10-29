@@ -142,8 +142,26 @@ func TestListJSONHasDocumentedFieldsAndValues(t *testing.T) {
 
 func TestListJSONDateFilterAndEmptyArray(t *testing.T) {
 	stdout, _, code := run(t, journal(t), "list", "--since", "2025-01-02", "--until", "2025-01-02", "--json")
-	if code != 0 || strings.TrimSpace(stdout) != `[{"date":"2025-01-02","amount":20,"description":"second item"}]` {
-		t.Fatalf("filtered JSON = %q (code %d)", stdout, code)
+	if code != 0 {
+		t.Fatalf("filtered JSON exited with %d: %q", code, stdout)
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &entries); err != nil {
+		t.Fatalf("invalid JSON %q: %v", stdout, err)
+	}
+	if len(entries) != 1 || len(entries[0]) != 3 {
+		t.Fatalf("entries = %q, want one object with exactly date, amount, description", stdout)
+	}
+	var date, description string
+	var amount int
+	if err := json.Unmarshal(entries[0]["date"], &date); err != nil || date != "2025-01-02" {
+		t.Fatalf("date = %q, error = %v", date, err)
+	}
+	if err := json.Unmarshal(entries[0]["amount"], &amount); err != nil || amount != 20 {
+		t.Fatalf("amount = %d, error = %v", amount, err)
+	}
+	if err := json.Unmarshal(entries[0]["description"], &description); err != nil || description != "second item" {
+		t.Fatalf("description = %q, error = %v", description, err)
 	}
 	stdout, _, code = run(t, journal(t), "list", "--since", "2025-02-01", "--json")
 	if code != 0 || strings.TrimSpace(stdout) != "[]" {
