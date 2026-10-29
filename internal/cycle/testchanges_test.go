@@ -133,6 +133,26 @@ func TestStagedTestChangesEdgeContent(t *testing.T) {
 		}
 	})
 
+	// The patch header of a path with a space ends with a tab and a
+	// non-ASCII path is octal-quoted: the skip marker must still reach the
+	// path the numstat names.
+	for name, path := range map[string]string{
+		"skip marker in a path with a space": "sp ace/b_test.go",
+		"skip marker in a non-ASCII path":    "тесты/b_test.go",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := makeCommitProject(t, commitPlan(" "), map[string]string{
+				path: "package b\nfunc TestB() {}\n",
+			})
+			writeCycleFile(t, root, path, "package b\nfunc TestB() {}\nfunc TestC() { t.Skip(\"why\") }\n")
+			gitCycle(t, root, "add", "-A")
+			items, err := stagedTestChanges(root)
+			if err != nil || strings.Join(items, "|") != path+": +skip" {
+				t.Fatalf("stagedTestChanges() = %#v, %v", items, err)
+			}
+		})
+	}
+
 	t.Run("deleted binary test file", func(t *testing.T) {
 		root := makeCommitProject(t, commitPlan(" "), map[string]string{
 			"tests/blob.bin": "\x00\x01binary\x00\n",

@@ -287,11 +287,18 @@ func addedLinesByPath(patch string) map[string][]string {
 	return added
 }
 
-// cleanDiffPath unquotes a path printed by a diff header.
+// cleanDiffPath unquotes a path printed by a diff header. Git ends a
+// `---`/`+++` path that holds a space with a tab, and quotes a path with
+// special or non-ASCII bytes in C style with octal escapes; the -z numstat
+// keys the same path verbatim.
 func cleanDiffPath(value string) string {
-	value = strings.TrimSuffix(value, "\r")
+	value = strings.TrimSuffix(strings.TrimSuffix(value, "\r"), "\t")
 	if len(value) > 2 && strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
-		value = value[1 : len(value)-1]
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		} else {
+			value = value[1 : len(value)-1]
+		}
 	}
 	return filepath.ToSlash(value)
 }
