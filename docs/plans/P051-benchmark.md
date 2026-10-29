@@ -137,6 +137,9 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - Oracle tests assert the documented CLI contract, including rejecting `--json` for `balance`; this keeps the benchmark scoped to the plan.
 - Фикстура lint в `validate` повторяет подготовку docflow-ветки: `materialize` (git init + коммит), `docflow init`, план и Queue, `roster apply` — план задачи попадает на lint в executor-режиме и внутри git-репозитория, какие бы `Role:`-юниты в нём ни были (без ростера `Role:` требует executor-режима, а phase diff review-юнита зовёт `git log`); подтверждено вручную на medium-плане — lint без ошибок. Фикс вшит в Do P051.2.3, а не отдельным юнитом перед ним: SelectUnit берёт любой `[~]` раньше любого `[ ]`, и отдельный юнит не встал бы перед возобновляемым корпусом. Отвергнуто: убрать `Role:`-юниты из планов корпуса — ослабляет docflow-ветку бенчмарка, которая меряет именно цикл review/acceptance (small без Role-юнитов — осознанное исключение).
 - Replan changed check: P051.2.3 Verify: `go run ./tools/bench validate --task medium` -> `go test ./tools/bench/... && go run ./tools/bench validate --task medium`
+- Use journal version 3 with USD assigned to version 1/2 records — keeps legacy data readable while storing currency per entry — rejected changing legacy amounts or requiring migration first.
+- Use direct directed rates with integer numerator/denominator and round down — makes conversion deterministic — rejected implicit inverse and multi-hop conversion.
+- Make recurring entries virtual and expand only with an explicit --through date — keeps reads deterministic and the journal unchanged — rejected writing generated occurrences.
 
 ## Phase 1: Bench tool and result store
 
@@ -270,7 +273,7 @@ Handoff:
 - `docs/design/README.md` и `docs/design/bench.md` остаются отдельной незавершённой работой P051.3.1; не включать их в коммит этого юнита.
 - Проверка прошла на macOS arm64; Windows-валидация остаётся открытой по Handoff зависимого юнита.
 
-### [ ] P051.2.4 Write the large bench task plan and oracle
+### [x] P051.2.4 Write the large bench task plan and oracle
 Read:
 - bench/base/README.md
 - bench/tasks/medium/plan.md
@@ -282,6 +285,8 @@ Do:
 - Решение — следующий юнит; здесь только план и оракул.
 Verify: `go run ./tools/bench validate --task large --no-solution`
 Commit: P051.2.4: write the large bench task plan and oracle
+Handoff:
+- Large task plan and 40 CLI oracle tests are in bench/tasks/large/. The oracle fails on the base as expected (0/40); solution validation is deferred to the next unit.
 
 ### [ ] P051.2.5 Add the large bench task solution
 Read:
