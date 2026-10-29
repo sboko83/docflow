@@ -56,6 +56,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 
 ## Traps
 
+- Не путать режимы `docflow run`: `--plan` и `--all` валидны только с `--dry-run` (выбор плана для показа); живой запуск берёт текущий план Queue и ведёт его до конца сам, а его нормальное завершение — код 1 с `nothing to do`, не 0.
 - Go-файлы корпуса (`bench/base/`, оракулы и решения задач) не должны
   войти в модуль `bsv-docflow`: `bench/go.mod` — забор, иначе
   `go vet ./...` и `go test ./...` репозитория соберут фикстуры.
@@ -110,6 +111,7 @@ gate: go build ./... && go vet ./... && go test ./internal/cycle/ ./tools/...
 - При сбое сборки оракула считать объявленные тесты проваленными — сборочная ошибка не должна выглядеть как пустой успешный прогон — отвергнуто завершение без счёта тестов.
 - `ts` uses epoch seconds to match runner events v: 1 — keeps timestamp semantics consistent — rejected a separate timestamp encoding.
 - Absolute paths are redacted from public result notes and oracle tails — results stay safe to publish — rejected storing raw local output.
+- Ветка `docflow` запускается одним `docflow run --yes` без `--plan`/`--all`: живой запуск CLI берёт текущий план Queue и доводит его до конца (внутренний цикл раннера), а `--plan`/`--all` CLI принимает только с `--dry-run` — отвергнуто `docflow run --all --yes` (то же ограничение CLI) и внешний цикл повторных вызовов (раннер уже циклится сам; лишние вызовы дают лишние события).
 
 ## Phase 1: Bench tool and result store
 
@@ -147,7 +149,7 @@ Commit: P051.1.2: record bench results and render the trend
 Handoff:
 - P051.1.3: `run` is still a stub; connect each completed branch to `appendResult`, `writeRunSummary`, `report`, and `commitResults`, preserving interrupted-run recording.
 
-### [ ] P051.1.3 Run single and docflow arms
+### [~] P051.1.3 Run single and docflow arms
 Read:
 - internal/agents/agents.go:L895-1020
 - internal/agentio/process.go:L184-300
@@ -157,7 +159,7 @@ Do:
 - `run --task NAME|all [--arms single,docflow] [--single-route "agent | model | effort"] [--roster bench/roster.toml] [--docflow PATH] [--timeout SECONDS] [--dry-run]`; по умолчанию ветки `single,docflow`, маршрут `codex | gpt-6.1-sol | high`, таймаут 21600 на ветку.
 - Без `--docflow` — `go build -o work/bench/<run-id>/bin/docflow ./cmd/docflow`; `docflow_version` — вывод `--version` бинаря, `docflow_commit` и `docflow_dirty` — HEAD и `git status --porcelain` checkout.
 - Ветка `single`: `materialize` в `work/bench/<run-id>/<task>-single/`, один вызов агента маршрута через `agents.BuildCommand` и `agentio.CallAgent` (`permissions` `auto`); промпт — весь текст плана задачи без статусов и инструкций цикла плюс указание реализовать всё в этой сессии, гонять `go test ./...`, плана docflow не создавать. Стоимость и токены — `agentio.RunCost`/`agentio.RunTokens`.
-- Ветка `docflow`: `materialize`, `docflow init`, план в `docs/plans/P001-<task>.md`, в Queue, `status: active`, коммит; `docflow roster apply P001 --roster <roster>` и коммит; `docflow run --plan P001 --all --yes`. Метрики — из `<git-dir>/docflow/run/*.events.jsonl` копии (юниты, попытки, replan, стоимость, `test_changes`, `check_changes`) и пунктов `Unverified:` в телах коммитов юнитов.
+- Ветка `docflow`: `materialize`, `docflow init`, план в `docs/plans/P001-<task>.md`, в Queue, `status: active`, коммит; `docflow roster apply P001 --roster <roster>` и коммит; один вызов `docflow run --yes` — без `--plan` и `--all` (CLI даёт их только с `--dry-run`): живой запуск сам берёт текущий план Queue и ведёт его до конца, а в изолированной копии Queue содержит только P001; выход 1 с `nothing to do` — нормальное завершение ветки, код 2 или 3 — провал ветки; таймаут ветки покрывает вызов целиком. Метрики — из `<git-dir>/docflow/run/*.events.jsonl` копии (юниты, попытки, replan, стоимость, `test_changes`, `check_changes`) и пунктов `Unverified:` в телах коммитов юнитов.
 - Ветка `docflow-one`: как `docflow`, но после `roster apply` все ключи маршрутов шапки заменены одним маршрутом `--single-route`, `fallback:` удалён.
 - Оценка каждой ветки: оракул поверх итогового дерева, `go test -json ./benchoracle/...`, счёт; `diff` — `git diff --shortstat` против коммита `base` без файлов оракула.
 - Таймаут ветки — `status: timeout` с оценкой того, что успело появиться в дереве; ошибка запуска — `status: error`.
@@ -165,6 +167,8 @@ Do:
 - Тесты в `tools/bench/`: фейковые `codex` и `pi` в PATH (как `internal/runner` с `internal/agentio/testdata/fake_agent.sh`) на задаче `tiny` — обе ветки дают записи с оракулом и стоимостью; таймаут ветки — `timeout`.
 Verify: `go test ./tools/bench/...`
 Commit: P051.1.3: run single and docflow arms
+Handoff:
+- План юнита пересобран replan'ом (см. `## Decisions`): ветки `docflow`/`docflow-one` завершаются одним вызовом `docflow run --yes`, выход 1 с `nothing to do` — нормальный конец ветки. Незакоммиченная работа (`tools/bench/main.go`, `main_test.go`, `run.go`) действительна и продолжается, но `run.go` ещё зовёт `docflow run --plan P001 --all --yes` — заменить на `docflow run --yes` и считать код 1 с `nothing to do` успехом ветки, а 2/3 — провалом.
 
 ### [ ] P051.1.4 Review bench tool
 Read:
