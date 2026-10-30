@@ -245,6 +245,8 @@ fi
 cp "$1" "$evidence/run.events.jsonl"
 
 python3 "$check" main "$evidence" || fail 'evidence checks failed'
+[ -f "$evidence/summary.tsv" ] \
+    || fail 'the evidence checker wrote no summary.tsv (mandatory artifact)'
 
 # Isolated refusal scenario: a separate repository routes one attempt to
 # a model the subscription does not have, without fallback, one attempt,
@@ -345,6 +347,8 @@ fi
 cp "$1" "$ns/run.events.jsonl"
 
 python3 "$check" no-such-model "$ns" || fail "$bad_model: evidence checks failed"
+[ -f "$ns/summary.tsv" ] \
+    || fail "$bad_model: the evidence checker wrote no summary.tsv (mandatory artifact)"
 
 echo 'smoke-opencode: ok'
 echo "smoke-opencode: evidence: $evidence"

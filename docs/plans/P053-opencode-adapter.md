@@ -160,6 +160,7 @@ result JSON, живость и классификация отказов. Ски
   провал проверки снова терял свидетельства. Отвергнуто: ослабить ревью,
   считать наличие флагов доказательством значения и оставить
   отрицательный случай без проверки обязательных артефактов.
+- checker сверяет --agent build константой, а не из DefaultAgents — почему: профиль встроенный и для смоука неизменен, а разбор Go-исходников из Python-проверки был бы хрупкой связью; отвергнуто: не проверять агент вовсе
 
 ## Phase 1: Adapter and integration
 
@@ -458,7 +459,7 @@ Handoff:
 - Unverified: живой OpenCode не вызывался — поток, resume и отказ проверены подставным CLI и фикстурами, реальную подписку go тратит только P053.2.1 — отсутствующая проверка: живой вызов opencode-go/deepseek-v4.1-flash
 - Unverified: работа под Git Bash на Windows не проверялась (mktemp -d, tee и wrapper-скрипт) — отсутствующая проверка: запуск smoke на Windows
 
-### [ ] P053.2.4 Strengthen smoke evidence checks
+### [x] P053.2.4 Strengthen smoke evidence checks
 Read:
 - tools/smoke-opencode-check.py:L60-200
 - tools/smoke-opencode-check.py:L200-370
@@ -492,6 +493,13 @@ Traps: `--model` в argv — один аргумент `model#effort`, без у
 потоки за живые фикстуры.
 Depends: P053.2.2
 Commit: P053.2.4: strengthen smoke evidence checks
+Handoff:
+- argv сверяется по значению: каждый перехваченный вызов несёт --agent build и --model <model>#<effort> из тройки Executor (без усилия — без #), проверка общая с отказным сценарием; события и строки вывода строятся из Route и подмену в BuildCommand не видят
+- summary.tsv пишется в finally вокруг проверок: при провале файл остаётся, недошедшие юниты — строкой unknown; smoke требует файл после каждого вызова checker-а
+- Отказ доказывается тремя условиями: есть событие error, error_type = provider.no-route, в потоке нет text и tool_use; код 7 из общего пути «the agent reported an error» за отказ маршрута не принимается
+- Новые отрицательные случаи: arg-model (argv врёт при верных событиях и строках), lost-artifact (checker напрямую на копии без call-1.exit, плюс summary с unknown), no-summary (молчащий checker в копии checkout — smoke падает на обязательном артефакте)
+- Наблюдение: режим missing-artifacts по-прежнему падает раньше checker-а на set -- .git/docflow/run/*.events.jsonl; ветка обязательных артефактов checker-а покрыта новым случаем lost-artifact, дублировать её в старом режиме не стал
+- Unverified: живой прогон снова не выполнялся — усиленные проверки прогнаны offline и против реального бинарника с подставным CLI; живую подписку проверяет P053.2.1 — отсутствующая проверка: живой вызов opencode-go/deepseek-v4.1-flash
 
 ### [ ] P053.2.3 Review smoke evidence checks
 Read:

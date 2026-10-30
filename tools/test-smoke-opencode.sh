@@ -126,7 +126,13 @@ unit() {
             evmodel='other/model'
         fi
         emit "{\"v\":1,\"ts\":1,\"run\":\"smoke\",\"event\":\"attempt\",\"unit\":\"$uid\",\"n\":$n,\"route\":{\"agent\":\"opencode\",\"model\":\"$evmodel\",\"effort\":\"$effort\"},\"log\":\"$log\"}"
-        argv=(run --format json --agent build --auto --model "$model#$effort")
+        marg="$model#$effort"
+        if [ "$mode" = arg-model ]; then
+            # The route stays right in the plan, the events and the output;
+            # only the argv the CLI really receives is wrong.
+            marg="opencode-go/other-model#$effort"
+        fi
+        argv=(run --format json --agent build --auto --model "$marg")
         if [ -n "$session" ] && [ "$mode" != new-run ]; then
             argv+=(--session "$session")
         fi
@@ -347,9 +353,61 @@ neg() {
     echo "test-smoke-opencode: $mode: fails as expected (exit $ncode)"
 }
 neg route-sub 'does not match executor'
+neg arg-model 'argv --model'
 neg handoff-missing 'no Handoff items'
 neg handoff-mismatch 'does not match the result JSON'
 neg new-run 'does not resume'
 neg missing-artifacts 'wrote no events.jsonl'
 
-echo 'test-smoke-opencode: ok (positive cycle with resume, route-sub, handoff-missing, handoff-mismatch, new-run, missing-artifacts)'
+# The checker's own mandatory-artifact branch and its failed-run summary:
+# a copy of the successful evidence loses one attempt artifact, the
+# checker must reject it by name and still keep a summary with an
+# `unknown` row for the unit it never reached.
+check="$source_root/tools/smoke-opencode-check.py"
+cp -R "$ev" "$work/lost"
+rm -f "$work/lost/summary.tsv" "$work/lost/opencode-calls/call-1.exit"
+lcode=0
+python3 "$check" main "$work/lost" >"$work/out" 2>&1 || lcode=$?
+if [ "$lcode" -eq 0 ]; then
+    cat "$work/out" >&2
+    echo 'test-smoke-opencode: lost-artifact: the checker passed, want failure' >&2
+    exit 1
+fi
+grep -qF 'call-1.exit' "$work/out" || {
+    cat "$work/out" >&2
+    echo 'test-smoke-opencode: lost-artifact: the checker did not name call-1.exit' >&2
+    exit 1
+}
+[ -f "$work/lost/summary.tsv" ] || {
+    echo 'test-smoke-opencode: lost-artifact: a failed check left no summary.tsv' >&2
+    exit 1
+}
+grep -q 'unknown' "$work/lost/summary.tsv" || {
+    cat "$work/lost/summary.tsv" >&2
+    echo 'test-smoke-opencode: lost-artifact: the summary has no unknown row' >&2
+    exit 1
+}
+echo "test-smoke-opencode: lost-artifact: fails as expected (exit $lcode), summary kept"
+
+# A checker that exits 0 without writing the summary must fail the smoke:
+# summary.tsv is a mandatory artifact. The whole run repeats in a copy of
+# the sandbox whose checker is replaced by a silent one.
+cp -R "$work/checkout" "$work/no-summary"
+printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' \
+    > "$work/no-summary/tools/smoke-opencode-check.py"
+scode=0
+TEST_SMOKE_OCODE_MODE=normal bash "$work/no-summary/tools/smoke-opencode.sh" \
+    >"$work/out" 2>&1 || scode=$?
+if [ "$scode" -eq 0 ]; then
+    cat "$work/out" >&2
+    echo 'test-smoke-opencode: no-summary: the smoke passed, want failure' >&2
+    exit 1
+fi
+grep -qF 'wrote no summary.tsv' "$work/out" || {
+    cat "$work/out" >&2
+    echo 'test-smoke-opencode: no-summary: failed without naming the artifact' >&2
+    exit 1
+}
+echo "test-smoke-opencode: no-summary: fails as expected (exit $scode)"
+
+echo 'test-smoke-opencode: ok (positive cycle with resume, route-sub, arg-model, handoff-missing, handoff-mismatch, new-run, missing-artifacts, lost-artifact, no-summary)'

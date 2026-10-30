@@ -8,9 +8,10 @@ Usage:
 Reads what the smoke kept — the throwaway repository, the runner's output
 and exit code, the copied events.jsonl and the wrapper's raw attempt
 streams — asserts the story of the run and writes summary.tsv with the
-time and cost of every unit. The summary is written before the
-assertions, so it exists for failed runs too; a missing mandatory
-artifact or a failed assertion exits non-zero.
+time and cost of every unit. The summary is written before the checker
+exits, with an `unknown` row for a unit a failed check never reached, so
+it exists for failed runs too; a missing mandatory artifact or a failed
+assertion exits non-zero.
 
 main asserts, for the two smoke units:
 - every attempt's route in events.jsonl matches the unit's Executor line
@@ -71,10 +72,12 @@ def parse_stream(text):
     """Fold an `opencode run --format json` stream the way the runner's
     decoder does: the last sessionID wins, text folds per messageID with
     the last message winning, and an error event decides is_error — the
-    exit code is never a signal."""
+    exit code is never a signal. The text and tool_use counters show
+    whether the call generated anything at all."""
     session = None
     message, parts, folded = None, [], ""
-    out = {"is_error": False, "error_type": None, "error_message": None}
+    out = {"is_error": False, "error_type": None, "error_message": None,
+           "texts": 0, "tool_uses": 0}
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -88,10 +91,13 @@ def parse_stream(text):
         kind = obj.get("type")
         part = obj.get("part") if isinstance(obj.get("part"), dict) else {}
         if kind == "text":
+            out["texts"] += 1
             if part.get("messageID") != message:
                 message, parts = part.get("messageID"), []
             parts.append(part.get("text") or "")
             folded = "".join(parts)
+        elif kind == "tool_use":
+            out["tool_uses"] += 1
         elif kind == "error":
             out["is_error"] = True
             detail = obj.get("error")
@@ -233,6 +239,52 @@ def write_summary(path, rows):
     sys.stdout.write(text)
 
 
+def summary_rows(known, rows):
+    """Rows for the summary in plan order: the units a failed check never
+    reached are kept as `unknown` instead of disappearing."""
+    ordered = []
+    for uid in known:
+        ordered.append(rows.get(uid) or {"unit": uid, "status": "unknown",
+                                         "attempts": 0, "seconds": 0.0,
+                                         "cost": "-"})
+    for uid in rows:
+        if uid not in known:
+            ordered.append(rows[uid])
+    return ordered
+
+
+def argv_value(argv, flag):
+    """The value right after `flag` in a wrapped call's argv, or None."""
+    if flag in argv:
+        index = argv.index(flag)
+        if index + 1 < len(argv):
+            return argv[index + 1]
+    return None
+
+
+def want_model_arg(unit):
+    """The `--model` value of a unit's executor triple: `model#effort`,
+    and the bare model when the triple has no effort."""
+    _, model, effort = unit["executor"]
+    return model if effort in ("", "-") else model + "#" + effort
+
+
+def check_call_route(uid, call, unit):
+    """The wrapped argv must carry the unit's route by value. The events
+    and the output lines are built from the runner's Route, so only the
+    argv shows what the CLI was really told to run: a wrong
+    `{model_variant}` would spend another model and stay invisible."""
+    agent = argv_value(call["argv"], "--agent")
+    if agent != "build":
+        err("%s wrapped call %d argv --agent = %r, want 'build' "
+            "(the profile fixes the tool agent)" % (uid, call["n"], agent))
+    got = argv_value(call["argv"], "--model")
+    want = want_model_arg(unit)
+    if got != want:
+        err("%s wrapped call %d argv --model = %r, want %r" %
+            (uid, call["n"], got, want))
+
+
 def check_unit_events(uid, unit, records, out, index):
     """Events and output lines of one unit against its Executor triple."""
     if unit["status"] != "x":
@@ -278,6 +330,18 @@ def check_unit_events(uid, unit, records, out, index):
 
 
 def check_main(evdir):
+    # The summary is written even when a check fails, so a failed run keeps
+    # its evidence; `known` lists the units in plan order and `rows` fills
+    # as they pass.
+    summary_path = os.path.join(evdir, "summary.tsv")
+    known, rows = [], {}
+    try:
+        check_main_evidence(evdir, known, rows)
+    finally:
+        write_summary(summary_path, summary_rows(known, rows))
+
+
+def check_main_evidence(evdir, known, rows):
     repo = os.path.join(evdir, "repo")
     if not os.path.isdir(repo):
         err("missing mandatory artifact: " + repo)
@@ -289,6 +353,7 @@ def check_main(evdir):
     units = [u for u in plan if u["id"].startswith("P001.1.")]
     if len(units) != 2:
         err("the plan has %d units, want 2" % len(units))
+    known.extend(u["id"] for u in units)
     calls = wrapper_calls(os.path.join(evdir, "opencode-calls"))
 
     ends = events_of(records, "run_end")
@@ -299,7 +364,7 @@ def check_main(evdir):
     if "switching to" in read(out):
         err("the runner output contains a route switch")
 
-    rows, cursor = [], 0
+    cursor = 0
     for index, unit in enumerate(units):
         uid = unit["id"]
         checked = check_unit_events(uid, unit, records, out, index)
@@ -312,6 +377,7 @@ def check_main(evdir):
         for c in unit_calls:
             if c["exit"] != "0":
                 err("%s wrapped call %d exited %s, want 0" % (uid, c["n"], c["exit"]))
+            check_call_route(uid, c, unit)
         streams = [parse_stream(c["stdout"]) for c in unit_calls]
         if "--session" in unit_calls[0]["argv"]:
             err("%s attempt 1 must open its own session, the argv resumes one" % uid)
@@ -342,8 +408,8 @@ def check_main(evdir):
         if got != expected:
             err("%s plan Handoff %r does not match the result JSON of the "
                 "successful attempt %r" % (uid, got, expected))
-        rows.append({"unit": uid, "status": "done", "attempts": len(attempts),
-                     "seconds": checked["seconds"], "cost": "%.4f" % checked["cost"]})
+        rows[uid] = {"unit": uid, "status": "done", "attempts": len(attempts),
+                     "seconds": checked["seconds"], "cost": "%.4f" % checked["cost"]}
     if cursor != len(calls):
         err("%d wrapped calls for %d attempts: extra or missing attempts" %
             (len(calls), cursor))
@@ -352,10 +418,18 @@ def check_main(evdir):
     if sorted(subjects) != want_subjects:
         err("commits %s are not exactly the plan commits %s" %
             (subjects, want_subjects))
-    write_summary(os.path.join(evdir, "summary.tsv"), rows)
 
 
 def check_no_such_model(evdir):
+    summary_path = os.path.join(evdir, "summary.tsv")
+    known, rows = [], {}
+    try:
+        check_no_such_model_evidence(evdir, known, rows)
+    finally:
+        write_summary(summary_path, summary_rows(known, rows))
+
+
+def check_no_such_model_evidence(evdir, known, rows):
     repo = os.path.join(evdir, "repo")
     if not os.path.isdir(repo):
         err("missing mandatory artifact: " + repo)
@@ -368,6 +442,7 @@ def check_no_such_model(evdir):
     if len(units) != 1:
         err("the plan has %d units, want 1" % len(units))
     unit = units[0]
+    known.append(unit["id"])
     if unit["status"] != "~":
         err("%s is [%s] in the plan, want [~] (stays in progress)" %
             (unit["id"], unit["status"]))
@@ -409,15 +484,20 @@ def check_no_such_model(evdir):
     if len(calls) != 1:
         err("%d wrapped calls, want exactly 1" % len(calls))
     call = calls[0]
+    check_call_route(unit["id"], call, unit)
     stream = parse_stream(call["stdout"])
     if not stream["is_error"]:
         err("the refused attempt stream carries no error event")
-    if "--model" not in call["argv"]:
-        err("the wrapped call argv has no --model: %r" % call["argv"])
-    write_summary(os.path.join(evdir, "summary.tsv"),
-                  [{"unit": unit["id"], "status": "failed", "attempts": 1,
-                    "seconds": seconds,
-                    "cost": "%.4f" % ends[0].get("cost", 0.0)}])
+    if stream["error_type"] != "provider.no-route":
+        err("the refused attempt error_type = %r, want 'provider.no-route' "
+            "(a generic agent error is not a route refusal)" %
+            stream["error_type"])
+    if stream["texts"] or stream["tool_uses"]:
+        err("the refused attempt generated content: %d text and %d tool_use "
+            "events, want none" % (stream["texts"], stream["tool_uses"]))
+    rows[unit["id"]] = {"unit": unit["id"], "status": "failed", "attempts": 1,
+                         "seconds": seconds,
+                         "cost": "%.4f" % ends[0].get("cost", 0.0)}
 
 
 def main():
