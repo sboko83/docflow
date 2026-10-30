@@ -189,7 +189,7 @@ func TestRenderTrendShowsTwoRunsAndDelta(t *testing.T) {
 
 func TestAppendResultWithoutCost(t *testing.T) {
 	dir := t.TempDir()
-	row := benchResult{RunID: "r", Task: "small", Arm: "single", Status: "done", Unverified: []string{"see /Users/secret/project/file.go"}}
+	row := benchResult{RunID: "r", Task: "small", Arm: "single", Status: "done", Unverified: []string{"see /var/secret/project/file.go"}}
 	if err := appendResult(dir, row); err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestAppendResultWithoutCost(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"cost":null`)) {
 		t.Fatalf("cost must be null: %s", raw)
 	}
-	if bytes.Contains(raw, []byte("/Users/secret")) || !bytes.Contains(raw, []byte("work/bench/")) {
+	if bytes.Contains(raw, []byte("/var/secret")) || !bytes.Contains(raw, []byte("work/bench/")) {
 		t.Fatalf("absolute path was not redacted: %s", raw)
 	}
 	rows, err := readResults(filepath.Join(dir, "runs.jsonl"))
