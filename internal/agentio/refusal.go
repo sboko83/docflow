@@ -84,15 +84,19 @@ func Classify(agent map[string]any, run AgentRun, now time.Time) *Refusal {
 	case "opencode":
 		// The stream reports the failure as an error event; the exit code is
 		// not a signal. provider.no-route means the route is unusable, so the
-		// run falls back; everything else keys on the message text.
+		// run falls back. Limit and outage signs key on the decoded provider
+		// error message, not on FailureText: the assistant text may quote
+		// "quota" while the failure is an outage.
 		if str(JSONPath(data, "json:error_type")) == "provider.no-route" {
 			return &Refusal{Kind: RefusalOutage, Text: text}
 		}
-		if opencodeLimitRE.MatchString(text) {
-			return &Refusal{Kind: RefusalLimit, Reset: usageResetInText(text, now), Text: text}
-		}
-		if opencodeOutageRE.MatchString(text) {
-			return &Refusal{Kind: RefusalOutage, Text: text}
+		if message := opencodeErrorMessage(data); message != "" {
+			if opencodeLimitRE.MatchString(message) {
+				return &Refusal{Kind: RefusalLimit, Reset: usageResetInText(message, now), Text: text}
+			}
+			if opencodeOutageRE.MatchString(message) {
+				return &Refusal{Kind: RefusalOutage, Text: text}
+			}
 		}
 	}
 
@@ -100,6 +104,19 @@ func Classify(agent map[string]any, run AgentRun, now time.Time) *Refusal {
 		return &Refusal{Kind: RefusalLimit, Reset: usageResetInText(*limit, now), Text: *limit}
 	}
 	return nil
+}
+
+// opencodeErrorMessage reads the decoded provider error: the message
+// string, or the whole error object in the drift shape the decoder accepts.
+func opencodeErrorMessage(data any) string {
+	switch v := JSONPath(data, "json:error").(type) {
+	case string:
+		return v
+	case map[string]any:
+		return str(v["message"])
+	default:
+		return ""
+	}
 }
 
 func claudeRejected(stdout string) (bool, *float64) {

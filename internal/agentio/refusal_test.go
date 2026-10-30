@@ -99,6 +99,10 @@ func TestClassify(t *testing.T) {
 		{name: "OpenCode overloaded Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "server overloaded")}, kind: RefusalOutage},
 		{name: "OpenCode timeout Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "request timeout")}, kind: RefusalOutage},
 		{name: "OpenCode connection Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "connection reset by peer")}, kind: RefusalOutage},
+		{name: "OpenCode quota in assistant text, outage error", profile: "opencode", run: AgentRun{Stdout: lines(
+			map[string]any{"type": "text", "part": map[string]any{"messageID": "msg_1", "text": "Updated quota documentation."}},
+			map[string]any{"type": "error", "error": map[string]any{"type": "provider_error", "message": "connection reset by peer"}},
+		)}, kind: RefusalOutage},
 		{name: "OpenCode ECONNREFUSED Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "connect ECONNREFUSED 127.0.0.1")}, kind: RefusalOutage},
 		{name: "legacy profile regex", profile: "", run: AgentRun{Stdout: `{"is_error":true,"text":"subscription exhausted"}`}, kind: RefusalLimit},
 	}

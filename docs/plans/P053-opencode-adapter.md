@@ -126,6 +126,7 @@ result JSON, живость и классификация отказов. Ски
   кодом 1. Причина: текст ассистента с «quota» подменяет outage на limit,
   а документация расходится с lint и живыми Handoff; отвергнуто: ослабить
   ревью или объявить код 0 наблюдавшимся без живого подтверждения.
+- opencodeErrorMessage принимает и строку, и объект {message} — декодер уже терпит обе формы, а классификация выживает при дрейфе — отвергнуто: считать объект пустым сообщением (отказ терялся бы молча).
 
 ## Phase 1: Adapter and integration
 
@@ -310,7 +311,7 @@ Handoff:
 - Unverified: Живой режим tools/smoke-opencode.sh не прогонялся: путь run --yes --no-notify, проверка коммитов и grep-ов строк маршрутов против реального вывода раннера не исполнен — отсутствующая проверка: сам живой смоук (P053.2.1, тратит квоту go)
 - Unverified: Скрипт проверен только на macOS (/bin/bash 3.2, bash -n + dry-run): работа под Git Bash на Windows (суффикс go env GOEXE, mktemp) не запускалась — отсутствующая проверка: запуск скрипта на Windows
 
-### [ ] P053.1.6 Fix refusal classification and specification
+### [x] P053.1.6 Fix refusal classification and specification
 Read:
 - internal/agentio/refusal.go
 - internal/agentio/refusal_test.go
@@ -339,6 +340,10 @@ OpenCode; синтетический код выхода не является �
 завершённые юниты и их Handoff не менять.
 Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4
 Commit: P053.1.6: fix opencode refusal classification
+Handoff:
+- Classify (opencode) сканирует только декодированное сообщение ошибки провайдера: json:error как строку, а при дрейфе — поле message объекта; FailureText (текст ассистента, stderr) потоковым regex больше не отдаётся. Сообщение, не совпавшее ни с одним regex, даёт отказ-NULL: у профиля opencode нет ключа limit, запасной LimitText для него no-op (остался для claude/codex/pi и legacy).
+- usageResetInText для opencode идёт по сообщению ошибки: метка сброса, процитированная в тексте ассистента, больше не заполняет Refusal.Reset.
+- Unverified: Живой сообщения отказа подписки go с формулировкой limit/outage по-прежнему нет: новый тест — синтетический поток, и если реальный limit-отказ несёт слова лимита не в error.message (а, например, в заголовке или тексте ассистента), классификация его пропустит — отсутствующая проверка: захват реального limit/outage-сообщения живым стримом (смоук P053.2.1 тратит квоту go).
 
 ### [ ] P053.1.5 Review the phase
 Read:
