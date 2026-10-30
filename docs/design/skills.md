@@ -133,7 +133,8 @@ docflow-жизненный цикл. Политики коммитов и рел
   ([P026](../archive/P026-pi-agent.md)).
 - OpenCode читает ещё `.claude/skills` и `.agents/skills`: установка для
   Codex делает скиллы видимыми и OpenCode. Собственные каталоги OpenCode
-  ставит только `--agent opencode`.
+  ставит только `--agent opencode`
+  ([P053](../archive/P053-opencode-adapter.md)).
 - Один установщик на проект: куда ставит Ruleblend, `--project` не применяют —
   [P008](../archive/P008-project-skills.md).
 
