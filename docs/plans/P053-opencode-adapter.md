@@ -69,8 +69,9 @@ result JSON, живость и классификация отказов. Ски
 
 ## Traps
 
-- `opencode run` возвращает код 0 и на отказе провайдера: успех нельзя
-  определять по коду выхода, только по событию `error` и полю `is_error`.
+- У живых отказов OpenCode в P053.1.1 наблюдался только код 1; код 0
+  не воспроизведён. Классификация опирается на событие `error` и поле
+  `is_error`, а не на конкретный код выхода.
 - Вывод — JSON Lines. `ParseJSON(stdout)` вернёт последнюю строку
   (`step_finish`), а не ответ агента; разбор обязан идти по событиям.
 - Модель и вариант — один аргумент `--model model#variant`. Раздельные
@@ -118,6 +119,13 @@ result JSON, живость и классификация отказов. Ски
 - gate: true в плане смоука — это команда shell `true`, не булев ключ: гейт проверяет механизм, не тратя подписку go на `go test ./...` во временном репо — отвергнуто: gate: go test (минуты и смысл только в checkout проекта)
 - План смоука без шапочного executor:, тройки только в юнитах — почему: closeRouteLine без --close шапку не читает, dry-run --all проходит — отвергнуто: дублировать тройку в шапке
 - Проверка маршрутов по строкам вывода, а не по events.jsonl — почему: Do требует «строки маршрутов», и подмена маршрута видна прямо в строке юнита — отвергнуто: разбор событий (это приёмка P053.2.1)
+- Replan P053.1.5: перед повторным ревью добавлен P053.1.6 для трёх
+  дефектов из блокировки: признаки отказа OpenCode проверяются по
+  декодированной ошибке провайдера, перечень исполнителей в спецификации
+  включает opencode, наблюдение кодов выхода ограничено подтверждённым
+  кодом 1. Причина: текст ассистента с «quota» подменяет outage на limit,
+  а документация расходится с lint и живыми Handoff; отвергнуто: ослабить
+  ревью или объявить код 0 наблюдавшимся без живого подтверждения.
 
 ## Phase 1: Adapter and integration
 
@@ -302,6 +310,36 @@ Handoff:
 - Unverified: Живой режим tools/smoke-opencode.sh не прогонялся: путь run --yes --no-notify, проверка коммитов и grep-ов строк маршрутов против реального вывода раннера не исполнен — отсутствующая проверка: сам живой смоук (P053.2.1, тратит квоту go)
 - Unverified: Скрипт проверен только на macOS (/bin/bash 3.2, bash -n + dry-run): работа под Git Bash на Windows (суффикс go env GOEXE, mktemp) не запускалась — отсутствующая проверка: запуск скрипта на Windows
 
+### [ ] P053.1.6 Fix refusal classification and specification
+Read:
+- internal/agentio/refusal.go
+- internal/agentio/refusal_test.go
+- internal/agentio/output.go:L133-192
+- docs/design/format.md#план
+- docs/design/runner.md#резервные-маршруты-и-таймаут
+Do:
+- В ветке OpenCode функции Classify проверять признаки limit и outage
+  по декодированному сообщению ошибки провайдера (`json:error`), а не
+  по всему FailureText; provider.no-route по error_type остаётся outage.
+  Reset лимита также извлекать из сообщения ошибки. Сохранить текст
+  диагностики и запасной regex `limit` профиля.
+- Добавить регрессионный тест потока с текстом ассистента
+  «Updated quota documentation.» и событием error с сообщением
+  «connection reset by peer»: результат outage, а не limit.
+  Сохранить существующие проверки limit, outage и provider.no-route.
+- В docs/design/format.md включить opencode в допустимые значения
+  agent тройки исполнителя, согласовав спецификацию с текущим lint
+  без изменения версии формата.
+- В docs/design/runner.md убрать утверждение «наблюдались и 0, и 1»:
+  по Handoff P053.1.1 живые отказы дали только код 1, код 0 не
+  воспроизведён; сохранить независимость классификатора от кода выхода.
+Verify: `go test ./internal/agentio && docflow lint`
+Traps: FailureText включает текст ассистента и не подходит для признаков
+OpenCode; синтетический код выхода не является живым наблюдением;
+завершённые юниты и их Handoff не менять.
+Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4
+Commit: P053.1.6: fix opencode refusal classification
+
 ### [ ] P053.1.5 Review the phase
 Read:
 - docs/design/runner.md#result-json
@@ -314,9 +352,11 @@ Do:
 Verify: `go test ./...`
 Traps: ревьюер не меняет код; дефект — только `blocked`, не молчаливая
 правка.
-Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4
+Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4, P053.1.6
 Role: review
 Commit: P053.1.5: review opencode adapter
+Handoff:
+- Blocked (plan): Нужен исправляющий юнит. 1) internal/agentio/refusal.go:91–95 проверяет весь FailureText вместо ошибки провайдера. Воспроизведено: текст ассистента «Updated quota documentation.» и error.message «connection reset by peer» дают limit вместо outage. Проверять признаки OpenCode по декодированной ошибке, добавить регрессионный тест. 2) docs/design/format.md:159 перечисляет только claude/codex/pi, хотя lint теперь принимает opencode; обновить спецификацию. 3) docs/design/runner.md:413 утверждает «наблюдались и 0, и 1», хотя Handoff фиксирует только код 1; убрать неподтверждённое наблюдение.
 
 ## Phase 2: Acceptance
 
@@ -343,6 +383,6 @@ Verify: `bash tools/smoke-opencode.sh && go test ./...`
 Traps: живой прогон тратит квоту go — только две крошечные единицы;
 smoke-скрипт обязан работать во временном каталоге; тихое переключение на
 fallback маскирует поломку — сверять маршрут в событиях.
-Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4, P053.1.5
+Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4, P053.1.5, P053.1.6
 Role: acceptance
 Commit: P053.2.1: accept opencode on go subscription
