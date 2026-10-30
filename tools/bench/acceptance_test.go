@@ -134,8 +134,8 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 		t:        t,
 		root:     root,
 		binDir:   filepath.Join(bins, "fake-bin"),
-		benchBin: filepath.Join(bins, "bench"),
-		docflow:  filepath.Join(bins, "docflow"),
+		benchBin: nativeBin(bins, "bench"),
+		docflow:  nativeBin(bins, "docflow"),
 		results:  filepath.Join(root, "bench", "results"),
 	}
 	for target, pkg := range map[string]string{e.benchBin: "./tools/bench", e.docflow: "./cmd/docflow"} {

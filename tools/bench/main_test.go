@@ -351,7 +351,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens
 	if err := os.WriteFile(filepath.Join(binDir, "codex"), []byte(codex), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fakeDocflow := filepath.Join(root, "fake-docflow")
+	fakeDocflow := nativeBin(root, "fake-docflow")
 	build := exec.Command("go", "build", "-o", fakeDocflow, "./cmd/docflow")
 	build.Dir = fixture
 	if output, err := build.CombinedOutput(); err != nil {

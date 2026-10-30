@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"bsv-docflow/internal/cycle"
@@ -327,6 +328,15 @@ func oracleTestCount(root string) int {
 	return count
 }
 
+// nativeBin joins dir and name, adding the Windows executable extension:
+// exec.LookPath rejects a built binary without it.
+func nativeBin(dir, name string) string {
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(dir, name)
+}
+
 func validatePlan(root, base, roster, name string, plan []byte) error {
 	dir, err := os.MkdirTemp("", "docflow-bench-lint-")
 	if err != nil {
@@ -337,7 +347,7 @@ func validatePlan(root, base, roster, name string, plan []byte) error {
 		return err
 	}
 	// Use the checkout CLI so lint behavior matches this source tree.
-	bin := filepath.Join(dir, "docflow")
+	bin := nativeBin(dir, "docflow")
 	build := exec.Command("go", "build", "-o", bin, "./cmd/docflow")
 	build.Dir = root
 	if output, err := build.CombinedOutput(); err != nil {
