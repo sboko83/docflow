@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Reference benchmark `go run ./tools/bench`: a fixed small/medium/large task
+  corpus with hidden oracles compares single, docflow and docflow-one runs;
+  each run is recorded and committed under `bench/results/`, and `validate`
+  gates corpus changes.
+
 ## [0.19.0] - 2026-10-29
 
 ### Added
