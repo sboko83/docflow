@@ -253,7 +253,7 @@ func benchmarkDocflow(root, work string, supplied string) (string, string, strin
 	}
 	bin := supplied
 	if bin == "" {
-		bin = filepath.Join(work, "bin", "docflow")
+		bin = nativeBin(work, filepath.Join("bin", "docflow"))
 		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 			return "", "", "", false, err
 		}

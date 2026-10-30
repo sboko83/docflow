@@ -447,7 +447,7 @@ func TestAcceptanceValidateCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin := filepath.Join(t.TempDir(), "bench")
+	bin := nativeBin(t.TempDir(), "bench")
 	build := exec.Command("go", "build", "-o", bin, "./tools/bench")
 	build.Dir = fixture
 	if output, err := build.CombinedOutput(); err != nil {
