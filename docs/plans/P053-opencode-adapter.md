@@ -524,7 +524,7 @@ Handoff:
 - Test changes: none — дифф не трогает Go-тестов; проверки не ослаблены, новые негативные случаи добавлены
 - Наблюдение без дефекта: режим missing-artifacts падает раньше checker-а на set -- .git/docflow/run/*.events.jsonl; ветка обязательных артефактов checker-а покрыта случаем lost-artifact
 
-### [ ] P053.2.1 Accept opencode on the go subscription
+### [x] P053.2.1 Accept opencode on the go subscription
 Read:
 - tools/smoke-opencode.sh
 - internal/agentio/testdata/opencode-result.jsonl
@@ -552,3 +552,14 @@ Role: acceptance
 Commit: P053.2.1: accept opencode on go subscription
 Handoff:
 - Blocked (plan): Verify зелёный, но обязательная сверка маршрутов по событиям, проверка записанного Handoff и живой resume не выполнены. Нужен шаг сохранения артефактов smoke и явной проверки resume, затем повторная живая приёмка с учётом ограничения расхода подписки.
+- Живой смоук: свидетельства /private/var/folders/dr/ncc0g1qs78zbcpxjmcfm46lw0000gn/T/docflow-smoke-opencode.ycRKx3 (repo/, run.stdout|stderr|exit, run.events.jsonl, opencode-calls/, summary.tsv). Юнит P001.1.1: 42.1 s, $0.00, 2 попытки (verify 4, затем 0 reused), коммит 9929079; юнит P001.1.2: 22.3 s, $0.00, 1 попытка, коммит f2e03ac; run_end exit 0, оба Handoff записаны в план и сверены checker-ом с result JSON
+- Resume подтверждён живым потоком: call-2.argv несёт --session ses_e721140d4ffez8zcFFEE0oGxH2, поток продолжения — тот же sessionID; попытки 1-2 low, попытка 3 high, route_switch в событиях нет
+- Отказ: call --model opencode-go/no-such-model#low, поток — единственное событие error provider.no-route, exit 7, юнит [~], строка «all executors unavailable until 21:01; the unit stays [~]», коммита нет
+- running-инструмент: на 42-секундном вызове 17 tool_use, все state.status=completed; running/pending не встретился — наблюдение P053.1.2 подтверждено, живость держится на строках потока и idle_timeout
+- Accepted: живой resume (P053.1.1) — закрыт этим прогоном: --session и одинаковый sessionID
+- Accepted: код выхода при отказе посреди генерации (P053.1.1) — Classify ключуется на событие error/error_type, а не на код; живой отказ дал код 1, отказ посреди генерации не воспроизводился и для Goal не нужен
+- Accepted: ветвь running/pending (P053.1.2) — живой v2.2.3 её не шлёт (17 completed на 42 s), ветвь остаётся страховкой на будущие версии
+- Accepted: слова limit/outage в Classify (P053.1.2, P053.1.6) — живой limit не провоцируется (Constraints: не тратить квоту); provider.no-route классифицирован живым потоком как outage; остальные слова покрыты синтетическим тестом, дрейф даёт видимый останов, а не тихий успех
+- Accepted: релизные пути opencode (P053.1.3) — install-skills --agent opencode проверен на временном HOME: 5 ссылок в ~/.config/opencode/skills; releaseSkillOptions/uninstall без отдельной заглушки — поймает следующая установка/релиз
+- Accepted: Windows/Git Bash (P053.1.4, P053.2.2) — Constraints: приёмка на этом Mac, Windows проверяется тестами и сборкой; живой прогон скриптов под Git Bash не делался
+- Живой smoke закрыл и Unverified фаз 2 о вызове OpenCode (P053.2.2, P053.2.4); Unverified о Windows остаётся принятым выше
