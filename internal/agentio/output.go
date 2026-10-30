@@ -130,6 +130,53 @@ func PiOutput(stdout string) map[string]any {
 	return out
 }
 
+// OpencodeOutput folds the JSON Lines of `opencode run --format json` into
+// the profile's json: paths. Text parts of one assistant message share
+// part.messageID and concatenate; a new messageID starts the text over, so
+// the last message wins. step_finish parts carry cost and tokens to sum, and
+// a provider failure arrives as an error event — the stream decides
+// is_error, never the exit code.
+func OpencodeOutput(stdout string) map[string]any {
+	out := map[string]any{"session": nil, "text": nil, "usage": nil, "cost": nil, "is_error": false, "error": nil}
+	message := ""
+	var text strings.Builder
+	for _, line := range strings.Split(stdout, "\n") {
+		obj := ParseLine(line)
+		if obj == nil {
+			continue
+		}
+		if id := str(obj["sessionID"]); id != "" {
+			out["session"] = id
+		}
+		part := table(obj["part"])
+		switch obj["type"] {
+		case "text":
+			if id := str(part["messageID"]); id != message {
+				message, text = id, strings.Builder{}
+			}
+			text.WriteString(str(part["text"]))
+			out["text"] = text.String()
+		case "step_finish":
+			tokens := table(part["tokens"])
+			cache := table(tokens["cache"])
+			out["usage"] = AddNumbers(table(out["usage"]), map[string]any{
+				"input": tokens["input"], "output": tokens["output"],
+				"cache_read": cache["read"], "cache_write": cache["write"],
+			})
+			cost, _ := number(part["cost"])
+			previous, _ := number(out["cost"])
+			out["cost"] = previous + cost
+		case "error":
+			out["is_error"] = true
+			out["error"] = table(obj["error"])["message"]
+			if out["error"] == nil {
+				out["error"] = obj["error"]
+			}
+		}
+	}
+	return out
+}
+
 func AgentOutput(agent map[string]any, stdout string) any {
 	if agent["stream"] == "pi" {
 		return PiOutput(stdout)
@@ -142,6 +189,9 @@ func AgentOutput(agent map[string]any, stdout string) any {
 				return obj
 			}
 		}
+	}
+	if agent["stream"] == "opencode" {
+		return OpencodeOutput(stdout)
 	}
 	if agent["stream"] != "codex" {
 		return ParseJSON(stdout)

@@ -19,7 +19,7 @@ import (
 )
 
 func TestDefaultAgentsBytesAndSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "c7e709f6ec6cce53ad112fc6bc3a4951aba98ea31059fed53b5bf192951db582" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "5c4ce8840bbcf973266926299228552537806ceeaac9f541be2cc1610a08ac8e" {
 		t.Fatalf("DefaultAgents SHA-256 = %s", got)
 	}
 	parsed, err := ParseTOML(DefaultAgents)
@@ -44,8 +44,8 @@ func TestDefaultAgentsBytesAndSchema(t *testing.T) {
 	if !reflect.DeepEqual(gotSchema, wantSchema) {
 		t.Fatalf("ResultSchema = %#v, want %#v", gotSchema, wantSchema)
 	}
-	if len(mapAt(parsed, "agents")) != 3 {
-		t.Fatalf("built-in profiles = %d, want 3", len(mapAt(parsed, "agents")))
+	if len(mapAt(parsed, "agents")) != 4 {
+		t.Fatalf("built-in profiles = %d, want 4", len(mapAt(parsed, "agents")))
 	}
 }
 
@@ -199,6 +199,7 @@ func TestLoadAgentsValidationErrors(t *testing.T) {
 		{"[agents.x]\ncmd = []\n", "cmd must be a non-empty"},
 		{"[agents.x]\ncmd = [\"a\", 1]\n", "'cmd' must be list"},
 		{"[agents.claude]\nstream = \"x\"\n", "'stream' must be"},
+		{"[agents.opencode]\nstream = \"x\"\n", "'stream' must be"},
 		{"[agents.claude]\nmodel_extra = {haiku = \"x\"}\n", "'model_extra' must be a table of string lists"},
 		{"[agents.claude]\nmodel_extra = \"x\"\n", "'model_extra' must be dict"},
 		{"extra = 1\n", "unknown key 'extra'"},
@@ -366,6 +367,19 @@ func TestBuildCommand(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(argv, []string{"pi", "-p", "--mode", "json", "--approve", "--model", "zai/glm-5.3"}) {
 		t.Fatalf("pi full argv = %#v, %v", argv, err)
 	}
+	opencode := mapAt(agents, "opencode")
+	argv, stdin, err = BuildCommand(opencode, "P", "opencode-go/deepseek-v4.1-flash", "/s", "", "low", "auto")
+	if err != nil || stdin == nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--model", "opencode-go/deepseek-v4.1-flash#low"}) {
+		t.Fatalf("opencode low argv = %#v, stdin=%v, err=%v", argv, stdin, err)
+	}
+	argv, _, err = BuildCommand(opencode, "P", "opencode-go/deepseek-v4.1-flash", "/s", "ses1", "high", "auto")
+	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--model", "opencode-go/deepseek-v4.1-flash#high", "--session", "ses1"}) {
+		t.Fatalf("opencode high argv = %#v, %v", argv, err)
+	}
+	argv, _, err = BuildCommand(opencode, "P", "opencode-go/deepseek-v4.1-flash", "/s", "", "", "auto")
+	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--model", "opencode-go/deepseek-v4.1-flash"}) {
+		t.Fatalf("opencode no-effort argv = %#v, %v", argv, err)
+	}
 
 	promptAgent := map[string]any{"cmd": []any{"tool", "run", "{prompt}"}, "model_args": []any{"-m", "{model}"}}
 	argv, stdin, err = BuildCommand(promptAgent, `do {model} {"a": 1}`, "m", "/s", "", "", "auto")
@@ -516,7 +530,7 @@ func TestRunRouteAndExecutorIntegration(t *testing.T) {
 		t.Fatalf("route metadata = %q / %q / %q", RouteSource(plan, plan.Units[2]), RouteSource(plan, plan.Units[1]), RouteText(got))
 	}
 	config, err := RunConfig(plan, &args)
-	if err != nil || !args.Executors || len(mapAt(config, "agents")) != 3 {
+	if err != nil || !args.Executors || len(mapAt(config, "agents")) != 4 {
 		t.Fatalf("RunConfig executor mode = %#v, %#v, %v", config, args, err)
 	}
 	args.Agent = "codex"

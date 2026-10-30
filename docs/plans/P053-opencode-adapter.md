@@ -2,7 +2,7 @@
 id: P053
 title: OpenCode adapter and go subscription routes
 type: feature
-status: draft
+status: active
 created: 2026-10-30
 executor: pi | zai/glm-5.3-flash | medium
 fallback: codex | gpt-6-luna | high
@@ -111,10 +111,13 @@ result JSON, живость и классификация отказов. Ски
 - Фикстуры — реальный stdout v2.2.3 в `internal/agentio/testdata` — почему:
   контрактные тесты ловят дрейф формата; отвергнуто: синтетические события,
   придуманные по документации.
+- Сообщение 'stream must be one of' строится из Streams динамически — почему: захардкоженный список уже отставал от codex/pi и с opencode лгал бы дальше — отвергнуто: оставить строку как есть.
+- cost копится как число под json:cost, а не таблицей cost.total как у pi — почему: opencode несёт part.cost числом и профиль читает json:cost напрямую — отвергнуто: вкладывать в cost.total (потребовало бы другого пути в профиле без выгоды).
+- Декодер error принимает и объект {message}, и строку — почему: живой формат — объект, но строка страхует от дрейфа формы — отвергнуто: только объект (нулевой error при дрейфе).
 
 ## Phase 1: Adapter and integration
 
-### [ ] P053.1.1 Agent profile and JSON stream decoder
+### [x] P053.1.1 Agent profile and JSON stream decoder
 Read:
 - internal/agents/agents.go:L35-150
 - internal/agents/agents.go:L894-950
@@ -158,6 +161,13 @@ Traps: код 0 у отказа; `ParseJSON` на JSON Lines; не срезат�
 из текста; не переименовывать ключи `usage` — их читают `tokens` и
 `output_tokens`.
 Commit: P053.1.1: add opencode agent profile and stream decoder
+Handoff:
+- Отказ маршрута (provider.no-route: несуществующая модель или вариант) приходит событием error и кодом выхода 1, а не 0 — код 0 у провайдерского отказа в живых прогнах не воспроизведён; P053.1.2 Classify должен ключиться на error.type/error.message, не на коде.
+- Живая структура потока v2.2.3: события envelope step_start/tool_use/step_finish/text/error, part.type в kebab-case (step-start/step-finish/tool/text); tool_use пришёл только со state.status=completed (shell: state.input.command, state.output, title); cost на подписке go всегда 0; в tokens есть reasoning, но профиль его не суммирует (ключи usage.input/output/cache_read/cache_write).
+- [agents.opencode] пока без таблицы permissions: BuildCommand с full падает 'no permissions table', auto не добавляет аргументов; P053.1.2 добавляет auto/full = ["--auto"].
+- Сообщение об отказе stream теперь собирается из Streams динамически (pyRepr, join) — старый захардкоженный список '", "claude"' был враньём ещё до юнита; тестов на точный текст нет.
+- Unverified: Продолжение сессии: resume_args ['--session', '{session}'] покрыт только модульным тестом BuildCommand — живой вызов с --session не сделан (закрывается smoke-прогоном P053.2.1).
+- Unverified: Код выхода при отказе посреди генерации (не резолвинг маршрута): не воспроизведён — оба живых отказа вышли с кодом 1; отсутствующая проверка — живой вызов, обрывающийся провайдерской ошибкой в момент стрима (важно для Classify в P053.1.2).
 
 ### [ ] P053.1.2 Liveness, refusals, and permissions
 Read:

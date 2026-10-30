@@ -237,6 +237,51 @@ func TestPiAPIError(t *testing.T) {
 	}
 }
 
+func TestOpencodeFold(t *testing.T) {
+	agent := profile(t, "opencode")
+	out := fixture(t, "opencode-result")
+	data := table(AgentOutput(agent, out))
+	equal(t, data["session"], "ses_e7328beaaffe1gw0MKFBFL5YLK")
+	equal(t, data["is_error"], false)
+	equal(t, data["error"], nil)
+	equal(t, data["cost"], float64(0))
+	text := str(data["text"])
+	if !strings.Contains(text, "docflow-fixture-ok") || !strings.Contains(text, "```json") {
+		t.Fatalf("text = %q", text)
+	}
+	equal(t, ExtractResult(agent, out), obj(`{"status":"done","handoff":["Ran the echo command and confirmed the expected output."],"decisions":[],"unverified":[],"reason":"","blocker":""}`))
+	equal(t, JSONPath(data, str(agent["output_tokens"])), float64(110))
+	for i, spec := range commandList(agent["tokens"]) {
+		equal(t, JSONPath(data, spec), []float64{7246, 10496, 0}[i])
+	}
+}
+
+func TestOpencodeErrors(t *testing.T) {
+	agent := profile(t, "opencode")
+	out := fixture(t, "opencode-error")
+	data := table(AgentOutput(agent, out))
+	equal(t, data["is_error"], true)
+	equal(t, data["error"], "Model unavailable: opencode-go/no-such-model")
+	equal(t, data["session"], "ses_e7327a596ffeA3CVqgw0opFqkQ")
+	for _, event := range []any{
+		obj(`{"type":"error","sessionID":"s1","error":{"type":"provider.no-route","message":"boom"}}`),
+		obj(`{"type":"error","sessionID":"s1","error":"boom"}`),
+	} {
+		data := table(AgentOutput(agent, lines(event)))
+		equal(t, data["is_error"], true)
+		equal(t, data["error"], "boom")
+	}
+}
+
+func TestOpencodeTextGrouping(t *testing.T) {
+	stdout := lines(
+		map[string]any{"type": "text", "sessionID": "s1", "part": map[string]any{"type": "text", "messageID": "m1", "text": "first "}},
+		map[string]any{"type": "text", "sessionID": "s1", "part": map[string]any{"type": "text", "messageID": "m1", "text": "message"}},
+		map[string]any{"type": "text", "sessionID": "s1", "part": map[string]any{"type": "text", "messageID": "m2", "text": "second"}},
+	)
+	equal(t, table(AgentOutput(profile(t, "opencode"), stdout))["text"], "second")
+}
+
 func TestResultProblems(t *testing.T) {
 	for _, c := range []struct{ text, want string }{
 		{`{"status":"done","handoff":["a"]}`, ""},

@@ -119,6 +119,22 @@ idle_timeout = 1200
 [agents.pi.permissions]
 auto = []
 full = ["--approve"]
+
+[agents.opencode]
+cmd = ["opencode", "run", "--format", "json", "--agent", "build"]
+model_args = ["--model", "{model_variant}"]
+resume_args = ["--session", "{session}"]
+result = "json:text"
+text = "json:text"
+session = "json:session"
+error = "json:is_error"
+cost = "json:cost"
+output_tokens = "json:usage.output"
+tokens = ["json:usage.input", "json:usage.cache_read", "json:usage.cache_write"]
+stream = "opencode"
+timeout = 7200
+idle_timeout = 1200
+limit_wait = 1800
 `
 
 var AgentKeys = map[string]string{
@@ -143,8 +159,8 @@ var quotaModes = []string{QuotaUsed, QuotaLeft}
 var Tiers = []string{"fast", "default", "strong", "max"}
 var tierKeys = []string{"agent", "model", "effort"}
 var displayKeys = []string{"quota", "resets"}
-var Streams = []string{"", "claude", "codex", "pi"}
-var PlaceholderRE = regexp.MustCompile(`\{(prompt|model|effort|schema|schema_file|session)\}`)
+var Streams = []string{"", "claude", "codex", "pi", "opencode"}
+var PlaceholderRE = regexp.MustCompile(`\{(prompt|model|effort|model_variant|schema|schema_file|session)\}`)
 
 const schemaJSON = `{"type":"object","properties":{"status":{"enum":["done","blocked"]},"handoff":{"type":"array","items":{"type":"string"}},"decisions":{"type":"array","items":{"type":"string"}},"unverified":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"blocker":{"enum":["","plan","human"]}},"required":["status","handoff","decisions","unverified","reason","blocker"],"additionalProperties":false}`
 
@@ -440,7 +456,11 @@ func checkAgent(where, name string, agent map[string]any) error {
 	}
 	stream, _ := agent["stream"].(string)
 	if !contains(Streams, stream) {
-		return agentsError(fmt.Sprintf("%s: agent %s: 'stream' must be one of: \"\", \"claude\"", where, pyRepr(name)))
+		known := make([]string, len(Streams))
+		for i, s := range Streams {
+			known[i] = pyRepr(s)
+		}
+		return agentsError(fmt.Sprintf("%s: agent %s: 'stream' must be one of: %s", where, pyRepr(name), strings.Join(known, ", ")))
 	}
 	cmd, _ := stringList(agent["cmd"])
 	if len(cmd) == 0 {
@@ -931,8 +951,13 @@ func BuildCommand(agent map[string]any, prompt, model, schemaFile, session, effo
 			break
 		}
 	}
+	modelVariant := model
+	if effort != "" {
+		modelVariant = model + "#" + effort
+	}
 	values := map[string]string{
 		"prompt": prompt, "model": model, "effort": effort,
+		"model_variant": modelVariant,
 		"schema": schemaJSON, "schema_file": schemaFile, "session": session,
 	}
 	argv := make([]string, len(args))
