@@ -99,6 +99,10 @@ result JSON, живость и классификация отказов. Ски
   генерации. Не вызывать другие модели, не провоцировать исчерпание квоты
   или сетевой отказ; при неожиданном расходе/повторе остановиться и
   сохранить свидетельства, не перезапускать автоматически.
+- События `attempt.route` и строки маршрутов в выводе строятся из `Route`
+  раннера, а не из argv: дрейф `{model_variant}` в `BuildCommand` виден
+  только в argv обёртки. Сверять значение `--model` и `--agent`, а не
+  наличие флагов.
 
 ## Decisions
 
@@ -147,6 +151,15 @@ result JSON, живость и классификация отказов. Ски
   повторять живой smoke ради ручного сбора артефактов.
 - Машинная сверка свидетельств вынесена в tools/smoke-opencode-check.py (python3 stdlib), а не в shell — почему: разбор JSON-потоков, events.jsonl и плана на awk/sed был бы неподдерживаемым и непроверяемым; отвергнуто: сверка грепом консольного вывода (она и была дефектом прежней приёмки)
 - Каталог свидетельств dry-run удаляется, живой — остаётся — почему: у dry-run нет потоков попыток, а успешный живой прогон должен пережить сессию; отвергнуто: удалять всё по trap (терялись свидетельства успеха) и оставлять пустые каталоги от каждого dry-run
+- Replan P053.2.3: перед повторным ревью добавлен P053.2.4 для трёх
+  дефектов из блокировки: сверка значений `--model`/`--agent` в argv
+  обёртки со тройкой Executor, сводка `summary.tsv` до проверок и как
+  обязательный артефакт, отказ без генерации (`error_type`
+  `provider.no-route`, нет `text`/`tool_use`). Причина: события и строки
+  маршрутов строятся из `Route` и не видят подмену в `BuildCommand`, а
+  провал проверки снова терял свидетельства. Отвергнуто: ослабить ревью,
+  считать наличие флагов доказательством значения и оставить
+  отрицательный случай без проверки обязательных артефактов.
 
 ## Phase 1: Adapter and integration
 
@@ -445,6 +458,41 @@ Handoff:
 - Unverified: живой OpenCode не вызывался — поток, resume и отказ проверены подставным CLI и фикстурами, реальную подписку go тратит только P053.2.1 — отсутствующая проверка: живой вызов opencode-go/deepseek-v4.1-flash
 - Unverified: работа под Git Bash на Windows не проверялась (mktemp -d, tee и wrapper-скрипт) — отсутствующая проверка: запуск smoke на Windows
 
+### [ ] P053.2.4 Strengthen smoke evidence checks
+Read:
+- tools/smoke-opencode-check.py:L60-200
+- tools/smoke-opencode-check.py:L200-370
+- tools/smoke-opencode-check.py:L370-436
+- tools/smoke-opencode.sh
+- tools/test-smoke-opencode.sh
+Do:
+- Сверять argv каждого перехваченного вызова обёртки со значениями, а не
+  с наличием флагов: каждый вызов обязан нести `--agent build` и
+  `--model <model>#<effort>` из тройки Executor своего юнита (без усилия —
+  `<model>` без `#`); в отказном сценарии — `--model
+  opencode-go/no-such-model#low` и `--agent build`. События и строки
+  маршрутов строятся из `Route` и подмену в `BuildCommand` не видят.
+- Писать `summary.tsv` до проверок (в `finally` вокруг assertions), чтобы
+  сводка оставалась и у провалившегося прогона; недошедшие юниты — строка
+  со статусом `unknown`. `summary.tsv` — обязательный артефакт: smoke
+  завершается ошибкой, если файла нет после проверки.
+- В отказном сценарии дополнительно требовать: в потоке нет событий
+  `text` и `tool_use` (генерации не было), `error_type` = `provider.no-route`.
+  Код 7 из общего пути «the agent reported an error» не принимается за
+  отказ маршрута.
+- Добавить в `tools/test-smoke-opencode.sh` отрицательный случай,
+  доходящий до проверки обязательных артефактов: после положительного
+  цикла удалить `summary.tsv` и `call-1.exit` на копии свидетельств и
+  вызвать checker напрямую — ненулевой код и имя пропавшего артефакта.
+  Существующие отрицательные случаи не ослаблять.
+Verify: `bash -n tools/smoke-opencode.sh tools/test-smoke-opencode.sh && bash tools/test-smoke-opencode.sh && bash tools/smoke-opencode.sh --dry-run && go test ./...`
+Traps: `--model` в argv — один аргумент `model#effort`, без усилия суффикса
+нет; сводка пишется и при исключении, иначе свидетельства снова теряются;
+`test-smoke-opencode.sh` не запускает живой smoke и не выдаёт тестовые
+потоки за живые фикстуры.
+Depends: P053.2.2
+Commit: P053.2.4: strengthen smoke evidence checks
+
 ### [ ] P053.2.3 Review smoke evidence checks
 Read:
 - tools/smoke-opencode.sh
@@ -458,9 +506,11 @@ Do:
 - Разобрать каждый пункт Test changes; ослабление проверки или дефект —
   blocked с blocker plan. Код не менять, подписку не расходовать.
 Verify: `go test ./...`
-Depends: P053.2.2
+Depends: P053.2.2, P053.2.4
 Role: review
 Commit: P053.2.3: review smoke evidence checks
+Handoff:
+- Blocked (plan): Нужен исправляющий юнит. 1) tools/smoke-opencode-check.py:316-326 и :415 сверяют argv только на наличие --session/--model, а значения --model и --agent build не сверяются с Executor: при верных событиях и строках маршрутов дрейф {model_variant} в BuildCommand пройдёт незамеченным, и маршрут реально потраченной модели не доказан. 2) summary.tsv пишется после всех проверок (check.py:355,417), вопреки docstring и пункту Do о сводке: при провале проверки сводки нет, обязательность артефакта не проверяется. 3) Отказной сценарий проверяет только is_error (check.py:411-415): поток с text/tool_use прошёл бы, то есть «не доходит до генерации» и provider.no-route не доказаны.
 
 ### [ ] P053.2.1 Accept opencode on the go subscription
 Read:
@@ -485,7 +535,7 @@ Verify: `bash tools/smoke-opencode.sh && go test ./...`
 Traps: живой прогон тратит квоту go — только две крошечные единицы;
 smoke-скрипт обязан работать во временном каталоге; тихое переключение на
 fallback маскирует поломку — сверять маршрут в событиях.
-Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4, P053.1.5, P053.1.6, P053.2.2, P053.2.3
+Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4, P053.1.5, P053.1.6, P053.2.2, P053.2.3, P053.2.4
 Role: acceptance
 Commit: P053.2.1: accept opencode on go subscription
 Handoff:
