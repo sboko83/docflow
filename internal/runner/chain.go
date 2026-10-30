@@ -256,17 +256,49 @@ func quotaExhaustedUntil(quota agentio.Quota, now time.Time) (time.Time, bool) {
 	return until, !until.IsZero()
 }
 
-// zaiRefusalReset refreshes the z.ai quota and returns the latest reset
-// among the exhausted windows: a limit refusal that names no reset time
-// waits for the subscription to recover instead of the profile limit_wait.
-// nil keeps the profile wait.
-func zaiRefusalReset() *float64 {
-	until, ok := quotaExhaustedUntil(agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout), time.Now())
+// quotaRefusalReset refreshes the route's quota and returns the latest reset
+// among the exhausted windows: a limit refusal that names no reset time waits
+// for the subscription to recover instead of the profile limit_wait. nil keeps
+// the profile wait. z.ai is probed through its own subscription endpoint; an
+// agent with a `quota` command is probed through it (the OpenCode go
+// allowance); an agent without one has no reset to offer.
+func quotaRefusalReset(route agents.Route, agent map[string]any) *float64 {
+	var quota agentio.Quota
+	if quotaName(route) == zaiQuota {
+		quota = agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout)
+	} else if agent["quota"] != nil && agent["stream"] != "claude" && agent["stream"] != "codex" {
+		// The claude and codex streams carry their own reset; OpenCode and
+		// a custom no-stream agent get it from the quota command.
+		quota = agentio.ProbeQuota(agent, agentio.QuotaProbeTimeout)
+	} else {
+		return nil
+	}
+	until, ok := quotaExhaustedUntil(quota, time.Now())
 	if !ok {
 		return nil
 	}
 	seconds := float64(until.Unix())
 	return &seconds
+}
+
+// refreshQuota re-probes the route's windows after an agent call so the unit
+// delta and a mid-run exhaustion show up. The claude and codex streams carry
+// quota themselves; the pi stream does not (z.ai is probed through its own
+// endpoint) and the OpenCode allowance comes only from its quota command.
+func refreshQuota(totals *runTotals, route agents.Route, agent map[string]any) {
+	name := quotaName(route)
+	if name == zaiQuota {
+		totals.mergeQuota(zaiQuota, agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout))
+		return
+	}
+	if agent["quota"] == nil {
+		return
+	}
+	switch agent["stream"] {
+	case "claude", "codex":
+		return
+	}
+	totals.mergeQuota(name, agentio.ProbeQuota(agent, agentio.QuotaProbeTimeout))
 }
 
 func routeIdentity(route agents.Route) string {

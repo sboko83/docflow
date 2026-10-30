@@ -1,6 +1,7 @@
 package agentio
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -232,16 +233,54 @@ func ProbeQuota(agent map[string]any, timeout time.Duration) Quota {
 	if len(argv) == 0 {
 		return Quota{}
 	}
-	if agent["stream"] == "codex" {
+	switch agent["stream"] {
+	case "codex":
 		return CodexWindows(CodexProbe(argv, timeout), "usedPercent", "windowDurationMins", "resetsAt")
-	}
-	if agent["stream"] == "claude" {
+	case "claude":
 		run, err := CallAgent("", argv, nil, "", CallOptions{Timeout: timeout})
 		if err == nil && run.Code == 0 && !run.TimedOut {
 			return ParseUsage(run.Stdout, time.Time{})
 		}
+	case "opencode":
+		run, err := CallAgent("", argv, nil, "", CallOptions{Timeout: timeout})
+		if err == nil && run.Code == 0 && !run.TimedOut {
+			return ParseOpencodeQuota(run.Stdout)
+		}
 	}
 	return Quota{}
+}
+
+// ParseOpencodeQuota decodes the answer of `opencode api get
+// /api/experimental/usage/limits`: the OpenCode go allowance has three
+// windows in a fixed order — rolling, weekly, monthly — each with a used
+// percent, an authoritative `limited` flag and a reset in milliseconds.
+// A signed-out workspace answers `data: null` and yields no windows. An
+// exhausted window reports Used 1, so a route is skipped until the reset
+// even when the reported percentage lags behind the flag. The console
+// budgets are not subscription windows and stay out of the quota.
+func ParseOpencodeQuota(text string) Quota {
+	var parsed map[string]any
+	if json.Unmarshal([]byte(text), &parsed) != nil {
+		return Quota{}
+	}
+	windows := table(table(parsed["data"])["go"])
+	if windows == nil {
+		return Quota{}
+	}
+	quota := Quota{}
+	for _, label := range []string{"rolling", "weekly", "monthly"} {
+		meter := table(windows[label])
+		percent, ok := number(meter["percent"])
+		if !ok {
+			continue
+		}
+		used := percent / 100
+		if meter["limited"] == true {
+			used = 1
+		}
+		quota.Set(label, used, rawEpoch(meter["resetsAt"]))
+	}
+	return quota
 }
 
 func Epoch(value any) *float64 {

@@ -390,9 +390,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 				thread, _ := agentio.JSONPath(output, "json:thread_id").(string)
 				totals.mergeQuota(route.Agent, agentio.CodexQuota(thread))
 			}
-			if quotaName(route) == zaiQuota {
-				totals.mergeQuota(zaiQuota, agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout))
-			}
+			refreshQuota(totals, route, agent)
 			spent := agentio.RunCost(agent, run)
 			totals.cost = agentio.Add(totals.cost, spent)
 			if err := agentio.RecordCall(root, id, found, agentio.RunTokens(agent, run), spent); err != nil {
@@ -402,8 +400,8 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			if refusal == nil {
 				break
 			}
-			if refusal.Kind == agentio.RefusalLimit && refusal.Reset == nil && quotaName(route) == zaiQuota {
-				refusal.Reset = zaiRefusalReset()
+			if refusal.Kind == agentio.RefusalLimit && refusal.Reset == nil {
+				refusal.Reset = quotaRefusalReset(route, agent)
 			}
 			if chain.enabled && (refusal.Kind == agentio.RefusalLimit || refusal.Kind == agentio.RefusalOutage) {
 				if _, err := chain.mark(route, refusal, time.Now()); err != nil {

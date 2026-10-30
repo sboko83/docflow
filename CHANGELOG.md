@@ -13,7 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docflow install-skills --agent opencode`; routes carry the model variant
   (`opencode | opencode-go/deepseek-v4.1-flash | high`) for the OpenCode go
   subscription. OpenCode has no sandbox: `auto` and `full` both pass
-  `--auto`, and subscription quota probing is not supported.
+  `--auto`.
+- OpenCode go subscription quota: the runner probes the local
+  `opencode api get /api/experimental/usage/limits` endpoint, shows the
+  `rolling`, `weekly` and `monthly` windows, skips a route whose window is
+  exhausted until the reset and takes a limit refusal's reset from the
+  allowance.
 
 ## [0.20.0] - 2026-10-30
 

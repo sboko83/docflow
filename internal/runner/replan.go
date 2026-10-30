@@ -456,11 +456,9 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 				thread, _ := agentio.JSONPath(out, "json:thread_id").(string)
 				totals.mergeQuota(name, agentio.CodexQuota(thread))
 			}
-			// The pi stream carries no quota; a zai route is re-probed after
-			// every call, so the delta and mid-run exhaustion show up.
-			if quotaName(route) == zaiQuota {
-				totals.mergeQuota(zaiQuota, agentio.ProbeZaiQuota(agentio.QuotaProbeTimeout))
-			}
+			// The stream carries quota for claude and codex only; the
+			// others are re-probed so the delta and mid-run exhaustion show up.
+			refreshQuota(totals, route, agent)
 			found, _ := agentio.JSONPath(out, stringValue(agent["session"])).(string)
 			if found != "" {
 				session = found
@@ -474,8 +472,8 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			if refusal == nil {
 				break
 			}
-			if refusal.Kind == agentio.RefusalLimit && refusal.Reset == nil && quotaName(route) == zaiQuota {
-				refusal.Reset = zaiRefusalReset()
+			if refusal.Kind == agentio.RefusalLimit && refusal.Reset == nil {
+				refusal.Reset = quotaRefusalReset(route, agent)
 			}
 			if chain.enabled && (refusal.Kind == agentio.RefusalLimit || refusal.Kind == agentio.RefusalOutage) {
 				now := time.Now()

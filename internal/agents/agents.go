@@ -135,6 +135,7 @@ stream = "opencode"
 timeout = 7200
 idle_timeout = 1200
 limit_wait = 1800
+quota = ["opencode", "api", "get", "/api/experimental/usage/limits"]
 
 [agents.opencode.permissions]
 auto = ["--auto"]
