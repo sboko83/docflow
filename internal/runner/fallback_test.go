@@ -89,7 +89,10 @@ func piContextLimitStep(t *testing.T) string {
 	refusalMessage := "Weekly/Monthly Limit Exhausted."
 	dataText := strings.Replace(string(data), `"content":[]`, `"content":[{"type":"text","text":"`+refusalMessage+`"}]`, 1)
 	assistant, err := json.Marshal(map[string]any{"type": "message_end", "message": map[string]any{
-		"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "I modified tracked.txt and confirmed the local work."}}, "stopReason": "stop",
+		"role": "assistant", "content": []any{
+			map[string]any{"type": "thinking", "thinking": "I read tracked.txt and the unit wants the file changed, then the tests rerun."},
+			map[string]any{"type": "text", "text": "I modified tracked.txt and confirmed the local work."},
+		}, "stopReason": "stop",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +113,17 @@ func TestRunFallbackCarriesRefusedAttemptContext(t *testing.T) {
 		t.Fatalf("calls = %d, want pi refusal then codex success\n%s", len(calls), r.out)
 	}
 	previous := calls[1].Stdin
-	for _, want := range []string{"## Previous attempt", "### Working tree", "tracked.txt", "### Last messages", "I modified tracked.txt and confirmed the local work."} {
+	for _, want := range []string{
+		"## Previous attempt",
+		"### Working tree",
+		"tracked.txt",
+		"### Last reasoning",
+		"I read tracked.txt and the unit wants the file changed",
+		"### Last messages",
+		"I modified tracked.txt and confirmed the local work.",
+		"### Transcript",
+		".git/docflow/run/P001.1.1.1.out",
+	} {
 		if !strings.Contains(previous, want) {
 			t.Fatalf("fallback prompt missing %q:\n%s", want, previous)
 		}

@@ -571,7 +571,11 @@ func feedback(problem string) string {
 	return "Runner: " + problem + "\nFix it and finish with the result JSON.\nFix source issues; do not disable hooks, signing or checks, or change Git configuration to bypass a failure.\n"
 }
 
-func previousExecutorAttempt(root string, route agents.Route, agent map[string]any, refusal *agentio.Refusal, run agentio.AgentRun) (string, error) {
+// previousExecutorAttempt describes the refused call to the next executor:
+// what the working tree already holds, what the refused call concluded, and
+// where its full log lies. Reasoning and tool calls never reach the tree, so a
+// switch that drops them throws away work the next executor cannot redo cheaply.
+func previousExecutorAttempt(root string, route agents.Route, agent map[string]any, refusal *agentio.Refusal, run agentio.AgentRun, log string) (string, error) {
 	diff, err := gitx.Git(root, "diff", "--stat", "HEAD")
 	if err != nil {
 		return "", err
@@ -611,13 +615,68 @@ func previousExecutorAttempt(root string, route agents.Route, agent map[string]a
 
 	var prompt strings.Builder
 	fmt.Fprintf(&prompt, "\n## Previous attempt\n\nThe previous executor %s stopped after a provider %s refusal. The working tree may contain uncommitted work; continue it.\n\n### Working tree\n\n%s\n", routeName(route), refusal.Kind, strings.Join(tree, "\n"))
+	if reasoning := reasoningExcerpt(agent, run.Stdout, refusal); len(reasoning) > 0 {
+		prompt.WriteString("\n### Last reasoning\n\n")
+		for _, block := range reasoning {
+			fmt.Fprintf(&prompt, "- %s\n", block)
+		}
+	}
 	if len(messages) > 0 {
 		prompt.WriteString("\n### Last messages\n\n")
 		for _, message := range messages {
 			fmt.Fprintf(&prompt, "- %s\n", agentio.Clip(message, 600))
 		}
 	}
+	if transcript := transcriptPath(root, log); transcript != "" {
+		fmt.Fprintf(&prompt, "\n### Transcript\n\nThe full log of the refused call is `%s`: read it when the working tree does not show what that call already checked.\n", transcript)
+	}
 	return prompt.String(), nil
+}
+
+const (
+	reasoningBlocks = 3   // thinking blocks carried over, newest last
+	reasoningLimit  = 800 // runes kept of one block
+)
+
+// reasoningExcerpt is the tail of the refused call's thinking: enough for the
+// next executor to know what was already concluded without paying for the whole
+// stream. A block carrying the refusal text itself is dropped, as in messages.
+func reasoningExcerpt(agent map[string]any, stdout string, refusal *agentio.Refusal) []string {
+	refusalText := strings.TrimSpace(refusal.Text)
+	kept := make([]string, 0, reasoningBlocks)
+	for _, block := range agentio.Reasoning(agent, stdout) {
+		if refusalText != "" && (strings.Contains(refusalText, block) || strings.Contains(block, refusalText)) {
+			continue
+		}
+		kept = append(kept, excerpt(block, reasoningLimit))
+	}
+	if len(kept) > reasoningBlocks {
+		kept = kept[len(kept)-reasoningBlocks:]
+	}
+	return kept
+}
+
+// excerpt flattens a multi-line block into one bullet and clips it on a rune
+// boundary, keeping the beginning: reasoning states its conclusion first.
+func excerpt(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return strings.TrimSpace(string(runes[:limit])) + "…"
+}
+
+// transcriptPath names the refused call's log relative to the repository, so
+// the next executor can open it from any checkout root.
+func transcriptPath(root, log string) string {
+	if log == "" {
+		return ""
+	}
+	if rel, err := filepath.Rel(root, log); err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(rel)
+	}
+	return filepath.ToSlash(log)
 }
 
 func runUnit(ctx context.Context, root string, args Args, config map[string]any, chain *executorChain, uid string, p *Progress, totals *runTotals) (code int, trigger string, runErr error) {
@@ -894,7 +953,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					totals.switches++
 					name, agent = route.Agent, profile(config, route.Agent)
 					timeout = agentCallTimeout(plan, agent)
-					previous, err := previousExecutorAttempt(root, previousRoute, profile(config, previousRoute.Agent), refusal, run)
+					previous, err := previousExecutorAttempt(root, previousRoute, profile(config, previousRoute.Agent), refusal, run, log)
 					if err != nil {
 						return 2, "", err
 					}
@@ -937,7 +996,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 						totals.switches++
 						name, agent = route.Agent, profile(config, route.Agent)
 						timeout = agentCallTimeout(plan, agent)
-						previous, err := previousExecutorAttempt(root, previousRoute, profile(config, previousRoute.Agent), refusal, run)
+						previous, err := previousExecutorAttempt(root, previousRoute, profile(config, previousRoute.Agent), refusal, run, log)
 						if err != nil {
 							return 2, "", err
 						}

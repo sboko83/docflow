@@ -415,7 +415,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 					route = next
 				}
 				if !ok || routeIdentity(previous) != routeIdentity(route) {
-					context, err := previousExecutorAttempt(root, previous, agent, refusal, run)
+					context, err := previousExecutorAttempt(root, previous, agent, refusal, run, log)
 					if err != nil {
 						return 2, err
 					}

@@ -129,6 +129,72 @@ func TestAssistantMessages(t *testing.T) {
 	}
 }
 
+func TestReasoning(t *testing.T) {
+	tests := []struct {
+		name   string
+		agent  string
+		stdout string
+		want   []string
+	}{
+		{
+			name:  "Pi",
+			agent: "pi",
+			stdout: lines(
+				map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []any{
+					map[string]any{"type": "thinking", "thinking": "first"},
+					map[string]any{"type": "text", "text": "answer"},
+				}}},
+				map[string]any{"type": "message_end", "message": map[string]any{"role": "assistant", "content": []any{
+					map[string]any{"type": "thinking", "thinking": "second"},
+				}}},
+			),
+			want: []string{"first", "second"},
+		},
+		{
+			name:  "Claude",
+			agent: "claude",
+			stdout: lines(
+				map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant", "content": []any{
+					map[string]any{"type": "thinking", "thinking": "claude thought"},
+				}}},
+				map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": []any{
+					map[string]any{"type": "thinking", "thinking": "not the assistant"},
+				}}},
+			),
+			want: []string{"claude thought"},
+		},
+		{
+			name:  "Codex",
+			agent: "codex",
+			stdout: lines(
+				map[string]any{"type": "item.completed", "item": map[string]any{"type": "reasoning", "summary": []any{map[string]any{"text": "codex thought"}}}},
+				map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "codex message"}},
+			),
+			want: []string{"codex thought"},
+		},
+		{
+			name:   "Opencode",
+			agent:  "opencode",
+			stdout: lines(map[string]any{"type": "reasoning", "part": map[string]any{"type": "reasoning", "text": "opencode thought"}}),
+			want:   []string{"opencode thought"},
+		},
+		{
+			name:   "unknown format",
+			agent:  "",
+			stdout: `{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"raw"}]}}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var agent map[string]any
+			if test.agent != "" {
+				agent = profile(t, test.agent)
+			}
+			equal(t, Reasoning(agent, test.stdout), test.want)
+		})
+	}
+}
+
 func TestStreamQuotaSourceOrder(t *testing.T) {
 	raw := `{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"seven_day":{"utilization":0.1},"five_hour":{"utilization":0.2},"other":{"utilization":0.3}}}}`
 	equal(t, StreamEvent(profile(t, "claude"), Event{ParseLine(raw), raw}), map[string]any{"quota": Quota{{"seven_day", 0.1, nil}, {"five_hour", 0.2, nil}, {"other", 0.3, nil}}})

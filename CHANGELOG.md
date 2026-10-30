@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exhausted until the reset and takes a limit refusal's reset from the
   allowance.
 
+### Changed
+- Switching executor after a provider refusal now hands the next model the
+  refused call's reasoning: `## Previous attempt` gains `### Last reasoning`
+  (the last three thinking blocks, flattened and clipped to 800 characters
+  each) and `### Transcript` (the call's log path, relative to the
+  repository). A unit interrupted after the model reasoned and before it
+  touched a file no longer reaches the next model as an empty working tree.
+
 ## [0.20.0] - 2026-10-30
 
 ### Added

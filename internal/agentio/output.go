@@ -488,6 +488,89 @@ func AssistantMessages(agent map[string]any, stdout string) []string {
 	return messages
 }
 
+// Reasoning extracts the thinking blocks of an agent stream in order: what the
+// model concluded before it touched the working tree. A switch of executor
+// hands the tail of them to the next agent, so a call that ends after the
+// reasoning and before the edits does not take it away.
+func Reasoning(agent map[string]any, stdout string) []string {
+	var blocks []string
+	for _, line := range strings.Split(stdout, "\n") {
+		item := ParseLine(line)
+		if item == nil {
+			continue
+		}
+		if block := reasoningBlock(agent, item); block != "" {
+			blocks = append(blocks, block)
+		}
+	}
+	return blocks
+}
+
+// reasoningBlock decodes one stream event into a thinking block. Streams that
+// report no reasoning yield "" and the caller omits the section.
+func reasoningBlock(agent map[string]any, item map[string]any) string {
+	kind := str(item["type"])
+	switch str(agent["stream"]) {
+	case "codex":
+		if kind != "item.completed" {
+			return ""
+		}
+		summary := table(item["item"])
+		switch str(summary["type"]) {
+		case "reasoning", "agent_reasoning":
+			if text := joinedText(summary["summary"], summary["content"]); text != "" {
+				return text
+			}
+			return str(summary["text"])
+		}
+		return ""
+	case "opencode":
+		if kind == "reasoning" {
+			return str(table(item["part"])["text"])
+		}
+		return ""
+	case "pi", "claude":
+		// pi reports "message_end", claude "assistant"; both carry the same
+		// assistant message with typed content blocks.
+		if kind != "message_end" && kind != "assistant" {
+			return ""
+		}
+		message := table(item["message"])
+		if role := str(message["role"]); role != "" && role != "assistant" {
+			return ""
+		}
+		return thinkingContent(message["content"])
+	}
+	return ""
+}
+
+// thinkingContent joins the thinking blocks of a typed content list.
+func thinkingContent(value any) string {
+	blocks, _ := value.([]any)
+	var text strings.Builder
+	for _, value := range blocks {
+		block := table(value)
+		switch str(block["type"]) {
+		case "thinking", "reasoning":
+			text.WriteString(str(block["thinking"]))
+			text.WriteString(str(block["text"]))
+		}
+	}
+	return text.String()
+}
+
+// joinedText joins the text fields of the given item lists.
+func joinedText(lists ...any) string {
+	var text strings.Builder
+	for _, list := range lists {
+		items, _ := list.([]any)
+		for _, value := range items {
+			text.WriteString(str(table(value)["text"]))
+		}
+	}
+	return text.String()
+}
+
 func ExtractResult(agent map[string]any, stdout string) map[string]any {
 	return dropBlankItems(extractResult(agent, stdout))
 }
