@@ -345,7 +345,7 @@ Handoff:
 - usageResetInText для opencode идёт по сообщению ошибки: метка сброса, процитированная в тексте ассистента, больше не заполняет Refusal.Reset.
 - Unverified: Живой сообщения отказа подписки go с формулировкой limit/outage по-прежнему нет: новый тест — синтетический поток, и если реальный limit-отказ несёт слова лимита не в error.message (а, например, в заголовке или тексте ассистента), классификация его пропустит — отсутствующая проверка: захват реального limit/outage-сообщения живым стримом (смоук P053.2.1 тратит квоту go).
 
-### [ ] P053.1.5 Review the phase
+### [x] P053.1.5 Review the phase
 Read:
 - docs/design/runner.md#result-json
 Do:
@@ -362,6 +362,9 @@ Role: review
 Commit: P053.1.5: review opencode adapter
 Handoff:
 - Blocked (plan): Нужен исправляющий юнит. 1) internal/agentio/refusal.go:91–95 проверяет весь FailureText вместо ошибки провайдера. Воспроизведено: текст ассистента «Updated quota documentation.» и error.message «connection reset by peer» дают limit вместо outage. Проверять признаки OpenCode по декодированной ошибке, добавить регрессионный тест. 2) docs/design/format.md:159 перечисляет только claude/codex/pi, хотя lint теперь принимает opencode; обновить спецификацию. 3) docs/design/runner.md:413 утверждает «наблюдались и 0, и 1», хотя Handoff фиксирует только код 1; убрать неподтверждённое наблюдение.
+- Ревью диффа 5ef9797..HEAD завершено: новых дефектов нет; три замечания предыдущего ревью исправлены в P053.1.6.
+- Все пять пунктов Test changes оправданы изменениями фазы; ослабления проверок нет.
+- На этом Mac полный docflow verify P053.1.5 прошёл: Verify и gate — go test ./..., оба exit 0. Для записи лога и fingerprint потребовались расширенные права. Код и план ревьюер не менял; живая приёмка остаётся в P053.2.1.
 
 ## Phase 2: Acceptance
 
