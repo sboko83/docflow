@@ -28,8 +28,8 @@ state in the repository instead of the agent's memory.
 - **The whole plan can run unattended.** `docflow run` drives the units
   without a human: prompts the agent, verifies, commits, retries a failed
   unit, switches to the fallback executor on a provider limit or outage,
-  and stops safely on a timeout or a stalled agent. Claude Code, Codex CLI
-  and Pi are built in; the plan (or a personal roster, `docflow roster`)
+  and stops safely on a timeout or a stalled agent. Claude Code, Codex CLI,
+  Pi and OpenCode are built in; the plan (or a personal roster, `docflow roster`)
   routes each unit to its own assistant, model, and reasoning effort
   ([details](docs/usage.md#автозапуск), in Russian).
 - **Sessions hand off.** A finished unit leaves Handoff lines and
@@ -136,9 +136,11 @@ docflow init --agent codex
 ~~~
 
 Claude Code is the default; omit `--agent codex` for it, use `--agent pi`
-for Pi. `docflow update` activates the latest release, `docflow uninstall`
-removes it. Details — Git Bash, versions, skills mode, rollback:
-[installation and updates](docs/usage.md#установка) (in Russian).
+for Pi, `--agent opencode` for OpenCode —
+`docflow install-skills --agent opencode` links the skills into
+`~/.config/opencode/skills`. `docflow update` activates the latest release,
+`docflow uninstall` removes it. Details — Git Bash, versions, skills mode,
+rollback: [installation and updates](docs/usage.md#установка) (in Russian).
 
 ### Development
 

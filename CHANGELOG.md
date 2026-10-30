@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Built-in OpenCode executor: an `opencode run --format json` profile with
+  its own stream decoder, session resume, refusal handling, and skills via
+  `docflow install-skills --agent opencode`; routes carry the model variant
+  (`opencode | opencode-go/deepseek-v4.1-flash | high`) for the OpenCode go
+  subscription. OpenCode has no sandbox: `auto` and `full` both pass
+  `--auto`, and subscription quota probing is not supported.
+
 ## [0.20.0] - 2026-10-30
 
 ### Added

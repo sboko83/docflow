@@ -115,6 +115,9 @@ result JSON, живость и классификация отказов. Ски
 - cost копится как число под json:cost, а не таблицей cost.total как у pi — почему: opencode несёт part.cost числом и профиль читает json:cost напрямую — отвергнуто: вкладывать в cost.total (потребовало бы другого пути в профиле без выгоды).
 - Декодер error принимает и объект {message}, и строку — почему: живой формат — объект, но строка страхует от дрейфа формы — отвергнуто: только объект (нулевой error при дрейфе).
 - error_type копится в OpencodeOutput, а не повторным сканированием stdout в Classify — почему: тип ошибки нужен классификатору, а FailureText несёт только message; повторный разбор строк дублировал бы декодер — отвергнуто: читать error.type из сырого stdout в refusal.go.
+- gate: true в плане смоука — это команда shell `true`, не булев ключ: гейт проверяет механизм, не тратя подписку go на `go test ./...` во временном репо — отвергнуто: gate: go test (минуты и смысл только в checkout проекта)
+- План смоука без шапочного executor:, тройки только в юнитах — почему: closeRouteLine без --close шапку не читает, dry-run --all проходит — отвергнуто: дублировать тройку в шапке
+- Проверка маршрутов по строкам вывода, а не по events.jsonl — почему: Do требует «строки маршрутов», и подмена маршрута видна прямо в строке юнита — отвергнуто: разбор событий (это приёмка P053.2.1)
 
 ## Phase 1: Adapter and integration
 
@@ -249,7 +252,7 @@ Handoff:
 - Порядок значений везде — opencode последним (claude, codex, pi, opencode), как в Streams из internal/agents; docs/design/cli.md и skills.md всё ещё пишут {claude,codex,pi} — их обновляет P053.1.4.
 - Unverified: Релизные пути для opencode без отдельного теста: release-тесты подменяют PATH заглушками только claude/codex/pi, поэтому новый элемент releaseSkillOptions/uninstall выполняется лишь через общий цикл LookPath — не хватает проверки (заглушка opencode в release-тесте или живой smoke P053.1.4), что `docflow install` кладёт ссылки в ~/.config/opencode/skills при реальном opencode в PATH.
 
-### [ ] P053.1.4 Docs and live smoke script
+### [x] P053.1.4 Docs and live smoke script
 Read:
 - docs/usage.md#автозапуск
 - docs/usage.md#конфиг-агентов
@@ -292,6 +295,12 @@ CHANGELOG по-английски; в smoke-скрипте `docflow init` обя
 `run` не найдёт `docs/docflow.md`; не запускать живой режим из этого
 checkout.
 Commit: P053.1.4: document opencode and add live smoke
+Handoff:
+- tools/smoke-opencode.sh: живой режим в этом юните не запускался — он и есть приёмка P053.2.1; без opencode в PATH живой режим падает сразу с понятной ошибкой, --dry-run opencode не требует
+- Скрипт проверяет маршруты grep-ом по строкам юнитов текстового вывода ('P001.1.x Write ... -> opencode | opencode-go/deepseek-v4.1-flash | low|high'): тихое переключение на fallback сломает эти grep-ы — это намеренно
+- При провале скрипт сохраняет временный репозиторий и печатает его путь, при успехе удаляет через trap; живой режим запускать только вне этого checkout (скрипт всегда работает во временном каталоге)
+- Unverified: Живой режим tools/smoke-opencode.sh не прогонялся: путь run --yes --no-notify, проверка коммитов и grep-ов строк маршрутов против реального вывода раннера не исполнен — отсутствующая проверка: сам живой смоук (P053.2.1, тратит квоту go)
+- Unverified: Скрипт проверен только на macOS (/bin/bash 3.2, bash -n + dry-run): работа под Git Bash на Windows (суффикс go env GOEXE, mktemp) не запускалась — отсутствующая проверка: запуск скрипта на Windows
 
 ### [ ] P053.1.5 Review the phase
 Read:

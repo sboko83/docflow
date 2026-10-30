@@ -314,7 +314,8 @@ Result JSON — единственный контракт с ассистент�
 
 Маршрут юнита — ассистент, модель и усилие рассуждения. План с
 исполнителями ([формат](format.md#план)) задаёт его сам: тройка юнита, иначе
-шапки. Такой прогон берёт только встроенные адаптеры `claude`/`codex` — без
+шапки. Такой прогон берёт только встроенные адаптеры
+`claude`/`codex`/`pi`/`opencode` — без
 пользовательского файла, `$DOCFLOW_AGENTS` и XDG-конфига; `--config`,
 `--agent`, `--model`, `--effort` отвергаются до запуска (код 2): исполнителя
 меняют в плане. Ошибка назначения останавливает прогон до квоты и агента.
@@ -408,8 +409,9 @@ in the plan header`. Агент, молчавший весь вызов, акт�
 Решения о живости и лимитах — [P045](../archive/P045-run-liveness-output.md).
 
 Классификатор отказов запускается только для ответа с ошибкой (`error` или
-ненулевой код); таймаут, вызов, снятый по `idle_timeout`, и обычный ответ с
-цитатой «rate limit» не считаются отказом — вывод прерванного вызова цитирует
+ненулевой код); OpenCode сообщает отказ событием `error` при любом коде
+выхода — код не сигнал (наблюдались и 0, и 1). Таймаут, вызов, снятый по
+`idle_timeout`, и обычный ответ с цитатой «rate limit» не считаются отказом — вывод прерванного вызова цитирует
 лимит и текст логина, а маршрут при этом исправен, и такой вызов уходит на
 повтор попытки, а не на резервный маршрут. Сначала проверяются признаки
 встроенного исполнителя, затем — regex `limit` пользовательского профиля для
@@ -423,9 +425,9 @@ legacy-режима.
 
 | Класс | Признаки и источник | Реакция |
 |---|---|---|
-| `limit` | Claude: `rate_limit_event` со `status: rejected` даёт `resetsAt`; текст `rate_limit_error` или HTTP 429 ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors), [событие Claude Code](https://github.com/anthropics/claude-code/issues/91857)). Codex: `rate_limit_reached_type` или окно `used_percent` ≥ 100 в rollout-файле ([парсер CodexLimits](../../internal/agentio/quota.go), [типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)); текст `usage limit`, `usage_limit_reached` или HTTP 429. Pi: коды z.ai 1308/1310 или другой HTTP 429 ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)); образец 1310 — [сохранённый ответ](../../internal/agentio/testdata/pi-limit-zai.jsonl). | Ждать до сброса + 60 с, затем продолжить ту же сессию; без времени сброса использовать `limit_wait`. Для кода z.ai время без зоны трактуется как UTC+8. |
+| `limit` | Claude: `rate_limit_event` со `status: rejected` даёт `resetsAt`; текст `rate_limit_error` или HTTP 429 ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors), [событие Claude Code](https://github.com/anthropics/claude-code/issues/91857)). Codex: `rate_limit_reached_type` или окно `used_percent` ≥ 100 в rollout-файле ([парсер CodexLimits](../../internal/agentio/quota.go), [типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)); текст `usage limit`, `usage_limit_reached` или HTTP 429. Pi: коды z.ai 1308/1310 или другой HTTP 429 ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)); образец 1310 — [сохранённый ответ](../../internal/agentio/testdata/pi-limit-zai.jsonl). OpenCode: текст `429`, `rate limit`, `usage limit`, `quota`. | Ждать до сброса + 60 с, затем продолжить ту же сессию; без времени сброса использовать `limit_wait`. Для кода z.ai время без зоны трактуется как UTC+8. |
 | `throttle` | Pi: код z.ai 1302 (`Rate limit reached for requests`, [таблица ошибок z.ai](https://docs.z.ai/api-reference/api-code)). | Повторить через 30 с в той же сессии; четвёртый подряд throttle становится `outage`. |
-| `outage` | Claude: `overloaded_error`, HTTP 529/5xx или `api_error` ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors)). Codex: `stream disconnected`, overloaded или 5xx ([типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)). Pi: код z.ai 1305 (временно перегружен), HTTP 5xx или `fetch failed`, `ECONNREFUSED`, `connection error`, `terminated` ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)). | Повторить через 10 мин в той же сессии. |
+| `outage` | Claude: `overloaded_error`, HTTP 529/5xx или `api_error` ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors)). Codex: `stream disconnected`, overloaded или 5xx ([типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)). Pi: код z.ai 1305 (временно перегружен), HTTP 5xx или `fetch failed`, `ECONNREFUSED`, `connection error`, `terminated` ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)). OpenCode: событие `error` с `error.type` = `provider.no-route` (маршрут непригоден: модель или вариант не существует, работает fallback) либо текст `5xx`, `overloaded`, `timeout`, `connection`, `ECONNREFUSED`. | Повторить через 10 мин в той же сессии. |
 
 Ни один класс не тратит попытку; `LimitTries` считает подряд отказы всех
 классов. `--no-wait` или 10 отказов подряд останавливают раннер с кодом 7.
@@ -615,3 +617,16 @@ assistant `message_end`: каждый — отдельный вызов API), `i
 только в режиме `auto`: в `full` песочницы нет. `--output-schema` строгий:
 все ключи `RESULT_SCHEMA` обязательны, неиспользуемые — пустой список или
 строка; одна схема на всех ассистентов, Claude её тоже принимает.
+
+Профиль `opencode`: `opencode run --format json --agent build`, промпт в
+stdin. Модель и вариант — одним аргументом `--model
+provider/model#variant` (`{model_variant}`; без усилия — модель без `#`),
+продолжение — `--session <id>`. Декодер `stream = "opencode"` сворачивает
+JSON Lines событий `step_start`/`text`/`tool_use`/`step_finish`/`error` в
+объект `session`, `text` (последнее сообщение ассистента, в нём result
+JSON), `usage` и `cost` (суммы по `step_finish`), `is_error`/`error`
+(событие `error`; код выхода при отказе не сигнал). Прав: песочницы нет,
+`auto` и `full` оба дают `--auto` — снимает подтверждения, не отменяя
+явные запреты пользователя; `full` изоляцией не является. Квоты нет: окна
+подписки командой не отдаются, зонд не вызывается; на подписке go `cost`
+всегда 0.

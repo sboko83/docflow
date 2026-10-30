@@ -43,7 +43,7 @@ sha256 по checksums.txt, распаковывает архив и запуск
 `.zshrc`, `.bashrc` или `.bash_profile`; на Windows — каталог `current`
 в пользовательский PATH, а симлинки заменяют directory junction, без
 Developer Mode и прав администратора) и ставит личные симлинки скиллов
-агентам, чьи CLI найдены в PATH (`claude`, `codex`, `pi`), и в
+агентам, чьи CLI найдены в PATH (`claude`, `codex`, `pi`, `opencode`), и в
 `~/.zcode/skills`, если существует каталог `~/.zcode`. Симлинки ведут в
 `~/.docflow/current/skills/<имя>` и не переписываются при обновлении.
 
@@ -194,7 +194,7 @@ bash tools/install-dev.sh
 Скрипт проверяет исходники, собирает bin/docflow, создаёт симлинк в
 выбранном каталоге (`~/.local/bin` по умолчанию; другой — через `--bin-dir
 DIR`) и ставит скиллы агентам, чьи CLI найдены в PATH (`claude`, `codex`,
-`pi`), а также в `~/.zcode/skills`, если существует каталог `~/.zcode`.
+`pi`, `opencode`), а также в `~/.zcode/skills`, если существует каталог `~/.zcode`.
 Флаг `--no-skills` пропускает установку скиллов, `--dry-run` печатает план,
 ничего не меняя. Скрипт не меняет PATH: если каталог не найден в PATH, он
 напечатает команду для добавления в профиль оболочки. Сохраните checkout
@@ -466,7 +466,7 @@ docflow run              # юниты текущего плана подряд �
 Конфиг — только для плана без исполнителей. TOML: `--config` >
 `$DOCFLOW_AGENTS` > `$XDG_CONFIG_HOME/docflow/agents.toml` (`~/.config/…`);
 файл из `--config` или `$DOCFLOW_AGENTS`, которого нет, — ошибка. Встроенные профили
-`claude`, `codex` и `pi` (`docflow run --print-config`); файл накладывается на встроенные
+`claude`, `codex`, `pi` и `opencode` (`docflow run --print-config`); файл накладывается на встроенные
 профили по ключам (`model_extra` и `permissions` — тоже по ключам), добавляет новые профили
 и накладывается на таблицу `[tiers]` ярус за ярусом, ключ за ключом:
 `[tiers.<fast|default|strong|max>]` с ключами `agent` (имя профиля),
@@ -484,7 +484,7 @@ docflow run              # юниты текущего плана подряд �
 | `permissions` | таблица режима прав плана → аргументы после `cmd` (`auto`/`full`); накладывается на встроенную по ключам; профиль без таблицы: `auto` — `cmd` как есть, `full` — код 2 |
 | `result`, `text`, `session`, `error`, `cost` | пути `json:a.b` в JSON-выводе: result JSON, текст ответа, id сессии, флаг ошибки, стоимость |
 | `tokens` | список путей `json:a.b`; сумма значений — токены вызова (`claude`: `usage.input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`); ключа нет — токены не считаются |
-| `stream` | декодер потока JSON Lines: `"claude"`, `"codex"`, `"pi"` или пусто; `claude` даёт квоту подписки и текущее действие агента, `pi` — объект `session`, `text`, `usage`, `cost`, `is_error`, `error`, `codex` — действие и сворачивает события в объект `thread_id`, `text`, `usage`, `is_error`, `error` для путей `json:`; без декодера остаются только итоги |
+| `stream` | декодер потока JSON Lines: `"claude"`, `"codex"`, `"pi"`, `"opencode"` или пусто; `claude` даёт квоту подписки и текущее действие агента, `pi` — объект `session`, `text`, `usage`, `cost`, `is_error`, `error`, `codex` — действие и сворачивает события в объект `thread_id`, `text`, `usage`, `is_error`, `error` для путей `json:`, `opencode` — сворачивает события `run --format json` в объект `session`, `text`, `usage`, `cost`, `is_error`, `error`; без декодера остаются только итоги |
 | `output_tokens` | путь `json:a.b` к числу выходных токенов вызова (`claude`: `usage.output_tokens`) |
 | `turns` | путь `json:a.b` к числу ходов агента в вызове (`claude`: `num_turns`) |
 | `limit`, `limit_wait` | regex сообщения о лимите; ожидание, если время сброса не найдено (1800 с) |
@@ -502,7 +502,9 @@ docflow run              # юниты текущего плана подряд �
 | `quota` | `"used"` (по умолчанию) — доля израсходованного окна; `"left"` — остаток: процент, полоса, дельта и цвета считаются от него, пороги зеркальные (>50% зелёный, 21–50% жёлтый, ≤20% красный) |
 | `resets` | `true` (по умолчанию) — время сброса окна в строке квоты: `↻ HH:MM` для окна 5h, `↻ Mon HH:MM` для более длинных; `false` — без него. В текстовом выводе время сброса, как и раньше, только с `-v` |
 
-Плейсхолдеры в аргументах: `{prompt}`, `{model}`, `{effort}`, `{schema}` (JSON-схема
+Плейсхолдеры в аргументах: `{prompt}`, `{model}`, `{effort}`, `{model_variant}`
+(модель с вариантом `model#effort`, без усилия — модель без `#`; для
+`opencode`), `{schema}` (JSON-схема
 result inline), `{schema_file}`, `{session}`.
 
 Свой `~/.config/docflow/agents.toml` накладывается на встроенный
@@ -540,6 +542,20 @@ z.ai) или модель локального провайдера (`local-lan/
 `docflow install-skills --agent pi`; в headless-режиме Pi пропускает
 `.pi/skills/` без project trust (запись в `~/.pi/agent/trust.json` или
 `--approve`), личный каталог trust не требует. Нужен вход в провайдера Pi.
+
+Профиль `opencode` запускает `opencode run --format json --agent build`;
+промпт идёт в stdin. Модель и вариант — одним аргументом
+`--model provider/model#variant` (плейсхолдер `{model_variant}`; маршрут
+без усилия — модель без `#`), продолжение сессии — `--session <id>`.
+Режимы `auto` и `full` оба добавляют `--auto`: песочницы у OpenCode нет,
+`--auto` снимает подтверждения, не отменяя явные запреты пользователя;
+`full` изоляцией не является. Квоты подписки нет: OpenCode не отдаёт окна
+командой, пригодной для зонда; стоимость и токены декодер собирает из
+`step_finish` (на подписке go cost 0). Отказ провайдера приходит
+событием `error` — код выхода не сигнал. Пример тройки исполнителя:
+`opencode | opencode-go/deepseek-v4.1-flash | high`. Скиллы —
+`docflow install-skills --agent opencode` (`.opencode/skills` в проекте,
+`~/.config/opencode/skills` лично). Нужен собственный вход CLI.
 
 Профиль без `result` берёт result JSON из последнего блока ` ```json `,
 без `resume_args` повторяет попытку полным промптом. Запуск —

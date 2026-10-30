@@ -70,8 +70,9 @@ docflow-жизненный цикл. Политики коммитов и рел
   ведущий внутрь `~/.docflow/`, при установке из другого источника
   перенаправляется на новый источник, а чужой существующий путь вызывает отказ
   ([P038](../archive/P038-runner-backlog-batch.md)).
-  `--agent claude|codex|pi` выбирает каталоги
-  `~/.claude/skills/`, `~/.agents/skills/` и `~/.pi/agent/skills/`
+  `--agent claude|codex|pi|opencode` выбирает каталоги
+  `~/.claude/skills/`, `~/.agents/skills/`, `~/.pi/agent/skills/` и
+  `~/.config/opencode/skills/`
   соответственно; default — Claude.
   Явный `--target DIR` заменяет личный каталог.
 - Standalone-установка (`install.sh` → `docflow install`, `docflow update`)
@@ -99,7 +100,7 @@ docflow-жизненный цикл. Политики коммитов и рел
   `docflow install-skills --project` — сам project-режим ничего не копирует.
 - `install-skills --project` копирует скиллы (не симлинки) в
   `<project>/.claude/skills/` для Claude или `<project>/.agents/skills/` для
-  Codex или `<project>/.pi/skills/` для Pi. `--project` и `--target` несовместимы. `init --skills` использует тот
+  Codex или `<project>/.pi/skills/` для Pi или `<project>/.opencode/skills/` для OpenCode. `--project` и `--target` несовместимы. `init --skills` использует тот
   же проектный каталог; `init --agent codex|pi` без `--skills` скиллы не ставит.
   Копии коммитят. Каталог с тем же `name:` в `SKILL.md` считается копией
   docflow и обновляется целиком; чужой каталог или симлинк — конфликт, весь
@@ -130,6 +131,9 @@ docflow-жизненный цикл. Политики коммитов и рел
   `~/.pi/agent/trust.json` или флага `--approve` каталог `.pi/skills/`
   молча пропускается; личный каталог trust не требует
   ([P026](../archive/P026-pi-agent.md)).
+- OpenCode читает ещё `.claude/skills` и `.agents/skills`: установка для
+  Codex делает скиллы видимыми и OpenCode. Собственные каталоги OpenCode
+  ставит только `--agent opencode`.
 - Один установщик на проект: куда ставит Ruleblend, `--project` не применяют —
   [P008](../archive/P008-project-skills.md).
 
