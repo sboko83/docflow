@@ -501,7 +501,7 @@ Handoff:
 - Наблюдение: режим missing-artifacts по-прежнему падает раньше checker-а на set -- .git/docflow/run/*.events.jsonl; ветка обязательных артефактов checker-а покрыта новым случаем lost-artifact, дублировать её в старом режиме не стал
 - Unverified: живой прогон снова не выполнялся — усиленные проверки прогнаны offline и против реального бинарника с подставным CLI; живую подписку проверяет P053.2.1 — отсутствующая проверка: живой вызов opencode-go/deepseek-v4.1-flash
 
-### [ ] P053.2.3 Review smoke evidence checks
+### [x] P053.2.3 Review smoke evidence checks
 Read:
 - tools/smoke-opencode.sh
 - docs/design/runner.md#result-json
@@ -519,6 +519,10 @@ Role: review
 Commit: P053.2.3: review smoke evidence checks
 Handoff:
 - Blocked (plan): Нужен исправляющий юнит. 1) tools/smoke-opencode-check.py:316-326 и :415 сверяют argv только на наличие --session/--model, а значения --model и --agent build не сверяются с Executor: при верных событиях и строках маршрутов дрейф {model_variant} в BuildCommand пройдёт незамеченным, и маршрут реально потраченной модели не доказан. 2) summary.tsv пишется после всех проверок (check.py:355,417), вопреки docstring и пункту Do о сводке: при провале проверки сводки нет, обязательность артефакта не проверяется. 3) Отказной сценарий проверяет только is_error (check.py:411-415): поток с text/tool_use прошёл бы, то есть «не доходит до генерации» и provider.no-route не доказаны.
+- Три дефекта блокировки закрыты и проверены мутациями на копиях живых свидетельств: подмена значения --model в argv, text-событие в отказном потоке, чужой error_type, удалённый call-2.exit и испорченный --agent — каждая даёт non-zero с именем причины; провалившаяся проверка оставляет summary.tsv со строками unknown
+- Дифф adc403b..HEAD (P053.2.2 + P053.2.4) разобран против Do/Goal/Constraints/Decisions: маршруты сверяются по events.jsonl и строке вывода, Handoff — по плану против result JSON успешной попытки, resume — по argv, одинаковому sessionID и точному числу вызовов; консольных грепов вместо свидетельств нет
+- Test changes: none — дифф не трогает Go-тестов; проверки не ослаблены, новые негативные случаи добавлены
+- Наблюдение без дефекта: режим missing-artifacts падает раньше checker-а на set -- .git/docflow/run/*.events.jsonl; ветка обязательных артефактов checker-а покрыта случаем lost-artifact
 
 ### [ ] P053.2.1 Accept opencode on the go subscription
 Read:
