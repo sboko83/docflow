@@ -145,6 +145,8 @@ result JSON, живость и классификация отказов. Ски
   подготовка и ревью не тратят подписку. Отвергнуто: ослабить эталонные
   `Do:`/`Verify:` приёмки, считать два независимых юнита resume или
   повторять живой smoke ради ручного сбора артефактов.
+- Машинная сверка свидетельств вынесена в tools/smoke-opencode-check.py (python3 stdlib), а не в shell — почему: разбор JSON-потоков, events.jsonl и плана на awk/sed был бы неподдерживаемым и непроверяемым; отвергнуто: сверка грепом консольного вывода (она и была дефектом прежней приёмки)
+- Каталог свидетельств dry-run удаляется, живой — остаётся — почему: у dry-run нет потоков попыток, а успешный живой прогон должен пережить сессию; отвергнуто: удалять всё по trap (терялись свидетельства успеха) и оставлять пустые каталоги от каждого dry-run
 
 ## Phase 1: Adapter and integration
 
@@ -386,7 +388,7 @@ Handoff:
 
 ## Phase 2: Acceptance
 
-### [ ] P053.2.2 Preserve smoke evidence and exercise session resume
+### [x] P053.2.2 Preserve smoke evidence and exercise session resume
 Read:
 - tools/smoke-opencode.sh
 - internal/runner/events.go
@@ -435,6 +437,13 @@ Traps: прежний EXIT trap удаляет успешный репозито
 smoke в этом юните; не менять эталонную приёмку.
 Depends: P053.1.1, P053.1.2, P053.1.3, P053.1.4, P053.1.5, P053.1.6
 Commit: P053.2.2: preserve smoke evidence and verify resume
+Handoff:
+- Смоук прогоняется реальным бинарником с подставным opencode формы v2.2.3 (ручная проверка, не часть Verify): живой runner прошёл resume через --session, verify [4,0], Handoff и Unverified в плане сверены с result JSON, no-such-model дал код 7 и [~], события и вызовы сохранены
+- Линия отказа раннера идёт в stderr, а не в stdout (p.line с warn=true): smoke ищет её в обоих потоках, код 7 и маршрут сверяются по событиям
+- Контролируемый провал Verify живёт в .git/docflow/run: проверка считает attempt-логи, а не файлы агента; второй юнит получает ровно одну попытку, потому что его Verify зелёный сразу
+- Шапка Handoff в плане не считается свидетельством: сверка идёт с handoff и unverified успешной попытки, склеенными как handoff + "Unverified: …"
+- Unverified: живой OpenCode не вызывался — поток, resume и отказ проверены подставным CLI и фикстурами, реальную подписку go тратит только P053.2.1 — отсутствующая проверка: живой вызов opencode-go/deepseek-v4.1-flash
+- Unverified: работа под Git Bash на Windows не проверялась (mktemp -d, tee и wrapper-скрипт) — отсутствующая проверка: запуск smoke на Windows
 
 ### [ ] P053.2.3 Review smoke evidence checks
 Read:
