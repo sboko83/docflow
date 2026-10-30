@@ -7,9 +7,9 @@ import (
 
 // Liveness tracks what the agent's stdout says about progress: the time of
 // the last line, the number of turns, and the tools in flight. The stream
-// name ("claude", "codex" or "pi" from the agent profile) decides which
-// event shapes count as a turn and as a tool start or end. A nil stream or
-// an unknown one still tracks line times; turns and tools stay empty.
+// name ("claude", "codex", "pi" or "opencode" from the agent profile) decides
+// which event shapes count as a turn and as a tool start or end. A nil stream
+// or an unknown one still tracks line times; turns and tools stay empty.
 type Liveness struct {
 	mu     sync.Mutex
 	stream string
@@ -70,6 +70,8 @@ func (l *Liveness) Observe(line string) {
 		l.observeCodex(obj)
 	case "pi":
 		l.observePi(obj)
+	case "opencode":
+		l.observeOpencode(obj)
 	}
 }
 
@@ -165,6 +167,33 @@ func (l *Liveness) observeCodex(obj map[string]any) {
 		l.tools[id] = time.Now()
 	} else {
 		delete(l.tools, id)
+	}
+}
+
+// observeOpencode handles OpenCode: step_start is one model turn; a tool_use
+// part opens a tool by part.id while its state is running or pending and
+// closes it on completed or error; step_finish closes what the step left
+// open. The stream of v2.2.3 reports a tool once, already completed, so no
+// tool is ever seen in flight and liveness rests on the line times alone.
+func (l *Liveness) observeOpencode(obj map[string]any) {
+	switch str(obj["type"]) {
+	case "step_start":
+		l.beginTurn()
+	case "tool_use":
+		part := table(obj["part"])
+		id := str(part["id"])
+		if id == "" {
+			return
+		}
+		switch str(table(part["state"])["status"]) {
+		case "running", "pending":
+			l.tools[id] = time.Now()
+		case "completed", "error":
+			delete(l.tools, id)
+		}
+	case "step_finish":
+		// The step is over; nothing of it can still be in flight.
+		clear(l.tools)
 	}
 }
 

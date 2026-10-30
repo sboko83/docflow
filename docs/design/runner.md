@@ -370,7 +370,13 @@ Result JSON — единственный контракт с ассистент�
 закрывает все инструменты; `codex` — ход это `turn.started`, инструмент —
 не-молчаливый `item.started` по `item.id` до `item.completed`; `pi` — ход это
 `message_end` с `role=assistant`, инструмент — `tool_execution_start` /
-`tool_execution_end` по `toolCallId`). Профильный `idle_timeout` — лимит
+`tool_execution_end` по `toolCallId`; `opencode` — ход это `step_start`,
+инструмент — `tool_use` со `state.status` `running`/`pending` по `part.id` до
+`completed`/`error`, а `step_finish` закрывает недокрытые инструменты шага.
+Поток `opencode run --format json` v2.2.3 отдаёт инструмент одним событием уже
+со статусом `completed` — даже долгая команда не даёт события в работе, поэтому
+инструменты у `opencode` не считаются и живость вызова держится только на
+строках потока). Профильный `idle_timeout` — лимит
 тишины: без новой строки потока и без инструмента в работе вызов снимают как
 зависший (встроенные профили — 1200 с; 0 выключает проверку, диапазон
 5–86400). Инструмент в работе никогда не простой, он ограничен только

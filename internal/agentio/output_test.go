@@ -262,14 +262,36 @@ func TestOpencodeErrors(t *testing.T) {
 	data := table(AgentOutput(agent, out))
 	equal(t, data["is_error"], true)
 	equal(t, data["error"], "Model unavailable: opencode-go/no-such-model")
+	equal(t, data["error_type"], "provider.no-route")
 	equal(t, data["session"], "ses_e7327a596ffeA3CVqgw0opFqkQ")
-	for _, event := range []any{
+	for i, event := range []any{
 		obj(`{"type":"error","sessionID":"s1","error":{"type":"provider.no-route","message":"boom"}}`),
 		obj(`{"type":"error","sessionID":"s1","error":"boom"}`),
 	} {
 		data := table(AgentOutput(agent, lines(event)))
 		equal(t, data["is_error"], true)
 		equal(t, data["error"], "boom")
+		equal(t, data["error_type"], []any{"provider.no-route", nil}[i])
+	}
+}
+
+func TestOpencodeStreamActivity(t *testing.T) {
+	agent := profile(t, "opencode")
+	equal(t, StreamEvent(agent, obj(`{"type":"text","part":{"type":"text","text":"ok"}}`)), map[string]any{"assistant_text": "ok"})
+	equal(t, StreamEvent(agent, obj(`{"type":"tool_use","part":{"type":"tool","id":"c1","tool":"shell","state":{"status":"running","input":{"command":"sleep 15"}}}}`)), map[string]any{"activity": "shell sleep 15"})
+	equal(t, StreamEvent(agent, obj(`{"type":"tool_use","part":{"type":"tool","id":"c1","tool":"shell","state":{"status":"completed","title":"shell"}}}`)), map[string]any{"activity": "shell shell"})
+	long := obj(`{"type":"tool_use","part":{"type":"tool","tool":"shell","state":{"status":"running","input":{"command":"` + strings.Repeat("я", 100) + `"}}}}`)
+	activity := str(StreamEvent(agent, long)["activity"])
+	if len([]rune(activity)) != 66 || !strings.HasSuffix(activity, "…") {
+		t.Fatal(activity)
+	}
+	for _, v := range []any{
+		obj(`{"type":"step_start","part":{"type":"step-start"}}`),
+		obj(`{"type":"step_finish","part":{"type":"step-finish"}}`),
+		obj(`{"type":"text","part":{"type":"text"}}`),
+		obj(`{"type":"tool_use","part":{"type":"tool","state":{"status":"running"}}}`),
+	} {
+		equal(t, StreamEvent(agent, v), map[string]any(nil))
 	}
 }
 

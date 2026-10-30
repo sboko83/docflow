@@ -22,6 +22,10 @@ func piFailure(text string) string {
 	}})
 }
 
+func opencodeFailure(kind, text string) string {
+	return lines(map[string]any{"type": "error", "error": map[string]any{"type": kind, "message": text}})
+}
+
 func TestClassify(t *testing.T) {
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	codexReset := float64(1791980000)
@@ -85,6 +89,17 @@ func TestClassify(t *testing.T) {
 		{name: "pi ECONNREFUSED Synthetic", profile: "pi", run: AgentRun{Stdout: piFailure("connect ECONNREFUSED 127.0.0.1")}, kind: RefusalOutage},
 		{name: "pi connection error Synthetic", profile: "pi", run: AgentRun{Stdout: piFailure("connection error")}, kind: RefusalOutage},
 		{name: "pi terminated Synthetic", profile: "pi", run: AgentRun{Stdout: piFailure("process terminated")}, kind: RefusalOutage},
+		{name: "OpenCode captured no-route", profile: "opencode", run: AgentRun{Stdout: fixture(t, "opencode-error")}, kind: RefusalOutage},
+		{name: "OpenCode no-route Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider.no-route", "Model unavailable: opencode-go/no-such-model")}, kind: RefusalOutage},
+		{name: "OpenCode 429", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "HTTP 429 Too Many Requests")}, kind: RefusalLimit},
+		{name: "OpenCode rate limit", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "rate limit exceeded")}, kind: RefusalLimit},
+		{name: "OpenCode usage limit", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "usage limit reached")}, kind: RefusalLimit},
+		{name: "OpenCode quota", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "quota exceeded")}, kind: RefusalLimit},
+		{name: "OpenCode 5xx Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "HTTP 503")}, kind: RefusalOutage},
+		{name: "OpenCode overloaded Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "server overloaded")}, kind: RefusalOutage},
+		{name: "OpenCode timeout Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "request timeout")}, kind: RefusalOutage},
+		{name: "OpenCode connection Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "connection reset by peer")}, kind: RefusalOutage},
+		{name: "OpenCode ECONNREFUSED Synthetic", profile: "opencode", run: AgentRun{Stdout: opencodeFailure("provider_error", "connect ECONNREFUSED 127.0.0.1")}, kind: RefusalOutage},
 		{name: "legacy profile regex", profile: "", run: AgentRun{Stdout: `{"is_error":true,"text":"subscription exhausted"}`}, kind: RefusalLimit},
 	}
 	for _, test := range tests {

@@ -135,6 +135,10 @@ stream = "opencode"
 timeout = 7200
 idle_timeout = 1200
 limit_wait = 1800
+
+[agents.opencode.permissions]
+auto = ["--auto"]
+full = ["--auto"]
 `
 
 var AgentKeys = map[string]string{

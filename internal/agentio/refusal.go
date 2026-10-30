@@ -26,6 +26,8 @@ var (
 	codexLimitRE     = regexp.MustCompile(`(?i)(usage limit|usage_limit_reached|\b429\b)`)
 	codexOutageRE    = regexp.MustCompile(`(?i)(stream disconnected|\b5\d\d\b|overloaded)`)
 	piOutageRE       = regexp.MustCompile(`(?i)(\b5\d\d\b|fetch failed|ECONNREFUSED|connection error|terminated)`)
+	opencodeLimitRE  = regexp.MustCompile(`(?i)(\b429\b|rate limit|usage limit|quota)`)
+	opencodeOutageRE = regexp.MustCompile(`(?i)(\b5\d\d\b|overloaded|timeout|connection|ECONNREFUSED)`)
 	piHTTPErrorRE    = regexp.MustCompile(`(?s)^\s*(\d{3})\s*:\s*(.*)$`)
 	piResetRE        = regexp.MustCompile(`(?i)\breset\s+at\s+(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\b`)
 	usageResetTextRE = regexp.MustCompile(`(?:[A-Z][a-z]{2} \d{1,2} at )?\d{1,2}(?::\d\d)?[ap]m \([^)]+\)`)
@@ -77,6 +79,19 @@ func Classify(agent map[string]any, run AgentRun, now time.Time) *Refusal {
 			return &Refusal{Kind: RefusalLimit, Reset: usageResetInText(errorText, now), Text: text}
 		}
 		if (status >= 500 && status <= 599) || piOutageRE.MatchString(errorText) || piOutageRE.MatchString(message) {
+			return &Refusal{Kind: RefusalOutage, Text: text}
+		}
+	case "opencode":
+		// The stream reports the failure as an error event; the exit code is
+		// not a signal. provider.no-route means the route is unusable, so the
+		// run falls back; everything else keys on the message text.
+		if str(JSONPath(data, "json:error_type")) == "provider.no-route" {
+			return &Refusal{Kind: RefusalOutage, Text: text}
+		}
+		if opencodeLimitRE.MatchString(text) {
+			return &Refusal{Kind: RefusalLimit, Reset: usageResetInText(text, now), Text: text}
+		}
+		if opencodeOutageRE.MatchString(text) {
 			return &Refusal{Kind: RefusalOutage, Text: text}
 		}
 	}

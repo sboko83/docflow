@@ -19,7 +19,7 @@ import (
 )
 
 func TestDefaultAgentsBytesAndSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "5c4ce8840bbcf973266926299228552537806ceeaac9f541be2cc1610a08ac8e" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "1975e07753e827fcc271364ed89795ff2dacd7a9636d58d6aa3af97703c04c03" {
 		t.Fatalf("DefaultAgents SHA-256 = %s", got)
 	}
 	parsed, err := ParseTOML(DefaultAgents)
@@ -369,15 +369,15 @@ func TestBuildCommand(t *testing.T) {
 	}
 	opencode := mapAt(agents, "opencode")
 	argv, stdin, err = BuildCommand(opencode, "P", "opencode-go/deepseek-v4.1-flash", "/s", "", "low", "auto")
-	if err != nil || stdin == nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--model", "opencode-go/deepseek-v4.1-flash#low"}) {
+	if err != nil || stdin == nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--auto", "--model", "opencode-go/deepseek-v4.1-flash#low"}) {
 		t.Fatalf("opencode low argv = %#v, stdin=%v, err=%v", argv, stdin, err)
 	}
-	argv, _, err = BuildCommand(opencode, "P", "opencode-go/deepseek-v4.1-flash", "/s", "ses1", "high", "auto")
-	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--model", "opencode-go/deepseek-v4.1-flash#high", "--session", "ses1"}) {
-		t.Fatalf("opencode high argv = %#v, %v", argv, err)
+	argv, _, err = BuildCommand(opencode, "P", "opencode-go/deepseek-v4.1-flash", "/s", "ses1", "high", "full")
+	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--auto", "--model", "opencode-go/deepseek-v4.1-flash#high", "--session", "ses1"}) {
+		t.Fatalf("opencode full argv = %#v, %v", argv, err)
 	}
 	argv, _, err = BuildCommand(opencode, "P", "opencode-go/deepseek-v4.1-flash", "/s", "", "", "auto")
-	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--model", "opencode-go/deepseek-v4.1-flash"}) {
+	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--auto", "--model", "opencode-go/deepseek-v4.1-flash"}) {
 		t.Fatalf("opencode no-effort argv = %#v, %v", argv, err)
 	}
 

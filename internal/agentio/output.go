@@ -168,7 +168,11 @@ func OpencodeOutput(stdout string) map[string]any {
 			out["cost"] = previous + cost
 		case "error":
 			out["is_error"] = true
-			out["error"] = table(obj["error"])["message"]
+			errObj := table(obj["error"])
+			if kind := str(errObj["type"]); kind != "" {
+				out["error_type"] = kind
+			}
+			out["error"] = errObj["message"]
 			if out["error"] == nil {
 				out["error"] = obj["error"]
 			}
@@ -363,6 +367,26 @@ func StreamEvent(agent map[string]any, value any) map[string]any {
 			return nil
 		}
 		return map[string]any{"assistant_text": text.String()}
+	}
+	if agent["stream"] == "opencode" {
+		part := table(obj["part"])
+		switch kind {
+		case "text":
+			if text := str(part["text"]); text != "" {
+				return map[string]any{"assistant_text": text}
+			}
+		case "tool_use":
+			state := table(part["state"])
+			detail := str(state["title"])
+			if detail == "" {
+				detail = str(table(state["input"])["command"])
+			}
+			activity := strings.TrimRight(str(part["tool"])+" "+Clip(detail, 60), " ")
+			if activity != "" {
+				return map[string]any{"activity": activity}
+			}
+		}
+		return nil
 	}
 	if agent["stream"] != "claude" {
 		return nil

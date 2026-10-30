@@ -114,6 +114,7 @@ result JSON, живость и классификация отказов. Ски
 - Сообщение 'stream must be one of' строится из Streams динамически — почему: захардкоженный список уже отставал от codex/pi и с opencode лгал бы дальше — отвергнуто: оставить строку как есть.
 - cost копится как число под json:cost, а не таблицей cost.total как у pi — почему: opencode несёт part.cost числом и профиль читает json:cost напрямую — отвергнуто: вкладывать в cost.total (потребовало бы другого пути в профиле без выгоды).
 - Декодер error принимает и объект {message}, и строку — почему: живой формат — объект, но строка страхует от дрейфа формы — отвергнуто: только объект (нулевой error при дрейфе).
+- error_type копится в OpencodeOutput, а не повторным сканированием stdout в Classify — почему: тип ошибки нужен классификатору, а FailureText несёт только message; повторный разбор строк дублировал бы декодер — отвергнуто: читать error.type из сырого stdout в refusal.go.
 
 ## Phase 1: Adapter and integration
 
@@ -169,7 +170,7 @@ Handoff:
 - Unverified: Продолжение сессии: resume_args ['--session', '{session}'] покрыт только модульным тестом BuildCommand — живой вызов с --session не сделан (закрывается smoke-прогоном P053.2.1).
 - Unverified: Код выхода при отказе посреди генерации (не резолвинг маршрута): не воспроизведён — оба живых отказа вышли с кодом 1; отсутствующая проверка — живой вызов, обрывающийся провайдерской ошибкой в момент стрима (важно для Classify в P053.1.2).
 
-### [ ] P053.1.2 Liveness, refusals, and permissions
+### [x] P053.1.2 Liveness, refusals, and permissions
 Read:
 - internal/agentio/liveness.go
 - internal/agentio/output.go:L247-373
@@ -205,6 +206,12 @@ Traps: не закрывать инструмент по `step_finish` до до
 `running`, иначе счётчик всегда 0; `error.type` — не HTTP-статус; не
 подменять общий regex `limit` профиля.
 Commit: P053.1.2: track opencode liveness and refusals
+Handoff:
+- Живой поток v2.2.3 не даёт running/pending: даже sleep 15 пришёл одним tool_use со state.status completed (пауза 16.5 c без строк между step_start и tool_use) — ветка running в Liveness мертва на этой версии, инструменты у opencode не считаются, живость держится только на строках потока и idle_timeout; записано в docs/design/runner.md (Поток событий).
+- OpencodeOutput теперь кладёт error_type (error.type события error) под json:error_type — Classify ключует provider.no-route по нему; строковая форма error (дрейф) оставляет error_type nil; MessageText/FailureText без изменений.
+- Профиль получил [agents.opencode.permissions] auto/full = ["--auto"]; --auto в argv встаёт сразу после cmd (--agent build) и перед --model; закреплённый SHA-256 DefaultAgents в internal/agents/agents_test.go обновлён (1975e077…).
+- Unverified: Ветвь running/pending в Liveness покрыта только синтетикой: живой поток этих событий не отдаёт (наблюдение v2.2.3), поэтому поведение на реальном стриме с running не проверено — отсутствует живая версия opencode, которая их шлёт.
+- Unverified: Ключевые слова лимита (429/rate limit/usage limit/quota) и простоя (5xx/overloaded/timeout/connection) в Classify проверены синтетикой: живого сообщения отказа opencode с этими словами нет в фикстурах (там только provider.no-route) — отсутствует захват реального limit/outage-сообщения подписки.
 
 ### [ ] P053.1.3 CLI, lint, skills, and release integration
 Read:

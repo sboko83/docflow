@@ -62,6 +62,34 @@ func TestLivenessStreams(t *testing.T) {
 		live.Observe(`{"type":"tool_execution_end","toolCallId":"c1"}`)
 		equal(t, live.State().Tools, 0)
 	})
+	t.Run("opencode", func(t *testing.T) {
+		// The captured v2.2.3 stream reports the tool once, already completed,
+		// so no tool is ever in flight; two step_start events are two turns.
+		live := NewLiveness("opencode")
+		for _, line := range strings.Split(fixture(t, "opencode-result"), "\n") {
+			live.Observe(line)
+		}
+		state := live.State()
+		equal(t, state.Turns, 2)
+		equal(t, state.Tools, 0)
+	})
+	t.Run("opencode running tool", func(t *testing.T) {
+		live := NewLiveness("opencode")
+		live.Observe(`{"type":"step_start"}`)
+		equal(t, live.State().Turns, 1)
+		live.Observe(`{"type":"tool_use","part":{"id":"c1","type":"tool","tool":"shell","state":{"status":"running","input":{"command":"sleep 15"}}}}`)
+		state := live.State()
+		equal(t, state.Tools, 1)
+		if state.OldestTool.IsZero() {
+			t.Fatal("oldest in-flight tool has no start time")
+		}
+		live.Observe(`{"type":"tool_use","part":{"id":"c1","type":"tool","tool":"shell","state":{"status":"completed","input":{"command":"sleep 15"}}}}`)
+		equal(t, live.State().Tools, 0)
+		live.Observe(`{"type":"tool_use","part":{"id":"c2","type":"tool","tool":"shell","state":{"status":"running"}}}`)
+		equal(t, live.State().Tools, 1)
+		live.Observe(`{"type":"step_finish","part":{"type":"step-finish"}}`)
+		equal(t, live.State().Tools, 0) // step_finish closes what the step left open
+	})
 	t.Run("non-json lines still count as events", func(t *testing.T) {
 		live := NewLiveness("claude")
 		equal(t, live.State().Lines, 0) // the call has not spoken yet
