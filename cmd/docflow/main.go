@@ -29,7 +29,7 @@ var currentExecutable = os.Executable
 const runnerEnv = "DOCFLOW_RUNNER_UNIT"
 
 var commands = []commandSpec{
-	{name: "init", help: "create docs/docflow.md, plans/, archive/ and a line in AGENTS.md; --skills also copies the skills into the project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi"), flag("--skills", "copy skills into the selected project directory")}},
+	{name: "init", help: "create docs/docflow.md, plans/, archive/ and a line in AGENTS.md; --skills also copies the skills into the project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), flag("--skills", "copy skills into the selected project directory")}},
 	{name: "status", help: "show the queue, the current plan and its progress"},
 	{name: "next", help: "print the id of the next available unit"},
 	{name: "prompt", help: "print the prompt for the next unit", args: []argument{positional("id", "", false)}},
@@ -48,8 +48,8 @@ var commands = []commandSpec{
 	{name: "thaw", help: "move a frozen plan back to the end of the Queue", args: []argument{positional("id", "", true)}},
 	{name: "note", help: "write an archive entry without a plan", args: []argument{positional("slug", "", true), option("--title", "TITLE", "")}},
 	{name: "migrate", help: "convert docs from previous format versions"},
-	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
-	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi"), option("--target", "DIR", "personal skills directory override")}},
+	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
+	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
 	{name: "roster", help: "show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},

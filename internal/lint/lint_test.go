@@ -778,7 +778,7 @@ func TestParseExecutor(t *testing.T) {
 		{"claude | opus | ", "", "", "", "empty effort"},
 		{"claude | claude opus | high", "", "", "", "model 'claude opus'"},
 		{"claude | opus | very high", "", "", "", "effort 'very high'"},
-		{"gemini | pro | high", "", "", "", "unknown agent 'gemini'; known: claude, codex, pi"},
+		{"gemini | pro | high", "", "", "", "unknown agent 'gemini'; known: claude, codex, pi, opencode"},
 	}
 	for _, test := range tests {
 		t.Run(test.value, func(t *testing.T) {

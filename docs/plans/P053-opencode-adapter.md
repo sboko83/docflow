@@ -213,7 +213,7 @@ Handoff:
 - Unverified: Ветвь running/pending в Liveness покрыта только синтетикой: живой поток этих событий не отдаёт (наблюдение v2.2.3), поэтому поведение на реальном стриме с running не проверено — отсутствует живая версия opencode, которая их шлёт.
 - Unverified: Ключевые слова лимита (429/rate limit/usage limit/quota) и простоя (5xx/overloaded/timeout/connection) в Classify проверены синтетикой: живого сообщения отказа opencode с этими словами нет в фикстурах (там только provider.no-route) — отсутствует захват реального limit/outage-сообщения подписки.
 
-### [ ] P053.1.3 CLI, lint, skills, and release integration
+### [x] P053.1.3 CLI, lint, skills, and release integration
 Read:
 - internal/lint/lint.go:L30-45
 - internal/lint/lint.go:L415-445
@@ -243,6 +243,11 @@ Traps: help-тексты сверяются тестами посимвольн�
 `--agent` виден в usage; `doctor` ветку `pi --version` не трогать; скрипт
 устанавливает скиллы только для CLI, найденных в PATH.
 Commit: P053.1.3: expose opencode in CLI and skills
+Handoff:
+- «Подсказка doctor про PATH» истолкована как проза в help `install` — «agent CLIs in PATH (claude, codex, pi, opencode)»: другой подсказки про PATH со списком агентов нет, у doctor только выбор --agent; ветка `pi --version` в doctor не тронута.
+- opencode добавлен и в третий цикл release.go — удаление личных ссылок в `docflow uninstall` (диапазон L445-460 из Read:), иначе uninstall оставлял бы ссылки в ~/.config/opencode/skills; формулировка Do называла только два цикла.
+- Порядок значений везде — opencode последним (claude, codex, pi, opencode), как в Streams из internal/agents; docs/design/cli.md и skills.md всё ещё пишут {claude,codex,pi} — их обновляет P053.1.4.
+- Unverified: Релизные пути для opencode без отдельного теста: release-тесты подменяют PATH заглушками только claude/codex/pi, поэтому новый элемент releaseSkillOptions/uninstall выполняется лишь через общий цикл LookPath — не хватает проверки (заглушка opencode в release-тесте или живой smoke P053.1.4), что `docflow install` кладёт ссылки в ~/.config/opencode/skills при реальном opencode в PATH.
 
 ### [ ] P053.1.4 Docs and live smoke script
 Read:

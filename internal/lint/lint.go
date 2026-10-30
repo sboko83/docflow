@@ -35,7 +35,7 @@ var (
 	archiveOptional     = []string{"superseded_by"}
 	archiveSections     = []string{"Outcome", "Decisions", "Gotchas", "Follow-ups"}
 	requiredFields      = []string{"Read", "Do", "Verify", "Commit"}
-	executorAgents      = []string{"claude", "codex", "pi"}
+	executorAgents      = []string{"claude", "codex", "pi", "opencode"}
 	roleKeys            = []string{"cheap", "heavy", "review", "acceptance"}
 
 	planIDRE       = regexp.MustCompile(`^P\p{Nd}{3,}$`)

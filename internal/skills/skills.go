@@ -28,15 +28,17 @@ const (
 )
 
 var AgentSkillDirs = map[string]string{
-	"claude": filepath.Join(".claude", "skills"),
-	"codex":  filepath.Join(".agents", "skills"),
-	"pi":     filepath.Join(".pi", "skills"),
+	"claude":   filepath.Join(".claude", "skills"),
+	"codex":    filepath.Join(".agents", "skills"),
+	"pi":       filepath.Join(".pi", "skills"),
+	"opencode": filepath.Join(".opencode", "skills"),
 }
 
 // AgentUserSkillDirs contains personal skill directories that differ from
 // the corresponding project directory.
 var AgentUserSkillDirs = map[string]string{
-	"pi": filepath.Join(".pi", "agent", "skills"),
+	"pi":       filepath.Join(".pi", "agent", "skills"),
+	"opencode": filepath.Join(".config", "opencode", "skills"),
 }
 
 type Result struct {

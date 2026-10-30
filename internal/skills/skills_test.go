@@ -175,7 +175,7 @@ func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
 	source := sourceSkills(t)
 	home := t.TempDir()
 	setHome(t, home)
-	for _, agent := range []string{"claude", "codex", "pi"} {
+	for _, agent := range []string{"claude", "codex", "pi", "opencode"} {
 		result, err := InstallSkills(source, t.TempDir(), InstallOptions{Agent: agent})
 		if err != nil || result.Code != 0 || result.Stderr != "" {
 			t.Fatalf("install %s = %#v, %v", agent, result, err)
@@ -305,7 +305,7 @@ func TestInstallSkillsTargetAndPreflightConflicts(t *testing.T) {
 func TestInstallProjectCopiesUpdatesAndUsesAgentLayouts(t *testing.T) {
 	source := sourceSkills(t)
 	root := makeProject(t)
-	for _, agent := range []string{"claude", "codex", "pi"} {
+	for _, agent := range []string{"claude", "codex", "pi", "opencode"} {
 		result, err := InstallSkills(source, root, InstallOptions{Agent: agent, Project: true})
 		if err != nil || result.Code != 0 || !strings.Contains(result.Stdout, ": copied ") {
 			t.Fatalf("project install %s = %#v, %v", agent, result, err)
@@ -448,7 +448,7 @@ func TestDoctorMatchingCopiesAndDefaultDirectories(t *testing.T) {
 		}
 	}
 
-	for _, agent := range []string{"codex", "pi"} {
+	for _, agent := range []string{"codex", "pi", "opencode"} {
 		personal, err := AgentSkillsDir(agent, "")
 		if err != nil {
 			t.Fatal(err)

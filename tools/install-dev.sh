@@ -136,7 +136,7 @@ fi
 install_skills() {
     local agent
     [ "$NO_SKILLS" -eq 0 ] || return 0
-    for agent in claude codex pi; do
+    for agent in claude codex pi opencode; do
         if command -v "$agent" >/dev/null 2>&1; then
             if [ "$DRY_RUN" -eq 1 ]; then
                 printf 'would install skills: %s install-skills --agent %s\n' \

@@ -390,6 +390,10 @@ func TestSkillAgentDefaultsAndChoices(t *testing.T) {
 			if code != 0 || parsed == nil || parsed.values["--agent"] != "codex" {
 				t.Fatalf("codex args = %#v, %d", parsed, code)
 			}
+			parsed, code = parseArgs([]string{name, "--agent", "opencode"}, &bytes.Buffer{}, &bytes.Buffer{})
+			if code != 0 || parsed == nil || parsed.values["--agent"] != "opencode" {
+				t.Fatalf("opencode args = %#v, %d", parsed, code)
+			}
 			var stderr bytes.Buffer
 			parsed, code = parseArgs([]string{name, "--agent", "other"}, &bytes.Buffer{}, &stderr)
 			if code != clierrors.EXIT_FORMAT || parsed != nil {
