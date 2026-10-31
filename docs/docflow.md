@@ -6,7 +6,6 @@ start_budget: 4000
 ---
 ## Queue
 - P052
-- P055
 
 ## Frozen
 
