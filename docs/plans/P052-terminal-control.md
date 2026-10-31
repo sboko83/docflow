@@ -42,8 +42,9 @@ gate: go test -timeout 20m ./...
 ## Constraints
 
 - Одна команда `docflow tui` в существующем самодостаточном бинарнике.
-  Go 1.24 и CGO=0 сохраняются. macOS, Linux и Windows остаются целевыми
-  платформами; обязательная живая приёмка — текущий Mac.
+  Минимальная версия Go поднимается до 1.26, CGO=0 сохраняется. macOS,
+  Linux и Windows остаются целевыми платформами; обязательная живая
+  приёмка — текущий Mac.
 - Формат плана остаётся docflow: 3, события — v: 1 с совместимыми
   дополнениями. Существующие команды и обычный `docflow run` сохраняют
   проверки порядка, коды выхода, вывод, блокировки и работу без TTY.
@@ -104,11 +105,11 @@ gate: go test -timeout 20m ./...
 
 - TUI входит в основной бинарник как `docflow tui` — единая установка и
   общий раннер — отвергнуты веб-интерфейс и отдельный docflow-tui.
-- Bubble Tea v1.3.10 и поставляемый с ним Lip Gloss v1.1.0 — обработка
-  клавиш, resize и отрисовка не пишутся вручную; версия сохраняет Go
-  1.24 — отвергнут автоматический переход на Bubble Tea v2.1.1,
-  требующий Go 1.26. Источники:
-  [v1 go.mod](https://github.com/charmbracelet/bubbletea/blob/v1.3.10/go.mod),
+- Bubble Tea v2.1.1 и Lip Gloss v2.0.6 — обработка клавиш, resize и
+  отрисовка не пишутся вручную. Минимальная версия Go поднимается до
+  1.26.0, которого требует v2.1.1: свежая ветка библиотеки дороже
+  сохранения Go 1.24 — отвергнута привязка к Bubble Tea v1.3.10,
+  оставляющая TUI на устаревающей ветке. Источник:
   [v2 go.mod](https://github.com/charmbracelet/bubbletea/blob/v2.1.1/go.mod).
 - Для интерактивного запуска вводится видимый снимок конфигурации
   прогона в `<git-dir>/docflow/tui/`: назначения из плана плюс явно
@@ -212,7 +213,10 @@ Read:
 - internal/term/term_test.go
 - internal/runner/pty_darwin_test.go
 Do:
-- Добавь закреплённые зависимости из Decisions без смены минимальной Go; создай internal/tui/model.go, view.go, keys.go, app.go и app_test.go, подключи команду tui в cmd/docflow.
+- Подними `go` в go.mod до 1.26 и обнови упоминания Go 1.24+ в README.md,
+  README.ru.md, docs/usage.md и docs/design/cli.md; CI и release читают
+  версию из go.mod (`go-version-file`), workflow не трогай.
+- Добавь закреплённые зависимости из Decisions; создай internal/tui/model.go, view.go, keys.go, app.go и app_test.go, подключи команду tui в cmd/docflow.
 - Отобрази Queue, планы, фазы и юниты со статусами; поддержи раскрытие, перемещение, фокус, прокрутку и карточку Goal/Do/Verify/Depends/Handoff выбранного юнита. Читай Markdown существующим парсером, не дублируй формат.
 - Покажи loading, empty, error и content с доступным действием, помощь клавиш и текстовый статус кроме цвета. Сохраняй выбор при обновлении плана.
 - От 100 колонок используй две панели, ниже — переключаемую одну; проверь 120x40, 80x24, 40x12, кириллицу, длинные пути, resize и NO_COLOR. При недостаточном размере покажи понятное сообщение, не панику.
@@ -275,7 +279,8 @@ Commit: P052.2.4: review terminal controls
 Read:
 - internal/agents/agents.go:L548-605
 - internal/agents/agents.go:L701-745
-- internal/roster/roster.go:L1-160
+- internal/roster/resolve.go
+- internal/roster/resolve_chain.go
 - internal/tui/model.go
 - internal/runner/control.go
 - docs/usage.md#ростер
