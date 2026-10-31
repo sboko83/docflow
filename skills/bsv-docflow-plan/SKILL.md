@@ -64,11 +64,13 @@ work without a plan, create no plan files.
 8. Cold-agent check: reread every unit as if the chat never happened.
    Any "as we discussed", "see above", a reference to an unnamed file —
    rewrite.
-9. Routes: `docflow roster apply <id>` (plus `--preset NAME` when the
-   survey chose one, `--dry-run` to preview) writes the role chains into
-   the plan header; manual triples — the header keys by hand. Read its
-   warnings: a unit `Executor:` outside the conditions, an open unit
-   whose `Read:` proxy is over its role budget, a role without a fallback.
+9. Routes: `docflow roster apply <id>` with the same `--preset` and
+   condition flags the survey used (plus `--dry-run` to preview) writes
+   the role chains into the plan header; manual triples — the header keys
+   by hand. Read its warnings: a unit `Executor:` outside the conditions,
+   an open unit whose `Read:` proxy is over its role budget, a role
+   without a fallback. Apply refuses before writing when an open unit
+   needs an executor or role chain the conditions leave empty.
    When the user did not opt in to auto-replan, delete the `replan:` line
    apply wrote — after every repeated apply too.
 10. `docflow lint`. No script — check against the sample manually.
@@ -88,8 +90,9 @@ the user has already stated is recorded mechanically and not asked again.
   context, price, reasoning levels), `docflow roster brief` turns it into
   chains. Ask which temporary limits are in force and whether a preset
   applies — not which model goes to which role. Translate the answer into
-  brief flags (see "Conditions") and show the resolved conditions with
-  their chains before writing any unit. Manual triples — only on an
+  condition flags (see "Conditions") and show the resolved conditions
+  with their chains before writing any unit; the same flags go to
+  `roster apply`. Manual triples — only on an
   explicit request or a roster error; with them ask for a fallback route
   of every role too: a plan without a fallback — only on an explicit
   refusal. Rules: "Executor".
@@ -130,8 +133,8 @@ the user has already stated is recorded mechanically and not asked again.
 
 A condition is a temporary limit on top of the stable policy. The agent
 reads the user's phrase and picks the flags; the CLI parses flags, not
-Russian. They go to `docflow roster brief` (then `roster apply`) for one
-call and are never written:
+Russian. They go to `docflow roster brief` and then to `docflow roster
+apply` unchanged, for one call, and are never written:
 
 | the user says | flags |
 |---|---|

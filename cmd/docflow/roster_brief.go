@@ -152,8 +152,9 @@ func rosterConditionPolicy(parsed *parsedArgs) (*roster.Policy, *roster.State, e
 }
 
 // applyBriefFlags merges the one-shot condition flags into the state:
-// --preset, the budget levels, --off, --expires and --only. The lists take
-// comma-separated accesses, so one flag can name several.
+// --preset, the budget levels, --off, --expires and --only. Brief, show,
+// explain and apply share the overlay; the lists take comma-separated
+// accesses, so one flag can name several.
 func applyBriefFlags(parsed *parsedArgs, state *roster.State) error {
 	if preset := rosterString(parsed, "--preset"); preset != "" {
 		state.Preset = preset

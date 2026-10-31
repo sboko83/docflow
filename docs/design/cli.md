@@ -44,7 +44,7 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | `roster brief [--preset NAME] [--off A,B] [--minimal A,B] [--lean A,B] [--prefer A,B] [--expires A=DATE] [--only A=GLOB] [--json]` | условия в силе, цепочка, бюджет и scope каждой роли, матрица `review:`, `why:` и предупреждения; разовые флаги не сохраняются |
 | `roster show` | алиас `brief` |
 | `roster explain PLAN [--json]` | сравнивает шапку плана с брифом: `ключ: старое → новое` и предупреждения ролей плана; ничего не пишет |
-| `roster apply PLAN [--preset NAME] [--dry-run] [--json]` | пишет в шапку плана `executor:`, `fallback:`, `replan:` и ключи ролей с `Role:`; ключи без юнитов удаляет, `Executor:` юнитов не трогает; `run.lock` — код 5; после `lint`-ошибки восстанавливает файл — код 2; изменений нет — код 1; не коммитит |
+| `roster apply PLAN [--preset NAME] [разовые флаги] [--dry-run] [--json]` | пишет в шапку плана `executor:`, `fallback:`, `replan:` и ключи ролей с `Role:`; ключи без юнитов удаляет, `Executor:` юнитов не трогает; разовые флаги те же, что у brief, и не сохраняются; отказ до записи, если открытому юниту не хватает цепочки; `run.lock` — код 5; после `lint`-ошибки восстанавливает файл — код 2; изменений нет — код 1; не коммитит |
 | `roster off ACCESS [--until DATE]`, `on ACCESS`, `budget ACCESS LEVEL`, `expire ACCESS DATE`, `allow ACCESS PATTERN...`, `deny ACCESS PATTERN...`, `reset` | правят только `roster.state.toml`; неизвестный доступ, бюджет или пресет — код 2 до записи |
 | `roster migrate [--write]` | переводит v1-ростер на v2; `--write` сохраняет `roster.toml.bak`; уже v2 — код 2 |
 | `--version` | версия и sha репозитория (`+dirty` при изменениях) |

@@ -637,6 +637,12 @@ kind   = "subscription"
 budget = "minimal"             # только acceptance и replan
 trusted = true
 
+[access.claude]
+agents  = ["claude"]
+kind    = "subscription"
+budget  = "normal"
+trusted = true
+
 [access.local]
 agents = ["pi"]
 kind   = "local"
@@ -716,8 +722,10 @@ docflow roster brief --preset low
 
 `--preset NAME` применяет пресет политики; `--off`, `--minimal`, `--lean`,
 `--prefer` (списки доступов через запятую), `--expires A=DATE` и
-`--only A=GLOB` действуют на один вызов. Постоянное условие — только
-команды `off`/`on`/`budget`/`expire`/`allow`/`deny`/`reset`.
+`--only A=GLOB` действуют на один вызов. Те же флаги принимает `roster
+apply`: бриф и запись шапки видят одно и то же условие, а
+`roster.state.toml` не меняется. Постоянное условие — только команды
+`off`/`on`/`budget`/`expire`/`allow`/`deny`/`reset`.
 
 ### Бриф, объяснение и применение
 
@@ -727,6 +735,8 @@ docflow roster show             # алиас brief
 docflow roster explain P055
 docflow roster apply P055 --preset low --dry-run
 docflow roster apply P055 --preset low
+docflow roster apply P055 --off claude,local --minimal codex --lean zai \
+  --only 'zai=*flash*' --prefer opencode-go
 ```
 
 `brief` печатает условия в силе, по строке на роль (`chain`, `budget`,
@@ -734,7 +744,8 @@ docflow roster apply P055 --preset low
 предупреждения. `budget` — рекомендация чтения для нарезки юнита, а не
 ключ плана и не проверка `lint`; у судейских ролей бюджета нет, их
 `scope` — `diff/test`. Пустая цепочка роли и цепочка из одного маршрута —
-предупреждения: `apply` не знает, какие роли использует план. Если
+предупреждения брифа: он не знает, какие роли использует план. `apply`
+отказывает до записи, если пустая цепочка нужна открытому юниту. Если
 `check`-доступ остался без независимого ревьюера — ошибка политики, а не
 self-review.
 
@@ -746,8 +757,11 @@ self-review.
 `replan:` и ключи ролей, на которые ссылается `Role:` хотя бы одного
 юнита. Ключи ролей без юнитов удаляет, `Executor:` юнитов не трогает,
 прочие ключи и их порядок сохраняет, новые ставит после
-`executor:`/`fallback:`. План — `draft`, `active` или `frozen`, иначе
-код 2; идёт прогон (`run.lock`) — код 5. После записи план проверяется
+`executor:`/`fallback:`. Открытый юнит, которому условия не дают цепочки
+`executor` или его роли, останавливает `apply` до записи: иначе план
+ушёл бы в legacy-маршрут или упал бы на `lint` уже после правки. План —
+`draft`, `active` или `frozen`, иначе код 2; идёт прогон (`run.lock`) —
+код 5. После записи план проверяется
 `lint`, при ошибке файл восстанавливается — код 2. Предупреждения
 (юнит с `Executor:` вне текущих условий, `Read:`-прокси больше бюджета,
 роль без fallback) идут в stderr и не меняют код успеха. Изменений нет —

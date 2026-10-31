@@ -106,6 +106,9 @@ func Apply(root, planID string, policy *Policy, state *State, catalog *Catalog, 
 	if err != nil {
 		return Result{}, report, err
 	}
+	if err := checkOpenUnits(plan, brief); err != nil {
+		return Result{}, report, err
+	}
 	merged, err := Merge(policy, state)
 	if err != nil {
 		return Result{}, report, err
@@ -249,6 +252,41 @@ func checkRunLock(root string) error {
 		}
 	} else if !os.IsNotExist(err) {
 		return err
+	}
+	return nil
+}
+
+// checkOpenUnits refuses an apply that would leave an open unit without a
+// route: removing the executor key would put the plan back into legacy mode
+// and run would use a tier, and removing a role key would make lint reject
+// the plan only after the file changed. A unit with its own Executor: route
+// and a closed unit need no chain from the roster.
+func checkOpenUnits(plan *format.Plan, brief *Brief) error {
+	header := brief.Header()
+	for _, unit := range plan.Units {
+		if unit.Status == "x" || unit.Status == "-" {
+			continue
+		}
+		role := unitRole(unit)
+		explicit := unit.Field("Executor") != nil || unit.Field("Role") != nil
+		if !explicit {
+			if header[Roles[0]] == "" {
+				return clierrors.DocflowError{
+					Message: fmt.Sprintf("docflow: %s: unit %s needs an executor route and the roster gives no %s chain under the current conditions; switch an access on or relax a condition, or give the unit an Executor:", plan.Path, unit.ID, Roles[0]),
+					Code:    clierrors.EXIT_FORMAT,
+				}
+			}
+			continue
+		}
+		if unit.Field("Role") == nil {
+			continue
+		}
+		if header[role] == "" {
+			return clierrors.DocflowError{
+				Message: fmt.Sprintf("docflow: %s: unit %s needs a %s chain and the roster gives none under the current conditions; switch an access on or relax a condition, or give the unit another Role:", plan.Path, unit.ID, role),
+				Code:    clierrors.EXIT_FORMAT,
+			}
+		}
 	}
 	return nil
 }

@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   too, so they refuse the old file instead of listing its spend order.
 
 ### Fixed
+- `roster apply` refuses before writing when an open unit needs an executor
+  or role chain the current conditions leave empty: removing the key sent
+  `run` back to a legacy tier instead of honoring the condition.
 - `docflow update` applies the skills mode through the freshly activated
   release instead of the running binary, so a new release's agent list takes
   effect on the update that ships it (0.20.0 updating to 0.21.0 left

@@ -52,7 +52,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 2 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief: accesses switched off for this call only"), appendOption("--minimal", "A,B", "brief: accesses at the minimal budget for this call only"), appendOption("--lean", "A,B", "brief: accesses at the lean budget for this call only"), appendOption("--prefer", "A,B", "brief: accesses at the prefer budget for this call only"), appendOption("--expires", "A=DATE", "brief: expire an access on DATE for this call only"), appendOption("--only", "A=GLOB", "brief: narrow an access to the model glob for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 2 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief and apply: accesses switched off for this call only"), appendOption("--minimal", "A,B", "brief and apply: accesses at the minimal budget for this call only"), appendOption("--lean", "A,B", "brief and apply: accesses at the lean budget for this call only"), appendOption("--prefer", "A,B", "brief and apply: accesses at the prefer budget for this call only"), appendOption("--expires", "A=DATE", "brief and apply: expire an access on DATE for this call only"), appendOption("--only", "A=GLOB", "brief and apply: narrow an access to the model glob for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -359,16 +359,13 @@ func handleRoster(parsed *parsedArgs) error {
 			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, strings.Join(rest, " ")), Code: clierrors.EXIT_FORMAT}
 		}
 	}
-	// The one-shot condition flags belong to brief alone; any other
-	// command that gets one says so instead of ignoring it. apply v2 takes
-	// --preset, the stable condition set, and nothing else.
+	// The one-shot condition flags belong to every command that resolves
+	// the roster: brief, show, explain and apply share the in-memory
+	// overlay. A condition flag on a command that does not resolve says so
+	// instead of being ignored.
 	if flags := briefFlagNames(parsed); len(flags) > 0 {
 		switch subcommand {
-		case "brief", "show", "explain":
-		case "apply":
-			if len(flags) != 1 || flags[0] != "--preset" {
-				return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: %s belongs to roster brief", subcommand, strings.Join(flags, ", ")), Code: clierrors.EXIT_FORMAT}
-			}
+		case "brief", "show", "explain", "apply":
 		default:
 			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: %s belongs to roster brief", subcommand, strings.Join(flags, ", ")), Code: clierrors.EXIT_FORMAT}
 		}

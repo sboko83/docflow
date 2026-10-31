@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"bsv-docflow/internal/agents"
+	"bsv-docflow/internal/cycle"
+	"bsv-docflow/internal/roster"
 )
 
 // The roster acceptance tests drive the in-process CLI on a temporary
@@ -105,14 +107,25 @@ func jsonBriefChains(t *testing.T, stdout string) map[string]string {
 
 // rosterUnits are one unit without a role and one per role key; the heavy
 // unit goes first so a single-unit dry-run shows the role source.
-const rosterUnits = "### [ ] P001.1.1 Heavy unit\nRead:\n- a.py\nDo:\n- edit a.py\nVerify: `true`\nRole: heavy\nCommit: P001.1.1: heavy\n\n" +
-	"### [ ] P001.1.2 Plain unit\nRead:\n- a.py\nDo:\n- edit a.py\nVerify: `true`\nCommit: P001.1.2: plain\n\n" +
-	"### [ ] P001.1.3 Review unit\nRead:\n- a.py\nDo:\n- review a.py\nVerify: `true`\nRole: review\nCommit: P001.1.3: review\n\n" +
-	"### [ ] P001.1.4 Acceptance unit\nRead:\n- a.py\nDo:\n- accept a.py\nVerify: `true`\nRole: acceptance\nCommit: P001.1.4: acceptance\n"
+const rosterHeavyUnit = "### [ ] P001.1.1 Heavy unit\nRead:\n- a.py\nDo:\n- edit a.py\nVerify: `true`\nRole: heavy\nCommit: P001.1.1: heavy\n\n"
+const rosterPlainUnit = "### [ ] P001.1.2 Plain unit\nRead:\n- a.py\nDo:\n- edit a.py\nVerify: `true`\nCommit: P001.1.2: plain\n\n"
+const rosterReviewUnit = "### [ ] P001.1.3 Review unit\nRead:\n- a.py\nDo:\n- review a.py\nVerify: `true`\nRole: review\nCommit: P001.1.3: review\n\n"
+const rosterAcceptanceUnit = "### [ ] P001.1.4 Acceptance unit\nRead:\n- a.py\nDo:\n- accept a.py\nVerify: `true`\nRole: acceptance\nCommit: P001.1.4: acceptance\n\n"
+const rosterCheapUnit = "### [ ] P001.1.5 Cheap unit\nRead:\n- a.py\nDo:\n- rename a.py\nVerify: `true`\nRole: cheap\nCommit: P001.1.5: cheap\n"
+
+const rosterUnits = rosterHeavyUnit + rosterPlainUnit + rosterReviewUnit + rosterAcceptanceUnit
+
+// rosterConditionUnits use the roles the acceptance scenario keeps: the
+// heavy chain is empty there, so the plan has no heavy unit.
+const rosterConditionUnits = rosterPlainUnit + rosterReviewUnit + rosterAcceptanceUnit + rosterCheapUnit
 
 func rosterPlan(meta string) string {
+	return rosterPlanUnits(meta, rosterUnits)
+}
+
+func rosterPlanUnits(meta, units string) string {
 	return "---\nid: P001\ntitle: Roster\ntype: feature\nstatus: active\ncreated: 2026-10-12\n" + meta + "---\n" +
-		"## Goal\nGoal.\n\n## Context\n\n## Constraints\n\n## Prerequisites\n\n## Traps\n\n## Decisions\n- roster decision — why — alternative\n\n## Phase 1: First\n\n" + rosterUnits
+		"## Goal\nGoal.\n\n## Context\n\n## Constraints\n\n## Prerequisites\n\n## Traps\n\n## Decisions\n- roster decision — why — alternative\n\n## Phase 1: First\n\n" + units
 }
 
 const rosterPlanPath = "docs/plans/P001-slug.md"
@@ -306,6 +319,166 @@ func TestRosterAcceptanceMigrateTwoToThree(t *testing.T) {
 	}
 	if code, stdout, stderr := callLifecycleCLI(t, root, "lint"); code != 0 || stdout != "" || stderr != "" {
 		t.Fatalf("lint after migrate = (%d, %q, %q)", code, stdout, stderr)
+	}
+}
+
+// TestRosterApplyConditionsMatchBrief: the one-shot flags of the brief go
+// to apply unchanged, writes the brief header for the roles the plan uses,
+// and leaves the condition state alone.
+func TestRosterApplyConditionsMatchBrief(t *testing.T) {
+	home := rosterBriefEnv(t)
+	root := rosterProject(t, rosterPlanUnits("", rosterConditionUnits))
+	flags := []string{"--off", "claude,local", "--lean", "zai", "--minimal", "codex",
+		"--prefer", "opencode-go", "--only", "zai=*flash*", "--expires", "zai=2099-01-01"}
+
+	briefArgs := append([]string{"roster", "brief", "--json"}, flags...)
+	code, stdout, stderr := callLifecycleCLI(t, root, briefArgs...)
+	if code != 0 || stderr != "" {
+		t.Fatalf("roster brief = (%d, %q, %q)", code, stdout, stderr)
+	}
+	var brief roster.Brief
+	if err := json.Unmarshal([]byte(stdout), &brief); err != nil {
+		t.Fatalf("brief JSON: %v\n%s", err, stdout)
+	}
+	header := brief.Header()
+
+	applyArgs := append([]string{"roster", "apply", "P001"}, flags...)
+	code, stdout, stderr = callLifecycleCLI(t, root, applyArgs...)
+	if code != 0 || !strings.Contains(stdout, "commit: P001: apply roster") {
+		t.Fatalf("roster apply = (%d, %q, %q)", code, stdout, stderr)
+	}
+	plan, err := cycle.FindPlan(root, "P001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range roster.PlanRoles(plan) {
+		switch role {
+		case "executor":
+			if got, want := plan.Meta["executor"], header["executor"]; got != want {
+				t.Errorf("executor = %q, want the brief value %q", got, want)
+			}
+			if got, want := plan.Meta["fallback"], header["fallback"]; got != want {
+				t.Errorf("fallback = %q, want the brief value %q", got, want)
+			}
+		default:
+			if got, want := plan.Meta[role], header[role]; got != want {
+				t.Errorf("%s = %q, want the brief value %q", role, got, want)
+			}
+		}
+	}
+	text := readRosterFile(t, root, rosterPlanPath)
+	for _, want := range []string{
+		"executor: pi | opencode-go/deepseek-v4.1 | high",
+		"review: pi | opencode-go/deepseek-v4.1 | high",
+		"acceptance: codex | gpt-6.1-sol | medium",
+		"replan: codex | gpt-6.1-sol | medium",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("plan after apply has no %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "claude") {
+		t.Errorf("--off claude still wrote a claude route:\n%s", text)
+	}
+	if !strings.Contains(text, "cheap: pi | opencode-go/deepseek-v4.1-flash | high; pi | zai/glm-5.3-flash | low") {
+		t.Errorf("--only zai=*flash* changed the cheap chain:\n%s", text)
+	}
+	if strings.Contains(text, "zai/glm-5.3 |") {
+		t.Errorf("--only zai=*flash* wrote another zai model:\n%s", text)
+	}
+	for _, line := range headerLines(text) {
+		if strings.Contains(line, "codex") && !strings.HasPrefix(line, "acceptance: ") && !strings.HasPrefix(line, "replan: ") {
+			t.Errorf("--minimal codex put codex into %q", line)
+		}
+	}
+	if strings.Contains(text, "heavy:") {
+		t.Errorf("apply wrote a heavy key for a plan without heavy units:\n%s", text)
+	}
+	if state := readRosterState(t, home); state != "" {
+		t.Fatalf("roster apply wrote the condition state:\n%s", state)
+	}
+	if docflow := readRosterFile(t, root, "docs/docflow.md"); !strings.Contains(docflow, "docflow: 3") {
+		t.Fatalf("apply changed the project format:\n%s", docflow)
+	}
+
+	commitRosterProject(t, root)
+	code, stdout, stderr = callLifecycleCLI(t, root, "run", "--dry-run", "--all")
+	if code != 0 {
+		t.Fatalf("dry-run --all = (%d, %q, %q)", code, stdout, stderr)
+	}
+	for _, want := range []string{
+		"P001.1.2 [ ] Plain unit: pi | opencode-go/deepseek-v4.1 | high (plan)",
+		"P001.1.3 [ ] Review unit: pi | opencode-go/deepseek-v4.1 | high (role review)",
+		"P001.1.4 [ ] Acceptance unit: codex | gpt-6.1-sol | medium (role acceptance)",
+		"P001.1.5 [ ] Cheap unit: pi | opencode-go/deepseek-v4.1-flash | high (role cheap)",
+	} {
+		if !strings.Contains(stdout, want+"\n") {
+			t.Errorf("dry-run --all lacks %q:\n%s", want, stdout)
+		}
+	}
+	if strings.Contains(stdout, "claude") {
+		t.Errorf("run --dry-run --all found a claude route after --off claude:\n%s", stdout)
+	}
+}
+
+// codexOnlyRoster is a v2 policy with one access: switching codex off leaves
+// every chain empty.
+const codexOnlyRoster = `version = 2
+
+[access.codex]
+agents  = ["codex"]
+kind    = "subscription"
+budget  = "normal"
+trusted = true
+models  = ["gpt-6.1-sol"]
+
+[model."codex/gpt-6.1-sol"]
+class = "strong"
+
+[role]
+cheap      = "standard"
+executor   = "standard"
+heavy      = "strong"
+review     = "standard"
+acceptance = "trusted"
+replan     = "trusted"
+`
+
+// TestRosterApplyRefusesEmptyExecutorChain reproduces codex off → apply:
+// apply fails before the write, so the plan keeps its codex executor and
+// run never falls back to the legacy claude/sonnet tier.
+func TestRosterApplyRefusesEmptyExecutorChain(t *testing.T) {
+	rosterEnv(t, codexOnlyRoster)
+	writeLifecycleFile(t, os.Getenv("HOME"), "cache/docflow/roster/catalog.json", rosterFixture(t, "catalog-scenario.json"))
+	plan := rosterPlanUnits("executor: codex | gpt-6.1-sol | high\n", rosterPlainUnit)
+	root := rosterProject(t, plan)
+	before := readRosterFile(t, root, rosterPlanPath)
+
+	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001", "--off", "codex")
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "needs an executor route") {
+		t.Fatalf("apply with codex off = (%d, %q, %q), want code 2 and the missing-executor error", code, stdout, stderr)
+	}
+	if after := readRosterFile(t, root, rosterPlanPath); after != before {
+		t.Fatalf("a refused apply changed the plan:\n%s", after)
+	}
+	if !strings.Contains(before, "executor: codex | gpt-6.1-sol | high") {
+		t.Fatalf("the plan lost its codex executor:\n%s", before)
+	}
+	if code, _, _ := callLifecycleCLI(t, root, "lint"); code != 0 {
+		t.Fatalf("lint after the refused apply = %d", code)
+	}
+	if docflow := readRosterFile(t, root, "docs/docflow.md"); !strings.Contains(docflow, "docflow: 3") {
+		t.Fatalf("apply changed the project format:\n%s", docflow)
+	}
+	code, stdout, stderr = callLifecycleCLI(t, root, "run", "--dry-run", "--all")
+	if code != 0 {
+		t.Fatalf("dry-run --all = (%d, %q, %q)", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "P001.1.2 [ ] Plain unit: codex | gpt-6.1-sol | high (plan)\n") {
+		t.Errorf("dry-run --all lost the codex route:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "claude") || strings.Contains(stdout, "sonnet") {
+		t.Errorf("run fell back to a legacy route after the refused apply:\n%s", stdout)
 	}
 }
 

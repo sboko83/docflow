@@ -302,8 +302,9 @@ budgets. roster brief prints the conditions in force, one row per role
 with its chain and read budget, the review matrix, why every chain was
 chosen and the warnings of incomplete chains. A condition flag of the
 call — --preset, --off, --minimal, --lean, --prefer, --expires,
---only — is merged in memory for this one brief and never written, so
-the planner can answer a question without changing the roster state.
+--only — is merged in memory for this one call and never written, so
+the planner can answer a question without changing the roster state;
+brief, show, explain and apply share the same flags.
 roster show is an alias of roster brief.
 
 roster explain PLAN loads the plan from docs/plans and prints the
@@ -315,8 +316,10 @@ roster apply PLAN writes executor:, fallback:, replan: and the role
 keys of the unit Role: fields into the plan header in docs/plans
 (draft, active or frozen), removes role keys without units, lints the
 plan and restores it on lint errors; a run in progress stops apply.
---preset applies a preset condition set and --dry-run prints the changes
-without writing the plan; --json prints the changes and the warnings. apply warns about a unit whose Executor:
+An open unit whose executor or role chain the conditions leave empty
+stops apply before the write: removing the key would send run back to
+a legacy tier. --dry-run prints the changes without writing the plan;
+--json prints the changes and the warnings. apply warns about a unit whose Executor:
 is outside the current conditions, an open unit whose Read: proxy is
 larger than the role budget and a role without a fallback. The runner
 never reads the roster; a plan stays reproducible without it.
@@ -381,13 +384,13 @@ options:
   --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
   --until DATE    off: the last day the access stays off (YYYY-MM-DD, UTC)
   --preset NAME   brief and apply: the preset to apply on top of the policy
-  --off A,B       brief: accesses switched off for this call only
-  --minimal A,B   brief: accesses at the minimal budget for this call only
-  --lean A,B      brief: accesses at the lean budget for this call only
-  --prefer A,B    brief: accesses at the prefer budget for this call only
+  --off A,B       brief and apply: accesses switched off for this call only
+  --minimal A,B   brief and apply: accesses at the minimal budget for this call only
+  --lean A,B      brief and apply: accesses at the lean budget for this call only
+  --prefer A,B    brief and apply: accesses at the prefer budget for this call only
   --expires A=DATE
-                  brief: expire an access on DATE for this call only
-  --only A=GLOB   brief: narrow an access to the model glob for this call
+                  brief and apply: expire an access on DATE for this call only
+  --only A=GLOB   brief and apply: narrow an access to the model glob for this call
   --json          print the result as JSON
   --dry-run       apply: print the header changes without writing the plan
   --refresh       scan: ignore fresh caches and scan again

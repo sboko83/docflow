@@ -218,6 +218,9 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - IsV2 удалён вместе с тестом — у него не осталось вызывающих, а экспортированная проба формата поддерживала бы двойной путь загрузки — отвергнуто оставить мёртвый API.
 
 - Replan P055.4.7: перед повторным ревью выполняется P055.4.8 — отказ apply при пустой требуемой цепочке, перенос разовых условий brief в apply, валидные примеры политики и восстановление проверок done/archive. Разовые флаги apply используют тот же in-memory overlay, что brief, без записи state; отвергнуто обходить дефекты ослаблением review/acceptance или требовать сохранения разовых условий на диск.
+- Проверка пустой цепочки охватывает только открытые юниты — apply не управляет Executor: юнита, а закрытый юнит не запускается; отвергнуто требование цепочки для всех юнитов, включая done и явные Executor:.
+- Разовые флаги apply используют тот же in-memory overlay, что brief/explain, без записи state — флаг остаётся вопросом, а не мутацией; отвергнут отдельный набор флагов apply или сохранение overlay в roster.state.toml.
+- Примеры политики проверяются извлечением блоков из документации и резолвом на фикстурном каталоге с фиксированным днём — пример не должен ломаться незаметно; отвергнуто хранение ожидаемой копии примера в тесте.
 
 ## Phase 1: Catalog and discovery
 
@@ -676,7 +679,7 @@ Handoff:
 - Unverified: roster scan/models/status после cutover на этой машине не запускались: личный ростер v1, поэтому успешный путь 'v1 → migrate --write → scan' живьём не проверен; отказ v1 покрыт тестами.
 
 
-### [ ] P055.4.8 Fix roster review findings
+### [x] P055.4.8 Fix roster review findings
 Read:
 - internal/roster/apply.go:L69-180
 - internal/roster/apply_test.go:L1-80
@@ -701,6 +704,12 @@ Traps: нельзя лечить пустой executor возвратом к leg
 Depends: P055.4.1, P055.4.2, P055.4.3, P055.4.4, P055.4.5, P055.4.6
 Role: heavy
 Commit: P055.4.8: fix roster review findings
+Handoff:
+- Apply теперь отказывает кодом 2 до записи, если открытому юниту без Role:/Executor: не хватает executor-цепочки или юниту с Role: не хватает цепочки этой роли. Явный Executor: юнита и закрытые юниты (x, -) цепочки не требуют.
+- roster apply принимает все разовые флаги brief/explain через rosterConditionPolicy и не пишет roster.state.toml; на v1-ростере любой такой флаг идёт через LoadPolicy и даёт подсказку migrate.
+- Полные примеры политики в docs/design/roster.md и docs/usage.md теперь объявляют claude и local; TestDocPolicyExamples извлекает toml-блоки с version = 2 и [role] и резолвит их на catalog-scenario.json с фиксированным днём.
+- TestApplyStatusAndArchive восстановлен в v2-виде и проверяет неизменность файла для done-плана и архива; run.lock, lint rollback, dry-run и Executor: юнитов остались под тестами.
+- Unverified: Отдельного CLI-теста на roster apply с --off/--only/--expires на v1-ростере нет: отказ идёт через общий LoadPolicy и покрыт тестом с --preset.
 
 ### [ ] P055.4.7 Review roster v2 diff
 Read:

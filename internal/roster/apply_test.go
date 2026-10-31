@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"bsv-docflow/internal/clierrors"
 	"bsv-docflow/internal/cycle"
@@ -358,6 +359,93 @@ func TestApplyRestoresOnLintError(t *testing.T) {
 	if string(after) != string(before) {
 		t.Fatalf("Apply() did not restore the plan:\n%s", string(after))
 	}
+}
+
+func TestApplyStatusAndArchive(t *testing.T) {
+	policy, state, catalog := applyScenario(t)
+	t.Run("done status", func(t *testing.T) {
+		root := applyProject(t, strings.Replace(applyPlan(), "status: active", "status: done", 1))
+		path := filepath.Join(root, "docs", "plans", "P040-roster.md")
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = Apply(root, "P040", policy, state, catalog, false)
+		wantApplyError(t, err, clierrors.EXIT_FORMAT, "plan is done")
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Fatalf("Apply() changed the plan")
+		}
+	})
+	t.Run("archived plan", func(t *testing.T) {
+		root := makeApplyProject(t, "docs/archive/P040-roster.md", applyPlan())
+		path := filepath.Join(root, "docs", "archive", "P040-roster.md")
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = Apply(root, "P040", policy, state, catalog, false)
+		wantApplyError(t, err, clierrors.EXIT_FORMAT, "no plan in docs/plans/")
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Fatalf("Apply() changed the archived plan")
+		}
+	})
+}
+
+func TestApplyRefusesEmptyChain(t *testing.T) {
+	t.Run("executor", func(t *testing.T) {
+		policy, state, catalog := applyScenario(t)
+		for _, access := range []string{"opencode-go", "zai", "codex", "claude", "opencode", "local"} {
+			state.SetOff(access, time.Time{})
+		}
+		plan := strings.Replace(applyPlan(), "Executor: pi | zai/glm-5.3-flash | low\n", "", 1)
+		root := applyProject(t, plan)
+		path := filepath.Join(root, "docs", "plans", "P040-roster.md")
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = Apply(root, "P040", policy, state, catalog, false)
+		wantApplyError(t, err, clierrors.EXIT_FORMAT, "unit P040.1.1 needs an executor route")
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Fatalf("a refused apply changed the plan")
+		}
+	})
+	t.Run("role", func(t *testing.T) {
+		policy, state, catalog := applyScenario(t)
+		state.SetOff("zai", time.Time{})
+		if err := state.Allow("opencode-go", []string{"deepseek-v4.1"}); err != nil {
+			t.Fatal(err)
+		}
+		heavy := "### [ ] P040.1.5 Heavy unit\nRead:\n- a.py\nDo:\n- work\nVerify: `true`\nRole: heavy\nCommit: P040.1.5: heavy\n\n"
+		plan := strings.Replace(applyPlan(), "### [x] P040.1.4 Done unit", heavy+"### [x] P040.1.4 Done unit", 1)
+		root := applyProject(t, plan)
+		path := filepath.Join(root, "docs", "plans", "P040-roster.md")
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = Apply(root, "P040", policy, state, catalog, false)
+		wantApplyError(t, err, clierrors.EXIT_FORMAT, "unit P040.1.5 needs a heavy chain")
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Fatalf("a refused apply changed the plan")
+		}
+	})
 }
 
 func TestApplyRunLock(t *testing.T) {
