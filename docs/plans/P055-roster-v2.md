@@ -211,6 +211,11 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - chains бенчмарка сознательно отличаются от v1: judge-роли codex→zai и zai/glm-5.3 = max во всех ролях, изменение записано в docs/design/bench.md без перезапуска результатов — v2 сортирует по бюджету и пинит одно усилие на ACCESS/MODEL — отвергнут prefer на zai ради порядка v1: дорогой glm стал бы основным executor-маршрутом.
 - Старый v1-драфт вынесен в отдельную фикстуру draft-v1.toml, а v1 CLI-тесты — в legacy_roster_test.go — трап плана требует держать старые show/apply зелёными до cutover — отвергнуто удаление v1-тестов вместе с фикстурой.
 - Удалён TestMigrateBench вместо перевода его на копию v1-бенч-ростера — миграция v2-файла и так отвергается, а проверяемое правило покрыто TestMigrateDraft — отвергнуто дублирование фикстуры только ради теста.
+- v1-парсер сохранён как migration-only читатель в legacy.go, а Load/IsV2/Show/старый Apply удалены — migrate обязан читать v1, но ни один командный путь больше не загружает его как ростер — отвергнуто удаление v1-читателя целиком (ломает migrate) и сохранение Load (два загрузчика).
+- --profile остаётся разобранным флагом ровно для того, чтобы ошибка называла --preset, и убран из help — отвергнуто полагаться на 'unrecognized arguments: --profile', теряющее подсказку и съедающее следующее значение.
+- roster status/models/scan читают v2-политику и отказывают v1-файлу кодом 2 с подсказкой migrate, а scan проверяет ростер до проб — единое правило 'v1-файл → код 2', отвергнута доcutover-терпимость status к v1.
+- RosterAccessNames читает имена из разобранной v2-политики вместо spend — один парсер владеет доступы — отвергнута ветка spend, оставлявшая второй v1-читатель в пакете.
+- IsV2 удалён вместе с тестом — у него не осталось вызывающих, а экспортированная проба формата поддерживала бы двойной путь загрузки — отвергнуто оставить мёртвый API.
 
 ## Phase 1: Catalog and discovery
 
@@ -639,7 +644,7 @@ Handoff:
 - Unverified: Живой `bench run` с реальными агентами не запускался (Do запрещает перезапуск бенчмарка): путь apply с боевым каталогом и реальной моделью проверен только `validate` и тестами с фейковыми агентами.
 - Unverified: Поведение бенчмарка при наличии локального bench/roster.state.toml не покрыто тестом: metadata и арм прочтут условия, chains изменятся — проверки на этот случай нет.
 
-### [ ] P055.4.6 Remove v1 roster path
+### [x] P055.4.6 Remove v1 roster path
 Read:
 - internal/roster/roster.go:L1-502
 - internal/roster/apply.go:L1-221
@@ -657,6 +662,16 @@ Verify: `go test ./internal/roster ./cmd/docflow ./tools/bench`
 Traps: не удалить `migrate`; ошибка v1 должна быть actionable; `roster apply` по-прежнему не трогает `Executor:` юнитов.
 Role: heavy
 Commit: P055.4.6: remove v1 roster path
+Handoff:
+- v1-читатель живёт только в internal/roster/legacy.go; его единственный потребитель — migrate. roster.Apply — это бывший ApplyV2; старого Apply, Load, Show и IsV2 больше нет.
+- roster scan читает политику до сканирования: v1 или битый ростер не запускает CLI и не перезаписывает кэш; models/status теперь тоже отказывают v1-файлу кодом 2 с подсказкой migrate.
+- RosterAccessNames разбирает v2-политику и возвращает доступы в порядке файла; тестовая фикстура каталога в cmd/docflow/roster_scan_test.go переведена на v2-политику — v1 spend там больше не работает.
+- --profile остался в парсере только ради внятной ошибки с --preset, в help/usage/README его нет; тест на это — TestRosterShowErrors/removed profile flag и TestRosterApplyRefusesRemovedFlag.
+- Личный ~/.config/docflow/roster.toml на этой машине всё ещё v1: любая roster-команда теперь даёт код 2, пока человек не выполнит docflow roster migrate --write (вне репозитория). На копии проверено: migrate rc 0, brief rc 0.
+- Тестовые файлы: cmd/docflow/roster_apply_test.go (бывший roster_apply_v2_test.go), общие helper'ы apply (makeApplyProject/applyProject/gitDir/wantApplyError) — в internal/roster/apply_test.go.
+- legacy_roster_test.go удалён; draftV1Roster остался helper'ом в cmd/docflow/roster_migrate_test.go для тестов миграции и v1-отказа.
+- Unverified: Приёмка P055 на живых данных (живой roster scan + мигрированный персональный ростер: brief с условиями → apply → run --dry-run --all) не прогонялась — проверены фикстуры roster_acceptance_test.go и отдельно migrate+brief на копии личного ростера.
+- Unverified: roster scan/models/status после cutover на этой машине не запускались: личный ростер v1, поэтому успешный путь 'v1 → migrate --write → scan' живьём не проверен; отказ v1 покрыт тестами.
 
 
 ### [ ] P055.4.7 Review roster v2 diff

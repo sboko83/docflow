@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   presets; temporary conditions live in `roster.state.toml` (`roster off`,
   `on`, `budget`, `expire`, `allow`, `deny`, `reset`) and reach a new plan
   or an explicit `roster apply`, never a running one.
-- `roster brief` (and `roster show` on a v2 roster) resolves the conditions
+- `roster brief` (`roster show` is its alias) resolves the conditions
   into a chain per role, the unit read budget and why-lines, plus the
   `review:` matrix; `roster explain PLAN` shows what `roster apply` would
   change without writing.
@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when `lint` fails. `--profile` is replaced by `--preset`.
 - The v1 roster format and its commands are removed: a v1 file exits 2 and
   points at `docflow roster migrate`, which keeps the old file as
-  `roster.toml.bak`.
+  `roster.toml.bak`. `roster status`, `scan` and `models` read the policy
+  too, so they refuse the old file instead of listing its spend order.
 
 ### Fixed
 - `docflow update` applies the skills mode through the freshly activated

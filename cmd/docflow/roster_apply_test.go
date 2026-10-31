@@ -6,13 +6,12 @@ import (
 	"testing"
 )
 
-// The apply v2 CLI tests drive the in-process CLI against the v2 policy
-// and catalog fixtures installed as the personal roster: the dispatch must
-// pick the v2 path for a version 2 file and keep the v1 path untouched.
+// The roster apply CLI tests drive the in-process CLI against the policy
+// and catalog fixtures installed as the personal roster.
 
-// rosterApplyV2Plan is a plan with cheap and review units and one explicit
-// Executor: the v2 apply writes the role keys and leaves the unit alone.
-func rosterApplyV2Plan() string {
+// rosterApplyPlan is a plan with cheap and review units and one explicit
+// Executor: apply writes the role keys and leaves the unit alone.
+func rosterApplyPlan() string {
 	return `---
 id: P070
 title: Roster apply v2
@@ -68,9 +67,9 @@ Commit: P070.1.3: third
 `
 }
 
-func TestRosterApplyV2Command(t *testing.T) {
+func TestRosterApplyCommand(t *testing.T) {
 	home := rosterBriefEnv(t)
-	root := makeLifecycleProject(t, []string{"P070"}, nil, map[string]string{"P070": rosterApplyV2Plan()}, false)
+	root := makeLifecycleProject(t, []string{"P070"}, nil, map[string]string{"P070": rosterApplyPlan()}, false)
 	initLifecycleGit(t, root)
 	path := "docs/plans/P070-slug.md"
 	before := readRosterFile(t, root, path)
@@ -122,9 +121,9 @@ func TestRosterApplyV2Command(t *testing.T) {
 	}
 }
 
-func TestRosterApplyV2RejectsV1Flags(t *testing.T) {
+func TestRosterApplyRefusesRemovedFlag(t *testing.T) {
 	rosterBriefEnv(t)
-	root := makeLifecycleProject(t, []string{"P070"}, nil, map[string]string{"P070": rosterApplyV2Plan()}, false)
+	root := makeLifecycleProject(t, []string{"P070"}, nil, map[string]string{"P070": rosterApplyPlan()}, false)
 	initLifecycleGit(t, root)
 	code, _, stderr := callLifecycleCLI(t, root, "roster", "apply", "P070", "--profile", "low")
 	if code != 2 || !strings.Contains(stderr, "--preset NAME") {
@@ -132,11 +131,14 @@ func TestRosterApplyV2RejectsV1Flags(t *testing.T) {
 	}
 }
 
-func TestRosterApplyV1RejectsV2Flags(t *testing.T) {
+func TestRosterApplyV1RosterHintsMigration(t *testing.T) {
 	rosterEnv(t, draftV1Roster(t))
 	root := rosterProject(t, rosterPlan(""))
-	code, _, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001", "--preset", "low")
-	if code != 2 || !strings.Contains(stderr, "roster migrate") {
-		t.Fatalf("v1 apply --preset = (%d, %q), want code 2 with the migration hint", code, stderr)
+	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001", "--preset", "low")
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "docflow roster migrate") {
+		t.Fatalf("apply --preset on a v1 roster = (%d, %q, %q), want code 2 with the migration hint", code, stdout, stderr)
+	}
+	if before := readRosterFile(t, root, rosterPlanPath); before != rosterPlan("") {
+		t.Fatalf("a refused apply changed the plan:\n%s", before)
 	}
 }

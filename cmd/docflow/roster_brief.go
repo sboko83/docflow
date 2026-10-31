@@ -33,78 +33,10 @@ type ExplainReport struct {
 	Warnings []string        `json:"warnings"`
 }
 
-// rosterShow answers `roster show` and `roster brief`. On a v2 roster show
-// is an alias of brief; on the v1 roster it keeps the old spend summary
-// and the old --profile flag. A flag of the other format is an error, not
-// a silently ignored word.
-func rosterShow(parsed *parsedArgs, subcommand, profileName, path string) error {
-	v2, err := roster.IsV2(path)
-	if err != nil {
-		return err
-	}
-	if !v2 {
-		if flags := briefFlagNames(parsed); len(flags) > 0 {
-			return clierrors.DocflowError{
-				Message: fmt.Sprintf("docflow: roster %s: %s needs a version %d roster: run `docflow roster migrate`", subcommand, strings.Join(flags, ", "), roster.PolicyVersion),
-				Code:    clierrors.EXIT_FORMAT,
-			}
-		}
-		if subcommand == "brief" {
-			return clierrors.DocflowError{
-				Message: fmt.Sprintf("docflow: %s: roster brief needs a version %d roster: run `docflow roster migrate`", roster.PolicyPath(path), roster.PolicyVersion),
-				Code:    clierrors.EXIT_FORMAT,
-			}
-		}
-		r, err := roster.Load(path, profileName)
-		if err != nil {
-			return err
-		}
-		return commandResult{code: clierrors.EXIT_OK, stdout: r.Show()}
-	}
-	if profileName != "" {
-		return clierrors.DocflowError{
-			Message: fmt.Sprintf("docflow: roster %s: --profile is the v1 flag; a version %d roster uses --preset NAME", subcommand, roster.PolicyVersion),
-			Code:    clierrors.EXIT_FORMAT,
-		}
-	}
-	return rosterBriefCommand(parsed)
-}
-
-// rosterApply dispatches roster apply by the roster format: the v1 roster
-// keeps the old Apply and its --profile flag, the v2 roster resolves the
-// policy with the call conditions and writes the brief header. A flag of
-// the other format is an error, not a silently ignored word.
-func rosterApply(parsed *parsedArgs, root, planID, profileName, path string) error {
-	v2, err := roster.IsV2(path)
-	if err != nil {
-		return err
-	}
-	if !v2 {
-		var v2Flags []string
-		if rosterString(parsed, "--preset") != "" {
-			v2Flags = append(v2Flags, "--preset")
-		}
-		if rosterFlag(parsed, "--dry-run") {
-			v2Flags = append(v2Flags, "--dry-run")
-		}
-		if len(v2Flags) > 0 {
-			return clierrors.DocflowError{
-				Message: fmt.Sprintf("docflow: roster apply: %s needs a version %d roster: run `docflow roster migrate`", strings.Join(v2Flags, ", "), roster.PolicyVersion),
-				Code:    clierrors.EXIT_FORMAT,
-			}
-		}
-		result, err := roster.Apply(root, planID, profileName, path)
-		if err != nil {
-			return err
-		}
-		return commandResult{code: result.Code, stdout: result.Stdout, stderr: result.Stderr}
-	}
-	if profileName != "" {
-		return clierrors.DocflowError{
-			Message: fmt.Sprintf("docflow: roster apply: --profile is the v1 flag; a version %d roster uses --preset NAME", roster.PolicyVersion),
-			Code:    clierrors.EXIT_FORMAT,
-		}
-	}
+// rosterApply resolves the policy with the conditions of the call and
+// writes the brief header into the plan. apply reads the version 2 policy
+// itself, so a v1 file fails here with the migration hint.
+func rosterApply(parsed *parsedArgs, root, planID string) error {
 	policy, state, err := rosterConditionPolicy(parsed)
 	if err != nil {
 		return err
@@ -113,7 +45,7 @@ func rosterApply(parsed *parsedArgs, root, planID, profileName, path string) err
 	if err != nil {
 		return err
 	}
-	result, report, err := roster.ApplyV2(root, planID, policy, state, catalog, rosterFlag(parsed, "--dry-run"))
+	result, report, err := roster.Apply(root, planID, policy, state, catalog, rosterFlag(parsed, "--dry-run"))
 	if err != nil {
 		return err
 	}
@@ -160,12 +92,6 @@ func rosterExplain(parsed *parsedArgs) error {
 	planID, _ := parsed.values["id"].(string)
 	if planID == "" {
 		return clierrors.DocflowError{Message: "docflow: roster explain: PLAN is required", Code: clierrors.EXIT_FORMAT}
-	}
-	if profileName, _ := parsed.values["--profile"].(string); profileName != "" {
-		return clierrors.DocflowError{
-			Message: fmt.Sprintf("docflow: roster explain: --profile is the v1 flag; a version %d roster uses --preset NAME", roster.PolicyVersion),
-			Code:    clierrors.EXIT_FORMAT,
-		}
 	}
 	root, err := projectRoot()
 	if err != nil {
@@ -278,8 +204,7 @@ func applyBriefFlags(parsed *parsedArgs, state *roster.State) error {
 }
 
 // briefFlagNames lists the one-shot condition flags a call carries, so a
-// command can reject them where they make no sense and a v1 roster can
-// name them in its migration hint.
+// command can reject them where they make no sense.
 func briefFlagNames(parsed *parsedArgs) []string {
 	var names []string
 	if rosterString(parsed, "--preset") != "" {

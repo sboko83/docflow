@@ -6,7 +6,6 @@ import (
 	"path"
 	"strings"
 
-	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/clierrors"
 )
 
@@ -85,26 +84,6 @@ func migrateText(rosterPath, text string) (string, error) {
 	return migrated, nil
 }
 
-// legacy is a parsed v1 roster: the tables the v1 Load validates and
-// every profile, because a migration converts all profiles at once.
-type legacy struct {
-	path     string
-	index    *lineIndex
-	roster   *Roster
-	profiles []legacyProfile
-}
-
-// legacyProfile is one v1 [profile.NAME]: the spend order it replaces and
-// the provider-flag overrides. providers holds the overrides and order
-// their file order, so the migration output never depends on map
-// iteration.
-type legacyProfile struct {
-	name      string
-	spend     []string
-	providers map[string]providerFlags
-	order     []string
-}
-
 // accessDraft is one [access.NAME] the migration builds.
 type accessDraft struct {
 	name      string
@@ -137,80 +116,6 @@ type presetDraft struct {
 	comments []string
 }
 
-// parseLegacy reads a v1 roster. Any version key means the text is not v1
-// — version 2 is already migrated, another version is unknown — and the
-// v1 tables are validated with the same parser Load uses, so a roster
-// that Load rejects does not migrate either.
-func parseLegacy(rosterPath, text string) (*legacy, error) {
-	root, err := agents.ParseTOML(text)
-	if err != nil {
-		return nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: %v", rosterPath, err), Code: clierrors.EXIT_FORMAT}
-	}
-	index := scanLines(text)
-	if value, ok := root["version"]; ok {
-		if version, isInt := value.(int64); isInt && version == PolicyVersion {
-			return nil, failAt(rosterPath, index, "", "version", "the roster is already version %d; nothing to migrate", PolicyVersion)
-		}
-		return nil, failAt(rosterPath, index, "", "version", "version %v is not the v1 roster format: only a roster without a version key is migrated", value)
-	}
-	value := &Roster{Path: rosterPath}
-	if err := value.parse(index, root); err != nil {
-		return nil, err
-	}
-	if err := value.checkRoutes(index); err != nil {
-		return nil, err
-	}
-	profiles, err := legacyProfiles(rosterPath, index, root["profile"])
-	if err != nil {
-		return nil, err
-	}
-	return &legacy{path: rosterPath, index: index, roster: value, profiles: profiles}, nil
-}
-
-// legacyProfiles reads every [profile.NAME] in file order. Load validates
-// only the profile it applies; a migration reads them all, so a broken
-// profile fails here instead of disappearing from the output.
-func legacyProfiles(rosterPath string, index *lineIndex, value any) ([]legacyProfile, error) {
-	table, ok := value.(map[string]any)
-	if value != nil && !ok {
-		return nil, failAt(rosterPath, index, "profile", "", "profile must be a table of [profile.<name>] sections")
-	}
-	profiles := make([]legacyProfile, 0, len(table))
-	for _, name := range index.keysByLine("profile", table) {
-		section, ok := table[name].(map[string]any)
-		if !ok {
-			return nil, failAt(rosterPath, index, "profile", name, "profile %s must be a [profile.%s] table", name, name)
-		}
-		tablePath := "profile." + name
-		profile := legacyProfile{name: name}
-		for _, key := range index.keysByLine(tablePath, section) {
-			switch key {
-			case "spend", "provider":
-			default:
-				return nil, failAt(rosterPath, index, tablePath, key, "unknown key '%s' in [profile.%s]", key, name)
-			}
-		}
-		if value, ok := section["spend"]; ok {
-			spend, err := parseSpend(rosterPath, index, tablePath, "profile "+name, value)
-			if err != nil {
-				return nil, err
-			}
-			profile.spend = spend
-		}
-		if value, ok := section["provider"]; ok {
-			providers, err := parseProviders(rosterPath, index, tablePath+".provider", "profile "+name+".provider", value)
-			if err != nil {
-				return nil, err
-			}
-			profile.providers = providers
-			overrides, _ := section["provider"].(map[string]any)
-			profile.order = index.keysByLine(tablePath+".provider", overrides)
-		}
-		profiles = append(profiles, profile)
-	}
-	return profiles, nil
-}
-
 // routeAccess names the v2 access and the model id of a v1 route. Pi and
 // OpenCode address a model as "provider/model", so the prefix is the
 // access and the rest the model id: a route over pi and one over opencode
@@ -237,7 +142,7 @@ func (l *legacy) convert() ([]*accessDraft, []*modelDraft, map[string][]*accessD
 	byName := make(map[string]*accessDraft, len(l.roster.Spend))
 	byProvider := make(map[string][]*accessDraft, len(l.roster.Spend))
 	for _, provider := range l.roster.Spend {
-		var routes []route
+		var routes []legacyRoute
 		for _, rt := range l.roster.Routes {
 			if rt.provider == provider {
 				routes = append(routes, rt)

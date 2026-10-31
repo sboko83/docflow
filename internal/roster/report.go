@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/clierrors"
 )
 
@@ -25,56 +24,24 @@ type StatusRow struct {
 	Source []string `json:"source,omitempty"`
 }
 
-// RosterAccessNames reads the access names a roster file lists: the spend
-// order of a v1 roster and the [access.NAME] tables of a v2 one, in that
-// order and without duplicates. A missing file is an empty list, not an
-// error: a catalog can be listed before a roster exists. This is only the
-// filter of `roster models`, not a parser — the policy itself is loaded
-// by Load (v1) and P055.2.1 (v2).
+// RosterAccessNames reads the access names the policy at path ("" means
+// DefaultPath) declares, in file order. A missing file is an empty list,
+// not an error: a catalog can be listed before a roster exists. The
+// policy is parsed, so a v1 file fails with the migration hint instead of
+// its spend order passing as a list of accesses.
 func RosterAccessNames(path string) ([]string, error) {
-	if path == "" {
-		path = DefaultPath()
-	}
-	path = expandUser(path)
-	text, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
+	path = PolicyPath(path)
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster file: %v", err), Code: clierrors.EXIT_FORMAT}
 	}
-	root, err := agents.ParseTOML(string(text))
+	policy, err := LoadPolicy(path)
 	if err != nil {
-		return nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: %v", path, err), Code: clierrors.EXIT_FORMAT}
+		return nil, err
 	}
-	var names []string
-	seen := map[string]bool{}
-	add := func(name string) {
-		if name == "" || seen[name] {
-			return
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	if spend, ok := root["spend"].([]any); ok {
-		for _, value := range spend {
-			if name, ok := value.(string); ok {
-				add(name)
-			}
-		}
-	}
-	if accesses, ok := root["access"].(map[string]any); ok {
-		table := make([]string, 0, len(accesses))
-		for name := range accesses {
-			table = append(table, name)
-		}
-		// A table has no order of its own, and map iteration is random.
-		sort.Strings(table)
-		for _, name := range table {
-			add(name)
-		}
-	}
-	return names, nil
+	return policy.AccessNames(), nil
 }
 
 // StatusRows lists every access of the catalog in catalog order with the

@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+// draftV1Roster is the v1 draft roster of P036 ## Context: the migration
+// fixture, read by the migrate, brief and apply tests.
+func draftV1Roster(t *testing.T) string {
+	t.Helper()
+	return rosterFixture(t, "draft-v1.toml")
+}
+
 // TestRosterMigrateCommand drives `roster migrate` through the CLI on an
 // isolated XDG_CONFIG_HOME and the v1 draft fixture: the dry run prints the v2 text, --write keeps
 // the v1 roster as roster.toml.bak, and a second --write is refused with

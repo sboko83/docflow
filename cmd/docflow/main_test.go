@@ -439,29 +439,6 @@ func gitTestCommand(t *testing.T, dir string, args ...string) string {
 	return string(output)
 }
 
-// rosterMinimal is the smallest valid roster for the CLI tests.
-const rosterMinimal = `spend = ["zai", "codex"]
-[role]
-cheap = "cheap"
-executor = "standard"
-heavy = "strong"
-review = "strong"
-acceptance = "trusted"
-replan = "trusted"
-[route.z1]
-run = "pi | zai/m | high"
-tier = "cheap"
-[route.zs]
-run = "pi | zai/m2 | high"
-tier = "strong"
-[route.c1]
-run = "codex | c | high"
-tier = "cheap"
-[route.cs]
-run = "codex | c2 | high"
-tier = "strong"
-`
-
 func writeRosterFile(t *testing.T, text string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "roster.toml")
@@ -469,55 +446,6 @@ func writeRosterFile(t *testing.T, text string) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func TestRosterShowCommand(t *testing.T) {
-	path := writeRosterFile(t, rosterMinimal)
-	var stdout, stderr bytes.Buffer
-	parsed, code := parseArgs([]string{"roster", "show", "--roster", path}, &stdout, &stderr)
-	if parsed == nil || code != 0 {
-		t.Fatalf("parseArgs() = (%v, %d), want (parsed, 0)", parsed, code)
-	}
-	err := handleRoster(parsed)
-	result, ok := err.(commandResult)
-	if !ok {
-		t.Fatalf("handleRoster() error = %v, want commandResult", err)
-	}
-	if result.code != 0 {
-		t.Fatalf("handleRoster() code = %d, stdout %q", result.code, result.stdout)
-	}
-	want := `spend: zai, codex · check: - · trusted: -
-executor: pi | zai/m2 | high
-fallback: codex | c2 | high
-cheap: pi | zai/m | high; codex | c | high
-heavy: pi | zai/m2 | high; codex | c2 | high
-review: pi | zai/m2 | high; codex | c2 | high
-acceptance: pi | zai/m2 | high; codex | c2 | high
-replan: pi | zai/m2 | high; codex | c2 | high
-`
-	if result.stdout != want {
-		t.Fatalf("roster show stdout =\n%s\nwant\n%s", result.stdout, want)
-	}
-}
-
-func TestRosterShowProfile(t *testing.T) {
-	path := writeRosterFile(t, rosterMinimal+"\n[profile.reversed]\nspend = [\"codex\", \"zai\"]\n")
-	parsed, code := parseArgs([]string{"roster", "show", "--profile", "reversed", "--roster", path}, &bytes.Buffer{}, &bytes.Buffer{})
-	if parsed == nil || code != 0 {
-		t.Fatalf("parseArgs() = (%v, %d), want (parsed, 0)", parsed, code)
-	}
-	err := handleRoster(parsed)
-	result, ok := err.(commandResult)
-	if !ok || result.code != 0 {
-		t.Fatalf("handleRoster() = %#v, error %v", result, err)
-	}
-	lines := strings.Split(strings.TrimRight(result.stdout, "\n"), "\n")
-	if lines[0] != "spend: codex, zai · check: - · trusted: -" {
-		t.Fatalf("spend line = %q", lines[0])
-	}
-	if lines[1] != "executor: codex | c2 | high" || lines[2] != "fallback: pi | zai/m2 | high" {
-		t.Fatalf("executor lines = %q, %q", lines[1], lines[2])
-	}
 }
 
 func TestRosterShowErrors(t *testing.T) {
@@ -555,72 +483,20 @@ func TestRosterShowErrors(t *testing.T) {
 			t.Fatalf("error = %v, want no plan id", err)
 		}
 	})
-	t.Run("unknown profile", func(t *testing.T) {
-		path := writeRosterFile(t, rosterMinimal)
-		parsed, _ := parseArgs([]string{"roster", "show", "--profile", "nope", "--roster", path}, &bytes.Buffer{}, &bytes.Buffer{})
+	t.Run("removed profile flag", func(t *testing.T) {
+		path := writeRosterFile(t, "version = 2\n")
+		parsed, code := parseArgs([]string{"roster", "show", "--profile", "nope", "--roster", path}, &bytes.Buffer{}, &bytes.Buffer{})
+		if parsed == nil || code != 0 {
+			t.Fatalf("parseArgs() = (%v, %d)", parsed, code)
+		}
 		err := handleRoster(parsed)
-		if !strings.Contains(err.Error(), "unknown profile 'nope'") {
-			t.Fatalf("error = %v, want unknown profile", err)
+		if !strings.Contains(err.Error(), "--profile was removed") || !strings.Contains(err.Error(), "--preset") {
+			t.Fatalf("error = %v, want the removed --profile hint", err)
+		}
+		if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
+			t.Fatalf("exit code of %v is not %d", err, clierrors.EXIT_FORMAT)
 		}
 	})
-}
-
-// applyTestPlan is a plan with a Role unit for the apply smoke test.
-func applyTestPlan() string {
-	return `---
-id: P040
-title: Roster apply
-type: feature
-status: active
-created: 2026-10-12
----
-## Goal
-Цель плана.
-
-## Context
-
-## Constraints
-Ограничение.
-
-## Prerequisites
-
-## Traps
-Ловушка плана.
-
-## Decisions
-- решение — почему — альтернатива
-
-## Phase 1: First
-
-### [ ] P040.1.1 First unit
-Read:
-- a.py
-Do:
-- work
-Verify: ` + "`true`" + `
-Role: heavy
-Commit: P040.1.1: first
-`
-}
-
-func TestRosterApplyCommand(t *testing.T) {
-	root := makeLifecycleProject(t, []string{"P040"}, nil, map[string]string{"P040": applyTestPlan()}, false)
-	initLifecycleGit(t, root)
-	path := writeRosterFile(t, rosterMinimal)
-	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "apply", "P040", "--roster", path)
-	if code != 0 {
-		t.Fatalf("roster apply code = %d, stdout:\n%sstderr:\n%s", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, "commit: P040: apply roster") {
-		t.Fatalf("roster apply stdout =\n%s\nwant the commit hint", stdout)
-	}
-	code, stdout, _ = callLifecycleCLI(t, root, "roster", "apply", "P040", "--roster", path)
-	if code != 1 {
-		t.Fatalf("second roster apply code = %d, want 1, stdout:\n%s", code, stdout)
-	}
-	if !strings.Contains(stdout, "header already matches the roster") {
-		t.Fatalf("second roster apply stdout =\n%s\nwant the no-change note", stdout)
-	}
 }
 
 func TestRosterHelp(t *testing.T) {

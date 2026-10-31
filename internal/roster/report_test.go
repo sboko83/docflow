@@ -25,37 +25,18 @@ func writeRosterText(t *testing.T, text string) string {
 }
 
 func TestRosterAccessNames(t *testing.T) {
-	t.Run("v1 spend order", func(t *testing.T) {
-		path := writeRosterText(t, "spend = [\"zai\", \"codex\", \"claude\"]\n\n[provider.zai]\ntrusted = true\n")
+	t.Run("policy file order", func(t *testing.T) {
+		path := writeRosterText(t, policyHeader+
+			"[access.zai]\nagents = [\"pi\"]\n\n[access.codex]\nagents = [\"codex\"]\n\n"+
+			"[access.\"opencode-go\"]\nagents = [\"pi\", \"opencode\"]\n\n[access.local]\nagents = [\"pi\"]\nkind = \"local\"\n\n"+
+			policyRoles)
 		names, err := RosterAccessNames(path)
 		if err != nil {
 			t.Fatalf("RosterAccessNames() error = %v", err)
 		}
-		if want := []string{"zai", "codex", "claude"}; !reflect.DeepEqual(names, want) {
-			t.Fatalf("names = %v, want %v", names, want)
-		}
-	})
-
-	t.Run("v2 access tables", func(t *testing.T) {
-		path := writeRosterText(t, "version = 2\n\n[access.zai]\nagents = [\"pi\"]\n\n[access.codex]\nagents = [\"codex\"]\n\n[access.\"opencode-go\"]\nagents = [\"pi\", \"opencode\"]\n\n[access.local]\nagents = [\"pi\"]\nkind = \"local\"\n")
-		names, err := RosterAccessNames(path)
-		if err != nil {
-			t.Fatalf("RosterAccessNames() error = %v", err)
-		}
-		// A table has no order of its own: the names come out sorted, and a
-		// quoted header loses its quotes.
-		if want := []string{"codex", "local", "opencode-go", "zai"}; !reflect.DeepEqual(names, want) {
-			t.Fatalf("names = %v, want %v", names, want)
-		}
-	})
-
-	t.Run("spend before access, no duplicates", func(t *testing.T) {
-		path := writeRosterText(t, "spend = [\"zai\"]\n\n[access.zai]\nagents = [\"pi\"]\n\n[access.codex]\nagents = [\"codex\"]\n")
-		names, err := RosterAccessNames(path)
-		if err != nil {
-			t.Fatalf("RosterAccessNames() error = %v", err)
-		}
-		if want := []string{"zai", "codex"}; !reflect.DeepEqual(names, want) {
+		// The names keep the policy file order, and a quoted header loses
+		// its quotes.
+		if want := []string{"zai", "codex", "opencode-go", "local"}; !reflect.DeepEqual(names, want) {
 			t.Fatalf("names = %v, want %v", names, want)
 		}
 	})
@@ -68,8 +49,19 @@ func TestRosterAccessNames(t *testing.T) {
 		}
 	})
 
+	t.Run("v1 file names the migration", func(t *testing.T) {
+		path := writeRosterText(t, "spend = [\"zai\", \"codex\"]\n\n[provider.zai]\ntrusted = true\n")
+		_, err := RosterAccessNames(path)
+		if err == nil || !strings.Contains(err.Error(), "docflow roster migrate") {
+			t.Fatalf("RosterAccessNames() error = %v, want the migration hint", err)
+		}
+		if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != 2 {
+			t.Fatalf("error = %v, want exit code 2", err)
+		}
+	})
+
 	t.Run("broken file", func(t *testing.T) {
-		path := writeRosterText(t, "spend = [\"zai\"\n")
+		path := writeRosterText(t, "version = 2\n[access\n")
 		_, err := RosterAccessNames(path)
 		if err == nil || !strings.Contains(err.Error(), "roster.toml") {
 			t.Fatalf("RosterAccessNames() error = %v, want the roster path", err)

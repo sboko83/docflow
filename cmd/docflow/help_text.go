@@ -284,7 +284,7 @@ options:
   --target DIR          personal skills directory override
   --project             copy skills/* into the project
 `,
-	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] [--until DATE]
+	"roster": `usage: docflow roster [-h] [--roster PATH] [--until DATE]
                       [--preset NAME] [--off A,B] [--minimal A,B]
                       [--lean A,B] [--prefer A,B] [--expires A=DATE]
                       [--only A=GLOB] [--json] [--dry-run] [--refresh]
@@ -304,8 +304,7 @@ chosen and the warnings of incomplete chains. A condition flag of the
 call — --preset, --off, --minimal, --lean, --prefer, --expires,
 --only — is merged in memory for this one brief and never written, so
 the planner can answer a question without changing the roster state.
-roster show is the same view on a version 2 roster; on the v1 roster it
-keeps the old spend summary and the --profile flag.
+roster show is an alias of roster brief.
 
 roster explain PLAN loads the plan from docs/plans and prints the
 header keys apply would rewrite as "key: old → new" plus the warnings
@@ -315,10 +314,9 @@ file and never commits.
 roster apply PLAN writes executor:, fallback:, replan: and the role
 keys of the unit Role: fields into the plan header in docs/plans
 (draft, active or frozen), removes role keys without units, lints the
-plan and restores it on lint errors; a run in progress stops apply. On
-a version 2 roster --preset applies a preset condition set and
---dry-run prints the changes without writing the plan; --json prints
-the changes and the warnings. apply warns about a unit whose Executor:
+plan and restores it on lint errors; a run in progress stops apply.
+--preset applies a preset condition set and --dry-run prints the changes
+without writing the plan; --json prints the changes and the warnings. apply warns about a unit whose Executor:
 is outside the current conditions, an open unit whose Read: proxy is
 larger than the role budget and a role without a fallback. The runner
 never reads the roster; a plan stays reproducible without it.
@@ -332,7 +330,7 @@ cannot answer is a warning on stderr and the scan still exits 0.
 roster models lists the models of the roster accesses, or of one
 ACCESS, or of the whole catalog with --all; roster status lists every
 access with its channels, auth status, model count and sources, then
-the active conditions of a v2 roster with their source. scan, models
+the active conditions with their source. scan, models
 and status take --json.
 
 Conditions are the temporary layer over the policy: off, on, budget,
@@ -344,8 +342,8 @@ prefer, normal, lean, minimal or off; expire ACCESS DATE drops an
 access after DATE; allow ACCESS PATTERN... narrows the models of an
 access to the globs, deny ACCESS PATTERN... hides them; reset deletes
 the state file. An off condition whose until date has passed is
-dropped when the file is loaded. Only a v2 roster carries conditions:
-a condition command on a roster without version = 2 fails.
+dropped when the file is loaded. A condition command reads the version 2
+policy and fails on a v1 roster with the migration hint.
 
 roster migrate converts a v1 roster — spend, [provider], [role],
 [route] and [profile] — into a v2 policy and prints it; --write keeps
@@ -353,11 +351,12 @@ the v1 file in roster.toml.bak and replaces roster.toml atomically. A
 pi or opencode model prefix becomes the access, the route tier the
 model class, the route effort the [effort] level, and every model of an
 access its models allowlist; a profile becomes a preset. A roster that
-is already version 2 is exit code 2 and nothing is written, and a v2
-command on a v1 roster fails with this command in the hint.
+is already version 2 is exit code 2 and nothing is written; every other
+roster command refuses a v1 file with this command in the hint, and
+--profile is gone — the flag was v1 and --preset replaces it.
 
 subcommands:
-  show             print the chains per role (brief on a v2 roster)
+  show             print the brief (alias of brief)
   brief            print the conditions, chains, budgets and warnings
   explain PLAN     compare the plan header with the brief
   apply ID         write the chains into the plan header
@@ -379,8 +378,6 @@ subcommands:
 
 options:
   -h, --help      show this help message and exit
-  --profile NAME  spend and provider-flag overrides from [profile.NAME]
-                  (v1 roster only)
   --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
   --until DATE    off: the last day the access stays off (YYYY-MM-DD, UTC)
   --preset NAME   brief and apply: the preset to apply on top of the policy

@@ -179,7 +179,7 @@ EOF
     trap cleanup_agent EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    PROMPT="Read and follow $SKILL and plan the Backlog line from docs/docflow.md as the skill says. The survey is already answered: routes come from the roster's default profile (docflow roster apply without --profile), permissions: auto, auto-replan off, there are no prerequisites. Ask nothing, do not activate the plan, do not commit."
+    PROMPT="Read and follow $SKILL and plan the Backlog line from docs/docflow.md as the skill says. The survey is already answered: routes come from the roster policy without a preset (docflow roster apply without --preset), permissions: auto, auto-replan off, there are no prerequisites. Ask nothing, do not activate the plan, do not commit."
     # Explicit skill path in the prompt; no discovered extensions,
     # MCP servers or context files enter this cold fixture session.
     AGENT_COMMAND=(pi -p --model "$MODEL" --thinking high --no-session

@@ -8,6 +8,30 @@ import (
 	"testing"
 )
 
+// minimal is the smallest valid v1 roster: two providers, no flags, one
+// route per tier and provider.
+const minimal = `spend = ["zai", "codex"]
+[role]
+cheap = "cheap"
+executor = "standard"
+heavy = "strong"
+review = "strong"
+acceptance = "trusted"
+replan = "trusted"
+[route.z1]
+run = "pi | zai/m | high"
+tier = "cheap"
+[route.zs]
+run = "pi | zai/m2 | high"
+tier = "strong"
+[route.c1]
+run = "codex | c | high"
+tier = "cheap"
+[route.cs]
+run = "codex | c2 | high"
+tier = "strong"
+`
+
 // migratedPolicy migrates a roster file and returns the parsed v2 policy,
 // so the tests read the result the way the resolver will.
 func migratedPolicy(t *testing.T, path string) *Policy {
@@ -531,8 +555,5 @@ func TestV2LoadHintsMigration(t *testing.T) {
 	_, err = LoadPolicy(path)
 	if err == nil || !strings.Contains(err.Error(), "docflow roster migrate") {
 		t.Fatalf("LoadPolicy() error = %v, want the migrate hint", err)
-	}
-	if v2, err := IsV2(path); err != nil || v2 {
-		t.Fatalf("IsV2() = (%t, %v), want a v1 roster to be read as not v2", v2, err)
 	}
 }

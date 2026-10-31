@@ -2,7 +2,6 @@ package roster
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -480,55 +479,6 @@ func TestPolicyV2Errors(t *testing.T) {
 				t.Errorf("exit code of %v is not %d", err, clierrors.EXIT_FORMAT)
 			}
 		})
-	}
-}
-
-func TestPolicyV2IsV2(t *testing.T) {
-	cases := []struct {
-		name string
-		text string
-		want bool
-	}{
-		{"v2", "version = 2\n", true},
-		{"v1", `spend = ["zai"]` + "\n", false},
-		{"no version", "[access.zai]\nagents = [\"pi\"]\n", false},
-		{"version three", "version = 3\n", false},
-		{"version string", "version = \"2\"\n", false},
-	}
-	dir := t.TempDir()
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "-")+".toml")
-			if err := os.WriteFile(path, []byte(tc.text), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			got, err := IsV2(path)
-			if err != nil {
-				t.Fatalf("IsV2() error = %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("IsV2() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-
-	if got, err := IsV2(filepath.Join("testdata", "policy-v2.toml")); err != nil || !got {
-		t.Errorf("IsV2(policy-v2.toml) = %v, %v, want true, nil", got, err)
-	}
-
-	missing := filepath.Join(dir, "missing.toml")
-	if _, err := IsV2(missing); err == nil {
-		t.Error("IsV2(missing) = nil error, want a read error")
-	} else if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != clierrors.EXIT_FORMAT {
-		t.Errorf("exit code of %v is not %d", err, clierrors.EXIT_FORMAT)
-	}
-
-	broken := filepath.Join(dir, "broken.toml")
-	if err := os.WriteFile(broken, []byte("version = 2\n[access\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := IsV2(broken); err == nil {
-		t.Error("IsV2(broken) = nil error, want a parse error")
 	}
 }
 

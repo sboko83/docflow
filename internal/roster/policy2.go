@@ -125,30 +125,8 @@ func (p *Policy) PresetNames() []string {
 	return names
 }
 
-// IsV2 reports whether the roster at path ("" means DefaultPath) is a v2
-// policy: a top-level version = 2. Any other file is not v2, including
-// the old roster and a version written as a string; a missing or
-// unparsable file is an error, because the caller must not fall back to
-// the old parser and hide a broken v2 file.
-func IsV2(path string) (bool, error) {
-	if path == "" {
-		path = DefaultPath()
-	}
-	path = expandUser(path)
-	text, err := os.ReadFile(path)
-	if err != nil {
-		return false, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster file: %v", err), Code: clierrors.EXIT_FORMAT}
-	}
-	root, err := agents.ParseTOML(string(text))
-	if err != nil {
-		return false, clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: %v", path, err), Code: clierrors.EXIT_FORMAT}
-	}
-	version, ok := root["version"].(int64)
-	return ok && version == PolicyVersion, nil
-}
-
 // LoadPolicy reads and validates the v2 policy at path ("" means
-// DefaultPath).
+// DefaultPath); the v1 format is read by Migrate alone.
 func LoadPolicy(path string) (*Policy, error) {
 	if path == "" {
 		path = DefaultPath()
@@ -186,7 +164,7 @@ func (p *Policy) parse(index *lineIndex, root map[string]any) error {
 	if !ok || version != PolicyVersion {
 		// A roster the previous CLI wrote has no version key but spends and
 		// routes; the error must say how to convert it, not only what is wrong.
-		if legacyRoster(root) {
+		if hasLegacyTables(root) {
 			return failAt(p.Path, index, "", "version", "the roster is in the previous format: run `docflow roster migrate` to convert it to version %d", PolicyVersion)
 		}
 		return failAt(p.Path, index, "", "version", "version must be %d", PolicyVersion)
@@ -509,11 +487,11 @@ func (p *Policy) parsePreset(index *lineIndex, name string, section map[string]a
 	return preset, nil
 }
 
-// legacyRoster reports whether the parsed document has a top-level key
+// hasLegacyTables reports whether the parsed document has a top-level key
 // only the v1 roster has: spend, provider, route or profile. The v1 file
 // has no version key, so its absence alone does not tell a broken v2 file
 // from an old roster; these tables do.
-func legacyRoster(root map[string]any) bool {
+func hasLegacyTables(root map[string]any) bool {
 	for _, key := range []string{"spend", "provider", "route", "profile"} {
 		if _, ok := root[key]; ok {
 			return true

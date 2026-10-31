@@ -723,7 +723,7 @@ docflow roster brief --preset low
 
 ```sh
 docflow roster brief
-docflow roster show             # на v2 — алиас brief
+docflow roster show             # алиас brief
 docflow roster explain P055
 docflow roster apply P055 --preset low --dry-run
 docflow roster apply P055 --preset low
@@ -773,8 +773,9 @@ docflow roster migrate --write   # заменить roster.toml, сохрани�
 `[profile]` в доступы, классы, `[effort]` и пресеты; профиль становится
 пресетом, а доступы, которые профиль не называет, получают `off` — так
 «беречь claude» сохраняется. Уже v2-ростер — код 2, ничего не пишется.
-После cutover старый файл даёт код 2 с подсказкой `docflow roster migrate`,
-а `--profile` на v2 называет `--preset`.
+Любая другая команда на старом файле даёт код 2 с подсказкой
+`docflow roster migrate`; флаг `--profile` удалён вместе с форматом, его
+место занял `--preset`.
 
 ## Бенчмарк
 

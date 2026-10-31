@@ -52,7 +52,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief: accesses switched off for this call only"), appendOption("--minimal", "A,B", "brief: accesses at the minimal budget for this call only"), appendOption("--lean", "A,B", "brief: accesses at the lean budget for this call only"), appendOption("--prefer", "A,B", "brief: accesses at the prefer budget for this call only"), appendOption("--expires", "A=DATE", "brief: expire an access on DATE for this call only"), appendOption("--only", "A=GLOB", "brief: narrow an access to the model glob for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 2 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief: accesses switched off for this call only"), appendOption("--minimal", "A,B", "brief: accesses at the minimal budget for this call only"), appendOption("--lean", "A,B", "brief: accesses at the lean budget for this call only"), appendOption("--prefer", "A,B", "brief: accesses at the prefer budget for this call only"), appendOption("--expires", "A=DATE", "brief: expire an access on DATE for this call only"), appendOption("--only", "A=GLOB", "brief: narrow an access to the model glob for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -341,8 +341,14 @@ func handleRun(parsed *parsedArgs, stdout, stderr io.Writer) error {
 
 func handleRoster(parsed *parsedArgs) error {
 	subcommand, _ := parsed.values["subcommand"].(string)
-	profileName, _ := parsed.values["--profile"].(string)
-	path, _ := parsed.values["--roster"].(string)
+	// --profile belonged to the version 1 roster. It stays a parsed flag so
+	// the error names its replacement instead of an unrecognized word.
+	if _, given := parsed.values["--profile"]; given {
+		return clierrors.DocflowError{
+			Message: fmt.Sprintf("docflow: roster: --profile was removed with the version 1 roster; a version %d roster uses --preset NAME", roster.PolicyVersion),
+			Code:    clierrors.EXIT_FORMAT,
+		}
+	}
 	// The commands take their values as positionals; every other one takes
 	// none, so a stray token stays an error instead of being ignored.
 	rest, _ := parsed.values["args"].([]string)
@@ -372,7 +378,7 @@ func handleRoster(parsed *parsedArgs) error {
 		if id, _ := parsed.values["id"].(string); id != "" {
 			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, id), Code: clierrors.EXIT_FORMAT}
 		}
-		return rosterShow(parsed, subcommand, profileName, path)
+		return rosterBriefCommand(parsed)
 	case "apply":
 		planID, _ := parsed.values["id"].(string)
 		if planID == "" {
@@ -382,7 +388,7 @@ func handleRoster(parsed *parsedArgs) error {
 		if err != nil {
 			return err
 		}
-		return rosterApply(parsed, root, planID, profileName, path)
+		return rosterApply(parsed, root, planID)
 	case "scan":
 		return rosterScan(parsed)
 	case "models":
@@ -404,11 +410,13 @@ func handleRoster(parsed *parsedArgs) error {
 // access summary. A source problem is a warning next to a partial
 // catalog: the success code stays 0.
 func rosterScan(parsed *parsedArgs) error {
-	catalog, warnings, err := roster.ScanCatalog(roster.ScanOptions{Refresh: rosterFlag(parsed, "--refresh"), Online: rosterFlag(parsed, "--online")})
+	// The policy is read before the scan: a v1 or broken roster fails
+	// before any CLI runs and before the cache is rewritten.
+	names, err := roster.RosterAccessNames(rosterString(parsed, "--roster"))
 	if err != nil {
 		return err
 	}
-	names, err := roster.RosterAccessNames(rosterString(parsed, "--roster"))
+	catalog, warnings, err := roster.ScanCatalog(roster.ScanOptions{Refresh: rosterFlag(parsed, "--refresh"), Online: rosterFlag(parsed, "--online")})
 	if err != nil {
 		return err
 	}
@@ -443,7 +451,7 @@ func rosterModels(parsed *parsedArgs) error {
 
 // rosterStatus prints the accesses of the catalog cache with their
 // channels, auth status, model count and sources, then the active
-// conditions of a v2 roster with their source.
+// conditions with their source.
 func rosterStatus(parsed *parsedArgs) error {
 	catalog, err := roster.LoadCatalog("")
 	if err != nil {
@@ -483,22 +491,15 @@ func rosterConditionsText(policy *roster.Policy, state *roster.State, conditions
 	return fmt.Sprintf("conditions (roster %s, state %s):\n", policy.Path, state.Path) + roster.ConditionTable(conditions)
 }
 
-// rosterConditions loads the v2 policy of the roster file and its
-// condition state. A missing roster or one still in the v1 format has no
-// conditions: the commands above the cutover keep working without them.
+// rosterConditions loads the policy of the roster file and its condition
+// state. A missing roster has no conditions: the catalog commands keep
+// working without one. A v1 file fails here with the migration hint.
 func rosterConditions(path string) (*roster.Policy, *roster.State, error) {
 	policyPath := roster.PolicyPath(path)
 	if _, err := os.Stat(policyPath); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster file: %v", err), Code: clierrors.EXIT_FORMAT}
 		}
-		return nil, nil, nil
-	}
-	v2, err := roster.IsV2(policyPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !v2 {
 		return nil, nil, nil
 	}
 	policy, err := roster.LoadPolicy(policyPath)

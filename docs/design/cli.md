@@ -40,9 +40,9 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | `doctor [--agent {claude,codex,pi,opencode}] [--target DIR]` | проверяет установленный `docflow`, личный каталог выбранного агента (или `--target`) и проектный каталог этого агента по полю `name:`; для `pi` ещё строка `pi: <версия> <путь>` из `pi --version`; default `claude` |
 | `roster scan [--online] [--refresh] [--json]` | собирает каталог из Pi, OpenCode, встроенной таблицы Codex/Claude и auth-проб, пишет кэш `$XDG_CACHE_HOME/docflow/roster/catalog.json` и печатает сводку доступов; `--online` добавляет models.dev, `--refresh` перечитывает его кэш; ошибка источника — предупреждение в stderr при коде 0 |
 | `roster models [ACCESS] [--all] [--json]` | модели доступа, ростерных доступов или всего каталога; читает только кэш; неизвестный `ACCESS` — код 2 со списком известных |
-| `roster status [--json]` | доступы с каналами, auth, числом моделей и источниками, затем активные условия v2-ростера с источником; только кэш |
+| `roster status [--json]` | доступы с каналами, auth, числом моделей и источниками, затем активные условия с источником; только кэш |
 | `roster brief [--preset NAME] [--off A,B] [--minimal A,B] [--lean A,B] [--prefer A,B] [--expires A=DATE] [--only A=GLOB] [--json]` | условия в силе, цепочка, бюджет и scope каждой роли, матрица `review:`, `why:` и предупреждения; разовые флаги не сохраняются |
-| `roster show` | на v2 — алиас `brief`; на v1-ростере сохраняет старую сводку `spend` и `--profile` до cutover |
+| `roster show` | алиас `brief` |
 | `roster explain PLAN [--json]` | сравнивает шапку плана с брифом: `ключ: старое → новое` и предупреждения ролей плана; ничего не пишет |
 | `roster apply PLAN [--preset NAME] [--dry-run] [--json]` | пишет в шапку плана `executor:`, `fallback:`, `replan:` и ключи ролей с `Role:`; ключи без юнитов удаляет, `Executor:` юнитов не трогает; `run.lock` — код 5; после `lint`-ошибки восстанавливает файл — код 2; изменений нет — код 1; не коммитит |
 | `roster off ACCESS [--until DATE]`, `on ACCESS`, `budget ACCESS LEVEL`, `expire ACCESS DATE`, `allow ACCESS PATTERN...`, `deny ACCESS PATTERN...`, `reset` | правят только `roster.state.toml`; неизвестный доступ, бюджет или пресет — код 2 до записи |

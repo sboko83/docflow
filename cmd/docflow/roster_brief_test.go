@@ -330,21 +330,20 @@ func TestRosterExplainJSON(t *testing.T) {
 	}
 }
 
-// TestRosterBriefShowV1 keeps the old format on the old path: show keeps
-// its summary, brief and the one-shot flags ask for the migration, and the
-// old profile flag stays for v1.
+// TestRosterBriefShowV1: a v1 roster is not read by any roster command;
+// show, brief and the one-shot flags all fail with the migration hint.
 func TestRosterBriefShowV1(t *testing.T) {
 	rosterEnv(t, draftV1Roster(t))
 	root := t.TempDir()
-	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "show")
-	if code != 0 || !strings.HasPrefix(stdout, "spend: ") || stderr != "" {
-		t.Fatalf("roster show on v1 = (%d, %q, %q)", code, stdout, stderr)
-	}
-	if code, _, stderr := callLifecycleCLI(t, root, "roster", "brief"); code != 2 || !strings.Contains(stderr, "roster migrate") {
-		t.Fatalf("roster brief on v1 = (%d, %q), want exit 2 with the migration hint", code, stderr)
-	}
-	if code, _, stderr := callLifecycleCLI(t, root, "roster", "show", "--preset", "low"); code != 2 || !strings.Contains(stderr, "roster migrate") {
-		t.Fatalf("roster show --preset on v1 = (%d, %q), want the migration hint", code, stderr)
+	for _, args := range [][]string{
+		{"roster", "show"},
+		{"roster", "brief"},
+		{"roster", "show", "--preset", "low"},
+	} {
+		code, stdout, stderr := callLifecycleCLI(t, root, args...)
+		if code != 2 || stdout != "" || !strings.Contains(stderr, "roster migrate") || !strings.Contains(stderr, "roster.toml") {
+			t.Fatalf("%v on v1 = (%d, %q, %q), want exit 2 with the migration hint and the path", args, code, stdout, stderr)
+		}
 	}
 }
 

@@ -220,8 +220,9 @@ func TestRosterStateNeedsV2Roster(t *testing.T) {
 	if state := readRosterState(t, home); state != "" {
 		t.Fatalf("a failed command wrote the state:\n%s", state)
 	}
-	// status stays usable: the catalog section is what a v1 setup shows.
-	if code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "status"); code != 0 || strings.Contains(stdout, "conditions") {
-		t.Fatalf("roster status on a v1 roster = (%d, %q, %q)", code, stdout, stderr)
+	// status reads the policy too, so a roster without the version key
+	// fails there instead of silently dropping the conditions.
+	if code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "status"); code != 2 || !strings.Contains(stderr, "version must be 2") {
+		t.Fatalf("roster status on a roster without version = (%d, %q), want code 2", code, stderr)
 	}
 }

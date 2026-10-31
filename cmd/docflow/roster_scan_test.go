@@ -48,12 +48,46 @@ const rosterProviderAnswer = `{"data":[` +
 // it.
 const rosterSecret = "wrk_fixture_org_secret"
 
-// rosterPolicy is the roster the catalog commands filter by.
-const rosterPolicy = "spend = [\"zai\", \"opencode-go\"]\n"
+// rosterPolicy is the version 2 roster the catalog commands filter by.
+const rosterPolicy = `version = 2
+
+[access.zai]
+agents = ["pi"]
+
+[access.opencode-go]
+agents = ["pi", "opencode"]
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "standard"
+acceptance = "trusted"
+replan     = "trusted"
+`
 
 // rosterPolicyMissing also names strata, an access no channel of this
 // machine reaches.
-const rosterPolicyMissing = "spend = [\"zai\", \"opencode-go\", \"strata\"]\n"
+const rosterPolicyMissing = `version = 2
+
+[access.zai]
+agents = ["pi"]
+
+[access.opencode-go]
+agents = ["pi", "opencode"]
+
+[access.strata]
+agents = ["pi"]
+kind = "local"
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "standard"
+acceptance = "trusted"
+replan     = "trusted"
+`
 
 // installRosterCommands puts the three fake CLIs on the isolated PATH.
 // They answer the probes and the catalog calls of P055.1.2/P055.1.3 and
@@ -462,6 +496,22 @@ func TestRosterStatusWithoutCache(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "the catalog cache is empty; run docflow roster scan") {
 		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+// TestRosterCatalogCommandsNeedV2: the catalog commands read the policy
+// too, so a v1 roster fails with the migration hint instead of listing the
+// old spend order as accesses.
+func TestRosterCatalogCommandsNeedV2(t *testing.T) {
+	home := rosterScanEnv(t, draftV1Roster(t))
+	for _, args := range [][]string{{"roster", "scan"}, {"roster", "models"}, {"roster", "status"}} {
+		code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), args...)
+		if code != 2 || stdout != "" || !strings.Contains(stderr, "docflow roster migrate") || !strings.Contains(stderr, "roster.toml") {
+			t.Fatalf("%v on a v1 roster = (%d, %q, %q), want code 2 with the migration hint", args, code, stdout, stderr)
+		}
+	}
+	if _, err := os.Stat(rosterCachePath(home)); !os.IsNotExist(err) {
+		t.Fatalf("a refused scan wrote the cache: %v", err)
 	}
 }
 
