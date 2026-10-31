@@ -711,7 +711,7 @@ Handoff:
 - TestApplyStatusAndArchive восстановлен в v2-виде и проверяет неизменность файла для done-плана и архива; run.lock, lint rollback, dry-run и Executor: юнитов остались под тестами.
 - Unverified: Отдельного CLI-теста на roster apply с --off/--only/--expires на v1-ростере нет: отказ идёт через общий LoadPolicy и покрыт тестом с --preset.
 
-### [ ] P055.4.7 Review roster v2 diff
+### [x] P055.4.7 Review roster v2 diff
 Read:
 - docs/design/roster.md
 - internal/roster/brief.go
@@ -728,6 +728,8 @@ Role: review
 Commit: P055.4.7: review roster v2 diff
 Handoff:
 - Blocked (plan): Ревью выявило обход условий через legacy-маршрут, несогласованный переход brief → apply, невалидные примеры политики и необоснованную потерю проверок apply. Нужен исправляющий юнит и повторное ревью.
+- Повторное ревью диффа 765a6ce..HEAD: блокирующих дефектов и необоснованного ослабления тестов не выявлено; замечания предыдущего ревью устранены в P055.4.8.
+- На macOS прошли тесты трёх пакетов и полный docflow verify P055.4.7. Потребовались расширенные права для теста записи в ~/.cache. Код и план не изменялись.
 
 ## Phase 5: Acceptance
 
