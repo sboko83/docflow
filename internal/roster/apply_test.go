@@ -342,6 +342,13 @@ func TestApplyRestoresOnLintError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dry, report, err := Apply(root, "P040", policy, state, catalog, true)
+	if err != nil || dry.Code != clierrors.EXIT_OK || len(report.Changes) == 0 {
+		t.Fatalf("dry-run before lint = %+v, %+v, %v", dry, report, err)
+	}
+	if got := readApplyPlan(t, root); got != string(before) {
+		t.Fatal("dry-run wrote the invalid plan")
+	}
 	result, _, err := Apply(root, "P040", policy, state, catalog, false)
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
