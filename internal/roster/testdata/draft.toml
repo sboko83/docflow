@@ -1,10 +1,50 @@
-spend = ["zai", "codex", "claude"]
+# The v2 roster of the P036 draft: zai is the check access (its units need
+# an independent review), claude and codex are the trusted judges, and
+# [preset.codex-first] carries the order of the v1 profile of the same
+# name. draft-v1.toml is the v1 text the migration tests read.
 
-[provider.zai]
-check = true
+version = 2
 
-[provider.claude]
+[access.zai]
+agents = ["pi"]
+budget = "normal"
+check  = true
+models = ["glm-5.3-flash", "glm-5.3"]
+
+[access.codex]
+agents  = ["codex"]
+budget  = "normal"
 trusted = true
+models  = ["gpt-6-luna", "gpt-6.1-sol"]
+
+[access.claude]
+agents  = ["claude"]
+budget  = "normal"
+trusted = true
+models  = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
+
+# The class is the strongest tier a model served in v1, the effort is that
+# route's effort: a model keeps one effort per access.
+[model."zai/glm-5.3-flash"]
+class = "standard"
+
+[model."zai/glm-5.3"]
+class = "strong"
+
+[model."codex/gpt-6-luna"]
+class = "standard"
+
+[model."codex/gpt-6.1-sol"]
+class = "strong"
+
+[model."claude/claude-haiku-5-5"]
+class = "cheap"
+
+[model."claude/claude-sonnet-5-5"]
+class = "standard"
+
+[model."claude/claude-opus-5-5"]
+class = "strong"
 
 [role]
 cheap      = "cheap"
@@ -14,41 +54,16 @@ review     = "strong"
 acceptance = "trusted"
 replan     = "trusted"
 
-[route.glm-flash-high]
-run  = "pi | zai/glm-5.3-flash | high"
-tier = "cheap"
+[effort]
+"zai/glm-5.3-flash"        = "max"
+"zai/glm-5.3"              = "max"
+"codex/gpt-6-luna"         = "max"
+"codex/gpt-6.1-sol"        = "high"
+"claude/claude-haiku-5-5"  = "-"
+"claude/claude-sonnet-5-5" = "high"
+"claude/claude-opus-5-5"   = "high"
 
-[route.glm-flash-max]
-run  = "pi | zai/glm-5.3-flash | max"
-tier = "standard"
-
-[route.glm-max]
-run  = "pi | zai/glm-5.3 | max"
-tier = "strong"
-
-[route.luna-high]
-run  = "codex | gpt-6-luna | high"
-tier = "cheap"
-
-[route.luna-max]
-run  = "codex | gpt-6-luna | max"
-tier = "standard"
-
-[route.sol-high]
-run  = "codex | gpt-6.1-sol | high"
-tier = "strong"
-
-[route.haiku]
-run  = "claude | claude-haiku-5-5 | -"
-tier = "cheap"
-
-[route.sonnet]
-run  = "claude | claude-sonnet-5-5 | high"
-tier = "standard"
-
-[route.opus]
-run  = "claude | claude-opus-5-5 | high"
-tier = "strong"
-
-[profile.codex-first]
-spend = ["codex", "zai", "claude"]
+# The v1 profile codex-first replaced the spend order; v2 keeps the policy
+# and reorders the accesses for one call.
+[preset.codex-first]
+order = ["codex", "zai", "claude"]

@@ -49,7 +49,7 @@ func accessOf(t *testing.T, policy *Policy, name string) *Access {
 }
 
 func TestMigrateDraft(t *testing.T) {
-	policy := migratedPolicy(t, "testdata/draft.toml")
+	policy := migratedPolicy(t, "testdata/draft-v1.toml")
 	if got, want := policy.AccessNames(), []string{"zai", "codex", "claude"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("accesses = %v, want %v in spend order", got, want)
 	}
@@ -113,27 +113,6 @@ func TestMigrateDraft(t *testing.T) {
 	// The profile spend names every access, so nothing is switched off.
 	if len(preset.Off) != 0 {
 		t.Fatalf("preset off = %v, want none", preset.Off)
-	}
-}
-
-func TestMigrateBench(t *testing.T) {
-	policy := migratedPolicy(t, filepath.Join("..", "..", "bench", "roster.toml"))
-	if got, want := policy.AccessNames(), []string{"codex", "zai"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("accesses = %v, want %v", got, want)
-	}
-	if got := accessOf(t, policy, "zai").Models; !reflect.DeepEqual(got, []string{"glm-5.3"}) {
-		t.Fatalf("zai models = %v, want glm-5.3", got)
-	}
-	// One model, two tiers: strong wins the class, the strong route's max
-	// effort wins the [effort] entry.
-	if got := policy.Models["zai/glm-5.3"]; got != "strong" {
-		t.Fatalf("class of zai/glm-5.3 = %q, want strong", got)
-	}
-	if got := policy.Efforts["zai/glm-5.3"]; got != "max" {
-		t.Fatalf("effort of zai/glm-5.3 = %q, want max", got)
-	}
-	if got := policy.Models["codex/gpt-6-luna"]; got != "standard" {
-		t.Fatalf("class of codex/gpt-6-luna = %q, want standard", got)
 	}
 }
 
@@ -534,7 +513,7 @@ func TestMigrateFileMissing(t *testing.T) {
 // TestV2LoadHintsMigration: after the cutover a v1 roster is not read by
 // the v2 loader, and the error tells the user which command converts it.
 func TestV2LoadHintsMigration(t *testing.T) {
-	data, err := os.ReadFile("testdata/draft.toml")
+	data, err := os.ReadFile("testdata/draft-v1.toml")
 	if err != nil {
 		t.Fatal(err)
 	}

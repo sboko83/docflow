@@ -334,7 +334,7 @@ func TestRosterExplainJSON(t *testing.T) {
 // its summary, brief and the one-shot flags ask for the migration, and the
 // old profile flag stays for v1.
 func TestRosterBriefShowV1(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+	rosterEnv(t, draftV1Roster(t))
 	root := t.TempDir()
 	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "show")
 	if code != 0 || !strings.HasPrefix(stdout, "spend: ") || stderr != "" {

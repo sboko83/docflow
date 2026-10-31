@@ -8,8 +8,9 @@ import (
 )
 
 // The role acceptance tests write the plan header with the built CLI's
-// roster apply from the P036 draft roster in $XDG_CONFIG_HOME, then run
-// the plan with pi, codex and claude stubs in PATH.
+// roster apply from the v2 draft roster and its catalog fixture in
+// $XDG_CONFIG_HOME and $XDG_CACHE_HOME, then run the plan with pi, codex
+// and claude stubs in PATH.
 
 // rosterRunFixture gives the first unit field1 and the second field2, then
 // applies the draft roster: executor: pi | zai/glm-5.3-flash | max,
@@ -29,11 +30,19 @@ func rosterRunFixture(t *testing.T, field1, field2 string) *runFixture {
 		t.Fatal(err)
 	}
 	writeFakePi(t, f, fake)
-	draft, err := os.ReadFile(filepath.Join("..", "roster", "testdata", "draft.toml"))
-	if err != nil {
-		t.Fatal(err)
+	// The resolver reads the models from the catalog cache: install the
+	// roster package fixture, so the routes never depend on the machine.
+	for name, target := range map[string]string{
+		"draft.toml":         filepath.Join(f.tmp, "docflow", "roster.toml"),
+		"draft-catalog.json": filepath.Join(f.tmp, "cache", "docflow", "roster", "catalog.json"),
+	} {
+		data, err := os.ReadFile(filepath.Join("..", "roster", "testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.write(target, string(data))
 	}
-	f.write(filepath.Join(f.tmp, "docflow", "roster.toml"), string(draft))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(f.tmp, "cache"))
 	f.check(f.cli("roster", "apply", "P001"), 0, "commit: P001: apply roster")
 	for _, line := range []string{
 		"executor: pi | zai/glm-5.3-flash | max\n",

@@ -11,8 +11,10 @@ import (
 	"bsv-docflow/internal/clierrors"
 )
 
-// draft is the roster draft from the P036 context; the picked chains are
-// the reference table of the plan.
+// draft is the v1 text of the roster draft from the P036 context; the
+// picked chains are the reference table of the plan. The migrated v2 draft
+// is testdata/draft.toml, the v1 fixture the migration tests read is
+// testdata/draft-v1.toml.
 const draft = `spend = ["zai", "codex", "claude"]
 
 [provider.zai]

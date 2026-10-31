@@ -133,7 +133,7 @@ func TestRosterApplyV2RejectsV1Flags(t *testing.T) {
 }
 
 func TestRosterApplyV1RejectsV2Flags(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+	rosterEnv(t, draftV1Roster(t))
 	root := rosterProject(t, rosterPlan(""))
 	code, _, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001", "--preset", "low")
 	if code != 2 || !strings.Contains(stderr, "roster migrate") {

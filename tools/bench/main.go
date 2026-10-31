@@ -377,8 +377,16 @@ func validatePlan(root, base, roster, name string, plan []byte) error {
 	if err := gitAddCommit(dir, "benchmark plan"); err != nil {
 		return err
 	}
+	// apply reads the catalog cache from XDG_CACHE_HOME: the fixture beside
+	// the roster decides the routes, not the scan of this machine.
+	cache, err := rosterCache(rosterCatalogPath(roster))
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(cache)
 	apply := exec.Command(bin, "roster", "apply", "P001", "--roster", roster)
 	apply.Dir = dir
+	apply.Env = append(os.Environ(), "XDG_CACHE_HOME="+cache)
 	if output, err := apply.CombinedOutput(); err != nil {
 		return fmt.Errorf("docflow roster apply: %s: %w", strings.TrimSpace(string(output)), err)
 	}

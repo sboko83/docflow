@@ -283,36 +283,10 @@ func TestValue(t *testing.T) { if tiny.Value() != 2 { t.Fatal("value") } }
 	if err := os.MkdirAll(filepath.Dir(rosterFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	rosterText := `spend = ["pi", "codex"]
-
-[provider.pi]
-check = false
-
-[role]
-cheap = "cheap"
-executor = "standard"
-heavy = "strong"
-review = "strong"
-acceptance = "trusted"
-replan = "trusted"
-
-[route.pi-cheap]
-run = "pi | test-model | high"
-tier = "cheap"
-
-[route.pi-standard]
-run = "pi | test-model | high"
-tier = "standard"
-
-[route.pi-strong]
-run = "pi | test-model | high"
-tier = "strong"
-
-[route.codex-strong]
-run = "codex | gpt-6.1-sol | high"
-tier = "strong"
-
-`
+	// The roster and its catalog fixture are one pair: apply resolves the
+	// routes from the catalog.
+	rosterText := acceptanceRoster
+	writeBenchFile(t, filepath.Dir(rosterFile), "catalog.json", acceptanceCatalog)
 	if err := os.WriteFile(rosterFile, []byte(rosterText), 0o644); err != nil {
 		t.Fatal(err)
 	}

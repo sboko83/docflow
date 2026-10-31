@@ -8,11 +8,11 @@ import (
 )
 
 // TestRosterMigrateCommand drives `roster migrate` through the CLI on an
-// isolated XDG_CONFIG_HOME: the dry run prints the v2 text, --write keeps
+// isolated XDG_CONFIG_HOME and the v1 draft fixture: the dry run prints the v2 text, --write keeps
 // the v1 roster as roster.toml.bak, and a second --write is refused with
 // exit code 2 instead of rewriting the migrated file.
 func TestRosterMigrateCommand(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+	rosterEnv(t, draftV1Roster(t))
 	config := os.Getenv("XDG_CONFIG_HOME")
 	path := filepath.Join(config, "docflow", "roster.toml")
 
@@ -23,7 +23,7 @@ func TestRosterMigrateCommand(t *testing.T) {
 	if !strings.HasPrefix(stdout, "# Roster v2") || !strings.Contains(stdout, "version = 2") {
 		t.Fatalf("roster migrate stdout =\n%s\nwant the v2 text", stdout)
 	}
-	if data, _ := os.ReadFile(path); string(data) != draftRoster(t) {
+	if data, _ := os.ReadFile(path); string(data) != draftV1Roster(t) {
 		t.Fatalf("a dry run rewrote the roster")
 	}
 
@@ -38,7 +38,7 @@ func TestRosterMigrateCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(backup) != draftRoster(t) {
+	if string(backup) != draftV1Roster(t) {
 		t.Fatalf("the backup does not hold the v1 roster")
 	}
 	migrated, err := os.ReadFile(path)
@@ -60,7 +60,7 @@ func TestRosterMigrateCommand(t *testing.T) {
 
 // TestRosterMigrateArgumentError: migrate takes no positional arguments.
 func TestRosterMigrateArgumentError(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+	rosterEnv(t, draftV1Roster(t))
 	code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "migrate", "extra")
 	if code != 2 || !strings.Contains(stderr, "unrecognized arguments: extra") {
 		t.Fatalf("roster migrate extra = (%d, %q), want 2 and the stray argument", code, stderr)

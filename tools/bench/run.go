@@ -79,14 +79,14 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 	if err != nil || resultsRel == "." || resultsRel == ".." || strings.HasPrefix(resultsRel, ".."+string(filepath.Separator)) {
 		return &exitError{code: 2, message: "results must name a directory inside the checkout"}
 	}
-	rm, err := rosterMetadata(root, resolve(root, opt.rosterPath))
+	rm, err := rosterMetadata(resolve(root, opt.rosterPath))
 	if err != nil {
 		return err
 	}
 	if opt.dryRun {
 		fmt.Fprintf(out, "tasks: %s\narms: %s\nsingle: %s\n", strings.Join(names, ", "), strings.Join(requestedArms, ", "), routeText(route))
 		fmt.Fprintln(out, "roster:")
-		fmt.Fprint(out, rm.value.Show())
+		fmt.Fprintln(out, strings.Join(rm.chains, "\n"))
 		fmt.Fprintf(out, "base: %s\nwork: work/bench/<run-id>\nresults: %s\n", filepath.ToSlash(filepath.Join("bench", "base")), filepath.ToSlash(resultsRel))
 		for _, name := range names {
 			for _, arm := range requestedArms {
@@ -98,6 +98,15 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 	if err := ensureResultsClean(root, resultsRel); err != nil {
 		return err
 	}
+	// The arms resolve the roster from the committed catalog fixture, never
+	// from the cache of this machine: the routes of a result must be
+	// reproducible on any checkout.
+	cache, err := rosterCache(rm.catalog)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(cache)
+	rm.cache = cache
 	resultsDir := filepath.Join(root, resultsRel)
 	start := time.Now()
 	runID, err := resultRunID(start, resultsDir)
@@ -131,7 +140,7 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 				interrupted = true
 				break
 			}
-			row, tail := executeArm(ctx, root, workDir, docflowBin, docflowVersion, docflowCommit, docflowDirty, rm.value, route, input, arm, opt.timeout)
+			row, tail := executeArm(ctx, root, workDir, docflowBin, docflowVersion, docflowCommit, docflowDirty, rm, route, input, arm, opt.timeout)
 			row.V, row.RunID, row.TS, row.Task, row.TaskSHA, row.Arm = 1, runID, float64(time.Now().Unix()), input.name, input.digest, arm
 			if arm == "docflow" {
 				row.RosterSHA, row.Chains = rm.sha, rm.chains
@@ -183,10 +192,16 @@ func writeReportAt(dir string) error {
 	return os.WriteFile(filepath.Join(dir, "README.md"), []byte(renderTrend(rows)), 0o644)
 }
 
+// loadedRoster is the roster of a benchmark run: the hash of the roster
+// file, the chains the v2 policy resolves with its catalog fixture, the
+// roster path and the catalog file beside it. The cache of the run is
+// prepared from the catalog, so no arm reads the scan of this machine.
 type loadedRoster struct {
-	sha    string
-	chains []string
-	value  *roster.Roster
+	sha     string
+	chains  []string
+	path    string
+	catalog string
+	cache   string
 }
 
 func parseArms(value string) ([]string, error) {
@@ -272,7 +287,7 @@ func benchmarkDocflow(root, work string, supplied string) (string, string, strin
 	return bin, strings.TrimSpace(version), strings.TrimSpace(gitHead), strings.TrimSpace(dirty) != "", nil
 }
 
-func executeArm(ctx context.Context, root, work, docflowBin, version, commit string, dirty bool, rosterValue *roster.Roster, route agents.Route, task taskInput, arm string, timeout time.Duration) (benchResult, []string) {
+func executeArm(ctx context.Context, root, work, docflowBin, version, commit string, dirty bool, rm loadedRoster, route agents.Route, task taskInput, arm string, timeout time.Duration) (benchResult, []string) {
 	started := time.Now()
 	branch := filepath.Join(work, task.name+"-"+arm)
 	result := benchResult{Status: "error", Cost: nil, Unverified: []string{}}
@@ -290,7 +305,7 @@ func executeArm(ctx context.Context, root, work, docflowBin, version, commit str
 	if arm == "single" {
 		runSingle(ctx, root, branch, task.plan, route, timeout, &result)
 	} else {
-		runDocflow(ctx, branch, docflowBin, rosterValue, route, task, arm == "docflow-one", timeout, &result)
+		runDocflow(ctx, branch, docflowBin, rm, route, task, arm == "docflow-one", timeout, &result)
 	}
 	return finalizeArm(branch, task, arm, result, started, strings.TrimSpace(baseCommit))
 }
@@ -380,7 +395,7 @@ func stripPlanForSingle(plan string) string {
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
-func runDocflow(parent context.Context, branch, binary string, rosterValue *roster.Roster, route agents.Route, task taskInput, one bool, timeout time.Duration, result *benchResult) {
+func runDocflow(parent context.Context, branch, binary string, rm loadedRoster, route agents.Route, task taskInput, one bool, timeout time.Duration, result *benchResult) {
 	if _, err := commandOutput(branch, binary, "init", "--agent", "codex"); err != nil {
 		result.Status = "error"
 		return
@@ -409,7 +424,7 @@ func runDocflow(parent context.Context, branch, binary string, rosterValue *rost
 		result.Status = "error"
 		return
 	}
-	if output, err := commandOutput(branch, binary, "roster", "apply", "P001", "--roster", rosterValue.Path); err != nil {
+	if output, err := commandEnv(branch, append(os.Environ(), "XDG_CACHE_HOME="+rm.cache), binary, "roster", "apply", "P001", "--roster", rm.path); err != nil {
 		_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), []byte(redactAbsolutePaths(output)), 0o644)
 		result.Status = "error"
 		return
@@ -660,8 +675,16 @@ func diffFromBase(branch, baseCommit string) diffResult {
 func gitOutput(dir string, args ...string) (string, error) { return commandOutput(dir, "git", args...) }
 
 func commandOutput(dir, name string, args ...string) (string, error) {
+	return commandEnv(dir, nil, name, args...)
+}
+
+// commandEnv runs a command like commandOutput with an explicit
+// environment: roster apply reads the catalog cache from XDG_CACHE_HOME,
+// and a benchmark arm must get the fixture, not the caller's cache.
+func commandEnv(dir string, env []string, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), strings.TrimSpace(string(out)), err)
@@ -677,21 +700,85 @@ func gitAddCommit(dir, message string) error {
 	return err
 }
 
-func rosterMetadata(root, path string) (loadedRoster, error) {
-	r, err := roster.Load(path, "")
+// rosterMetadata reads the v2 policy of the benchmark roster and resolves
+// its chains with the catalog fixture, exactly as roster apply will in the
+// arm: one resolver, so the recorded chains describe the routes the run
+// really took. roster_sha stays the hash of the roster file.
+func rosterMetadata(path string) (loadedRoster, error) {
+	policy, err := roster.LoadPolicy(path)
 	if err != nil {
 		return loadedRoster{}, err
 	}
-	data, err := os.ReadFile(r.Path)
+	state, err := roster.LoadState(roster.StatePath(policy.Path))
+	if err != nil {
+		return loadedRoster{}, err
+	}
+	catalogPath := rosterCatalogPath(policy.Path)
+	catalog, err := roster.LoadCatalog(catalogPath)
+	if err != nil {
+		return loadedRoster{}, err
+	}
+	brief, err := roster.BuildBrief(policy, state, catalog, nil)
+	if err != nil {
+		return loadedRoster{}, err
+	}
+	data, err := os.ReadFile(policy.Path)
 	if err != nil {
 		return loadedRoster{}, err
 	}
 	sum := sha256.Sum256(data)
-	var chains []string
-	for _, line := range strings.Split(strings.TrimSpace(r.Show()), "\n") {
-		if strings.Contains(line, ": ") && !strings.HasPrefix(line, "spend:") {
-			chains = append(chains, line)
+	return loadedRoster{sha: hex.EncodeToString(sum[:]), chains: chainLines(brief), path: policy.Path, catalog: catalogPath}, nil
+}
+
+// rosterCatalogPath is the catalog fixture of a benchmark roster: a
+// catalog.json beside the roster file. The pair is one fixture: the roster
+// names the accesses and model classes, the catalog supplies the models
+// the resolver picks from.
+func rosterCatalogPath(rosterPath string) string {
+	return filepath.Join(filepath.Dir(rosterPath), "catalog.json")
+}
+
+// chainLines renders the chains of a brief the way the plan header writes
+// them: executor, its fallback, then the role keys. The order is the
+// package role order, so a result file is stable between runs.
+func chainLines(brief *roster.Brief) []string {
+	header := brief.Header()
+	var lines []string
+	if route := header[roster.Roles[0]]; route != "" {
+		lines = append(lines, roster.Roles[0]+": "+route)
+	}
+	if fallback := header["fallback"]; fallback != "" {
+		lines = append(lines, "fallback: "+fallback)
+	}
+	for _, role := range roster.Roles[1:] {
+		if chain := header[role]; chain != "" {
+			lines = append(lines, role+": "+chain)
 		}
 	}
-	return loadedRoster{sha: hex.EncodeToString(sum[:]), chains: chains, value: r}, nil
+	return lines
+}
+
+// rosterCache writes the catalog fixture into a fresh cache directory and
+// returns it: the caller passes it as XDG_CACHE_HOME to the docflow
+// processes of the run and removes the directory afterwards. A benchmark
+// arm must resolve the same routes on CI and on a maintainer's machine.
+func rosterCache(catalogPath string) (string, error) {
+	data, err := os.ReadFile(catalogPath)
+	if err != nil {
+		return "", fmt.Errorf("benchmark roster catalog: %w", err)
+	}
+	dir, err := os.MkdirTemp("", "docflow-bench-cache-")
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(dir, "docflow", "roster", "catalog.json")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	if err := os.WriteFile(target, data, 0o644); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
 }

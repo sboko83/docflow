@@ -1,30 +1,39 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"bsv-docflow/internal/agents"
 )
 
 // The roster acceptance tests drive the in-process CLI on a temporary
-// docflow: 3 project; the roster is the user's draft from P036 ## Context
-// (internal/roster/testdata/draft.toml) in a temporary XDG_CONFIG_HOME.
+// docflow: 3 project; the roster is the v2 draft of P036 ## Context
+// (internal/roster/testdata/draft.toml) together with its catalog fixture
+// in a temporary XDG_CONFIG_HOME and XDG cache. The v1 draft of the same
+// scenario lives in draft-v1.toml and is read by the migration tests and
+// by legacy_roster_test.go.
 
-// rosterTable is the expected chain table of P036 ## Context.
+// rosterTable is the expected chain table of the v2 draft roster: zai is
+// the check access, so it serves ordinary units but never judges; codex
+// and claude are the trusted judges, so acceptance and replan hold both.
 var rosterTable = map[string]string{
-	"cheap":      "pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | high; claude | claude-haiku-5-5 | -",
+	"cheap":      "pi | zai/glm-5.3-flash | max; codex | gpt-6-luna | max; claude | claude-haiku-5-5 | -",
 	"executor":   "pi | zai/glm-5.3-flash | max; codex | gpt-6-luna | max; claude | claude-sonnet-5-5 | high",
 	"heavy":      "pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high",
 	"review":     "codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high",
-	"acceptance": "claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high",
-	"replan":     "claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high",
+	"acceptance": "codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high",
+	"replan":     "codex | gpt-6.1-sol | high; claude | claude-opus-5-5 | high",
 }
 
 // rosterEnv isolates the CLI from the personal configuration and installs
-// roster as $XDG_CONFIG_HOME/docflow/roster.toml.
-func rosterEnv(t *testing.T, roster string) {
+// rosterText as $XDG_CONFIG_HOME/docflow/roster.toml; the catalog cache of
+// the call is an empty directory under $XDG_CACHE_HOME.
+func rosterEnv(t *testing.T, rosterText string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -36,16 +45,62 @@ func rosterEnv(t *testing.T, roster string) {
 	t.Setenv("DOCFLOW_NOTIFY", "0")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	writeLifecycleFile(t, home, "docflow/roster.toml", roster)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	writeLifecycleFile(t, home, "docflow/roster.toml", rosterText)
 }
 
-func draftRoster(t *testing.T) string {
+// rosterAcceptanceEnv installs the v2 draft roster together with its
+// catalog: the catalog decides the models and the efforts the resolver
+// picks, so the test never reads the cache of the machine it runs on.
+func rosterAcceptanceEnv(t *testing.T) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "draft.toml"))
+	rosterEnv(t, draftRoster(t))
+	writeLifecycleFile(t, os.Getenv("HOME"), "cache/docflow/roster/catalog.json", rosterFixture(t, "draft-catalog.json"))
+}
+
+// rosterFixture reads a roster package fixture: the tests of this package
+// read the same files the resolver tests do.
+func rosterFixture(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// draftRoster is the v2 draft roster of P036 ## Context.
+func draftRoster(t *testing.T) string {
+	t.Helper()
+	return rosterFixture(t, "draft.toml")
+}
+
+// jsonBriefChains renders the role chains of a JSON brief the way the plan
+// header writes them, so the table stays readable.
+func jsonBriefChains(t *testing.T, stdout string) map[string]string {
+	t.Helper()
+	var brief struct {
+		Roles []struct {
+			Role   string `json:"role"`
+			Routes []struct {
+				Agent  string `json:"agent"`
+				Model  string `json:"model"`
+				Effort string `json:"effort"`
+			} `json:"routes"`
+		} `json:"roles"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &brief); err != nil {
+		t.Fatalf("brief JSON: %v\n%s", err, stdout)
+	}
+	chains := make(map[string]string, len(brief.Roles))
+	for _, entry := range brief.Roles {
+		texts := make([]string, 0, len(entry.Routes))
+		for _, route := range entry.Routes {
+			texts = append(texts, agents.RouteText(agents.Route{Agent: route.Agent, Model: route.Model, Effort: route.Effort}))
+		}
+		chains[entry.Role] = strings.Join(texts, "; ")
+	}
+	return chains
 }
 
 // rosterUnits are one unit without a role and one per role key; the heavy
@@ -101,22 +156,13 @@ func headerLines(text string) []string {
 	return lines
 }
 
-func TestRosterAcceptanceShowMatchesTable(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
-	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "show")
+func TestRosterAcceptanceBriefMatchesTable(t *testing.T) {
+	rosterAcceptanceEnv(t)
+	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "brief", "--json")
 	if code != 0 || stderr != "" {
-		t.Fatalf("roster show = (%d, %q, %q)", code, stdout, stderr)
+		t.Fatalf("roster brief = (%d, %q, %q)", code, stdout, stderr)
 	}
-	got := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n")[1:] {
-		key, value, ok := strings.Cut(line, ": ")
-		if !ok {
-			t.Fatalf("unexpected line %q in:\n%s", line, stdout)
-		}
-		got[key] = value
-	}
-	got["executor"] += "; " + got["fallback"]
-	delete(got, "fallback")
+	got := jsonBriefChains(t, stdout)
 	if len(got) != len(rosterTable) {
 		t.Fatalf("roles = %v, want %d roles:\n%s", got, len(rosterTable), stdout)
 	}
@@ -125,13 +171,10 @@ func TestRosterAcceptanceShowMatchesTable(t *testing.T) {
 			t.Errorf("%s chain = %q, want %q", role, got[role], want)
 		}
 	}
-	if first, _, _ := strings.Cut(stdout, "\n"); first != "spend: zai, codex, claude · check: zai · trusted: claude" {
-		t.Errorf("summary line = %q", first)
-	}
 }
 
 func TestRosterAcceptanceApplyLintDryRun(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+	rosterAcceptanceEnv(t)
 	root := rosterProject(t, rosterPlan(""))
 	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001")
 	if code != 0 || !strings.Contains(stdout, "commit: P001: apply roster") {
@@ -189,15 +232,18 @@ func TestRosterAcceptanceApplyLintDryRun(t *testing.T) {
 	}
 }
 
-func TestRosterAcceptanceProfileReordersChains(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+// TestRosterAcceptancePresetReordersChains: a v2 preset reorders the
+// policy accesses for one call, and the v1 --profile flag is refused with
+// a pointer to it.
+func TestRosterAcceptancePresetReordersChains(t *testing.T) {
+	rosterAcceptanceEnv(t)
 	root := rosterProject(t, rosterPlan(""))
 	if code, stdout, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001"); code != 0 {
 		t.Fatalf("roster apply = (%d, %q, %q)", code, stdout, stderr)
 	}
-	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001", "--profile", "codex-first")
+	code, stdout, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001", "--preset", "codex-first")
 	if code != 0 || !strings.Contains(stdout, "executor: pi | zai/glm-5.3-flash | max → codex | gpt-6-luna | max") {
-		t.Fatalf("roster apply --profile = (%d, %q, %q)", code, stdout, stderr)
+		t.Fatalf("roster apply --preset = (%d, %q, %q)", code, stdout, stderr)
 	}
 	want := []string{
 		"executor: codex | gpt-6-luna | max",
@@ -211,12 +257,15 @@ func TestRosterAcceptanceProfileReordersChains(t *testing.T) {
 		t.Fatalf("header =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 	if code, stdout, stderr := callLifecycleCLI(t, root, "lint"); code != 0 || stdout != "" || stderr != "" {
-		t.Fatalf("lint after profile apply = (%d, %q, %q)", code, stdout, stderr)
+		t.Fatalf("lint after preset apply = (%d, %q, %q)", code, stdout, stderr)
+	}
+	if code, _, stderr := callLifecycleCLI(t, root, "roster", "apply", "P001", "--profile", "codex-first"); code != 2 || !strings.Contains(stderr, "--preset") {
+		t.Fatalf("roster apply --profile on v2 = (%d, %q), want 2 and the --preset hint", code, stderr)
 	}
 }
 
 func TestRosterAcceptanceMigrateTwoToThree(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+	rosterAcceptanceEnv(t)
 	meta := "executor: pi | zai/glm-5.3 | max\nfallback: codex | gpt-6-luna | max; claude | claude-opus-5-5 | high\nreplan: claude | claude-opus-5-5 | high\n"
 	plan := "---\nid: P001\ntitle: Legacy\ntype: feature\nstatus: active\ncreated: 2026-10-12\n" + meta + "---\n" +
 		"## Goal\nGoal.\n\n## Context\n\n## Constraints\n\n## Prerequisites\n\n## Traps\n\n## Decisions\n- legacy decision — why — alternative\n\n## Phase 1: First\n\n" +
@@ -260,35 +309,8 @@ func TestRosterAcceptanceMigrateTwoToThree(t *testing.T) {
 	}
 }
 
-func TestRosterAcceptanceSingleProvider(t *testing.T) {
-	routes := "[route.sonnet]\nrun = \"claude | claude-sonnet-5-5 | high\"\ntier = \"standard\"\n\n[route.opus]\nrun = \"claude | claude-opus-5-5 | high\"\ntier = \"strong\"\n"
-	roles := "[role]\ncheap = \"standard\"\nexecutor = \"standard\"\nheavy = \"strong\"\nreview = \"strong\"\nacceptance = \"trusted\"\nreplan = \"trusted\"\n\n"
-	glm := "[route.glm]\nrun = \"pi | zai/glm-5.3 | max\"\ntier = \"strong\"\n\n"
-	for _, tc := range []struct{ name, roster, role string }{
-		{"claude only", "spend = [\"claude\"]\n\n[provider.claude]\ntrusted = true\n\n" + roles + routes, "role executor:"},
-		{"review left with one provider", "spend = [\"zai\", \"claude\"]\n\n[provider.zai]\ncheck = true\n\n[provider.claude]\ntrusted = true\n\n" + roles + glm + routes, "role review:"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rosterEnv(t, tc.roster)
-			code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "show")
-			if code != 2 || stdout != "" || !strings.Contains(stderr, tc.role) || !strings.Contains(stderr, "need at least two providers") || !strings.Contains(stderr, "roster.toml:") {
-				t.Fatalf("roster show = (%d, %q, %q)", code, stdout, stderr)
-			}
-		})
-	}
-
-	t.Run("plan without fallback", func(t *testing.T) {
-		rosterEnv(t, draftRoster(t))
-		root := rosterProject(t, rosterPlan("executor: claude | claude-opus-5-5 | high\nheavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high\nreview: "+rosterTable["review"]+"\nacceptance: "+rosterTable["acceptance"]+"\n"))
-		code, stdout, stderr := callLifecycleCLI(t, root, "lint")
-		if code != 0 || !strings.Contains(stdout+stderr, "no fallback for executor") {
-			t.Fatalf("lint without fallback = (%d, %q, %q)", code, stdout, stderr)
-		}
-	})
-}
-
 func TestRosterAcceptanceRunLock(t *testing.T) {
-	rosterEnv(t, draftRoster(t))
+	rosterAcceptanceEnv(t)
 	root := rosterProject(t, rosterPlan(""))
 	output, err := exec.Command("git", "-C", root, "rev-parse", "--absolute-git-dir").Output()
 	if err != nil {

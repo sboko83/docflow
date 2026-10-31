@@ -1,7 +1,29 @@
-spend = ["codex", "zai"]
+# The routes a benchmark run uses, in the v2 format. The catalog of these
+# accesses is catalog.json beside this file: a benchmark must resolve the
+# same routes on every machine, so it reads the fixture instead of a scan
+# of the developer's own roster.
+version = 2
 
-[provider.zai]
+[access.codex]
+agents  = ["codex"]
+budget  = "normal"
 trusted = true
+models  = ["gpt-6-luna", "gpt-6.1-sol"]
+
+[access.zai]
+agents  = ["pi"]
+budget  = "normal"
+trusted = true
+models  = ["glm-5.3"]
+
+[model."codex/gpt-6-luna"]
+class = "standard"
+
+[model."codex/gpt-6.1-sol"]
+class = "strong"
+
+[model."zai/glm-5.3"]
+class = "strong"
 
 [role]
 cheap      = "cheap"
@@ -11,18 +33,7 @@ review     = "trusted"
 acceptance = "trusted"
 replan     = "trusted"
 
-[route.codex-standard]
-run  = "codex | gpt-6-luna | high"
-tier = "standard"
-
-[route.codex-strong]
-run  = "codex | gpt-6.1-sol | high"
-tier = "strong"
-
-[route.zai-standard]
-run  = "pi | zai/glm-5.3 | high"
-tier = "standard"
-
-[route.zai-strong]
-run  = "pi | zai/glm-5.3 | max"
-tier = "strong"
+[effort]
+"codex/gpt-6-luna"  = "high"
+"codex/gpt-6.1-sol" = "high"
+"zai/glm-5.3"       = "max"

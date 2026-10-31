@@ -207,6 +207,10 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Из индекса docs/design/README.md удалён открытый вопрос про read_budget — бюджета как ключа плана нет, это рекомендация брифа; вопрос о коэффициентах оставлен в roster.md — отвергнуто сохранение устаревшего пункта в индексе
 - Старый roster show с --profile оставлен только в разделе миграции и в строке CLI как поведение v1 до cutover — отвергнуто удаление до финального удаления v1-кода
 - Удаление v1 в changelog сформулировано как состояние будущего релиза (Unreleased), а не как факт текущего дерева — Do требует упомянуть удаление, а Unreleased собирает весь выпуск — отвергнуто: переносить запись об удалении в юнит 4.6 (тогда `roster v2` в Unreleased остаётся без cutover-части).
+- Бенчмарк получил коммитируемый каталог bench/catalog.json и передаёт его армам через XDG_CACHE_HOME — v2-резолв требует каталога, а маршруты прогона должны быть воспроизводимы на CI, где личного скана нет — отвергнуто чтение кэша разработчика (маршруты зависят от машины).
+- chains бенчмарка сознательно отличаются от v1: judge-роли codex→zai и zai/glm-5.3 = max во всех ролях, изменение записано в docs/design/bench.md без перезапуска результатов — v2 сортирует по бюджету и пинит одно усилие на ACCESS/MODEL — отвергнут prefer на zai ради порядка v1: дорогой glm стал бы основным executor-маршрутом.
+- Старый v1-драфт вынесен в отдельную фикстуру draft-v1.toml, а v1 CLI-тесты — в legacy_roster_test.go — трап плана требует держать старые show/apply зелёными до cutover — отвергнуто удаление v1-тестов вместе с фикстурой.
+- Удалён TestMigrateBench вместо перевода его на копию v1-бенч-ростера — миграция v2-файла и так отвергается, а проверяемое правило покрыто TestMigrateDraft — отвергнуто дублирование фикстуры только ради теста.
 
 ## Phase 1: Catalog and discovery
 
@@ -608,7 +612,7 @@ Handoff:
 - Unverified: Утверждение CHANGELOG об удалении v1-формата и команд пока не соответствует коду (v1 ещё читается до cutover) — проверка только текстом, поведение появится в юните 4.6; `Verify` этого не ловит.
 
 
-### [ ] P055.4.5 Migrate tests, fixtures, bench
+### [x] P055.4.5 Migrate tests, fixtures, bench
 Read:
 - internal/roster/roster_test.go:L1-60
 - internal/roster/apply_test.go:L1-80
@@ -625,6 +629,15 @@ Do:
 Verify: `go test ./internal/roster ./cmd/docflow ./tools/bench`
 Traps: не перезапускать бенчмарк и не менять `bench/results`; `chains` в результате должны быть стабильны; v1-миграция должна остаться.
 Commit: P055.4.5: migrate roster fixtures and bench to v2
+Handoff:
+- draft.toml теперь v2: каталог для него — internal/roster/testdata/draft-catalog.json, v1-текст для миграции — draft-v1.toml; cmd/docflow и internal/runner читают пару draft.toml + draft-catalog.json.
+- rosterEnv в cmd/docflow теперь явно ставит XDG_CACHE_HOME (внешний env протекал в тесты), а каталожную фикстуру ставит отдельный rosterAcceptanceEnv — roster_scan_test ждёт пустой кэш.
+- V1-тесты CLI show/apply/--profile/single-provider перенесены в cmd/docflow/legacy_roster_test.go и читают draft-v1.toml; удалять их вместе с v1-кодом в 4.6.
+- Тест TestMigrateBench удалён: bench/roster.toml стал v2, а правило «сильнейший тир даёт класс и усилие» покрыто TestMigrateDraft на той же паре flash/luna.
+- tools/bench: rosterMetadata резолвит политику фикстуры через BuildBrief, rosterCache кладёт bench/catalog.json в XDG_CACHE_HOME арма; без catalog.json рядом с ростером бенчмарк падает — фикстуры ходят парой.
+- Локальный bench/roster.state.toml (если появится) тоже влияет на chains: и metadata, и apply читают StatePath рядом с ростером.
+- Unverified: Живой `bench run` с реальными агентами не запускался (Do запрещает перезапуск бенчмарка): путь apply с боевым каталогом и реальной моделью проверен только `validate` и тестами с фейковыми агентами.
+- Unverified: Поведение бенчмарка при наличии локального bench/roster.state.toml не покрыто тестом: metadata и арм прочтут условия, chains изменятся — проверки на этот случай нет.
 
 ### [ ] P055.4.6 Remove v1 roster path
 Read:

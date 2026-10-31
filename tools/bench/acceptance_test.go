@@ -23,36 +23,54 @@ import (
 // resolution cannot satisfy with shell scripts. The validate and fairness
 // scenarios use only Go and Git and run on every platform.
 
-// acceptanceRoster sends every role to the fake pi agent, which reports a
-// cost, and keeps the fake codex available for the runner's quota probe.
-const acceptanceRoster = `spend = ["pi", "codex"]
+// acceptanceRoster sends the executor role to the fake pi agent, which
+// reports a cost, and keeps the fake codex available for the runner's
+// quota probe. The v2 roster resolves against acceptanceCatalog beside it,
+// so an arm runs the same routes on every machine.
+const acceptanceRoster = `# The routes of a benchmark arm, in the v2 format.
+version = 2
 
-[provider.pi]
-check = false
+[access.pi]
+agents = ["pi"]
+budget = "normal"
+models = ["test-model"]
+
+[access.codex]
+agents  = ["codex"]
+budget  = "normal"
+trusted = true
+models  = ["gpt-6.1-sol"]
+
+[model."pi/test-model"]
+class = "strong"
 
 [role]
-cheap = "cheap"
-executor = "standard"
-heavy = "strong"
-review = "strong"
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "strong"
 acceptance = "trusted"
-replan = "trusted"
+replan     = "trusted"
 
-[route.pi-cheap]
-run = "pi | test-model | high"
-tier = "cheap"
+[effort]
+"pi/test-model" = "high"
+`
 
-[route.pi-standard]
-run = "pi | test-model | high"
-tier = "standard"
-
-[route.pi-strong]
-run = "pi | test-model | high"
-tier = "strong"
-
-[route.codex-strong]
-run = "codex | gpt-6.1-sol | high"
-tier = "strong"
+// acceptanceCatalog is the catalog fixture of acceptanceRoster: the models
+// the resolver may pick, with the context a heavy unit needs.
+const acceptanceCatalog = `{
+  "version": 1,
+  "scanned_at": "2026-06-01T00:00:00Z",
+  "sources": ["fixture"],
+  "accesses": [
+    {"access": "pi", "agents": ["pi"], "kind": "subscription", "auth": "ready", "source": "fixture"},
+    {"access": "codex", "agents": ["codex"], "kind": "subscription", "auth": "ready", "source": "fixture"}
+  ],
+  "models": [
+    {"access": "pi", "id": "test-model", "context": 200000, "max_out": 64000, "reasoning": true, "efforts": ["low", "high", "max"], "source": "fixture"},
+    {"access": "codex", "id": "gpt-6.1-sol", "context": 500000, "max_out": 128000, "reasoning": true, "efforts": ["low", "medium", "high", "xhigh", "max"], "cost": {"input": 1.25, "output": 10}, "source": "fixture"}
+  ]
+}
 `
 
 const acceptancePi = `#!/bin/sh
@@ -120,6 +138,7 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	}
 	writeAcceptanceFile(t, root, filepath.Join("bench", "go.mod"), string(fence), 0o644)
 	writeAcceptanceFile(t, root, filepath.Join("bench", "roster.toml"), acceptanceRoster, 0o644)
+	writeAcceptanceFile(t, root, filepath.Join("bench", "catalog.json"), acceptanceCatalog, 0o644)
 	if err := os.MkdirAll(filepath.Join(root, "config"), 0o755); err != nil {
 		t.Fatal(err)
 	}
