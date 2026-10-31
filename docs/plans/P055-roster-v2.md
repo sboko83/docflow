@@ -217,6 +217,8 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - RosterAccessNames читает имена из разобранной v2-политики вместо spend — один парсер владеет доступы — отвергнута ветка spend, оставлявшая второй v1-читатель в пакете.
 - IsV2 удалён вместе с тестом — у него не осталось вызывающих, а экспортированная проба формата поддерживала бы двойной путь загрузки — отвергнуто оставить мёртвый API.
 
+- Replan P055.4.7: перед повторным ревью выполняется P055.4.8 — отказ apply при пустой требуемой цепочке, перенос разовых условий brief в apply, валидные примеры политики и восстановление проверок done/archive. Разовые флаги apply используют тот же in-memory overlay, что brief, без записи state; отвергнуто обходить дефекты ослаблением review/acceptance или требовать сохранения разовых условий на диск.
+
 ## Phase 1: Catalog and discovery
 
 
@@ -674,6 +676,32 @@ Handoff:
 - Unverified: roster scan/models/status после cutover на этой машине не запускались: личный ростер v1, поэтому успешный путь 'v1 → migrate --write → scan' живьём не проверен; отказ v1 покрыт тестами.
 
 
+### [ ] P055.4.8 Fix roster review findings
+Read:
+- internal/roster/apply.go:L69-180
+- internal/roster/apply_test.go:L1-80
+- internal/roster/apply_test.go:L335-390
+- cmd/docflow/main.go:L330-400
+- cmd/docflow/roster_brief.go:L36-64
+- cmd/docflow/roster_brief.go:L130-205
+- cmd/docflow/roster_apply_test.go
+- cmd/docflow/roster_acceptance_test.go:L140-237
+- skills/bsv-docflow-plan/SKILL.md:L81-150
+- docs/design/roster.md:L92-174
+- docs/design/roster.md:L279-317
+- docs/usage.md:L569-760
+- CHANGELOG.md:L1-50
+Do:
+- Закрой обход условий через legacy: если открытый юнит требует executor или роль, для которой резолвер не дал цепочки, apply возвращает ошибку до записи файла. Воспроизведи codex off → apply → lint → run --dry-run --all: запрещённый доступ не должен заменяться legacy-маршрутом claude/sonnet; проверь неизменность файла при отказе и сохранение формата плана 3 без новой логики в run/lint/cycle.
+- Разреши apply те же разовые флаги условий, что brief/explain, через общий in-memory overlay; согласуй CLI, исходный planning skill и документацию. Добавь CLI-регрессию brief с условиями → apply с теми же условиями → run --dry-run --all: шапка совпадает с Brief.Header() для ролей плана, off/minimal/only соблюдены, roster.state.toml не изменён.
+- Исправь полные примеры политики в docs/design/roster.md и docs/usage.md: preset.low не ссылается на необъявленные claude/local. Добавь автоматическую проверку извлечённых примеров через парсер v2 и brief с изолированным каталогом и временем, без личного ростера и сети.
+- Восстанови v2-эквивалент удалённого TestApplyStatusAndArchive: отказ apply для done-плана и архива, сохранность исходного файла при каждом отказе. Сохрани проверки run.lock, lint rollback, dry-run и Executor: юнитов; удаление v1 Show/Load/IsV2 не отменяй.
+Verify: `go test -timeout 20m ./internal/roster ./cmd/docflow ./tools/bench`
+Traps: нельзя лечить пустой executor возвратом к legacy или обходом условий; разовые условия не сохраняются на диск; примеры проверять целиком, а не специально исправленной копией; не менять reference Do/Verify/Role ревью и приёмки, не запускать бенчмарк и модели.
+Depends: P055.4.1, P055.4.2, P055.4.3, P055.4.4, P055.4.5, P055.4.6
+Role: heavy
+Commit: P055.4.8: fix roster review findings
+
 ### [ ] P055.4.7 Review roster v2 diff
 Read:
 - docs/design/roster.md
@@ -686,8 +714,11 @@ Do:
 - Разбери `## Test changes`: ослабленный тест без основания — дефект, `blocked` с `blocker: "plan"`; наблюдения без дефекта — пункт Handoff, не `Unverified:`.
 - Проверь, что новые тесты действительно ловят: повтор доступа, отсутствие ревьюера, `minimal` вне финальных ролей, миграцию v1, отсутствие новых ключей плана.
 Verify: `go test -timeout 20m ./internal/roster ./cmd/docflow ./tools/bench`
+Depends: P055.4.1, P055.4.2, P055.4.3, P055.4.4, P055.4.5, P055.4.6, P055.4.8
 Role: review
 Commit: P055.4.7: review roster v2 diff
+Handoff:
+- Blocked (plan): Ревью выявило обход условий через legacy-маршрут, несогласованный переход brief → apply, невалидные примеры политики и необоснованную потерю проверок apply. Нужен исправляющий юнит и повторное ревью.
 
 ## Phase 5: Acceptance
 
@@ -706,6 +737,6 @@ Do:
 - Закрой каждый `Unverified:` из Handoff юнитов: тест, `Accepted:` или оставь как риск Goal.
 Verify: `go test -timeout 30m ./...`
 Traps: тесты не должны читать личный ростер; живой скан не коммитить; не тратить квоту моделей на смоук; `run --dry-run` не запускает агентов.
-Depends: P055.1.1, P055.1.2, P055.1.3, P055.1.4, P055.2.1, P055.2.2, P055.2.3, P055.3.1, P055.3.2, P055.3.3, P055.3.4, P055.4.1, P055.4.2, P055.4.3, P055.4.4, P055.4.5, P055.4.6, P055.4.7
+Depends: P055.1.1, P055.1.2, P055.1.3, P055.1.4, P055.2.1, P055.2.2, P055.2.3, P055.3.1, P055.3.2, P055.3.3, P055.3.4, P055.4.1, P055.4.2, P055.4.3, P055.4.4, P055.4.5, P055.4.6, P055.4.8, P055.4.7
 Role: acceptance
 Commit: P055.5.1: accept roster v2 flow
