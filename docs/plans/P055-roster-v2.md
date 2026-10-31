@@ -144,6 +144,13 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - opencode cost — массив живого API, берётся первый элемент; Efforts — id вариантов, потому что роутер передаёт их как #variant — отвергнуто: только reasoningEffort-строки (теряются id вроде none/thinking) и value-структура цены вместо указателя.
 - Ошибка источника (HTML, битый JSON, отсутствующий CLI) — предупреждение рядом с частичным каталогом, тело ответа в текст не попадает — отвергнуто: цитировать тело/полный stderr в предупреждении (в ответе opencode есть заголовки с org id).
 - Сканеры вызывают только agentio.CallAgent с таймаутом 30s и сами сортируют каталог — отвергнуто: собственный exec и недетерминированный порядок доступа у вызывающего.
+- Auth-статус — одно поле на доступ (ready/not_ready/unknown), готовый канал побеждает — доступ есть единица квоты, резолверу не нужен список по каналам — отвергнуто: хранить статус на каждый канал и дублировать правило выбора в резолвере.
+- Обогащение models.dev заполняет только неизвестные поля и не перекрывает значения сканеров/встроенной таблицы — агрегат это fallback, точный store и метаданные самого CLI точнее — отвергнуто: обогащать через Catalog.Merge, где поздний источник перекрывает контекст pi-store.
+- Сопоставление доступ→провайдер models.dev задано явной картой (codex→openai, claude→anthropic, opencode-go→opencode, zai→zai) — имена не совпадают — отвергнуто: сопоставление по префиксу или нечёткому совпадению имён.
+- Встроенная таблица Codex берёт context_window самого Codex CLI (500k у gpt-6.1-sol, 272k у luna), а не API-окно models.dev (1.05M) — CLI определяет, сколько реально доступно юниту — отвергнуто: контекст из models.dev, завышающий читаемый бюджет.
+- Claude без конфига и без CLI — unknown, не not_ready (по Do) — Claude необязателен в ростере, скан не догадывается о машине, которой не видел — отвергнуто: считать отсутствие конфига отказом авторизации.
+- Кэш models.dev хранит исходный документ целиком (version=1, fetched_at, TTL) — один путь разбора для кэша и свежего ответа, нет второго формата для миграции — отвергнуто: нормализованный кэш по моделям (свой формат и миграция).
+- У claude-haiku-4-5 встроенная таблица без имён усилий (reasoning через budget_tokens) — не выдумывать уровни, которых модель не объявляет — отвергнуто: подставлять стандартную лестницу low..max.
 
 ## Phase 1: Catalog and discovery
 
@@ -198,7 +205,7 @@ Handoff:
 - Unverified: Живой скан проверен только на macOS; ветка testshim для Windows (Git Bash, shim.exe) в этом прогоне не выполнялась.
 - Unverified: Форма ответа `opencode api get /api/model` проверена на локальном сервере этой машины (46 моделей); другая версия OpenCode или прокси, отдающий HTML, покрыты только фикстурой.
 
-### [ ] P055.1.3 Auth and metadata enrichment
+### [x] P055.1.3 Auth and metadata enrichment
 Read:
 - internal/roster/catalog.go
 - internal/roster/scan.go
@@ -214,6 +221,17 @@ Do:
 Verify: `go test ./internal/roster -run 'TestScanAuth|TestEnrich'`
 Traps: `opencode api get /api/provider` возвращает `data` массивом; `codex login status` печатает текст, не JSON; `models.dev` ID провайдеров не совпадают с именами доступов — сопоставлять явно.
 Commit: P055.1.3: scan auth and enrich model metadata
+Handoff:
+- Порядок сборки каталога для 1.4: catalog.Merge(ScanPi()), catalog.Merge(ScanOpenCode()), catalog.Merge(BuiltinCatalog()), затем ScanAuth(catalog) (меняет каталог на месте, возвращает предупреждения), затем EnrichModelsDev(catalog, EnrichOptions{Online: flagOnline, Refresh: flagRefresh}) (count, warnings). ScanAuth находит codex/claude только если BuiltinCatalog уже слит: доступы 'codex' (агент codex) и 'claude' (агент claude) приходят оттуда.
+- Auth-словарь: ready/not_ready/unknown. Доступ с несколькими каналами ready, если готов хоть один (opencode-go при pi=not_ready и opencode=enabled → ready); иначе not_ready побеждает unknown. Провенанс поля auth = источник 'auth'. Claude без конфига и без CLI — unknown без предупреждения (это нормальное состояние, не поломка).
+- Предупреждения скана — по одному на канал (pi auth check, opencode, codex login status), не на доступ; тела ответов и значения ключей в текст не попадают. Для 1.4: печатать их в stderr, код успеха не менять.
+- Кэш models.dev: DefaultModelsDevCachePath() = каталог кэша каталога + models.dev.json, TTL 24h, Refresh игнорирует свежий кэш; при ошибке сети используется устаревший кэш (предупреждение 'using the cached copy from …'), без кэша — 'built-in metadata only'. Эндпоинт переопределяется EnrichOptions.Endpoint или DOCFLOW_MODELS_DEV_URL (для тестов/зеркал).
+- Обогащение только заполняет пустые поля: значения сканеров и встроенной таблицы не перекрываются (gpt-6.1-sol сохраняет context 500000 из CLI, а не 1050000 из models.dev). Провенанс заполненных полей = 'models.dev', Source модели становится 'models.dev'. BuiltinCatalog возвращает записи уже с провенансом, повторный Merge идемпотентен.
+- Живой скан этой машины: доступ 'opencode' существует через pi-store и имеет агентов [pi, opencode]; auth=ready получен по opencode-каналу, хотя pi для него not_ready. Это ожидаемая работа правила 'любой готовый канал'.
+- Unverified: Живой скан новых проб выполнен только на macOS (реальные pi/opencode/codex этой машины); ветка testshim для Windows (shim.exe, поиск .cmd/.exe в PATH) и Linux в этом прогоне не запускалась.
+- Unverified: Реальный запрос к https://models.dev/api.json выполнен один раз и вручную; тесты используют фикстуру и httptest, поэтому ответ 200 с валидным JSON неожиданной формы (например, провайдер без models) проверен только логикой пропуска провайдера, без живого примера.
+- Unverified: Форма ответа `pi auth check --json` проверена на локальной версии Pi (ready/not_ready, exit 1 у not_ready); другая версия Pi с иным JSON покрыта только фейком, который отдаёт нечитаемый ответ.
+- Unverified: Текст и коды `codex login status` проверены на локальной версии Codex ('Logged in using ChatGPT' rc=0, 'Not logged in' rc=1); иная версия CLI с другим текстом/кодом не проверялась.
 
 ### [ ] P055.1.4 CLI scan, models, status
 Read:
