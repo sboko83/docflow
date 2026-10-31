@@ -74,8 +74,9 @@ auto = ["--permission-mode", "auto", "--permission-prompts", "none"]
 full = ["--permission-mode", "bypassPermissions"]
 
 [agents.codex]
-cmd = ["codex", "exec", "--json", "--output-schema", "{schema_file}"]
+cmd = ["codex", "exec", "--json"]
 model_args = ["-m", "{model}"]
+schema_args = ["--output-schema", "{schema_file}"]
 effort_args = ["-c", "model_reasoning_effort={effort}"]
 resume_args = ["resume", "{session}"]
 result = "json:text"
@@ -150,6 +151,7 @@ var AgentKeys = map[string]string{
 	"idle_timeout": "int",
 	"instructions": "str", "quota": "list", "model_extra": "dict",
 	"effort_args": "list", "permissions": "dict",
+	"schema_args": "list",
 }
 
 // Quota display modes of the `[display]` table: how much of the window is
@@ -923,6 +925,12 @@ func BuildCommand(agent map[string]any, prompt, model, schemaFile, session, effo
 	}
 	args, _ := stringList(agent["cmd"])
 	args = append([]string(nil), args...)
+	// schema_args stay before model, effort and resume args so the codex
+	// resume subcommand is never followed by a flag.
+	if schemaFile != "" {
+		values, _ := stringList(agent["schema_args"])
+		args = append(args, values...)
+	}
 	permissionsTable, _ := agent["permissions"].(map[string]any)
 	modeArgs, exists := permissionsTable[permissions]
 	if !exists {

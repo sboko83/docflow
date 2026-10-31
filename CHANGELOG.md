@@ -72,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repository). A unit interrupted after the model reasoned and before it
   touched a file no longer reaches the next model as an empty working tree.
 
+### Fixed
+- Schema-less codex calls failed at startup: the codex profile always passed
+  `--output-schema`, and an empty value makes the CLI exit with code 2. The
+  flag now lives in a `schema_args` group that is added only when a schema
+  file is set. Found by the first live bench run: the `single` arm errored
+  before starting a session.
+
 ## [0.20.0] - 2026-10-30
 
 ### Added

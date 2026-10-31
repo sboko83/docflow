@@ -19,7 +19,7 @@ import (
 )
 
 func TestDefaultAgentsBytesAndSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "ea19ebfb495323f188c7f39646650b2872791bef71373cc549b9cb0e31fec8e3" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "a466a2eed5f3a107ce0b85678f140349954da08375de40598c9bc4920e611e18" {
 		t.Fatalf("DefaultAgents SHA-256 = %s", got)
 	}
 	parsed, err := ParseTOML(DefaultAgents)
@@ -357,6 +357,10 @@ func TestBuildCommand(t *testing.T) {
 	argv, _, err = BuildCommand(codex, "P", "", "/s.json", "", "", "full")
 	if err != nil || !contains(argv, "--dangerously-bypass-approvals-and-sandbox") || contains(argv, "--approve-for-me") || contains(argv, "sandbox_workspace_write.network_access=true") {
 		t.Fatalf("codex full argv = %#v, %v", argv, err)
+	}
+	argv, _, err = BuildCommand(codex, "P", "gpt-6-luna", "", "", "", "auto")
+	if err != nil || !reflect.DeepEqual(argv, []string{"codex", "exec", "--json", "--approve-for-me", "-c", "sandbox_workspace_write.network_access=true", "-m", "gpt-6-luna"}) {
+		t.Fatalf("codex schema-less argv = %#v, %v", argv, err)
 	}
 	pi := mapAt(agents, "pi")
 	argv, stdin, err = BuildCommand(pi, "P", "zai/glm-5.3", "/s", "s1", "high", "auto")
