@@ -167,6 +167,14 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - `on ACCESS` lifts the off entry, its until date and a budget set to off, nothing else — it undoes a switch, not the stable policy or narrowing globs; rejected clearing every state entry of the access.
 - roster status shows conditions only for a v2 roster, one line 'conditions: none' when there are none — the catalog view must stay usable before the cutover and no empty table; rejected failing or printing an empty table.
 - restPositionalArg added to the CLI parser for `allow/deny ACCESS PATTERN...` — the Do names a pattern list; rejected fixed positionals (cannot take a list) and a repeated --pattern flag.
+- Класс модели — сильнейший тир её маршрутов, а [effort] — усилие того же сильнейшего маршрута (при равенстве тира — первый в файле): одна пара ACCESS/MODEL несёт одно усилие, поэтому усилие слабого тира не сохранить — отвергнуты класс по слабейшему тиру (модель выпадает из heavy) и отказ от пина вовсе (лестница классов угадывает).
+- Маршрут v1 без усилия переносится как [effort] = "-", а не как уровень лестницы: «без усилия» — информация, и формат плана уже пишет её дефисом — отвергнуто удаление записи с подстановкой cheap→low.
+- spend профиля даёт пресету order плюс off для доступов, которые он не называет: в v1 spend профиля заменяет верхний, голый order не исключил бы доступ и «save-claude» перестал бы беречь claude — отвергнут только order.
+- Отличающееся переопределение флагов провайдера в профиле — комментарий в пресете, а не ошибка и не правка [access]: пресет v2 флагов не несёт, а ошибка сделала бы валидный v1-ростер непереводимым — отвергнуты отказ миграции и тихая потеря.
+- Доступ для pi и opencode выводится из префикса модели в обоих случаях: один доступ с двумя каналами — одна квота подписки (ловушка плана), тест на pi и opencode с opencode-go обязателен — отвергнуто имя v1-провайдера как доступ (opencode-go остался бы двумя доступами).
+- Миграция валидирует вход парсером v1 и проверкой «маршрут в spend», но не подбирает цепочки: ростер с ролью из одного маршрута всё равно конвертируется — отвергнут вызов Load, который такой файл отверг бы.
+- В models доступа попадают точные id моделей из маршрутов, а не глоб/пустой список: иначе расширенный каталог молча войдёт в доступ — отвергнуты "*" и отсутствие allowlist.
+- Сгенерированный текст перечитывается ParsePolicy до возврата и записи: форма, которую v2-парсер не принимает, — ошибка миграции, а не файл, который пользователь не сможет загрузить — отвергнуто доверие писателю.
 
 ## Phase 1: Catalog and discovery
 
@@ -332,7 +340,7 @@ Handoff:
 - Unverified: Windows and Linux: only macOS ran. os.Rename over an existing state file and path handling have no platform branch, but the atomic save and ~ expansion are untested there.
 - Unverified: A hand-written state file using inline tables (`expires = { zai = ... }`) parses via agents.ParseTOML but was not tested; error lines for such syntax fall back to line 1.
 
-### [ ] P055.2.3 Migrate v1 roster
+### [x] P055.2.3 Migrate v1 roster
 Read:
 - internal/roster/roster.go:L116-351
 - internal/roster/apply.go:L1-50
@@ -349,6 +357,16 @@ Verify: `go test ./internal/roster -run 'TestMigrate'`
 Traps: `pi` без префикса — доступ `pi`; один провайдер с несколькими маршрутами одной модели и разными усилиями — не терять усилия, сохранить их в `[effort]` или `[model]`; `spend` профиля — порядок, не allowlist.
 Role: heavy
 Commit: P055.2.3: migrate v1 roster to v2
+Handoff:
+- Migrate/MigrateFile живут в internal/roster/migrate.go: Migrate печатает v2-текст, MigrateFile(path, write) читает файл, при write кладёт v1 в <roster>.bak и пишет через <roster>.tmp + rename, а сгенерированный текст перечитывает ParsePolicy. Подсказка про v1 вставлена в Policy.parse (policy2.go) по признаку v1-таблиц (spend/provider/route/profile) при отсутствии version = 2 — её получают LoadPolicy и все команды условий; IsV2 для v1 остаётся (false, nil).
+- Ключ модели в мигрированной политике — ACCESS/ID без префикса провайдера: для pi и opencode префикс становится доступом, поэтому резолвер (P055.3.1) должен собирать текст маршрута как ACCESS/ID для обоих агентов; для codex/claude доступ = агент, модель — как в v1.
+- [effort] после миграции может содержать "-" (v1-маршрут без усилия, например claude-haiku); резолвер должен читать "-" как «усилие не передаётся», а не как уровень модели — формат плана это уже понимает.
+- Миграция односторонняя: любой version-ключ — код 2, v2-файл даёт 'already version 2' и не пишется; поэтому повторный `roster migrate --write` — отказ, а не no-op. Фикстуры draft.toml и bench/roster.toml намеренно не переведены: это P055.4.5, тесты P055.2.3 читают их как v1.
+- Профиль → пресет: order из его spend, off для доступов, которые spend профиля не называет (v1 spend заменяет верхний), а отличающееся переопределение флагов провайдера остаётся комментарием внутри пресета, на [access] не переносится — человек решает, делать это стабильной политикой или нет.
+- Провайдер без маршрутов отбрасывается (нечем назвать канал и модели), а слияние pi+opencode в один доступ, где один провайдер даёт check, а другой trusted, — ошибка миграции с обоими именами: v2 запрещает check вместе с trusted на одном доступе.
+- docs/usage.md и docs/design/roster.md не тронуты — по плану их обновляет P055.4.3 (там же описать migrate и .bak); CHANGELOG — P055.4.4.
+- Unverified: --write на реальном ростере: бэкап + rename поверх существующего roster.toml проверены только в t.TempDir() на macOS; живой ~/.config/docflow/roster.toml мигрировал лишь в stdout. Windows и Linux (rename поверх существующего файла, права) не запускались.
+- Unverified: Пустой ростер (spend = [] без маршрутов) не покрыт тестом: миграция даёт version + [role] без [access]/[model], ParsePolicy это принимает — риск, что такой файл кто-то сочтёт неполным.
 
 ## Phase 3: Resolver and brief
 

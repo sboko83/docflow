@@ -183,6 +183,11 @@ func ParsePolicy(path, text string) (*Policy, error) {
 func (p *Policy) parse(index *lineIndex, root map[string]any) error {
 	version, ok := root["version"].(int64)
 	if !ok || version != PolicyVersion {
+		// A roster the previous CLI wrote has no version key but spends and
+		// routes; the error must say how to convert it, not only what is wrong.
+		if legacyRoster(root) {
+			return failAt(p.Path, index, "", "version", "the roster is in the previous format: run `docflow roster migrate` to convert it to version %d", PolicyVersion)
+		}
 		return failAt(p.Path, index, "", "version", "version must be %d", PolicyVersion)
 	}
 	p.Version = int(version)
@@ -498,6 +503,19 @@ func (p *Policy) parsePreset(index *lineIndex, name string, section map[string]a
 		}
 	}
 	return preset, nil
+}
+
+// legacyRoster reports whether the parsed document has a top-level key
+// only the v1 roster has: spend, provider, route or profile. The v1 file
+// has no version key, so its absence alone does not tell a broken v2 file
+// from an old roster; these tables do.
+func legacyRoster(root map[string]any) bool {
+	for _, key := range []string{"spend", "provider", "route", "profile"} {
+		if _, ok := root[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // failAtLine is failAt with a known line; a line of 0 becomes 1, the

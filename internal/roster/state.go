@@ -753,10 +753,23 @@ func dayText(day time.Time) string { return day.UTC().Format("2006-01-02") }
 // checkAccessName rejects a name the CLI flags and the ACCESS/MODEL keys
 // cannot address.
 func checkAccessName(path string, index *lineIndex, table, name string) error {
-	if strings.ContainsAny(name, " \t/|,=") {
-		return failAt(path, index, table, name, "access name '%s' must not contain whitespace, '/', '|', ',' or '='", name)
+	if problem := accessNameProblem(name); problem != "" {
+		return failAt(path, index, table, name, "access name '%s' %s", name, problem)
 	}
 	return nil
+}
+
+// accessNameProblem says why a name cannot address an access, or returns
+// an empty string. The migration shares the rule with the policy and the
+// state: a name derived from a v1 route must load as a v2 access.
+func accessNameProblem(name string) string {
+	switch {
+	case name == "":
+		return "must not be empty"
+	case strings.ContainsAny(name, " \t/|,="):
+		return "must not contain whitespace, '/', '|', ',' or '='"
+	}
+	return ""
 }
 
 // checkGlobs validates the glob syntax before a pattern reaches the file:
@@ -785,9 +798,11 @@ func mergeGlobs(current, added []string) []string {
 	return current
 }
 
-func addUnique(list []string, value string) []string {
-	if contains(list, value) {
-		return list
+func addUnique[V comparable](list []V, value V) []V {
+	for _, item := range list {
+		if item == value {
+			return list
+		}
 	}
 	return append(list, value)
 }

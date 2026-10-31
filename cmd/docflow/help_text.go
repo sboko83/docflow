@@ -285,8 +285,8 @@ options:
   --project             copy skills/* into the project
 `,
 	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] [--until DATE]
-                      [--json] [--refresh] [--online] [--all]
-                      {show,apply,scan,models,status,off,on,budget,expire,allow,deny,reset}
+                      [--json] [--refresh] [--online] [--all] [--write]
+                      {show,apply,scan,models,status,off,on,budget,expire,allow,deny,reset,migrate}
                       [ACCESS] [ARG ...]
 
 scan model access catalogs, show the route chains per plan role from the
@@ -325,6 +325,15 @@ the state file. An off condition whose until date has passed is
 dropped when the file is loaded. Only a v2 roster carries conditions:
 a condition command on a roster without version = 2 fails.
 
+roster migrate converts a v1 roster — spend, [provider], [role],
+[route] and [profile] — into a v2 policy and prints it; --write keeps
+the v1 file in roster.toml.bak and replaces roster.toml atomically. A
+pi or opencode model prefix becomes the access, the route tier the
+model class, the route effort the [effort] level, and every model of an
+access its models allowlist; a profile becomes a preset. A roster that
+is already version 2 is exit code 2 and nothing is written, and a v2
+command on a v1 roster fails with this command in the hint.
+
 subcommands:
   show             print the chains per role
   apply ID         write the chains into the plan header
@@ -342,6 +351,7 @@ subcommands:
   deny ACCESS PATTERN...
                    hide model globs from an access
   reset            delete the condition state
+  migrate          convert a v1 roster to version 2
 
 options:
   -h, --help      show this help message and exit
@@ -352,6 +362,7 @@ options:
   --refresh       scan: ignore fresh caches and scan again
   --online        scan: enrich the catalog from models.dev
   --all           models: the whole catalog, not only the roster accesses
+  --write         migrate: write roster.toml, keeping roster.toml.bak
 `,
 	"doctor": `usage: docflow doctor [-h] [--agent {claude,codex,pi,opencode}] [--target DIR]
 

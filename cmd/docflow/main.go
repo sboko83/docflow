@@ -52,7 +52,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), flag("--json", "print the result as JSON"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), flag("--json", "print the result as JSON"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -382,8 +382,10 @@ func handleRoster(parsed *parsedArgs) error {
 		return rosterStatus(parsed)
 	case "off", "on", "budget", "expire", "allow", "deny", "reset":
 		return rosterCondition(parsed)
+	case "migrate":
+		return rosterMigrate(parsed)
 	default:
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply, scan, models, status, off, on, budget, expire, allow, deny, reset)", subcommand), Code: clierrors.EXIT_FORMAT}
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply, scan, models, status, off, on, budget, expire, allow, deny, reset, migrate)", subcommand), Code: clierrors.EXIT_FORMAT}
 	}
 }
 
@@ -593,6 +595,26 @@ func rosterCondition(parsed *parsedArgs) error {
 		return rosterJSON(roster.NewConditionsReport(policy, state), "")
 	}
 	return commandResult{code: clierrors.EXIT_OK, stdout: line + "\n"}
+}
+
+// rosterMigrate converts a v1 roster to v2: without --write it prints the
+// converted policy, with --write it keeps the v1 text in roster.toml.bak
+// and replaces roster.toml atomically. A roster that is not v1 — already
+// migrated included — is exit code 2 and nothing is written.
+func rosterMigrate(parsed *parsedArgs) error {
+	// migrate takes no positional argument; the shared roster spec puts a
+	// stray token into the id slot, so refuse it here.
+	if id, _ := parsed.values["id"].(string); id != "" {
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: unrecognized arguments: %s", id), Code: clierrors.EXIT_FORMAT}
+	}
+	result, err := roster.MigrateFile(rosterString(parsed, "--roster"), rosterFlag(parsed, "--write"))
+	if err != nil {
+		return err
+	}
+	if !rosterFlag(parsed, "--write") {
+		return commandResult{code: clierrors.EXIT_OK, stdout: result.Text}
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: fmt.Sprintf("migrated %s to version %d (backup: %s)\n", result.Path, roster.PolicyVersion, result.Backup)}
 }
 
 // rosterFirstArgument picks the single value a subcommand expects after

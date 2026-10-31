@@ -1,0 +1,70 @@
+# A v1 roster that exercises every migration rule: a pi model with a
+# provider prefix, a pi model without one, the same access reached through
+# pi and opencode, a local strata model, route tiers that become model
+# classes, several routes of one model at different tiers and efforts, an
+# effort-less route, and a profile that reorders and narrows the spend
+# order while overriding a provider flag.
+
+spend = ["opencode-go", "zai", "codex", "opencode", "pi", "strata"]
+
+[provider.zai]
+check = true
+
+[provider.codex]
+trusted = true
+
+[provider.pi]
+trusted = true
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "strong"
+acceptance = "trusted"
+replan     = "trusted"
+
+[route.glm-flash-cheap]
+run  = "pi | zai/glm-5.3-flash | high"
+tier = "cheap"
+
+[route.glm-flash-standard]
+run  = "pi | zai/glm-5.3-flash | max"
+tier = "standard"
+
+[route.glm-strong]
+run  = "pi | zai/glm-5.3 | max"
+tier = "strong"
+
+[route.luna-standard]
+run  = "codex | gpt-6-luna | medium"
+tier = "standard"
+
+[route.sol-strong]
+run  = "codex | gpt-6.1-sol | high"
+tier = "strong"
+
+# One access, two channels: the quota is the opencode-go subscription.
+[route.go-pi]
+run  = "pi | opencode-go/kimi-k3.1-pro | high"
+tier = "standard"
+
+[route.go-opencode]
+run  = "opencode | opencode-go/kimi-k3.1-pro | high"
+tier = "strong"
+
+[route.pi-default]
+run  = "pi | some-default | -"
+tier = "cheap"
+
+[route.strata-local]
+run  = "pi | strata/swift-1.5-iq3_s | -"
+tier = "cheap"
+
+# The spend order of a profile replaces the top-level one, so codex, pi and
+# strata are out of it; the flag override cannot live in a v2 preset.
+[profile.save-claude]
+spend = ["opencode-go", "opencode", "zai"]
+
+[profile.save-claude.provider.codex]
+trusted = false
