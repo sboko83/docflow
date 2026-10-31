@@ -1,0 +1,83 @@
+version = 2
+
+[access.opencode-go]
+agents  = ["pi", "opencode"]
+kind    = "subscription"
+budget  = "prefer"
+trusted = true
+models  = ["deepseek-*"]
+
+[access.zai]
+agents  = ["pi"]
+kind    = "subscription"
+budget  = "lean"
+check   = true
+models  = ["glm-5.3*"]
+exclude = ["glm-5.3-thinking"]
+expires = "2026-06-30"
+
+[access.codex]
+agents  = ["codex"]
+kind    = "subscription"
+budget  = "minimal"
+trusted = true
+
+[access.claude]
+agents  = ["claude"]
+kind    = "subscription"
+budget  = "off"
+trusted = true
+
+# opencode and opencode-go are different accesses: separate quotas even
+# when the same OpenCode Go subscription is reachable through both.
+[access.opencode]
+agents = ["opencode"]
+kind   = "metered"
+budget = "off"
+
+[access.local]
+agents = ["pi"]
+kind   = "local"
+budget = "off"
+check  = true
+
+[model."opencode-go/deepseek-v4.1-flash"]
+class = "cheap"
+
+[model."opencode-go/deepseek-v4.1"]
+class = "standard"
+
+[model."zai/glm-5.3-flash"]
+class = "cheap"
+
+[model."zai/glm-5.3"]
+class = "strong"
+
+[model."codex/gpt-6-luna"]
+class = "cheap"
+
+[model."codex/gpt-6.1-sol"]
+class = "strong"
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "standard"
+acceptance = "trusted"
+replan     = "trusted"
+
+[effort]
+"opencode-go/deepseek-v4.1-flash" = "high"
+"zai/glm-5.3"                     = "max"
+"codex/gpt-6.1-sol"               = "medium"
+
+# The acceptance scenario: claude and the local model are off, codex runs
+# at minimal, zai is limited to flash, opencode-go opens the order.
+[preset.low]
+off     = ["claude", "local"]
+lean    = ["zai"]
+minimal = ["codex"]
+prefer  = ["opencode-go"]
+order   = ["opencode-go", "zai", "codex"]
+models  = { zai = ["*flash*"] }
