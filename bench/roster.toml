@@ -4,17 +4,17 @@
 # of the developer's own roster.
 version = 2
 
+[access.zai]
+agents  = ["pi"]
+budget  = "normal"
+trusted = true
+models  = ["glm-5.3", "glm-5.3-flash"]
+
 [access.codex]
 agents  = ["codex"]
 budget  = "normal"
 trusted = true
 models  = ["gpt-6-luna", "gpt-6.1-sol"]
-
-[access.zai]
-agents  = ["pi"]
-budget  = "normal"
-trusted = true
-models  = ["glm-5.3"]
 
 [model."codex/gpt-6-luna"]
 class = "standard"
@@ -25,9 +25,12 @@ class = "strong"
 [model."zai/glm-5.3"]
 class = "strong"
 
+[model."zai/glm-5.3-flash"]
+class = "cheap"
+
 [role]
 cheap      = "cheap"
-executor   = "standard"
+executor   = "cheap"
 heavy      = "strong"
 review     = "trusted"
 acceptance = "trusted"
@@ -37,3 +40,4 @@ replan     = "trusted"
 "codex/gpt-6-luna"  = "high"
 "codex/gpt-6.1-sol" = "high"
 "zai/glm-5.3"       = "max"
+"zai/glm-5.3-flash" = "high"

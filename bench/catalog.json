@@ -9,6 +9,7 @@
   "models": [
     {"access": "codex", "id": "gpt-6-luna", "context": 272000, "max_out": 128000, "reasoning": true, "efforts": ["low", "medium", "high", "max"], "source": "fixture"},
     {"access": "codex", "id": "gpt-6.1-sol", "context": 500000, "max_out": 128000, "reasoning": true, "efforts": ["low", "medium", "high", "xhigh", "max"], "cost": {"input": 1.25, "output": 10}, "source": "fixture"},
-    {"access": "zai", "id": "glm-5.3", "context": 204800, "max_out": 131072, "reasoning": true, "efforts": ["low", "medium", "high", "xhigh", "max"], "cost": {"input": 0.6, "output": 2.2}, "source": "fixture"}
+    {"access": "zai", "id": "glm-5.3", "context": 204800, "max_out": 131072, "reasoning": true, "efforts": ["low", "medium", "high", "xhigh", "max"], "cost": {"input": 0.6, "output": 2.2}, "source": "fixture"},
+    {"access": "zai", "id": "glm-5.3-flash", "context": 1048576, "max_out": 131072, "reasoning": true, "efforts": ["low", "medium", "high"], "cost": {"input": 0.1, "output": 0.4}, "source": "fixture"}
   ]
 }
