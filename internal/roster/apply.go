@@ -80,59 +80,8 @@ func Apply(root, planID, profileName, rosterPath string) (Result, error) {
 		return Result{Code: clierrors.EXIT_NOTHING, Stdout: fmt.Sprintf("roster: %s: header already matches the roster\n", plan.Meta["id"])}, nil
 	}
 	before := plan.Text()
-	// Update and remove existing keys first; each call reparses, so the
-	// meta lines stay fresh. Missing keys follow in reverse order, all
-	// after the same anchor, which restores the canonical order.
-	for _, key := range headerKeys {
-		value := values[key]
-		line, exists := plan.MetaLines[key]
-		if !exists {
-			continue
-		}
-		if value == "" {
-			if err := plan.RemoveLine(line); err != nil {
-				return Result{}, err
-			}
-			continue
-		}
-		if plan.Meta[key] != value {
-			if err := plan.SetMeta(key, value); err != nil {
-				return Result{}, err
-			}
-		}
-	}
-	anchor := 0
-	for _, name := range anchors {
-		if line, ok := plan.MetaLines[name]; ok && line > anchor {
-			anchor = line
-		}
-	}
-	if anchor == 0 {
-		// No executor pair in the header: append at the end of the
-		// frontmatter. Resolve the line once, so every insert stacks
-		// after the same anchor and the order stays canonical.
-		lines := make([]string, len(plan.Raw))
-		for i, raw := range plan.Raw {
-			lines[i] = strings.TrimRight(raw, "\r\n")
-		}
-		_, _, body, err := format.ParseMeta(plan.Path, lines)
-		if err != nil {
-			return Result{}, err
-		}
-		anchor = body - 1
-	}
-	for i := len(headerKeys) - 1; i >= 0; i-- {
-		key := headerKeys[i]
-		value := values[key]
-		if value == "" {
-			continue
-		}
-		if _, exists := plan.MetaLines[key]; exists {
-			continue
-		}
-		if err := plan.InsertMeta(anchor, key, value); err != nil {
-			return Result{}, err
-		}
+	if err := writePlanHeader(plan, values); err != nil {
+		return Result{}, err
 	}
 	path := filepath.Join(root, filepath.FromSlash(plan.Path))
 	if err := plan.Save(path); err != nil {
@@ -185,6 +134,66 @@ func headerValues(r *Roster, plan *format.Plan) map[string]string {
 		}
 	}
 	return values
+}
+
+// writePlanHeader writes the managed keys into the plan frontmatter:
+// existing keys are updated or removed first, then the missing keys are
+// inserted in reverse order after the same anchor, which restores the
+// canonical order. Every call reparses the plan, so the meta lines stay
+// fresh.
+func writePlanHeader(plan *format.Plan, values map[string]string) error {
+	for _, key := range headerKeys {
+		value := values[key]
+		line, exists := plan.MetaLines[key]
+		if !exists {
+			continue
+		}
+		if value == "" {
+			if err := plan.RemoveLine(line); err != nil {
+				return err
+			}
+			continue
+		}
+		if plan.Meta[key] != value {
+			if err := plan.SetMeta(key, value); err != nil {
+				return err
+			}
+		}
+	}
+	anchor := 0
+	for _, name := range anchors {
+		if line, ok := plan.MetaLines[name]; ok && line > anchor {
+			anchor = line
+		}
+	}
+	if anchor == 0 {
+		// No executor pair in the header: append at the end of the
+		// frontmatter. Resolve the line once, so every insert stacks
+		// after the same anchor and the order stays canonical.
+		lines := make([]string, len(plan.Raw))
+		for i, raw := range plan.Raw {
+			lines[i] = strings.TrimRight(raw, "\r\n")
+		}
+		_, _, body, err := format.ParseMeta(plan.Path, lines)
+		if err != nil {
+			return err
+		}
+		anchor = body - 1
+	}
+	for i := len(headerKeys) - 1; i >= 0; i-- {
+		key := headerKeys[i]
+		value := values[key]
+		if value == "" {
+			continue
+		}
+		if _, exists := plan.MetaLines[key]; exists {
+			continue
+		}
+		if err := plan.InsertMeta(anchor, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // changeText renders one header change as "key: old → new"; a missing

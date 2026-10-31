@@ -287,8 +287,8 @@ options:
 	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] [--until DATE]
                       [--preset NAME] [--off A,B] [--minimal A,B]
                       [--lean A,B] [--prefer A,B] [--expires A=DATE]
-                      [--only A=GLOB] [--json] [--refresh] [--online]
-                      [--all] [--write]
+                      [--only A=GLOB] [--json] [--dry-run] [--refresh]
+                      [--online] [--all] [--write]
                       {show,brief,explain,apply,scan,models,status,off,on,budget,expire,allow,deny,reset,migrate}
                       [ACCESS] [ARG ...]
 
@@ -315,8 +315,13 @@ file and never commits.
 roster apply PLAN writes executor:, fallback:, replan: and the role
 keys of the unit Role: fields into the plan header in docs/plans
 (draft, active or frozen), removes role keys without units, lints the
-plan and restores it on lint errors; a run in progress stops apply. The
-runner never reads the roster; a plan stays reproducible without it.
+plan and restores it on lint errors; a run in progress stops apply. On
+a version 2 roster --preset applies a preset condition set and
+--dry-run prints the changes without writing the plan; --json prints
+the changes and the warnings. apply warns about a unit whose Executor:
+is outside the current conditions, an open unit whose Read: proxy is
+larger than the role budget and a role without a fallback. The runner
+never reads the roster; a plan stays reproducible without it.
 
 roster scan collects the accesses, their models, context windows,
 prices and reasoning levels from Pi, OpenCode, the built-in Codex and
@@ -378,7 +383,7 @@ options:
                   (v1 roster only)
   --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
   --until DATE    off: the last day the access stays off (YYYY-MM-DD, UTC)
-  --preset NAME   brief: the preset to apply on top of the policy
+  --preset NAME   brief and apply: the preset to apply on top of the policy
   --off A,B       brief: accesses switched off for this call only
   --minimal A,B   brief: accesses at the minimal budget for this call only
   --lean A,B      brief: accesses at the lean budget for this call only
@@ -387,6 +392,7 @@ options:
                   brief: expire an access on DATE for this call only
   --only A=GLOB   brief: narrow an access to the model glob for this call
   --json          print the result as JSON
+  --dry-run       apply: print the header changes without writing the plan
   --refresh       scan: ignore fresh caches and scan again
   --online        scan: enrich the catalog from models.dev
   --all           models: the whole catalog, not only the roster accesses

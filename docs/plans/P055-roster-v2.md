@@ -197,6 +197,10 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - --only пишется через State.Allow, то есть накапливается с glob-условиями из state-файла; отвергнута замена state.Models, которая спрятала бы условие с диска.
 - Смешение форматов во флагах — ошибка: --profile на v2 называет --preset, разовые флаги и --preset на v1 называют roster migrate; отвергнуто молчаливое игнорирование чужого флага.
 - explain печатает Unicode-стрелку → и section-формат changes/warnings как у brief; отвергнут другой формат вывода для того же вида.
+- Read:-прокси считается по Read:-ссылкам, а не по полному промпту с Context — Do называет именно Read:-прокси, бюджет роли это рекомендация чтения; отвергнут полный lint-прокси, размывающий смысл предупреждения
+- Предупреждения apply печатаются с префиксом roster, lint сохраняет свой формат; дубль no-fallback принят — отвергнута фильтрация lint-предупреждений, скрывающая вердикт lint
+- JSON apply сохраняет код выхода через rosterJSONResult — отвергнут rosterJSON с фиксированным 0, который выдавал бы восстановленный lint-сбой за успех
+- v1 apply по-прежнему игнорирует --json и не получает нового поведения; --preset/--dry-run на v1 падают с подсказкой migrate — отвергнуто молчаливое игнорирование чужих флагов
 
 ## Phase 1: Catalog and discovery
 
@@ -503,7 +507,7 @@ Handoff:
 ## Phase 4: Plan integration and docs
 
 
-### [ ] P055.4.1 Apply v2
+### [x] P055.4.1 Apply v2
 Read:
 - internal/roster/apply.go:L1-221
 - internal/roster/apply_test.go:L1-80
@@ -519,6 +523,15 @@ Verify: `go test ./internal/roster -run 'TestApplyV2|TestApply'`
 Traps: не перезаписывать `Executor:` юнита; `--dry-run` не пишет файл; роль без юнитов удаляется; v1-путь не ломать.
 Role: heavy
 Commit: P055.4.1: apply v2 roster to plan headers
+Handoff:
+- internal/roster/apply2.go: ApplyV2 принимает уже загруженные policy/state/catalog; cmd/docflow/rosterApply грузит их через rosterConditionPolicy, поэтому --preset идёт тем же путём, что brief, а --profile на v2 и --preset/--dry-run на v1 дают код 2 с подсказкой roster migrate
+- Шапка пишется только из Brief.Header(): полный набор roster.headerKeys, отсутствующий ключ означает удаление; PlanRoles переехал в internal/roster и explain использует его же
+- Предупреждения apply идут в stderr строками с префиксом 'docflow: roster:'; в реальном apply после них печатаются lint-предупреждения, поэтому 'no fallback for X' может встретиться дважды; dry-run lint не запускает
+- Read:-прокси считается только по размерам Read:-ссылок /4, без промпта и Context; judge-роли и неизвестный бюджет пропускаются, проверяются только открытые юниты
+- --json на v2 отдаёт ApplyReport {plan,path,dry_run,changes,warnings} через rosterJSONResult и сохраняет код выхода (2 при восстановлении, 1 при отсутствии изменений); на успехе stderr в JSON-режиме пуст
+- Тесты: internal/roster/apply2_test.go (TestApplyV2*) и cmd/docflow/roster_apply_v2_test.go; старые TestApply* остались зелёными
+- Unverified: Предупреждение о Read:-прокси проверено одной целой ссылкой: нет теста на ranged-ссылку, на нечитаемую ссылку (молча пропускается) и на точную границу proxy == budget
+- Unverified: dry-run не запускает lint: расхождение, когда dry-run показывает изменения, а реальный apply их откатывает по lint, не покрыто тестом
 
 
 ### [ ] P055.4.2 Planning skill

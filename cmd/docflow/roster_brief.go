@@ -70,6 +70,66 @@ func rosterShow(parsed *parsedArgs, subcommand, profileName, path string) error 
 	return rosterBriefCommand(parsed)
 }
 
+// rosterApply dispatches roster apply by the roster format: the v1 roster
+// keeps the old Apply and its --profile flag, the v2 roster resolves the
+// policy with the call conditions and writes the brief header. A flag of
+// the other format is an error, not a silently ignored word.
+func rosterApply(parsed *parsedArgs, root, planID, profileName, path string) error {
+	v2, err := roster.IsV2(path)
+	if err != nil {
+		return err
+	}
+	if !v2 {
+		var v2Flags []string
+		if rosterString(parsed, "--preset") != "" {
+			v2Flags = append(v2Flags, "--preset")
+		}
+		if rosterFlag(parsed, "--dry-run") {
+			v2Flags = append(v2Flags, "--dry-run")
+		}
+		if len(v2Flags) > 0 {
+			return clierrors.DocflowError{
+				Message: fmt.Sprintf("docflow: roster apply: %s needs a version %d roster: run `docflow roster migrate`", strings.Join(v2Flags, ", "), roster.PolicyVersion),
+				Code:    clierrors.EXIT_FORMAT,
+			}
+		}
+		result, err := roster.Apply(root, planID, profileName, path)
+		if err != nil {
+			return err
+		}
+		return commandResult{code: result.Code, stdout: result.Stdout, stderr: result.Stderr}
+	}
+	if profileName != "" {
+		return clierrors.DocflowError{
+			Message: fmt.Sprintf("docflow: roster apply: --profile is the v1 flag; a version %d roster uses --preset NAME", roster.PolicyVersion),
+			Code:    clierrors.EXIT_FORMAT,
+		}
+	}
+	policy, state, err := rosterConditionPolicy(parsed)
+	if err != nil {
+		return err
+	}
+	catalog, err := roster.LoadCatalog("")
+	if err != nil {
+		return err
+	}
+	result, report, err := roster.ApplyV2(root, planID, policy, state, catalog, rosterFlag(parsed, "--dry-run"))
+	if err != nil {
+		return err
+	}
+	if rosterFlag(parsed, "--json") {
+		stderr := ""
+		switch result.Code {
+		case clierrors.EXIT_OK, clierrors.EXIT_NOTHING:
+			// The report carries the warnings; a success stays quiet.
+		default:
+			stderr = result.Stderr
+		}
+		return rosterJSONResult(report, stderr, result.Code)
+	}
+	return commandResult{code: result.Code, stdout: result.Stdout, stderr: result.Stderr}
+}
+
 // rosterBriefCommand prints the brief of the roster: the conditions in
 // force, the chain and unit budget of every role, the review matrix and
 // the warnings. The condition flags of the call are merged in memory and
@@ -259,17 +319,7 @@ func briefFlagError(flag, want string) error {
 // is cut to these roles, so a warning about a role the plan never runs
 // stays out of the explain output.
 func planRoles(plan *format.Plan) []string {
-	used := []string{roster.Roles[0], "replan"}
-	seen := map[string]bool{roster.Roles[0]: true, "replan": true}
-	for _, unit := range plan.Units {
-		field := unit.Field("Role")
-		if field == nil || seen[field.Value] {
-			continue
-		}
-		seen[field.Value] = true
-		used = append(used, field.Value)
-	}
-	return used
+	return roster.PlanRoles(plan)
 }
 
 // headerChanges compares the header of the plan with the brief: one entry
