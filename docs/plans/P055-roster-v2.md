@@ -201,6 +201,9 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Предупреждения apply печатаются с префиксом roster, lint сохраняет свой формат; дубль no-fallback принят — отвергнута фильтрация lint-предупреждений, скрывающая вердикт lint
 - JSON apply сохраняет код выхода через rosterJSONResult — отвергнут rosterJSON с фиксированным 0, который выдавал бы восстановленный lint-сбой за успех
 - v1 apply по-прежнему игнорирует --json и не получает нового поведения; --preset/--dry-run на v1 падают с подсказкой migrate — отвергнуто молчаливое игнорирование чужих флагов
+- Условия вынесены в отдельный раздел с таблицей 'фраза -> флаг' и одной оговоркой 'CLI парсит флаги, не русский' — один источник правды для survey, apply и будущего review; отвергнуто размазывание примеров по Ask before units и Review
+- Флаги условий описаны как разовые (in-memory, не пишутся), а持久 условие — команда roster off|budget|expire|allow|deny в roster.state.toml — соответствует решению плана о разовых флагах; отвергнуто описание флагов как сохраняемых
+- В Review источник check-доступов — политика v2 и матрица review: брифа, плюс явное правило 'нет независимого ревьюера — ошибка политики, а не self-review'; отвергнуто упоминание roster show
 
 ## Phase 1: Catalog and discovery
 
@@ -534,7 +537,7 @@ Handoff:
 - Unverified: dry-run не запускает lint: расхождение, когда dry-run показывает изменения, а реальный apply их откатывает по lint, не покрыто тестом
 
 
-### [ ] P055.4.2 Planning skill
+### [x] P055.4.2 Planning skill
 Read:
 - skills/bsv-docflow-plan/SKILL.md:L30-122
 - skills/bsv-docflow-plan/SKILL.md:L124-223
@@ -550,6 +553,12 @@ Verify: `grep -q 'roster brief' skills/bsv-docflow-plan/SKILL.md && grep -q 'ros
 Traps: не раздувать скилл; не обещать, что CLI парсит русский; не убирать ручной `Executor:` как явное исключение пользователя.
 Role: cheap
 Commit: P055.4.2: plan with roster brief and conditions
+Handoff:
+- skills/bsv-docflow-plan/SKILL.md: раздел 'Conditions' — единственное место перевода фраз в флаги, на него ссылаются survey и шаг Routes; --preset упомянут в обоих
+- Скилл вырос 439 -> 471 строки (+7%): таблица условий вместо старых инструкций про spend/профили; при следующей правке скилла резать в первую очередь повтор правил Executor в survey
+- docs/usage.md:L569-661 (раздел 'Ростер') остался на v1 намеренно — его переписывает P055.4.3
+- Unverified: Ни одна команда нового CLI не запускалась на живом v2-ростере: личный ~/.config/docflow/roster.toml — v1, поэтому флаги, наличие секции review: и формат 'conditions:' в скилле сверены с `roster --help`, brief.go и тестами, а не с фактическим выводом `roster brief`
+- Unverified: Пример имён доступов (local, zai, codex, claude) и глоба *flash* взяты из фикстур policy-v2.toml; на другой машине имена другие, а проверки соответствия скилла реальному ростеру нет
 
 
 ### [ ] P055.4.3 Design, usage, CLI docs

@@ -64,11 +64,13 @@ work without a plan, create no plan files.
 8. Cold-agent check: reread every unit as if the chat never happened.
    Any "as we discussed", "see above", a reference to an unnamed file —
    rewrite.
-9. Routes: on the roster choice of the survey — `docflow roster apply
-   <id>` (plus `--profile NAME` when chosen) writes the role chains into
-   the plan header; manual triples — the header keys by hand. When the
-   user did not opt in to auto-replan, delete the `replan:` line apply
-   wrote — after every repeated apply too.
+9. Routes: `docflow roster apply <id>` (plus `--preset NAME` when the
+   survey chose one, `--dry-run` to preview) writes the role chains into
+   the plan header; manual triples — the header keys by hand. Read its
+   warnings: a unit `Executor:` outside the conditions, an open unit
+   whose `Read:` proxy is over its role budget, a role without a fallback.
+   When the user did not opt in to auto-replan, delete the `replan:` line
+   apply wrote — after every repeated apply too.
 10. `docflow lint`. No script — check against the sample manually.
 11. Show the plan to the user, apply edits. Leave `status: draft`; the
    project's rules and the commission decide the commit and its message.
@@ -82,12 +84,15 @@ One block of questions to the user in every plan, before units are
 written — not drip-fed, nothing assigned on the user's behalf. A choice
 the user has already stated is recorded mechanically and not asked again.
 
-- Executors: first run `docflow roster show`. It succeeds — ask which
-  source fills the routes: the roster (the chains it shows) / a roster
-  `--profile` / manual triples. Manual selection of triples — only on
-  that answer or on a roster error, and then ask for a fallback route of
-  every role too: a plan without a fallback — only on the user's
-  explicit refusal. The rules are in "Executor".
+- Conditions and budget: `docflow roster scan` fills the catalog (models,
+  context, price, reasoning levels), `docflow roster brief` turns it into
+  chains. Ask which temporary limits are in force and whether a preset
+  applies — not which model goes to which role. Translate the answer into
+  brief flags (see "Conditions") and show the resolved conditions with
+  their chains before writing any unit. Manual triples — only on an
+  explicit request or a roster error; with them ask for a fallback route
+  of every role too: a plan without a fallback — only on an explicit
+  refusal. Rules: "Executor".
 - Permissions: `permissions: auto|full` in the frontmatter. `full` runs
   the agents without their sandbox and approvals for the whole run; the
   plan file itself runs nothing, but the runner asks one
@@ -121,10 +126,33 @@ the user has already stated is recorded mechanically and not asked again.
   cost of the unit. The person lifts it with `docflow unblock <id> --note
   "…"` (`bsv-docflow-run` re-checks the condition on the resumed unit).
 
+## Conditions
+
+A condition is a temporary limit on top of the stable policy. The agent
+reads the user's phrase and picks the flags; the CLI parses flags, not
+Russian. They go to `docflow roster brief` (then `roster apply`) for one
+call and are never written:
+
+| the user says | flags |
+|---|---|
+| «codex по минимуму» | `--minimal codex` — acceptance and replan only |
+| «локальные недоступны» | `--off local` |
+| «zai кончается в четверг» | `--expires zai=2026-11-05` |
+| «zai только flash» | `--only zai=*flash*` |
+
+`--lean A,B` drops heavy, acceptance and replan; `--prefer A,B` puts an
+access first. A condition that outlives the plan is a `roster
+off|budget|expire|allow|deny` command (e.g. `roster off claude --until
+2026-11-30`), which writes `roster.state.toml`; the flags leave the
+roster untouched. v1 roster — `roster migrate` first. Show the parsed
+conditions (`off: local; minimal: codex; only: zai=*flash*`) and the
+resulting chains to the user before `roster apply`.
+
 ## Unit
 
-- One session, a ~100k context budget: 5–8 files to change, one `Verify`,
-  `Read:` fitting the `read_budget` from `docflow.md` (bytes / 4).
+- One session, one `Verify`, 5–8 files to change. The unit budget is the
+  read budget `roster brief` prints for the unit's role: keep the `Read:`
+  proxy (bytes / 4) under it. A judge role (`diff/test` scope) has none.
 - A plan whose units together fit ~100k of context is one unit. A unit
   shorter than half an hour of agent work is too small: merge until the
   result fits the budget. "One bug — one unit" and "one file — one unit"
@@ -173,7 +201,9 @@ the user has already stated is recorded mechanically and not asked again.
   3; `docflow roster apply` writes the keys). Criteria: `cheap` —
   mechanics, docs, renames, config; `heavy` — design across several
   modules, concurrency, format and state; `acceptance` and `review` —
-  see "Acceptance" and "Review". An ordinary unit has no field.
+  see "Acceptance" and "Review". The role's chain and unit budget come
+  from `roster brief`; a class mismatch is the brief's warning, not a
+  reason to add `Executor:`. An ordinary unit has no field.
 - `Model:` — legacy, only in a plan without `executor:`/`Executor:`: the
   model tier for the runner: `fast` — mechanics (docs, renames, config),
   `strong` — design work and tricky logic, `max` — the heaviest units
@@ -262,12 +292,14 @@ does not replace it.
 
 ## Review
 
-A provider with `check = true` in the roster does not verify its own
-work: every phase whose units run on that provider (their primary
-routes — visible in `docflow roster show`) ends with a review unit.
+A `check` access of the v2 roster policy does not verify its own work:
+every phase whose units run on that access (their primary routes —
+visible in `docflow roster brief`, whose `review:` matrix names the
+reviewers of each `check` access in use) ends with a review unit.
 
 - One unit at the end of the phase, `Role: review` — its chain holds no
-  `check` provider.
+  `check` access. No independent reviewer under the current conditions
+  is a policy error to fix with the user, not a self-review.
 - A phase run by a `check` provider holds at most 4 units before its
   review unit; a longer stretch splits into phases.
 - `Do:` template — review the diff named in the prompt's `## Phase diff`
