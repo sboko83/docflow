@@ -44,7 +44,7 @@ func TestParseOpencodeQuota(t *testing.T) {
 	equal(t, ParseOpencodeQuota(limited), want)
 	// A signed-out workspace answers data: null; unknown shapes yield no
 	// windows instead of an error.
-	equal(t, ParseOpencodeQuota(`{"location":{"directory":"/home/user"},"data":null}`), Quota{})
+	equal(t, ParseOpencodeQuota(`{"location":{"directory":"/srv/docflow-smoke"},"data":null}`), Quota{})
 	equal(t, ParseOpencodeQuota(`{"data":{"budgets":[]}}`), Quota{})
 	equal(t, ParseOpencodeQuota("not json"), Quota{})
 }

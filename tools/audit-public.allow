@@ -35,3 +35,4 @@ tools/parity/scenarios/test_accept_p020__CheckoutAcceptanceTest__test_codex_new_
 tools/parity/scenarios/verify_done_cross_binary.sh:email
 tools/demo-run.sh:email
 tools/smoke-run.sh:email
+tools/smoke-opencode.sh:email
