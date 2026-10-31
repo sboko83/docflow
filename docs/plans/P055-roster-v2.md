@@ -151,6 +151,11 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Claude без конфига и без CLI — unknown, не not_ready (по Do) — Claude необязателен в ростере, скан не догадывается о машине, которой не видел — отвергнуто: считать отсутствие конфига отказом авторизации.
 - Кэш models.dev хранит исходный документ целиком (version=1, fetched_at, TTL) — один путь разбора для кэша и свежего ответа, нет второго формата для миграции — отвергнуто: нормализованный кэш по моделям (свой формат и миграция).
 - У claude-haiku-4-5 встроенная таблица без имён усилий (reasoning через budget_tokens) — не выдумывать уровни, которых модель не объявляет — отвергнуто: подставлять стандартную лестницу low..max.
+- Колонка source в таблицах доступа собирается из провенанса доступа и его моделей — иначе после ScanAuth у всех доступов Source=auth и колонка не несёт информации — отвергнуто: печатать AccessInfo.Source как есть
+- `models`/`status` читают только кэш, не сканируют — команда-обзор не должна дёргать CLI и пробы — отвергнуто: автоскан при пустом кэше
+- Пустой кэш и отсутствие доступов в ростере дают код 0 с подсказкой в stderr, а не код 2 — это не ошибка скана, а неукомплектованный каталог — отвергнуто: требовать `roster scan` ошибкой
+- `models ACCESS` с неизвестным доступом — код 2 со списком известных доступов — опечатка не должна выглядеть как пустая таблица — отвергнуто: молча печатать заголовок
+- Неизвестные context/max-out/cost печатаются как `unknown`, а не 0/- — ноль читается как реальное значение, а резолвер обязан отличать неизвестный контекст — отвергнуто: прочерк в таблице
 
 ## Phase 1: Catalog and discovery
 
@@ -233,7 +238,7 @@ Handoff:
 - Unverified: Форма ответа `pi auth check --json` проверена на локальной версии Pi (ready/not_ready, exit 1 у not_ready); другая версия Pi с иным JSON покрыта только фейком, который отдаёт нечитаемый ответ.
 - Unverified: Текст и коды `codex login status` проверены на локальной версии Codex ('Logged in using ChatGPT' rc=0, 'Not logged in' rc=1); иная версия CLI с другим текстом/кодом не проверялась.
 
-### [ ] P055.1.4 CLI scan, models, status
+### [x] P055.1.4 CLI scan, models, status
 Read:
 - cmd/docflow/main.go:L45-60
 - cmd/docflow/main.go:L280-360
@@ -250,6 +255,15 @@ Do:
 Verify: `go test ./cmd/docflow -run 'TestRosterScan|TestRosterModels'`
 Traps: не ломать старые тесты `roster show`; `--roster` по умолчанию `~/.config/docflow/roster.toml`; ошибки скана — код 2, частичный результат — код 0 с предупреждениями в stderr.
 Commit: P055.1.4: add roster scan and models commands
+Handoff:
+- Порядок сборки каталога закреплён в roster.ScanCatalog (internal/roster/scan_catalog.go): ScanPi → ScanOpenCode → BuiltinCatalog → ScanAuth → EnrichModelsDev, затем ScannedAt и Save. Тот же вызов пишет кэш, поэтому CLI-тесты проверяют файл кэша, а не отдельную запись. Кэш models.dev кладётся рядом с кэшем каталога (modelsDevCachePathFor), т.е. при кастомном CachePath в тестах оба файла в одном каталоге.
+- Скан не имеет TTL каталога: сканеры и пробы запускаются при каждом `roster scan`, `--refresh` относится только к кэшу models.dev. `models`/`status` кэш не обновляют — пустой кэш даёт пустую таблицу, код 0 и подсказку в stderr.
+- Колонка source в таблицах доступа — не AccessInfo.Source (после ScanAuth у всех «auth»), а объединение провенанса доступа и его моделей в порядке Catalog.Sources: например `opencode-go pi,opencode 2 ready pi-store+opencode+auth`. P055.2.2 может добавить условия в roster.StatusRow и Catalog.Report(), JSON-формы для этого уже объектные ({"accesses": [...]}, {"models": [...]}).
+- Фильтр `roster models` по умолчанию берёт имена доступов из roster-файла через roster.RosterAccessNames: spend v1 по порядку, затем ключи [access.NAME] v2 по алфавиту, без дублей; отсутствующий файл — пустой список без ошибки, битый — код 2. Это не парсер политики, P055.2.1 его не заменит.
+- roster scan дополнительно предупреждает о доступах, которые ростер называет, а скан не нашёл (для сценария «локальные недоступны»); предупреждения идут по строкам `docflow: roster: …` в stderr, код успеха 0.
+- Unverified: Живой прогон scan/models/status выполнен только на macOS этой машины; ветка testshim для Windows (shim.exe) и Linux в тестах новых команд не запускалась
+- Unverified: Живой `roster scan --online` не запускался: сетевой путь models.dev покрыт только httptest-сервером (свежий кэш, --refresh, недоступный эндпоинт), реальный ответ https://models.dev/api.json в этом прогоне не запрашивался
+- Unverified: Формат `pi --list-models` в новых CLI-тестах не участвует (в изоляте есть models-store.json); фолбэк-таблица проверена только юнит-тестами P055.1.2
 
 ## Phase 2: Policy and conditions
 

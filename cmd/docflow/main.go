@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -50,7 +51,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), flag("--json", "print the result as JSON"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -192,8 +193,9 @@ positional arguments:
     install-skills  symlink skills/* into the selected agent directory, or
                     copy them into the project with --project
     doctor          check that the installed script and skills match this repo
-    roster          show the route chains per plan role from the personal
-                    roster, or write them into a plan header
+    roster          scan model access catalogs, show the route chains per
+                    plan role from the personal roster, or write them into
+                    a plan header
     run             drive the plan unit by unit through a coding agent
     install         install an unpacked release into ~/.docflow and link
                     personal skills
@@ -354,9 +356,164 @@ func handleRoster(parsed *parsedArgs) error {
 			return err
 		}
 		return commandResult{code: result.Code, stdout: result.Stdout, stderr: result.Stderr}
+	case "scan":
+		return rosterScan(parsed)
+	case "models":
+		return rosterModels(parsed)
+	case "status":
+		return rosterStatus(parsed)
 	default:
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply)", subcommand), Code: clierrors.EXIT_FORMAT}
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply, scan, models, status)", subcommand), Code: clierrors.EXIT_FORMAT}
 	}
+}
+
+// rosterScan builds the access catalog, writes the cache and prints the
+// access summary. A source problem is a warning next to a partial
+// catalog: the success code stays 0.
+func rosterScan(parsed *parsedArgs) error {
+	catalog, warnings, err := roster.ScanCatalog(roster.ScanOptions{Refresh: rosterFlag(parsed, "--refresh"), Online: rosterFlag(parsed, "--online")})
+	if err != nil {
+		return err
+	}
+	names, err := roster.RosterAccessNames(rosterString(parsed, "--roster"))
+	if err != nil {
+		return err
+	}
+	stderr := rosterWarnings(warnings) + rosterMissingAccesses(names, catalog)
+	if rosterFlag(parsed, "--json") {
+		return rosterJSON(catalog, stderr)
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: catalog.AccessTable(), stderr: stderr}
+}
+
+// rosterModels lists the models of the catalog cache: the ACCESS argument,
+// the whole catalog with --all, or the accesses the roster names.
+func rosterModels(parsed *parsedArgs) error {
+	catalog, err := roster.LoadCatalog("")
+	if err != nil {
+		return err
+	}
+	var stderr strings.Builder
+	if len(catalog.Accesses) == 0 {
+		stderr.WriteString("docflow: roster: the catalog cache is empty; run docflow roster scan\n")
+	}
+	filter, err := rosterModelFilter(parsed, catalog, &stderr)
+	if err != nil {
+		return err
+	}
+	models := catalog.ModelRows(filter)
+	if rosterFlag(parsed, "--json") {
+		return rosterJSON(roster.ModelReport{Models: models}, stderr.String())
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: roster.ModelTable(models), stderr: stderr.String()}
+}
+
+// rosterStatus prints the accesses of the catalog cache with their
+// channels, auth status, model count and sources.
+func rosterStatus(parsed *parsedArgs) error {
+	catalog, err := roster.LoadCatalog("")
+	if err != nil {
+		return err
+	}
+	stderr := ""
+	if len(catalog.Accesses) == 0 {
+		stderr = "docflow: roster: the catalog cache is empty; run docflow roster scan\n"
+	}
+	if rosterFlag(parsed, "--json") {
+		return rosterJSON(catalog.Report(), stderr)
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: catalog.StatusHeader() + "\n" + catalog.AccessTable(), stderr: stderr}
+}
+
+// rosterModelFilter picks the accesses `roster models` lists. A missing
+// roster or one without accesses falls back to the whole catalog with a
+// note on stderr, so the command stays useful before a roster exists.
+func rosterModelFilter(parsed *parsedArgs, catalog *roster.Catalog, stderr *strings.Builder) ([]string, error) {
+	access := rosterString(parsed, "id")
+	if access != "" {
+		// An empty cache knows no access yet; the empty-cache note above
+		// already says why the table is empty.
+		if len(catalog.Accesses) == 0 {
+			return []string{access}, nil
+		}
+		if !catalogHasAccess(catalog, access) {
+			known := make([]string, 0, len(catalog.Accesses))
+			for _, entry := range catalog.Accesses {
+				known = append(known, entry.Access)
+			}
+			return nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster models: unknown access '%s' (known: %s)", access, strings.Join(known, ", ")), Code: clierrors.EXIT_FORMAT}
+		}
+		return []string{access}, nil
+	}
+	if rosterFlag(parsed, "--all") {
+		return nil, nil
+	}
+	path := rosterString(parsed, "--roster")
+	if path == "" {
+		path = roster.DefaultPath()
+	}
+	names, err := roster.RosterAccessNames(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		fmt.Fprintf(stderr, "docflow: roster: %s lists no accesses; showing the whole catalog (roster models --all)\n", path)
+		return nil, nil
+	}
+	return names, nil
+}
+
+// catalogHasAccess reports whether the catalog holds an access.
+func catalogHasAccess(catalog *roster.Catalog, name string) bool {
+	for _, entry := range catalog.Accesses {
+		if entry.Access == name {
+			return true
+		}
+	}
+	return false
+}
+
+// rosterMissingAccesses warns about roster accesses no channel of this
+// machine reaches: the roster names them, the scan did not find them.
+func rosterMissingAccesses(names []string, catalog *roster.Catalog) string {
+	var stderr strings.Builder
+	for _, name := range names {
+		if !catalogHasAccess(catalog, name) {
+			fmt.Fprintf(&stderr, "docflow: roster: access '%s' is not in the catalog: no channel of this machine reaches it\n", name)
+		}
+	}
+	return stderr.String()
+}
+
+// rosterWarnings renders the scan warnings as stderr lines; every warning
+// already names its channel and carries no response body or key.
+func rosterWarnings(warnings []string) string {
+	var stderr strings.Builder
+	for _, warning := range warnings {
+		stderr.WriteString("docflow: roster: " + warning + "\n")
+	}
+	return stderr.String()
+}
+
+// rosterJSON renders a roster command result as JSON on stdout.
+func rosterJSON(value any, stderr string) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster: %v", err), Code: clierrors.EXIT_FORMAT}
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: string(data) + "\n", stderr: stderr}
+}
+
+// rosterFlag reads a boolean flag of the roster command.
+func rosterFlag(parsed *parsedArgs, name string) bool {
+	value, _ := parsed.values[name].(bool)
+	return value
+}
+
+// rosterString reads a string value of the roster command.
+func rosterString(parsed *parsedArgs, name string) string {
+	value, _ := parsed.values[name].(string)
+	return value
 }
 
 func handleStats(parsed *parsedArgs) error {

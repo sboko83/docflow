@@ -284,10 +284,12 @@ options:
   --target DIR          personal skills directory override
   --project             copy skills/* into the project
 `,
-	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] {show,apply} [PLAN]
+	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] [--json]
+                      [--refresh] [--online] [--all]
+                      {show,apply,scan,models,status} [ACCESS]
 
-show the route chains per plan role from the personal roster, or write
-them into a plan header
+scan model access catalogs, show the route chains per plan role from the
+personal roster, or write them into a plan header
 
 Reads ~/.config/docflow/roster.toml (or --roster PATH), picks the chain
 of every role, and prints a spend summary line plus the plan-header
@@ -298,14 +300,32 @@ role keys of the unit Role: fields into the plan header in docs/plans
 plan and restores it on lint errors; a run in progress stops apply. The
 runner never reads the roster; a plan stays reproducible without it.
 
+roster scan collects the accesses, their models, context windows,
+prices and reasoning levels from Pi, OpenCode, the built-in Codex and
+Claude tables and the auth probes, writes the catalog cache under
+$XDG_CACHE_HOME/docflow/roster and prints the access summary; --online
+adds models.dev metadata and --refresh fetches it again. A source that
+cannot answer is a warning on stderr and the scan still exits 0.
+roster models lists the models of the roster accesses, or of one
+ACCESS, or of the whole catalog with --all; roster status lists every
+access with its channels, auth status, model count and sources. scan,
+models and status take --json.
+
 subcommands:
-  show            print the chains per role
-  apply PLAN      write the chains into the plan header
+  show             print the chains per role
+  apply ID         write the chains into the plan header
+  scan             collect the catalog and write the cache
+  models [ACCESS]  list the models of the catalog
+  status           list the accesses of the catalog
 
 options:
   -h, --help      show this help message and exit
   --profile NAME  spend and provider-flag overrides from [profile.NAME]
   --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
+  --json          print the result as JSON
+  --refresh       scan: ignore fresh caches and scan again
+  --online        scan: enrich the catalog from models.dev
+  --all           models: the whole catalog, not only the roster accesses
 `,
 	"doctor": `usage: docflow doctor [-h] [--agent {claude,codex,pi,opencode}] [--target DIR]
 
