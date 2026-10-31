@@ -20,10 +20,15 @@ type eventStream struct {
 	id       string
 	warnings io.Writer
 	disabled bool
+	observe  func(Event)
 }
 
 func newEventStream(root string, start time.Time, warnings io.Writer) *eventStream {
-	s := &eventStream{warnings: warnings}
+	return newObservedEventStream(root, start, warnings, nil)
+}
+
+func newObservedEventStream(root string, start time.Time, warnings io.Writer, observe func(Event)) *eventStream {
+	s := &eventStream{warnings: warnings, observe: observe}
 	dir, err := runDir(root)
 	if err == nil {
 		err = os.MkdirAll(dir, 0o755)
@@ -80,6 +85,9 @@ func (s *eventStream) emit(event, unit string, fields map[string]any) {
 	data, err := json.Marshal(fields)
 	if err == nil {
 		_, err = s.file.Write(append(data, '\n'))
+	}
+	if err == nil && s.observe != nil {
+		s.observe(Event{Type: event, Unit: unit, Fields: fields})
 	}
 	if err == nil {
 		err = s.file.Sync()

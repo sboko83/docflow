@@ -2,7 +2,7 @@
 id: P052
 title: Interactive terminal control for plan execution
 type: feature
-status: draft
+status: active
 created: 2026-10-29
 executor: codex | gpt-6-luna | high
 fallback: pi | zai/glm-5.3 | high
@@ -134,10 +134,12 @@ gate: go test -timeout 20m ./...
 - Живой прогон обязателен, выполняется только в последнем юните на
   временном проекте вне репозитория. Предыдущие юниты расходуют только
   локальные ресурсы и используют фиктивные CLI.
+- Добавил Control host как единственную точку команд и ограниченную очередь событий — медленный UI не задерживает runner; вместо отдельного цикла используется существующий Run/runLoop.
+- Интерактивный запуск использует общий checkout lock и отключает terminal input и Progress output — обычный Run сохраняет прежний терминальный режим.
 
 ## Phase 1: Controllable runner and activity stream
 
-### [ ] P052.1.1 Expose an interactive runner host
+### [x] P052.1.1 Expose an interactive runner host
 Read:
 - internal/runner/run.go:L132-292
 - internal/runner/helpers.go:L436-598
@@ -152,6 +154,10 @@ Do:
 Verify: `go test -timeout 20m ./internal/runner/ ./cmd/docflow/`
 Depends: -
 Commit: P052.1.1: expose interactive runner host
+Handoff:
+- Интерактивный клиент должен отвечать на Requests и читать Events; StartRun ждёт явного подтверждения старта.
+- Пауза во время verify/gate и устойчивой границы done/commit не покрыта отдельным тестовым сценарием.
+- Unverified: Не проверен отдельным тестом интерактивный Pause во время verify/gate и завершения транзакции done/commit.
 
 ### [ ] P052.1.2 Pause and resume active work safely
 Read:

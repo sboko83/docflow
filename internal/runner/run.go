@@ -129,6 +129,23 @@ func (t *runTotals) namedQuotas() []NamedQuota {
 // Run drives only the current plan. Cycle commands run as subprocesses of this
 // binary so their order checks and persisted state stay identical to manual use.
 func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string) (code int, runErr error) {
+	return runWithOptions(root, args, stdout, stderr, skillDirectory, runOptions{})
+}
+
+type runOptions struct {
+	ctx     context.Context
+	control *Control
+}
+
+// RunControlled drives the same runner loop without owning terminal input or
+// output. Events are forwarded to the interactive host from the existing
+// runner event points.
+func RunControlled(ctx context.Context, root string, args Args, skillDirectory string, host *Control) (int, error) {
+	args.Yes = true
+	return runWithOptions(root, args, io.Discard, io.Discard, skillDirectory, runOptions{ctx: ctx, control: host})
+}
+
+func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirectory string, options runOptions) (code int, runErr error) {
 	if args.PrintConfig {
 		_, err := io.WriteString(stdout, agents.DefaultAgents)
 		return 0, err
@@ -167,25 +184,33 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 	defer p.stop()
 	now := time.Now()
 	totals := &runTotals{start: now, wall: epoch(now), quota: map[string]agentio.Quota{}, quotaStart: map[string]agentio.Quota{}}
-	ctx, cancel := context.WithCancel(context.Background())
+	parent := options.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, stopSignals...)
-	defer signal.Stop(signals)
+	if options.control == nil {
+		signal.Notify(signals, stopSignals...)
+		defer signal.Stop(signals)
+	}
 	var stopped os.Signal
 	var signalMu sync.Mutex
 	finished := make(chan struct{})
 	defer close(finished)
-	go func() {
-		select {
-		case s := <-signals:
-			signalMu.Lock()
-			stopped = s
-			signalMu.Unlock()
-			cancel()
-		case <-finished:
-		}
-	}()
+	if options.control == nil {
+		go func() {
+			select {
+			case s := <-signals:
+				signalMu.Lock()
+				stopped = s
+				signalMu.Unlock()
+				cancel()
+			case <-finished:
+			}
+		}()
+	}
 	release, err := runLock(root)
 	if err != nil {
 		return 2, err
@@ -233,7 +258,11 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 			return code, nil
 		}
 	}
-	totals.events = newEventStream(root, now, stderr)
+	var observe func(Event)
+	if options.control != nil {
+		observe = options.control.Publish
+	}
+	totals.events = newObservedEventStream(root, now, stderr, observe)
 	fields := map[string]any{"plan": "", "units": 0}
 	if sel.Plan != nil {
 		fields["plan"], fields["units"] = sel.Plan.Meta["id"], len(sel.Plan.Units)
@@ -253,7 +282,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 		totals.events.emit("run_end", "", map[string]any{"reason": reason, "exit_code": eventExitCode(code, runErr)})
 		totals.events.close()
 	}()
-	if term.IsTerminal(input.stream) {
+	if options.control == nil && term.IsTerminal(input.stream) {
 		p.line("run: s + Enter stops after the current unit; Ctrl-C stops now", false, "")
 		restore := noEcho(input.stream)
 		defer restore()
