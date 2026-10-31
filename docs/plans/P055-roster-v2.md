@@ -185,6 +185,12 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Строки матрицы — только check-доступы, реально дающие маршрут: выключенный check-доступ юнитов не производит и ревьюера не требует. Отвергнуто: все объявленные check-доступы (off local в приёмке дал бы ошибку).
 - Фильтры review/acceptance/replan в построителе цепочек не дублируются — владелец правил резолвер, он же пишет Skipped; построитель отвечает только за независимость по доступу. Отвергнуто: повторная проверка roleProblem в цепочках с риском разойтись с резолвером.
 - Предупреждения — строки, а не типизированные объекты: брифу и apply нужно печатать их как есть и фильтровать по ролям. Отвергнуто: severity и структура предупреждений до появления их потребителей.
+- class_factor = 0.75/1.0/1.25 (cheap/standard/strong) — слабая модель деградирует на полном контексте раньше сильной (docs/design/cycle.md), поэтому одно окно даёт разный бюджет — отвергнуто одинаковый множитель для всех классов (класс не влиял бы на бюджет) и множитель из цены модели
+- Один Scope-поле на роль ('read' | 'diff/test') и Budget=nil у judge-ролей — ловушка юнита требует не давать review/acceptance/replan read-бюджет, а печатать diff/test scope — отвергнуто бюджет с нулевой целью у judge-ролей (ноль читался бы как значение)
+- Неизвестный max_out считается нулём, но в Why написано 'max-out unknown and counted as 0' — executor не требует известного max_out, а молчаливое вычитание нуля скрыло бы допущение — отвергнуто считать весь бюджет неизвестным из-за одного поля
+- Target=0 + omitempty как признак неизвестного бюджета — совпадает с соглашением ModelInfo.Context в каталоге — отвергнут sentinel -1 в токенах
+- Golden-файл testdata/brief-scenario.txt вместо ожидаемой строки в тесте — 43 строки текста в Go-литерале нечитаемы в диффе — отвергнуто сравнение по фрагментам без эталона
+- Фильтр предупреждений по суффиксу ' for <role>' через список Roles — владелец текстов остаётся resolve_chain.go, бриф не переписывает их заново — отвергнуто повторное построение предупреждений из длин цепочек (второй источник правды)
 
 ## Phase 1: Catalog and discovery
 
@@ -435,7 +441,7 @@ Handoff:
 - Unverified: Windows и Linux не запускались: платформенных веток в новом коде нет, но тесты шли только на macOS.
 
 
-### [ ] P055.3.3 Context budget and brief
+### [x] P055.3.3 Context budget and brief
 Read:
 - docs/design/cycle.md:L96-112
 - internal/roster/catalog.go
@@ -449,6 +455,16 @@ Do:
 Verify: `go test ./internal/roster -run 'TestBrief|TestContext'`
 Traps: не путать токены и байты; не делать бюджет жёсткой проверкой; `review/acceptance` не получают read-бюджет, только diff/test scope.
 Commit: P055.3.3: render roster brief and unit budgets
+Handoff:
+- brief.go: BuildBrief(policy, state, catalog, roles) и buildBriefAt(..., today); *Brief{Conditions, Roles[]{Role, Scope, Routes, Budget, Why}, Reviews, Warnings}, Text() рендерит секции conditions/chains/review/why/warnings. P055.3.4 CLI вызывает BuildBrief и печатает Text() либо json.Marshal того же значения.
+- context.go: unitBudget(role, Candidate) → *UnitBudget{Role, Route, Class, Context, MaxOut, Reserve, Usable, Target, Why}; nil для review/acceptance/replan, Target=0 при неизвестном контексте или неположительном usable. Константы MinReadBudget/MaxReadBudget/ReservePercent/MinReserve и таблицы readShares/classFactors — единственное место правила.
+- class_factor операционализирован как 0.75/1.0/1.25 для cheap/standard/strong (план задавал только «множитель класса») — это надо записать в docs/usage.md на P055.4.3.
+- Фильтр ролей: пустой список = все шесть, неизвестное имя — код 2, повтор схлопывается, порядок строк всегда Roles (не порядок аргумента).
+- filterWarnings сопоставляет предупреждение роли через HasSuffix ' for <role>': менять формат текстов в resolve_chain.go нельзя без правки warningRole.
+- testdata/brief-scenario.txt — golden всего вывода; обновлять только при осознанном изменении формата брифа.
+- Unverified: brief пока не вызывается ни одной CLI-командой (brief/explain — P055.3.4): текст и бюджеты проверены только на фикстурах, живой каталог после roster scan через BuildBrief не прогонялся
+- Unverified: Golden закреплён на дне 2026-06-01: живой прогон после 2026-06-30 получит другие цепочки (zai истекает), поведение брифа на реальном ростере с частично неизвестным контекстом не проверено
+- Unverified: Windows и Linux не запускались — тесты шли только на macOS; платформенных веток в новом коде нет
 
 ### [ ] P055.3.4 Brief and explain CLI
 Read:
