@@ -139,6 +139,11 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Reasoning=false не перекрывает true при слиянии — прямое следствие правила «пустое не затирает непустое» — отвергнуто: tri-state указатели на каждое поле, усложняющие все сканеры.
 - Agents доступа при слиянии объединяются (opencode-go через pi и opencode) — один доступ = одна единица квоты — отвергнуто: замена списка поздним источником, теряющая второй канал.
 - Cost — указатель: nil значит «цена неизвестна», пустая структура не выдаёт модель за бесплатную — отвергнуто: value-структура с нулями, неотличимыми от нулевой цены.
+- Полевое происхождение добавлено в каталог как Provenance map[string]string — Do требует источник каждого поля, а единый Source (последний贡献) скрывает, пришёл ли context из точного store или из округлённой таблицы pi --list-models — отвергнуто: полагаться только на Source.
+- ModelInfo.Provider — имя провайдера, как его отдал источник (совпадает с именем доступа); family/headers OpenCode не декодируются — отвергнуто: family как Provider (несогласованно между источниками) и перенос headers (утечка org id в кэш и отчёты).
+- opencode cost — массив живого API, берётся первый элемент; Efforts — id вариантов, потому что роутер передаёт их как #variant — отвергнуто: только reasoningEffort-строки (теряются id вроде none/thinking) и value-структура цены вместо указателя.
+- Ошибка источника (HTML, битый JSON, отсутствующий CLI) — предупреждение рядом с частичным каталогом, тело ответа в текст не попадает — отвергнуто: цитировать тело/полный stderr в предупреждении (в ответе opencode есть заголовки с org id).
+- Сканеры вызывают только agentio.CallAgent с таймаутом 30s и сами сортируют каталог — отвергнуто: собственный exec и недетерминированный порядок доступа у вызывающего.
 
 ## Phase 1: Catalog and discovery
 
@@ -165,7 +170,7 @@ Handoff:
 - Unverified: Атомарная замена файла через os.Rename проверена только на macOS (APFS); на Windows rename поверх существующего файла и поведение каталога с открытым файлом кэша не проверялись.
 - Unverified: Fallback без XDG_CACHE_HOME на Windows даёт ~/.cache (по Do), а не %LocalAppData%; этот путь на Windows не запускался.
 
-### [ ] P055.1.2 Scan Pi and OpenCode
+### [x] P055.1.2 Scan Pi and OpenCode
 Read:
 - internal/roster/catalog.go
 - internal/roster/roster.go:L55-68
@@ -182,6 +187,16 @@ Do:
 Verify: `go test ./internal/roster -run 'TestScan'`
 Traps: `models-store.json` и `models.json` — разные схемы; цена Pi/OpenCode в USD за миллион токенов, не за токен; не читать ключи из auth-файлов.
 Commit: P055.1.2: scan pi and opencode catalogs
+Handoff:
+- ScanPi() и ScanOpenCode() возвращают (*Catalog, []string): каталог уже Sort'нут, проблемы — однострочные предупреждения; вызывающий (1.4) сливает результаты через Catalog.Merge в порядке pi -> opencode.
+- Имена источников — константы scan.go: SourcePiStore="pi-store", SourcePiModels="pi-models", SourcePiList="pi-list", SourceOpenCode="opencode"; для доступа Source — последний канал, давший хоть одно поле.
+- Порядок слияния Pi: store -> (только если store отсутствует) pi --list-models -> models.json, поэтому точный конфиг перекрывает округлённую таблицу, а store заполняет то, чего в конфиге нет.
+- Провенанс по полям: ModelInfo.Provenance/ AccessInfo.Provenance (map[string]string), ключи provider/context/max_out/reasoning/efforts/cost/input/status и kind/auth/status; withProvenance сохраняет уже готовую карту, поэтому слитый каталог можно сливать повторно.
+- 1.3: Kind/Auth/Status у доступов эти сканеры не заполняют (только модели Status=active из opencode); auth-пробы и встроенные метаданные Codex/Claude — её работа. ScanPi никогда не читает auth-файлы, ScanOpenCode не декодирует headers/settings (там org id и креды).
+- Тестовый изолят: scanEnv выставляет HOME и USERPROFILE во временный каталог и PATH в пустой bin (фейковые CLI через testshim.Script); фейковый скрипт пишет аргументы в файл, поэтому видно и вызов, и что pi --list-models не вызывается при наличии store.
+- Unverified: Фолбэк `pi --list-models` не запускался вживую: на машине есть models-store.json, разбор таблицы проверен только фикстурой.
+- Unverified: Живой скан проверен только на macOS; ветка testshim для Windows (Git Bash, shim.exe) в этом прогоне не выполнялась.
+- Unverified: Форма ответа `opencode api get /api/model` проверена на локальном сервере этой машины (46 моделей); другая версия OpenCode или прокси, отдающий HTML, покрыты только фикстурой.
 
 ### [ ] P055.1.3 Auth and metadata enrichment
 Read:

@@ -1,0 +1,36 @@
+{
+  "providers": {
+    "strata": {
+      "baseUrl": "http://127.0.0.1:18081/v1",
+      "api": "openai-completions",
+      "apiKey": "!/usr/bin/fixture-key-command",
+      "models": [
+        {
+          "id": "swift-1.5-iq3_s",
+          "name": "Swift 1.5 IQ3_S (Strata LAN)",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 262144,
+          "maxTokens": 16384,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      ]
+    },
+    "zai": {
+      "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+      "models": [
+        {
+          "id": "glm-5.3",
+          "name": "GLM-5.3 (config)",
+          "contextWindow": 262144,
+          "maxTokens": 131072
+        }
+      ]
+    }
+  }
+}

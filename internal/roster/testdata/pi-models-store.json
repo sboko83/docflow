@@ -1,0 +1,80 @@
+{
+  "opencode-go": {
+    "models": [
+      {
+        "id": "kimi-k3.1-pro",
+        "name": "Kimi K3.1 Pro",
+        "api": "openai-completions",
+        "provider": "opencode-go",
+        "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+        "reasoning": true,
+        "input": ["text", "image"],
+        "cost": {
+          "input": 2,
+          "output": 10,
+          "cacheRead": 0.2,
+          "cacheWrite": 2
+        },
+        "contextWindow": 1048576,
+        "maxTokens": 131072,
+        "thinkingLevelMap": {
+          "off": null,
+          "minimal": null,
+          "low": "low",
+          "medium": "medium",
+          "high": "high",
+          "xhigh": "xhigh",
+          "max": "max"
+        },
+        "type": "chat"
+      },
+      {
+        "id": "glm-5.3-flash",
+        "name": "GLM-5.3 Flash",
+        "api": "openai-completions",
+        "provider": "opencode-go",
+        "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+        "reasoning": true,
+        "input": ["text"],
+        "cost": {
+          "input": 0.1,
+          "output": 0.4,
+          "cacheRead": 0.01,
+          "cacheWrite": 0
+        },
+        "contextWindow": 1048576,
+        "maxTokens": 131072,
+        "type": "chat"
+      }
+    ],
+    "lastModified": 1793425387638,
+    "etag": "\"fixture\""
+  },
+  "zai": {
+    "models": [
+      {
+        "id": "glm-5.3",
+        "name": "GLM-5.3",
+        "api": "openai-completions",
+        "provider": "zai",
+        "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+        "reasoning": true,
+        "input": ["text"],
+        "cost": {
+          "input": 0.6,
+          "output": 2.2,
+          "cacheRead": 0.11,
+          "cacheWrite": 0
+        },
+        "contextWindow": 204800,
+        "maxTokens": 131072,
+        "compat": {
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "zai"
+        },
+        "type": "chat"
+      }
+    ],
+    "lastModified": 1793425387764
+  }
+}

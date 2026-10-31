@@ -30,30 +30,37 @@ type Catalog struct {
 // AccessInfo is one access of the catalog: the name that the policy and
 // the state refer to, the agent channels that reach it, its kind, what
 // the auth probes said, and the source that supplied the entry.
+// Provenance keeps that source per field, so a merged catalog still says
+// which scanner supplied the kind, the auth status and the status.
 type AccessInfo struct {
-	Access string   `json:"access"`
-	Agents []string `json:"agents,omitempty"`
-	Kind   string   `json:"kind,omitempty"`
-	Auth   string   `json:"auth,omitempty"`
-	Status string   `json:"status,omitempty"`
-	Source string   `json:"source,omitempty"`
+	Access     string            `json:"access"`
+	Agents     []string          `json:"agents,omitempty"`
+	Kind       string            `json:"kind,omitempty"`
+	Auth       string            `json:"auth,omitempty"`
+	Status     string            `json:"status,omitempty"`
+	Source     string            `json:"source,omitempty"`
+	Provenance map[string]string `json:"provenance,omitempty"`
 }
 
 // ModelInfo is one model of one access. A zero Context or MaxOut means
 // unknown, never zero tokens: the resolver must say "context unknown"
-// instead of guessing. Cost is USD per million tokens.
+// instead of guessing. Cost is USD per million tokens. Provenance maps a
+// field to the source that supplied its current value: with two channels
+// of one access the last contributor of Source hides whether the context
+// came from an exact catalog or from a rounded fallback.
 type ModelInfo struct {
-	Access    string   `json:"access"`
-	ID        string   `json:"id"`
-	Provider  string   `json:"provider,omitempty"`
-	Context   int      `json:"context,omitempty"`
-	MaxOut    int      `json:"max_out,omitempty"`
-	Reasoning bool     `json:"reasoning,omitempty"`
-	Efforts   []string `json:"efforts,omitempty"`
-	Cost      *Cost    `json:"cost,omitempty"`
-	Input     []string `json:"input,omitempty"`
-	Status    string   `json:"status,omitempty"`
-	Source    string   `json:"source,omitempty"`
+	Access     string            `json:"access"`
+	ID         string            `json:"id"`
+	Provider   string            `json:"provider,omitempty"`
+	Context    int               `json:"context,omitempty"`
+	MaxOut     int               `json:"max_out,omitempty"`
+	Reasoning  bool              `json:"reasoning,omitempty"`
+	Efforts    []string          `json:"efforts,omitempty"`
+	Cost       *Cost             `json:"cost,omitempty"`
+	Input      []string          `json:"input,omitempty"`
+	Status     string            `json:"status,omitempty"`
+	Source     string            `json:"source,omitempty"`
+	Provenance map[string]string `json:"provenance,omitempty"`
 }
 
 // Cost is the price of a model in USD per million tokens, the unit Pi and
@@ -206,7 +213,7 @@ func (c *Catalog) Merge(other *Catalog) {
 			continue
 		}
 		accesses[access.Access] = len(c.Accesses)
-		c.Accesses = append(c.Accesses, access)
+		c.Accesses = append(c.Accesses, access.withProvenance())
 	}
 	models := make(map[string]int, len(c.Models))
 	for i, model := range c.Models {
@@ -221,7 +228,7 @@ func (c *Catalog) Merge(other *Catalog) {
 			continue
 		}
 		models[model.Key()] = len(c.Models)
-		c.Models = append(c.Models, model)
+		c.Models = append(c.Models, model.withProvenance())
 	}
 }
 
@@ -237,14 +244,17 @@ func (a *AccessInfo) mergeFrom(other AccessInfo) {
 	}
 	if other.Kind != "" {
 		a.Kind = other.Kind
+		a.Provenance = stamp(a.Provenance, other.Source, "kind")
 		contributed = true
 	}
 	if other.Auth != "" {
 		a.Auth = other.Auth
+		a.Provenance = stamp(a.Provenance, other.Source, "auth")
 		contributed = true
 	}
 	if other.Status != "" {
 		a.Status = other.Status
+		a.Provenance = stamp(a.Provenance, other.Source, "status")
 		contributed = true
 	}
 	if contributed && other.Source != "" {
@@ -252,45 +262,125 @@ func (a *AccessInfo) mergeFrom(other AccessInfo) {
 	}
 }
 
+// withProvenance stamps the fields an entry already carries with its own
+// source, so an entry added by the first source has the same per-field
+// view as one that later sources overrode.
+func (a AccessInfo) withProvenance() AccessInfo {
+	if len(a.Provenance) > 0 {
+		return a
+	}
+	a.Provenance = nil
+	if a.Kind != "" {
+		a.Provenance = stamp(a.Provenance, a.Source, "kind")
+	}
+	if a.Auth != "" {
+		a.Provenance = stamp(a.Provenance, a.Source, "auth")
+	}
+	if a.Status != "" {
+		a.Provenance = stamp(a.Provenance, a.Source, "status")
+	}
+	return a
+}
+
 // mergeFrom is the field-level counterpart of AccessInfo.mergeFrom: a
 // boolean can only be raised, lists are replaced when non-empty, and an
-// unknown cost never clears a known one.
+// unknown cost never clears a known one. Every overridden field records
+// the source that supplied it.
 func (m *ModelInfo) mergeFrom(other ModelInfo) {
 	contributed := false
+	fields := make([]string, 0, 8)
 	if other.Provider != "" {
 		m.Provider = other.Provider
 		contributed = true
+		fields = append(fields, "provider")
 	}
 	if other.Context > 0 {
 		m.Context = other.Context
 		contributed = true
+		fields = append(fields, "context")
 	}
 	if other.MaxOut > 0 {
 		m.MaxOut = other.MaxOut
 		contributed = true
+		fields = append(fields, "max_out")
 	}
 	if other.Reasoning && !m.Reasoning {
 		m.Reasoning = true
 		contributed = true
+		fields = append(fields, "reasoning")
 	}
 	if len(other.Efforts) > 0 {
 		m.Efforts = append([]string{}, other.Efforts...)
 		contributed = true
+		fields = append(fields, "efforts")
 	}
 	if other.Cost != nil {
 		cost := *other.Cost
 		m.Cost = &cost
 		contributed = true
+		fields = append(fields, "cost")
 	}
 	if len(other.Input) > 0 {
 		m.Input = append([]string{}, other.Input...)
 		contributed = true
+		fields = append(fields, "input")
 	}
 	if other.Status != "" {
 		m.Status = other.Status
 		contributed = true
+		fields = append(fields, "status")
+	}
+	for _, field := range fields {
+		m.Provenance = stamp(m.Provenance, other.Source, field)
 	}
 	if contributed && other.Source != "" {
 		m.Source = other.Source
 	}
+}
+
+// withProvenance is the ModelInfo counterpart of
+// AccessInfo.withProvenance: the source of every field the entry carries.
+func (m ModelInfo) withProvenance() ModelInfo {
+	if len(m.Provenance) > 0 {
+		return m
+	}
+	m.Provenance = nil
+	if m.Provider != "" {
+		m.Provenance = stamp(m.Provenance, m.Source, "provider")
+	}
+	if m.Context > 0 {
+		m.Provenance = stamp(m.Provenance, m.Source, "context")
+	}
+	if m.MaxOut > 0 {
+		m.Provenance = stamp(m.Provenance, m.Source, "max_out")
+	}
+	if m.Reasoning {
+		m.Provenance = stamp(m.Provenance, m.Source, "reasoning")
+	}
+	if len(m.Efforts) > 0 {
+		m.Provenance = stamp(m.Provenance, m.Source, "efforts")
+	}
+	if m.Cost != nil {
+		m.Provenance = stamp(m.Provenance, m.Source, "cost")
+	}
+	if len(m.Input) > 0 {
+		m.Provenance = stamp(m.Provenance, m.Source, "input")
+	}
+	if m.Status != "" {
+		m.Provenance = stamp(m.Provenance, m.Source, "status")
+	}
+	return m
+}
+
+// stamp records source as the origin of one field; an empty source (a
+// fixture without one) leaves the map alone.
+func stamp(provenance map[string]string, source, field string) map[string]string {
+	if source == "" {
+		return provenance
+	}
+	if provenance == nil {
+		provenance = map[string]string{}
+	}
+	provenance[field] = source
+	return provenance
 }
