@@ -175,6 +175,12 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Миграция валидирует вход парсером v1 и проверкой «маршрут в spend», но не подбирает цепочки: ростер с ролью из одного маршрута всё равно конвертируется — отвергнут вызов Load, который такой файл отверг бы.
 - В models доступа попадают точные id моделей из маршрутов, а не глоб/пустой список: иначе расширенный каталог молча войдёт в доступ — отвергнуты "*" и отсутствие allowlist.
 - Сгенерированный текст перечитывается ParsePolicy до возврата и записи: форма, которую v2-парсер не принимает, — ошибка миграции, а не файл, который пользователь не сможет загрузить — отвергнуто доверие писателю.
+- Требование trusted = trusted-доступ плюс модель класса strong — иначе слабая модель дешёвого trusted-доступа судила бы acceptance/replan; отвергнуто толкование trusted только как флага доступа.
+- Выбор модели: минимальный подходящий класс, затем цена input+output, затем больший контекст, затем id; неизвестная цена — после известной — иначе дешёвая слабая модель выигрывала бы сильную роль, а nil-цена выглядела бы бесплатной; отвергнуто сравнение только по цене и nil как ноль.
+- Текст модели в плане — ACCESS/ID для pi/opencode и голый id для codex/claude (обратная операция к routeAccess миграции); отвергнуто всегда ACCESS/ID — CLI Codex/Claude принимает только id.
+- Access.ModelsSet: пустой allowlist пресета/условия означает 'ни одной модели', отсутствие ключа — 'все'; отвергнуто правило 'пустой срез = все', которое молча расширяло временное условие до всего каталога.
+- Приведение усилия: сначала пин [effort] ('-' = без усилия), иначе лестница класса; цель остаётся, если модель не объявляет сравнимых уровней, а non-reasoning модель усилия не получает; отвергнута передача неподдерживаемого уровня и выдумывание low..max для моделей без объявленных уровней.
+- Резолвер сам сортирует кандидатов по бюджету (prefer > normal > lean, minimal в конце) — у порядка один владелец; отвергнуто оставление сортировки цепочкам 3.2.
 
 ## Phase 1: Catalog and discovery
 
@@ -371,7 +377,7 @@ Handoff:
 ## Phase 3: Resolver and brief
 
 
-### [ ] P055.3.1 Resolver candidates
+### [x] P055.3.1 Resolver candidates
 Read:
 - internal/roster/roster.go:L353-438
 - internal/roster/policy2.go
@@ -387,6 +393,18 @@ Verify: `go test ./internal/roster -run 'TestResolveCandidates'`
 Traps: контекст неизвестен — не ставить в heavy; `check` исключает review/acceptance/replan; цена подписки не ноль, а квота — не сравнивать с meter.
 Role: heavy
 Commit: P055.3.1: resolve roster candidates per role
+Handoff:
+- Резолвер для P055.3.2: Resolve(policy, state, catalog) / resolveAt(..., today) сливает состояние сам (state.Validate + mergeAt) и возвращает Resolution{Policy, Roles map[string][]Candidate, Skipped}; Resolution.Candidates(role) отдаёт кандидатов уже в порядке prefer > normal > lean (minimal в конце), внутри уровня — порядок доступов файла; один доступ — максимум один кандидат на роль.
+- Candidate.Model — готовый текст маршрута плана: ACCESS/ID для pi/opencode, голый id для codex/claude; Candidate.Route() собирает agents.Route, Effort пустой = '-'.
+- Сценарий приёмки (policy-v2.toml + preset low + testdata/catalog-scenario.json, день 2026-06-01): executor и review = opencode-go/deepseek-v4.1 высокий, cheap = opencode-go/deepseek-v4.1-flash + zai/glm-5.3-flash low, heavy = пусто, acceptance/replan = codex/gpt-6.1-sol medium. P055.3.2 должен решить, что значит пустая роль heavy (ошибка с условиями), и ждать одно маршрутное предупреждение для review.
+- Skipped: записи с пустым Role — уровень доступа (off/expired/auth not_ready/нет каталога), записаны по одному разу; записи с Role — причина, по которой доступ не служит роли (budget/check/trusted/class/allowlist/context). Тексты причин годятся для брифа 3.3 как есть.
+- Access.ModelsSet добавлен в policy2.go и выставляется applyPreset/mergeAt: непустой models в [access] и любой список models пресета/условия (включая пустой). modelAllowed в resolve.go читает его; Conditions/status не менялись, пустой allowlist состояния там уже печатается как 'models' со значением '-'.
+- Требование trusted = доступ Trusted и модель класса strong (правило v1); check-доступ исключён из review/acceptance/replan; приоритет бюджета над этими проверками — причина в Skipped называет первое сработавшее условие.
+- Модель без записи [model] получает класс по семейству (flash/mini/lite — cheap, pro/sol/opus — strong, иначе standard), поэтому kimi-k3.1-pro в живом каталоге — strong без правки политики; P055.4.x может на это опираться.
+- docflow lint предупреждает, что resolve.go в Read: P055.3.2 — ~4k токенов целиком; если это мешает промпту, 3.2 стоит сослаться на диапазон (план не редактировал).
+- Unverified: Резолвер ещё не вызывается ни одной CLI-командой: приёмочный сценарий проверен через resolveAt в пакетных тестах, а не через roster brief/apply (появятся в P055.3.4/P055.4.x); сквозного прогона нет.
+- Unverified: Живой каталог не прогонялся через резолвер: тесты на фикстурах; thinkingLevelMap с null-уровнями и variant-ids OpenCode вне effortLadder покрыты только юнит-кейсами, не живым сканом.
+- Unverified: Тесты и verify выполнены только на macOS; у резолвера нет платформенных веток, но Windows и Linux не запускались.
 
 
 ### [ ] P055.3.2 Chains, review matrix, warnings

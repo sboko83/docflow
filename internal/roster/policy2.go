@@ -60,15 +60,16 @@ type Policy struct {
 // its kind and budget, the review flags, the model allowlist and the
 // expiry date (zero when the access never expires).
 type Access struct {
-	Name    string
-	Agents  []string
-	Kind    string
-	Budget  string
-	Trusted bool
-	Check   bool
-	Models  []string // model globs the access may serve; empty means all
-	Exclude []string // model globs the access never serves
-	Expires time.Time
+	Name      string
+	Agents    []string
+	Kind      string
+	Budget    string
+	Trusted   bool
+	Check     bool
+	Models    []string // model globs the access may serve; empty means all
+	ModelsSet bool     // set by a preset or condition, so an empty list allows none
+	Exclude   []string // model globs the access never serves
+	Expires   time.Time
 }
 
 // Preset is one [preset.NAME] section: the conditions roster brief and
@@ -288,7 +289,10 @@ func (p *Policy) parseAccess(index *lineIndex, name string, section map[string]a
 				return access, failAt(p.Path, index, table, key, "access %s: %s: %v", name, key, err)
 			}
 			if key == "models" {
+				// An empty list in [access] keeps the documented "all"
+				// meaning; only a preset or a condition narrows to none.
 				access.Models = globs
+				access.ModelsSet = len(globs) > 0
 			} else {
 				access.Exclude = globs
 			}

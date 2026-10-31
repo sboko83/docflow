@@ -591,6 +591,7 @@ func mergeAt(merged *Policy, state *State, today time.Time) *Policy {
 	for access, globs := range state.Models {
 		if known, ok := merged.Access(access); ok {
 			known.Models = append([]string(nil), globs...)
+			known.ModelsSet = true
 		}
 	}
 	for access, globs := range state.Exclude {
@@ -618,6 +619,7 @@ func applyPreset(policy *Policy, preset *Preset) {
 	for access, globs := range preset.Models {
 		if known, ok := policy.Access(access); ok {
 			known.Models = append([]string(nil), globs...)
+			known.ModelsSet = true
 		}
 	}
 	if len(preset.Order) > 0 {
