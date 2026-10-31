@@ -204,6 +204,8 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Условия вынесены в отдельный раздел с таблицей 'фраза -> флаг' и одной оговоркой 'CLI парсит флаги, не русский' — один источник правды для survey, apply и будущего review; отвергнуто размазывание примеров по Ask before units и Review
 - Флаги условий описаны как разовые (in-memory, не пишутся), а持久 условие — команда roster off|budget|expire|allow|deny в roster.state.toml — соответствует решению плана о разовых флагах; отвергнуто описание флагов как сохраняемых
 - В Review источник check-доступов — политика v2 и матрица review: брифа, плюс явное правило 'нет независимого ревьюера — ошибка политики, а не self-review'; отвергнуто упоминание roster show
+- Из индекса docs/design/README.md удалён открытый вопрос про read_budget — бюджета как ключа плана нет, это рекомендация брифа; вопрос о коэффициентах оставлен в roster.md — отвергнуто сохранение устаревшего пункта в индексе
+- Старый roster show с --profile оставлен только в разделе миграции и в строке CLI как поведение v1 до cutover — отвергнуто удаление до финального удаления v1-кода
 
 ## Phase 1: Catalog and discovery
 
@@ -561,7 +563,7 @@ Handoff:
 - Unverified: Пример имён доступов (local, zai, codex, claude) и глоба *flash* взяты из фикстур policy-v2.toml; на другой машине имена другие, а проверки соответствия скилла реальному ростеру нет
 
 
-### [ ] P055.4.3 Design, usage, CLI docs
+### [x] P055.4.3 Design, usage, CLI docs
 Read:
 - docs/design/README.md:L1-21
 - docs/design/cli.md:L20-50
@@ -578,6 +580,11 @@ Verify: `docflow lint && grep -q 'roster.md' docs/design/README.md`
 Traps: docs на русском; README/usage не должны обещать несуществующие команды; не дублировать весь P036.
 Role: cheap
 Commit: P055.4.3: document roster v2 architecture
+Handoff:
+- docs/design/roster.md — новая точка входа по ростеру v2: слои, форматы roster.toml/roster.state.toml, правила резолвера, бюджет, команды, миграция; ~6.7k токенов, поэтому ссылки из плана на файл целиком дают lint-предупреждение о бюджете Read:
+- bench/roster.toml всё ещё v1: документация обещает его перевод в рамках cutover, код перевода отдельным юнитом; бенчмарк не перезапускается
+- docs/usage.md и docs/design/cli.md описаны уже в терминах v2; v1-поведение show/--profile упомянуто только как путь миграции до cutover
+- Unverified: Пример вывода roster brief в документации снят с golden-фикстуры testdata/brief-scenario.txt, а не с живого прогона на v2-ростере; совпадение с фактическим выводом команды на личном ростере не проверено
 
 
 ### [ ] P055.4.4 README and changelog

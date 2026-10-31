@@ -568,97 +568,213 @@ opencode и генерации не тратит. Стоимость и токе
 
 ## Ростер
 
-Ростер подбирает маршруты ролей при составлении плана: `docflow roster
-show` печатает готовые цепочки, `docflow roster apply Pxxx` пишет их в
-шапку плана. Раннер и `lint` ростер не читают — план остаётся
-воспроизводимым; почему подбор устроен так —
-[P036](archive/P036-roster.md). Файл: `--roster PATH` >
-`$XDG_CONFIG_HOME/docflow/roster.toml` (`~/.config/…`); файла нет — код 2
-с путём.
+Ростер подбирает маршруты ролей при составлении плана, а не во время
+прогона: `docflow roster brief` показывает цепочки, бюджеты и объяснение,
+`docflow roster apply Pxxx` пишет их в шапку плана. `run`, `lint` и
+`cycle` ростер не читают, формат плана остаётся `docflow: 3` —
+[P036](archive/P036-roster.md). Устройство подсистемы, правила резолвера и
+бюджета — [design/roster.md](design/roster.md); локальный маршрут
+`strata/…` отображается как `Local` без квоты
+([P043](archive/P043-local-worker.md)).
+
+Ростер состоит из трёх файлов:
+
+| Файл | Что это |
+|---|---|
+| `~/.config/docflow/roster.toml` | политика: доступы, allowlist, доверие, классы моделей, роли, пресеты |
+| `$XDG_CACHE_HOME/docflow/roster/catalog.json` | каталог: что нашли `scan` и пробы авторизации; расходный кэш вне рабочего дерева |
+| `~/.config/docflow/roster.state.toml` | временные условия: выключения, бюджеты, expiry, сужения моделей |
+
+Путь политики переопределяется `--roster PATH`; файл состояния лежит
+рядом и называется так же с `.state.toml`. Нет файла состояния — нет
+условий, это не ошибка.
+
+### Каталог
+
+```sh
+docflow roster scan            # Pi, OpenCode, Codex/Claude, auth-пробы
+docflow roster scan --online   # плюс необязательные метаданные models.dev
+docflow roster models          # модели доступов из ростера
+docflow roster models zai      # модели одного доступа
+docflow roster status          # каналы, auth, число моделей, условия
+```
+
+`scan` пишет кэш и печатает сводку доступов. Проблема одного источника
+(нет CLI, HTML вместо JSON, битый кэш) — предупреждение в stderr, код
+успеха остаётся 0; каталог при этом частичный. Модели и пробы не
+вызываются, квота не тратится, значения ключей не печатаются.
+`models` и `status` читают только кэш и не сканируют; пустой кэш — код 0 с
+подсказкой `docflow roster scan`, неизвестный `models ACCESS` — код 2 со
+списком известных доступов. Неизвестные контекст, `max_out` и цена
+печатаются как `unknown`, а не нулём.
+
+### Политика `roster.toml`
+
+Версия формата — `version = 2`. Старый ростер без версии даёт код 2 и
+подсказку `docflow roster migrate`.
 
 ```toml
-spend = ["strata", "zai", "codex", "claude"] # локальная работа первой
+version = 2
 
-[provider.strata]
-check = true      # локальная модель тоже требует независимого ревью
+[access.opencode-go]
+agents  = ["pi", "opencode"]   # два канала, один доступ и одна квота
+kind    = "subscription"       # subscription | metered | local
+budget  = "prefer"             # prefer | normal | lean | minimal | off
+trusted = true
+models  = ["deepseek-*"]       # allowlist; нет ключа — все модели
+exclude = []
 
-[provider.zai]
-check = true      # юниты этого провайдера проверяет ревью другим провайдером
+[access.zai]
+agents = ["pi"]
+kind   = "subscription"
+budget = "lean"
+check  = true                  # нужен независимый ревьюер
+models = ["glm-5.3*"]
 
-[provider.claude]
-trusted = true    # допускается к acceptance и replan
+[access.codex]
+agents = ["codex"]
+kind   = "subscription"
+budget = "minimal"             # только acceptance и replan
+trusted = true
 
-[role]            # роль -> минимальная ступень: cheap < standard < strong;
-cheap      = "cheap"      # trusted = strong у провайдера с trusted
+[access.local]
+agents = ["pi"]
+kind   = "local"
+budget = "off"
+check  = true
+
+[role]
+cheap      = "cheap"
 executor   = "standard"
 heavy      = "strong"
-review     = "strong"     # провайдеры с check исключены
+review     = "standard"
 acceptance = "trusted"
 replan     = "trusted"
 
-[route.swift-low]
-run  = "pi | strata/swift-1.5-iq3_s | low"
-tier = "cheap"
+[model."zai/glm-5.3"]
+class = "strong"               # перекрывает класс по семейству
 
-[route.swift-high]
-run  = "pi | strata/swift-1.5-iq3_s | high"
-tier = "standard"
+[effort]
+"codex/gpt-6.1-sol" = "medium"
 
-[route.glm-flash-high]
-run  = "pi | zai/glm-5.3-flash | high"   # тройка, как у Executor
-tier = "cheap"
-
-[profile.save-claude]          # необязательно: заменяет spend и флаги
-[profile.save-claude.provider.codex]   # перечисленных провайдеров; --profile NAME
-trusted = true                 # claude уходит в запас acceptance и replan
+[preset.low]
+off     = ["claude", "local"]
+lean    = ["zai"]
+minimal = ["codex"]
+prefer  = ["opencode-go"]
+order   = ["opencode-go", "zai", "codex"]
+models  = { zai = ["*flash*"] }
 ```
 
-Локальный провайдер `strata` уже должен быть настроен в Pi; ростер не
-создаёт подключения к модели. `low` идёт в `--thinking low` для дешёвой
-работы, `high` — для обычного исполнителя. Ступень `strong` локальной
-модели не назначается: тяжёлая работа остаётся на сильных маршрутах.
-Маршруты `strata/…` раннер показывает как `Local` без квоты
-([решение](archive/P043-local-worker.md)).
+`[access]` — стабильная политика. Доступ — единица квоты и
+независимости: `opencode-go` через `pi` и через `opencode` — один доступ,
+и fallback повторяет доступ, а не пару `agent|model`. `agents`
+обязателен. `check` и `trusted` взаимоисключающи: доступ, требующий
+независимой проверки, не судит. `budget = "minimal"` требует
+`trusted = true`, иначе это ошибка политики. `[role]` обязан объявить все
+шесть ролей. `[model]` перекрывает автоматический класс по семейству
+(`flash/mini/lite → cheap`, `pro/sol/opus → strong`, остальное
+`standard`). `[effort]` пинится по `ACCESS/MODEL`; `"-"` — усилие не
+передавать. `[preset]` — сохранённый набор условий; `off/lean/minimal/
+prefer` взаимоисключающи на один доступ, `order` ставит доступы первыми,
+`models` сужает allowlist (пустой список — ни одной модели), а
+`check`/`trusted` пресет не переопределяет.
 
-Провайдер маршрута: для `pi` — префикс модели до `/` (`zai/glm-5.3` →
-`zai`, модель без `/` → `pi`), для остальных — имя агента. Подбор цепочки
-роли: провайдеры в порядке `spend`, у каждого один маршрут — с наименьшей
-ступенью не ниже требуемой (при равенстве — первый в файле); провайдер без
-подходящего маршрута пропускается: квота общая на подписку, второй маршрут
-того же провайдера был бы пустой попыткой. Для `review` провайдеры с
-`check` исключены. Для `trusted` — сначала `strong` провайдеров с
-`trusted`, затем запас: `strong` остальных провайдеров без `check` в
-порядке `spend`. Цепочка короче двух маршрутов разных провайдеров — код 2:
-без запаса лимит единственного провайдера останавливает прогон до сброса.
+Бюджет доступа задаёт роли: `prefer`/`normal` — все, `lean` — без
+`heavy`, `acceptance` и `replan`, `minimal` — только `acceptance` и
+`replan`, `off` — никакие. Резолвер выбирает минимальный подходящий класс,
+затем цену `input + output`, затем больший контекст, затем id; неизвестная
+цена идёт после известной.
 
-Профиль `[profile.<name>]` выбирается `--profile NAME` и заменяет `spend`
-и флаги перечисленных провайдеров; маршруты и требования ролей общие.
-`spend` профиля может сократить список: маршруты выпавшего провайдера
-подбор пропускает, а правило двух провайдеров на роль действует и в
-профиле. Поэтому «беречь claude» при `check` у zai — не `spend = ["zai",
-"codex"]` (review остался бы из одного codex), а `trusted` у codex, как в
-примере: acceptance и replan идут через codex, claude — запас.
+### Условия
 
-`roster show` печатает строку `spend: … · check: … · trusted: …` и шапку
-плана: `executor:` — первый маршрут роли executor, `fallback:` — её
-остальные маршруты, `cheap:`, `heavy:`, `review:`, `acceptance:`,
-`replan:` — полные цепочки. Неизвестный ключ, неразбираемая тройка `run`,
-ступень вне `cheap|standard|strong`, требование роли вне
-`cheap|standard|strong|trusted`, неизвестная роль, провайдер маршрута вне
-верхнего `spend`, повтор в `spend` — код 2 с файлом и строкой.
-Неизвестный `--profile NAME` — ошибка аргумента: код 2 с путём ростера и
-списком определённых профилей, без строки.
+Постоянное условие пишется в `roster.state.toml` и не меняет политику:
 
-`roster apply Pxxx [--profile NAME]` пишет тот же блок в шапку плана из
-`docs/plans/`: `executor:`, `fallback:`, `replan:` и ключи ролей, на
-которые ссылается `Role:` хотя бы одного юнита; ключи ролей без юнитов
-удаляет, прочие ключи и их порядок не трогает, новые ключи ставит после
-`executor:`/`fallback:`. План — в статусе `draft`, `active` или `frozen`,
-иначе код 2; идёт прогон (файл `run.lock` раннера) — код 5, план не
-меняется. После записи план проверяется `lint`; при ошибках план
-восстанавливается — код 2. apply печатает строку `ключ: старое → новое`
-по каждому изменённому ключу и подсказку `commit: Pxxx: apply roster`;
-изменений нет — код 1; сам не коммитит.
+```sh
+docflow roster off claude --until 2026-11-30  # до конца дня включительно
+docflow roster on claude                      # снять off, дату и бюджет off
+docflow roster budget codex minimal
+docflow roster expire zai 2026-12-31
+docflow roster allow zai '*flash*'            # сузить allowlist
+docflow roster deny zai '*-thinking'          # скрыть модели
+docflow roster reset                          # удалить файл состояния
+```
+
+Временное условие может сузить стабильный allowlist, но не расширить.
+Неизвестный доступ, уровень или пресет — код 2 до записи: опечатка в
+мёртвом условии должна падать. Истёкший `off` отбрасывается при загрузке,
+файл переписывает только следующая мутация.
+
+Разовое условие — флаг вопроса, он применяется в памяти и не
+сохраняется:
+
+```sh
+docflow roster brief --off claude,local --minimal codex --lean zai \
+  --only 'zai=*flash*' --prefer opencode-go
+docflow roster brief --preset low
+```
+
+`--preset NAME` применяет пресет политики; `--off`, `--minimal`, `--lean`,
+`--prefer` (списки доступов через запятую), `--expires A=DATE` и
+`--only A=GLOB` действуют на один вызов. Постоянное условие — только
+команды `off`/`on`/`budget`/`expire`/`allow`/`deny`/`reset`.
+
+### Бриф, объяснение и применение
+
+```sh
+docflow roster brief
+docflow roster show             # на v2 — алиас brief
+docflow roster explain P055
+docflow roster apply P055 --preset low --dry-run
+docflow roster apply P055 --preset low
+```
+
+`brief` печатает условия в силе, по строке на роль (`chain`, `budget`,
+`scope`), матрицу `review:`, раздел `why:` с объяснением выбора и
+предупреждения. `budget` — рекомендация чтения для нарезки юнита, а не
+ключ плана и не проверка `lint`; у судейских ролей бюджета нет, их
+`scope` — `diff/test`. Пустая цепочка роли и цепочка из одного маршрута —
+предупреждения: `apply` не знает, какие роли использует план. Если
+`check`-доступ остался без независимого ревьюера — ошибка политики, а не
+self-review.
+
+`explain PLAN` сравнивает шапку плана с брифом и печатает
+`ключ: старое → новое` и предупреждения только тех ролей, которые план
+использует; файлы он не меняет.
+
+`apply PLAN` пишет в шапку `docs/plans/` ключи `executor:`, `fallback:`,
+`replan:` и ключи ролей, на которые ссылается `Role:` хотя бы одного
+юнита. Ключи ролей без юнитов удаляет, `Executor:` юнитов не трогает,
+прочие ключи и их порядок сохраняет, новые ставит после
+`executor:`/`fallback:`. План — `draft`, `active` или `frozen`, иначе
+код 2; идёт прогон (`run.lock`) — код 5. После записи план проверяется
+`lint`, при ошибке файл восстанавливается — код 2. Предупреждения
+(юнит с `Executor:` вне текущих условий, `Read:`-прокси больше бюджета,
+роль без fallback) идут в stderr и не меняют код успеха. Изменений нет —
+код 1; `apply` не коммитит. `--dry-run` печатает изменения без записи,
+`--json` сохраняет код выхода.
+
+Пример приёмки: `claude` и `local` выключены, `codex` по минимуму, `zai`
+только flash, `opencode-go` первым. `brief` даёт `executor` —
+`opencode-go/deepseek-v4.1`, `cheap` — `opencode-go/deepseek-v4.1-flash >
+zai/glm-5.3-flash`, `heavy` пуст, `review` — `opencode-go/deepseek-v4.1`,
+`acceptance` и `replan` — `codex/gpt-6.1-sol`; `apply` пишет эту шапку, а
+`run --dry-run --all` показывает маршруты юнитов и `fallback:` уже без
+участия ростера.
+
+### Миграция
+
+```sh
+docflow roster migrate           # напечатать v2-политику
+docflow roster migrate --write   # заменить roster.toml, сохранив .bak
+```
+
+`migrate` переводит `spend`, `[provider]`, `[role]`, `[route]` и
+`[profile]` в доступы, классы, `[effort]` и пресеты; профиль становится
+пресетом, а доступы, которые профиль не называет, получают `off` — так
+«беречь claude» сохраняется. Уже v2-ростер — код 2, ничего не пишется.
+После cutover старый файл даёт код 2 с подсказкой `docflow roster migrate`,
+а `--profile` на v2 называет `--preset`.
 
 ## Бенчмарк
 
