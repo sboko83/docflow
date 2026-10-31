@@ -191,6 +191,12 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Target=0 + omitempty как признак неизвестного бюджета — совпадает с соглашением ModelInfo.Context в каталоге — отвергнут sentinel -1 в токенах
 - Golden-файл testdata/brief-scenario.txt вместо ожидаемой строки в тесте — 43 строки текста в Go-литерале нечитаемы в диффе — отвергнуто сравнение по фрагментам без эталона
 - Фильтр предупреждений по суффиксу ' for <role>' через список Roles — владелец текстов остаётся resolve_chain.go, бриф не переписывает их заново — отвергнуто повторное построение предупреждений из длин цепочек (второй источник правды)
+- Разовые флаги условий применяются к in-memory State (LoadState + SetOff/SetBudget/SetExpires/Allow) и никогда не сохраняются — состояние с диска остаётся единственным источником правды, а флаг — вопросом; отвергнут отдельный overlay-структуры флагов и мерж в резолвере.
+- Brief.Header() живёт в internal/roster и рендерит шапку через agents.RouteText от Candidate.Model — правило текста маршрута остаётся одно; отвергнуто повторное построение шапки в cmd/docflow.
+- explain сравнивает объединение ключей шапки плана и брифа, а предупреждения фильтрует по ролям плана (executor+replan всегда, роли — из Role:) — так строка explain совпадает с тем, что сделает apply, и пустая heavy не шумит на плане без heavy-юнитов; отвергнуто сравнение всех шести ролей и печать предупреждений о ролях, которых план не запускает.
+- --only пишется через State.Allow, то есть накапливается с glob-условиями из state-файла; отвергнута замена state.Models, которая спрятала бы условие с диска.
+- Смешение форматов во флагах — ошибка: --profile на v2 называет --preset, разовые флаги и --preset на v1 называют roster migrate; отвергнуто молчаливое игнорирование чужого флага.
+- explain печатает Unicode-стрелку → и section-формат changes/warnings как у brief; отвергнут другой формат вывода для того же вида.
 
 ## Phase 1: Catalog and discovery
 
@@ -466,7 +472,7 @@ Handoff:
 - Unverified: Golden закреплён на дне 2026-06-01: живой прогон после 2026-06-30 получит другие цепочки (zai истекает), поведение брифа на реальном ростере с частично неизвестным контекстом не проверено
 - Unverified: Windows и Linux не запускались — тесты шли только на macOS; платформенных веток в новом коде нет
 
-### [ ] P055.3.4 Brief and explain CLI
+### [x] P055.3.4 Brief and explain CLI
 Read:
 - cmd/docflow/main.go:L280-360
 - cmd/docflow/help_text.go:L280-320
@@ -482,6 +488,17 @@ Do:
 Verify: `go test ./cmd/docflow -run 'TestRosterBrief|TestRosterExplain'`
 Traps: флаги условий не должны мутировать state; `--only` — глоб по ID модели; explain не пишет и не коммитит.
 Commit: P055.3.4: add roster brief and explain commands
+Handoff:
+- internal/roster/brief.go: Brief.Header() уже рендерит шапку плана из брифа (executor расщеплён на executor:/fallback:, пустая цепочка отсутствует в map, текст модели — Candidate.Model). P055.4.1 должен писать шапку из него, а не рендерить маршруты заново; порядок ключей в шапке — roster.headerKeys в apply.go, cmd-овский planHeaderKeys дублирует его только для explain.
+- cmd/docflow/roster_brief.go: rosterConditionPolicy/applyBriefFlags — загрузка v2 (LoadPolicy+LoadState+Validate) с разовыми флагами в памяти; --preset для apply v2 идёт тем же путём, v1-овый roster.Load трогать нельзя.
+- rosterShow уже отправляет show на v2 в brief; v1-ветки (roster.Load, --profile) и подсказки briefFlagNames удаляются только на cutover P055.4.6, не раньше.
+- Тестовое окружение rosterBriefEnv подменяет expires 2026-06-30 на 2099-01-01 и кладёт catalog-scenario.json в XDG_CACHE_HOME: реальные часы уже за датой фикстуры, тест падает с fatal, если строка expires в policy-v2.toml изменится.
+- explain считает используемыми executor и replan всегда, а роли — только из Role: юнитов; устаревший ключ шапки печатается как удаление (key: old → -).
+- docs/usage.md всё ещё описывает v1 show/--profile: обновление — P055.4.3.
+- Unverified: Живой roster scan → brief на этой машине не прогнан: brief проверен на фикстуре каталога в temp XDG, а реальный ~/.config/docflow/roster.toml ещё v1 (там brief даёт код 2 по замыслу).
+- Unverified: Windows и Linux не запускались — тесты и живой смоук только на macOS 2026-10-31.
+- Unverified: Путь «срок доступа уже истёк» через CLI не покрыт: CLI-тесты подменяют expiry фикстуры на 2099, истёкший доступ проверен только пакетными тестами на пришпиленном дне.
+- Unverified: Совпадение Header() с тем, что реально запишет apply v2, не проверено: P055.4.1 ещё нет, значения сверяются только с фикстурами.
 
 ## Phase 4: Plan integration and docs
 

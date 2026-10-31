@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/clierrors"
 )
 
@@ -77,6 +78,41 @@ func buildBriefAt(policy *Policy, state *State, catalog *Catalog, roles []string
 	}
 	brief.Warnings = filterWarnings(chains.Warnings, selected)
 	return brief, nil
+}
+
+// Header renders the plan-header keys the brief would write: executor and
+// its fallback from the executor chain, then one key per role chain. A
+// chain with no route is left out of the map instead of written as a
+// dash, which is how apply removes a key. The routes take the plan form
+// the resolver already put in Candidate.Model: ACCESS/ID for pi and
+// opencode, the bare id for codex and claude.
+func (b *Brief) Header() map[string]string {
+	header := make(map[string]string, len(b.Roles))
+	for _, entry := range b.Roles {
+		if entry.Role == Roles[0] {
+			if len(entry.Routes) == 0 {
+				continue
+			}
+			header["executor"] = agents.RouteText(entry.Routes[0].Route())
+			if len(entry.Routes) > 1 {
+				header["fallback"] = headerChain(entry.Routes[1:])
+			}
+			continue
+		}
+		if len(entry.Routes) > 0 {
+			header[entry.Role] = headerChain(entry.Routes)
+		}
+	}
+	return header
+}
+
+// headerChain renders a chain as the semicolon-separated plan value.
+func headerChain(routes []Candidate) string {
+	texts := make([]string, 0, len(routes))
+	for _, route := range routes {
+		texts = append(texts, agents.RouteText(route.Route()))
+	}
+	return strings.Join(texts, "; ")
 }
 
 // briefRoles narrows the selected roles to the known ones in policy role

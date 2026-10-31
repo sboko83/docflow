@@ -285,18 +285,35 @@ options:
   --project             copy skills/* into the project
 `,
 	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] [--until DATE]
-                      [--json] [--refresh] [--online] [--all] [--write]
-                      {show,apply,scan,models,status,off,on,budget,expire,allow,deny,reset,migrate}
+                      [--preset NAME] [--off A,B] [--minimal A,B]
+                      [--lean A,B] [--prefer A,B] [--expires A=DATE]
+                      [--only A=GLOB] [--json] [--refresh] [--online]
+                      [--all] [--write]
+                      {show,brief,explain,apply,scan,models,status,off,on,budget,expire,allow,deny,reset,migrate}
                       [ACCESS] [ARG ...]
 
 scan model access catalogs, show the route chains per plan role from the
 personal roster, or write them into a plan header
 
 Reads ~/.config/docflow/roster.toml (or --roster PATH), picks the chain
-of every role, and prints a spend summary line plus the plan-header
-lines executor:, fallback:, cheap:, heavy:, review:, acceptance: and
-replan:. roster apply PLAN writes executor:, fallback:, replan: and the
-role keys of the unit Role: fields into the plan header in docs/plans
+of every role, and prints the plan-header lines executor:, fallback:,
+cheap:, heavy:, review:, acceptance: and replan: with their unit
+budgets. roster brief prints the conditions in force, one row per role
+with its chain and read budget, the review matrix, why every chain was
+chosen and the warnings of incomplete chains. A condition flag of the
+call — --preset, --off, --minimal, --lean, --prefer, --expires,
+--only — is merged in memory for this one brief and never written, so
+the planner can answer a question without changing the roster state.
+roster show is the same view on a version 2 roster; on the v1 roster it
+keeps the old spend summary and the --profile flag.
+
+roster explain PLAN loads the plan from docs/plans and prints the
+header keys apply would rewrite as "key: old → new" plus the warnings
+of the roles the plan uses. It changes neither the plan nor the state
+file and never commits.
+
+roster apply PLAN writes executor:, fallback:, replan: and the role
+keys of the unit Role: fields into the plan header in docs/plans
 (draft, active or frozen), removes role keys without units, lints the
 plan and restores it on lint errors; a run in progress stops apply. The
 runner never reads the roster; a plan stays reproducible without it.
@@ -335,7 +352,9 @@ is already version 2 is exit code 2 and nothing is written, and a v2
 command on a v1 roster fails with this command in the hint.
 
 subcommands:
-  show             print the chains per role
+  show             print the chains per role (brief on a v2 roster)
+  brief            print the conditions, chains, budgets and warnings
+  explain PLAN     compare the plan header with the brief
   apply ID         write the chains into the plan header
   scan             collect the catalog and write the cache
   models [ACCESS]  list the models of the catalog
@@ -356,8 +375,17 @@ subcommands:
 options:
   -h, --help      show this help message and exit
   --profile NAME  spend and provider-flag overrides from [profile.NAME]
+                  (v1 roster only)
   --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
   --until DATE    off: the last day the access stays off (YYYY-MM-DD, UTC)
+  --preset NAME   brief: the preset to apply on top of the policy
+  --off A,B       brief: accesses switched off for this call only
+  --minimal A,B   brief: accesses at the minimal budget for this call only
+  --lean A,B      brief: accesses at the lean budget for this call only
+  --prefer A,B    brief: accesses at the prefer budget for this call only
+  --expires A=DATE
+                  brief: expire an access on DATE for this call only
+  --only A=GLOB   brief: narrow an access to the model glob for this call
   --json          print the result as JSON
   --refresh       scan: ignore fresh caches and scan again
   --online        scan: enrich the catalog from models.dev

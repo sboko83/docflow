@@ -52,7 +52,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), flag("--json", "print the result as JSON"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief: accesses switched off for this call only"), appendOption("--minimal", "A,B", "brief: accesses at the minimal budget for this call only"), appendOption("--lean", "A,B", "brief: accesses at the lean budget for this call only"), appendOption("--prefer", "A,B", "brief: accesses at the prefer budget for this call only"), appendOption("--expires", "A=DATE", "brief: expire an access on DATE for this call only"), appendOption("--only", "A=GLOB", "brief: narrow an access to the model glob for this call only"), flag("--json", "print the result as JSON"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -353,13 +353,21 @@ func handleRoster(parsed *parsedArgs) error {
 			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, strings.Join(rest, " ")), Code: clierrors.EXIT_FORMAT}
 		}
 	}
-	switch subcommand {
-	case "show":
-		r, err := roster.Load(path, profileName)
-		if err != nil {
-			return err
+	// The one-shot condition flags belong to brief alone; any other
+	// command that gets one says so instead of ignoring it.
+	if flags := briefFlagNames(parsed); len(flags) > 0 {
+		switch subcommand {
+		case "brief", "show", "explain":
+		default:
+			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: %s belongs to roster brief", subcommand, strings.Join(flags, ", ")), Code: clierrors.EXIT_FORMAT}
 		}
-		return commandResult{code: clierrors.EXIT_OK, stdout: r.Show()}
+	}
+	switch subcommand {
+	case "show", "brief":
+		if id, _ := parsed.values["id"].(string); id != "" {
+			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, id), Code: clierrors.EXIT_FORMAT}
+		}
+		return rosterShow(parsed, subcommand, profileName, path)
 	case "apply":
 		planID, _ := parsed.values["id"].(string)
 		if planID == "" {
@@ -384,8 +392,10 @@ func handleRoster(parsed *parsedArgs) error {
 		return rosterCondition(parsed)
 	case "migrate":
 		return rosterMigrate(parsed)
+	case "explain":
+		return rosterExplain(parsed)
 	default:
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply, scan, models, status, off, on, budget, expire, allow, deny, reset, migrate)", subcommand), Code: clierrors.EXIT_FORMAT}
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, brief, explain, apply, scan, models, status, off, on, budget, expire, allow, deny, reset, migrate)", subcommand), Code: clierrors.EXIT_FORMAT}
 	}
 }
 
