@@ -2,7 +2,7 @@
 id: P055
 title: Model roster v2: access catalog, conditions, resolver
 type: feature
-status: draft
+status: active
 created: 2026-10-31
 executor: pi | opencode-go/deepseek-v4.1-flash | high
 fallback: pi | zai/glm-5.3-flash | high; pi | zai/glm-5.3 | high
@@ -135,11 +135,15 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Миграция v1 → v2 — `roster migrate`, затем v1 удаляется; старый формат
   даёт ошибку с путём и подсказкой. Отдельный бинарник не вводится:
   пакет + подкоманда с JSON-контрактом, чтобы вынести позже.
+- Кэш с незнакомым version считается отсутствующим (пустой каталог, без ошибки) — кэш расходный, его перезапишет scan — отвергнуто: отказ models/status на кэше, записанном прошлой версией бинарника.
+- Reasoning=false не перекрывает true при слиянии — прямое следствие правила «пустое не затирает непустое» — отвергнуто: tri-state указатели на каждое поле, усложняющие все сканеры.
+- Agents доступа при слиянии объединяются (opencode-go через pi и opencode) — один доступ = одна единица квоты — отвергнуто: замена списка поздним источником, теряющая второй канал.
+- Cost — указатель: nil значит «цена неизвестна», пустая структура не выдаёт модель за бесплатную — отвергнуто: value-структура с нулями, неотличимыми от нулевой цены.
 
 ## Phase 1: Catalog and discovery
 
 
-### [ ] P055.1.1 Catalog model and cache
+### [x] P055.1.1 Catalog model and cache
 Read:
 - internal/roster/roster.go:L1-120
 - internal/roster/lines.go:L53-117
@@ -153,6 +157,13 @@ Do:
 Verify: `go test ./internal/roster -run 'TestCatalog'`
 Traps: не писать в репозиторий; `XDG_CACHE_HOME` может быть относительным — приводить к абсолютному; на Windows путь через `filepath`.
 Commit: P055.1.1: add roster catalog model
+Handoff:
+- Для P055.1.2: слияние источников — Catalog.Merge, каждый сканер собирает свой Catalog и вызывает Merge; ключ модели — ({Access}/{ID}), доступы склеиваются по имени, каналы Agents объединяются, а не заменяются.
+- Полевого источника (per-field provenance, «сохрани источник каждого поля» из Do P055.1.2) в ModelInfo/AccessInfo нет: Source — только имя последнего источника, реально давшего хоть одно поле; если 1.2 нужна провенанс по полям, её придётся добавить (например map[string]string).
+- Semantics: Context == 0 и MaxOut == 0 означают unknown, а не ноль токенов; Cost — *Cost (nil = цена неизвестна), единица — USD за миллион токенов; Reasoning в слиянии только поднимается, false не сбрасывает true.
+- DefaultCachePath намеренно не использует os.UserCacheDir: по Do путь всегда $XDG_CACHE_HOME/... или ~/.cache/..., в том числе на macOS (не ~/Library/Caches); на Windows используется filepath, но поведение там не проверялось.
+- Unverified: Атомарная замена файла через os.Rename проверена только на macOS (APFS); на Windows rename поверх существующего файла и поведение каталога с открытым файлом кэша не проверялись.
+- Unverified: Fallback без XDG_CACHE_HOME на Windows даёт ~/.cache (по Do), а не %LocalAppData%; этот путь на Windows не запускался.
 
 ### [ ] P055.1.2 Scan Pi and OpenCode
 Read:
