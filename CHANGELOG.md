@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Model roster v2: `roster scan` builds a catalog of models, context
+  windows, prices and reasoning levels from the Pi and OpenCode CLIs plus
+  known Codex/Claude metadata (`--online` adds the optional models.dev
+  data), and `roster models` and `roster status` show it from the cache.
+  A stable policy (`roster.toml`) declares accesses, allowlists, trust and
+  presets; temporary conditions live in `roster.state.toml` (`roster off`,
+  `on`, `budget`, `expire`, `allow`, `deny`, `reset`) and reach a new plan
+  or an explicit `roster apply`, never a running one.
+- `roster brief` (and `roster show` on a v2 roster) resolves the conditions
+  into a chain per role, the unit read budget and why-lines, plus the
+  `review:` matrix; `roster explain PLAN` shows what `roster apply` would
+  change without writing.
+- `roster migrate` converts a v1 roster (`spend`, `[provider]`, `[route]`,
+  `[profile]`) into a v2 policy, keeping efforts as `[effort]` pins and
+  profiles as presets.
+
+### Changed
+- `roster apply` writes only the plan header, takes `--preset` or one-off
+  condition flags instead of hand-picked models, warns about a unit outside
+  the current conditions or over the read budget, and restores the file
+  when `lint` fails. `--profile` is replaced by `--preset`.
+- The v1 roster format and its commands are removed: a v1 file exits 2 and
+  points at `docflow roster migrate`, which keeps the old file as
+  `roster.toml.bak`.
+
 ### Fixed
 - `docflow update` applies the skills mode through the freshly activated
   release instead of the running binary, so a new release's agent list takes

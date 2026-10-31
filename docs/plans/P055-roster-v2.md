@@ -206,6 +206,7 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - В Review источник check-доступов — политика v2 и матрица review: брифа, плюс явное правило 'нет независимого ревьюера — ошибка политики, а не self-review'; отвергнуто упоминание roster show
 - Из индекса docs/design/README.md удалён открытый вопрос про read_budget — бюджета как ключа плана нет, это рекомендация брифа; вопрос о коэффициентах оставлен в roster.md — отвергнуто сохранение устаревшего пункта в индексе
 - Старый roster show с --profile оставлен только в разделе миграции и в строке CLI как поведение v1 до cutover — отвергнуто удаление до финального удаления v1-кода
+- Удаление v1 в changelog сформулировано как состояние будущего релиза (Unreleased), а не как факт текущего дерева — Do требует упомянуть удаление, а Unreleased собирает весь выпуск — отвергнуто: переносить запись об удалении в юнит 4.6 (тогда `roster v2` в Unreleased остаётся без cutover-части).
 
 ## Phase 1: Catalog and discovery
 
@@ -587,7 +588,7 @@ Handoff:
 - Unverified: Пример вывода roster brief в документации снят с golden-фикстуры testdata/brief-scenario.txt, а не с живого прогона на v2-ростере; совпадение с фактическим выводом команды на личном ростере не проверено
 
 
-### [ ] P055.4.4 README and changelog
+### [x] P055.4.4 README and changelog
 Read:
 - README.md:L28-36
 - README.ru.md:L28-36
@@ -601,6 +602,10 @@ Verify: `grep -q 'roster brief' README.md && grep -q 'roster brief' README.ru.md
 Traps: README/RU меняются вместе; changelog — пользовательские изменения, не внутренние тесты.
 Role: cheap
 Commit: P055.4.4: describe roster v2 in readme and changelog
+Handoff:
+- CHANGELOG `## [Unreleased]` уже описывает удаление v1-формата (код 2 + `roster migrate`) и `--preset` вместо `--profile`, хотя cutover кода — юниты 4.5/4.6; к выпуску это должно стать правдой, иначе запись врёт.
+- README-буллет теперь перечисляет `scan`, `brief`, `apply`; `models`/`status`/`explain` описаны только в CHANGELOG и docs/usage.md, чтобы не раздувать README.
+- Unverified: Утверждение CHANGELOG об удалении v1-формата и команд пока не соответствует коду (v1 ещё читается до cutover) — проверка только текстом, поведение появится в юните 4.6; `Verify` этого не ловит.
 
 
 ### [ ] P055.4.5 Migrate tests, fixtures, bench

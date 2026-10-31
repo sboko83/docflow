@@ -29,8 +29,13 @@ state in the repository instead of the agent's memory.
   without a human: prompts the agent, verifies, commits, retries a failed
   unit, switches to the fallback executor on a provider limit or outage,
   and stops safely on a timeout or a stalled agent. Claude Code, Codex CLI,
-  Pi and OpenCode are built in; the plan (or a personal roster, `docflow roster`)
-  routes each unit to its own assistant, model, and reasoning effort
+  Pi and OpenCode are built in; the plan routes each unit to its own
+  assistant, model, and reasoning effort. The roster takes conditions, not
+  a list of models: `docflow roster scan` collects models, context, price,
+  and reasoning levels from Pi and OpenCode plus known Codex/Claude
+  metadata, `roster brief` turns "codex minimal", "local off", "zai only
+  flash" into a chain per role, a read budget and the reason behind the
+  choice, and `roster apply` writes the plan header
   ([details](docs/usage.md#автозапуск), in Russian).
 - **Sessions hand off.** A finished unit leaves Handoff lines and
   Decisions, and the next unit's prompt already carries the handoff of
