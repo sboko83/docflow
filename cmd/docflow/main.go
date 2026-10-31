@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/clierrors"
@@ -51,7 +52,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), flag("--json", "print the result as JSON"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "spend and provider-flag overrides from [profile.NAME]"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), flag("--json", "print the result as JSON"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -63,6 +64,7 @@ type argumentKind int
 
 const (
 	positionalArg argumentKind = iota
+	restPositionalArg
 	stringOption
 	integerOption
 	booleanOption
@@ -96,6 +98,12 @@ type parsedArgs struct {
 
 func positional(name, metavar string, required bool) argument {
 	return argument{name: name, metavar: metavar, kind: positionalArg, required: required, optional: !required}
+}
+
+// restPositional collects the positional tokens past the fixed ones, so a
+// subcommand can take a list (`roster allow ACCESS PATTERN...`).
+func restPositional(name, metavar string) argument {
+	return argument{name: name, metavar: metavar, kind: restPositionalArg, optional: true}
 }
 
 func option(name, metavar, help string) argument {
@@ -335,6 +343,16 @@ func handleRoster(parsed *parsedArgs) error {
 	subcommand, _ := parsed.values["subcommand"].(string)
 	profileName, _ := parsed.values["--profile"].(string)
 	path, _ := parsed.values["--roster"].(string)
+	// The commands take their values as positionals; every other one takes
+	// none, so a stray token stays an error instead of being ignored.
+	rest, _ := parsed.values["args"].([]string)
+	switch subcommand {
+	case "budget", "expire", "allow", "deny":
+	default:
+		if len(rest) > 0 {
+			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, strings.Join(rest, " ")), Code: clierrors.EXIT_FORMAT}
+		}
+	}
 	switch subcommand {
 	case "show":
 		r, err := roster.Load(path, profileName)
@@ -362,8 +380,10 @@ func handleRoster(parsed *parsedArgs) error {
 		return rosterModels(parsed)
 	case "status":
 		return rosterStatus(parsed)
+	case "off", "on", "budget", "expire", "allow", "deny", "reset":
+		return rosterCondition(parsed)
 	default:
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply, scan, models, status)", subcommand), Code: clierrors.EXIT_FORMAT}
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, apply, scan, models, status, off, on, budget, expire, allow, deny, reset)", subcommand), Code: clierrors.EXIT_FORMAT}
 	}
 }
 
@@ -409,7 +429,8 @@ func rosterModels(parsed *parsedArgs) error {
 }
 
 // rosterStatus prints the accesses of the catalog cache with their
-// channels, auth status, model count and sources.
+// channels, auth status, model count and sources, then the active
+// conditions of a v2 roster with their source.
 func rosterStatus(parsed *parsedArgs) error {
 	catalog, err := roster.LoadCatalog("")
 	if err != nil {
@@ -419,10 +440,176 @@ func rosterStatus(parsed *parsedArgs) error {
 	if len(catalog.Accesses) == 0 {
 		stderr = "docflow: roster: the catalog cache is empty; run docflow roster scan\n"
 	}
-	if rosterFlag(parsed, "--json") {
-		return rosterJSON(catalog.Report(), stderr)
+	policy, state, err := rosterConditions(rosterString(parsed, "--roster"))
+	if err != nil {
+		return err
 	}
-	return commandResult{code: clierrors.EXIT_OK, stdout: catalog.StatusHeader() + "\n" + catalog.AccessTable(), stderr: stderr}
+	var conditions []roster.Condition
+	if policy != nil {
+		conditions = roster.Conditions(policy, state)
+	}
+	if rosterFlag(parsed, "--json") {
+		report := catalog.Report()
+		report.Conditions = conditions
+		return rosterJSON(report, stderr)
+	}
+	stdout := catalog.StatusHeader() + "\n" + catalog.AccessTable()
+	if policy != nil {
+		stdout += rosterConditionsText(policy, state, conditions)
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: stdout, stderr: stderr}
+}
+
+// rosterConditionsText renders the conditions section of the status: the
+// two files conditions come from, then one row per condition; no
+// conditions stay one line instead of an empty table.
+func rosterConditionsText(policy *roster.Policy, state *roster.State, conditions []roster.Condition) string {
+	if len(conditions) == 0 {
+		return "conditions: none\n"
+	}
+	return fmt.Sprintf("conditions (roster %s, state %s):\n", policy.Path, state.Path) + roster.ConditionTable(conditions)
+}
+
+// rosterConditions loads the v2 policy of the roster file and its
+// condition state. A missing roster or one still in the v1 format has no
+// conditions: the commands above the cutover keep working without them.
+func rosterConditions(path string) (*roster.Policy, *roster.State, error) {
+	policyPath := roster.PolicyPath(path)
+	if _, err := os.Stat(policyPath); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster file: %v", err), Code: clierrors.EXIT_FORMAT}
+		}
+		return nil, nil, nil
+	}
+	v2, err := roster.IsV2(policyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !v2 {
+		return nil, nil, nil
+	}
+	policy, err := roster.LoadPolicy(policyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	state, err := roster.LoadState(roster.StatePath(policyPath))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := state.Validate(policy); err != nil {
+		return nil, nil, err
+	}
+	return policy, state, nil
+}
+
+// rosterCondition runs the commands that write the condition state:
+// off, on, budget, expire, allow, deny and reset write only
+// roster.state.toml, never roster.toml. Every other name is checked
+// against the policy before the file is written, so a typo fails instead
+// of sitting dead in the file.
+func rosterCondition(parsed *parsedArgs) error {
+	subcommand, _ := parsed.values["subcommand"].(string)
+	access, _ := parsed.values["id"].(string)
+	rest, _ := parsed.values["args"].([]string)
+	statePath := roster.StatePath(rosterString(parsed, "--roster"))
+	if subcommand == "reset" {
+		if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster state: %v", err), Code: clierrors.EXIT_FORMAT}
+		}
+		if rosterFlag(parsed, "--json") {
+			return rosterJSON(roster.ConditionsReport{State: statePath, Conditions: []roster.Condition{}}, "")
+		}
+		return commandResult{code: clierrors.EXIT_OK, stdout: "conditions: reset\n"}
+	}
+	policy, err := roster.LoadPolicy(rosterString(parsed, "--roster"))
+	if err != nil {
+		return err
+	}
+	state, err := roster.LoadState(statePath)
+	if err != nil {
+		return err
+	}
+	if access == "" {
+		return rosterArgumentError(subcommand, "ACCESS")
+	}
+	var line string
+	switch subcommand {
+	case "off":
+		var until time.Time
+		if text := rosterString(parsed, "--until"); text != "" {
+			if until, err = roster.ParseDay(text); err != nil {
+				return err
+			}
+		}
+		state.SetOff(access, until)
+		line = access + ": off"
+		if !until.IsZero() {
+			line += " until " + until.Format("2006-01-02")
+		}
+	case "on":
+		state.SetOn(access)
+		line = access + ": on"
+	case "budget":
+		level, err := rosterFirstArgument(subcommand, rest, "LEVEL")
+		if err != nil {
+			return err
+		}
+		if err := state.SetBudget(access, level); err != nil {
+			return err
+		}
+		line = access + ": budget " + level
+	case "expire":
+		text, err := rosterFirstArgument(subcommand, rest, "DATE")
+		if err != nil {
+			return err
+		}
+		day, err := roster.ParseDay(text)
+		if err != nil {
+			return err
+		}
+		state.SetExpires(access, day)
+		line = access + ": expires " + day.Format("2006-01-02")
+	case "allow", "deny":
+		if len(rest) == 0 {
+			return rosterArgumentError(subcommand, "PATTERN")
+		}
+		if subcommand == "allow" {
+			err = state.Allow(access, rest)
+		} else {
+			err = state.Deny(access, rest)
+		}
+		if err != nil {
+			return err
+		}
+		line = access + ": " + subcommand + " " + strings.Join(rest, " ")
+	}
+	if err := state.Validate(policy); err != nil {
+		return err
+	}
+	if err := state.Save(""); err != nil {
+		return err
+	}
+	if rosterFlag(parsed, "--json") {
+		return rosterJSON(roster.NewConditionsReport(policy, state), "")
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: line + "\n"}
+}
+
+// rosterFirstArgument picks the single value a subcommand expects after
+// the access name.
+func rosterFirstArgument(subcommand string, rest []string, what string) (string, error) {
+	if len(rest) == 0 {
+		return "", rosterArgumentError(subcommand, what)
+	}
+	if len(rest) > 1 {
+		return "", clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, strings.Join(rest[1:], " ")), Code: clierrors.EXIT_FORMAT}
+	}
+	return rest[0], nil
+}
+
+// rosterArgumentError names the missing argument of a condition command.
+func rosterArgumentError(subcommand, what string) error {
+	return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: %s is required", subcommand, what), Code: clierrors.EXIT_FORMAT}
 }
 
 // rosterModelFilter picks the accesses `roster models` lists. A missing
@@ -927,7 +1114,7 @@ func parseCommand(spec commandSpec, argv []string) (*parsedArgs, string, bool) {
 	positionals := make([]argument, 0)
 	options := make(map[string]argument)
 	for _, arg := range spec.args {
-		if arg.kind == positionalArg {
+		if arg.kind == positionalArg || arg.kind == restPositionalArg {
 			positionals = append(positionals, arg)
 			continue
 		}
@@ -937,17 +1124,25 @@ func parseCommand(spec commandSpec, argv []string) (*parsedArgs, string, bool) {
 	}
 	posIndex := 0
 	unknown := make([]string, 0)
+	assign := func(value string) {
+		if posIndex >= len(positionals) {
+			unknown = append(unknown, value)
+			return
+		}
+		arg := positionals[posIndex]
+		if arg.kind == restPositionalArg {
+			current, _ := values[arg.name].([]string)
+			values[arg.name], seen[arg.name] = append(current, value), true
+			return
+		}
+		values[arg.name], seen[arg.name] = value, true
+		posIndex++
+	}
 	for index := 0; index < len(argv); index++ {
 		token := argv[index]
 		if token == "--" {
 			for _, value := range argv[index+1:] {
-				if posIndex >= len(positionals) {
-					unknown = append(unknown, value)
-					continue
-				}
-				arg := positionals[posIndex]
-				values[arg.name], seen[arg.name] = value, true
-				posIndex++
+				assign(value)
 			}
 			break
 		}
@@ -994,13 +1189,7 @@ func parseCommand(spec commandSpec, argv []string) (*parsedArgs, string, bool) {
 			}
 			continue
 		}
-		if posIndex >= len(positionals) {
-			unknown = append(unknown, token)
-			continue
-		}
-		arg := positionals[posIndex]
-		values[arg.name], seen[arg.name] = token, true
-		posIndex++
+		assign(token)
 	}
 	if len(unknown) > 0 {
 		return nil, "unrecognized arguments: " + strings.Join(unknown, " "), false

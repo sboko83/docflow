@@ -215,8 +215,8 @@ func (p *Policy) parseAccesses(index *lineIndex, value any) error {
 	}
 	p.index = make(map[string]int, len(table))
 	for _, name := range index.keysByLine("access", table) {
-		if strings.ContainsAny(name, " \t/|,=") {
-			return failAt(p.Path, index, "access", name, "access name '%s' must not contain whitespace, '/', '|', ',' or '='", name)
+		if err := checkAccessName(p.Path, index, "access", name); err != nil {
+			return err
 		}
 		section, ok := table[name].(map[string]any)
 		if !ok {

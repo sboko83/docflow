@@ -302,11 +302,13 @@ type ModelReport struct {
 }
 
 // StatusReport is the JSON of `roster status`: when the cache was written,
-// which sources built it, and one row per access.
+// which sources built it, one row per access, and the active conditions of
+// a v2 roster.
 type StatusReport struct {
-	ScannedAt string      `json:"scanned_at,omitempty"`
-	Sources   []string    `json:"sources"`
-	Accesses  []StatusRow `json:"accesses"`
+	ScannedAt  string      `json:"scanned_at,omitempty"`
+	Sources    []string    `json:"sources"`
+	Accesses   []StatusRow `json:"accesses"`
+	Conditions []Condition `json:"conditions,omitempty"`
 }
 
 // Report collects the status JSON of the catalog.

@@ -161,6 +161,12 @@ opencode-go first даёт ожидаемые цепочки, проходит `
 - Ссылки [model]/[effort]/пресетов на доступы проверяются при загрузке — опечатка в мёртвом конфиге должна падать, а не тихо ничего не делать — отвергнута отложенная проверка в резолвере.
 - Условия пресета взаимоисключающи, и minimal требует trusted на уровне пресета тоже — противоречивое условие это ошибка политики, а не last-wins — отвергнуто разрешение пресету переопределять trusted/check (это стабильные свойства политики).
 - Имена доступов не могут содержать пробелы, '/', '|', ',', '=' — имя адресуется флагами CLI и ключами ACCESS/MODEL — отвергнуто разрешение произвольных имён.
+- State models replace the policy allowlist while state exclude extends it — a temporary condition may restrict a stable allowlist but never widen it, and denials are cumulative; rejected a plain union for models, which could not express 'zai only flash'.
+- An off/expires date is inclusive and an expired off is dropped in memory at load, the file rewritten only by the next mutation — off must last through the day it names, and a read command must not rewrite files; rejected strict today>=date and rejected cleaning the file on load.
+- A state naming an access, budget level or preset the policy does not declare is exit code 2 (validated before every write), not a silent skip — a typo in a dead condition must fail; rejected tolerating stale names.
+- `on ACCESS` lifts the off entry, its until date and a budget set to off, nothing else — it undoes a switch, not the stable policy or narrowing globs; rejected clearing every state entry of the access.
+- roster status shows conditions only for a v2 roster, one line 'conditions: none' when there are none — the catalog view must stay usable before the cutover and no empty table; rejected failing or printing an empty table.
+- restPositionalArg added to the CLI parser for `allow/deny ACCESS PATTERN...` — the Do names a pattern list; rejected fixed positionals (cannot take a list) and a repeated --pattern flag.
 
 ## Phase 1: Catalog and discovery
 
@@ -300,7 +306,7 @@ Handoff:
 - Unverified: Живой прогон только на macOS этой машины; ветки чтения/ошибок файла на Windows и Linux не запускались (код stdlib-only, без платформенных веток).
 
 
-### [ ] P055.2.2 Conditions state and commands
+### [x] P055.2.2 Conditions state and commands
 Read:
 - internal/roster/policy2.go
 - internal/roster/catalog.go
@@ -316,6 +322,15 @@ Do:
 Verify: `go test ./cmd/docflow -run 'TestRosterOff|TestRosterState'`
 Traps: state — не политика; не переписывать ростер; даты в UTC; `allow` добавляет глоб в `models`, `deny` — в `exclude`, не дублировать.
 Commit: P055.2.2: add roster conditions state and commands
+Handoff:
+- internal/roster/state.go API for P055.3.x: LoadState/ParseState, StatePath/DefaultStatePath/PolicyPath, ParseDay, State{Off,Until,Budget,Expires,Models,Exclude,Preset}, Merge(policy,state) (*Policy, error) and mergeAt(policy,state,today) for a pinned clock, Conditions/ConditionTable/NewConditionsReport. Validation of names is state.Validate(policy); Merge calls it too.
+- Merge layering is preset -> budget -> expires -> off -> models -> exclude: budget overrides the policy, off beats any budget, an off/expires date is inclusive (active through the named day, gone the next), state models replace the policy allowlist while state exclude extends it, and the preset reorder puts its accesses first in Accesses (index rebuilt).
+- CLI: `--until DATE` is a new roster option and the parser gained restPositionalArg (roster spec: subcommand, id, rest args); other subcommands reject stray tokens, budget/expire take exactly one value. `roster reset` removes the state file and needs no policy; every other condition command loads the v2 policy first, so a v1 roster fails with 'version must be 2' (P055.2.3 should add the migrate hint there).
+- roster status prints the conditions section only when the roster file is v2; a state file naming an unknown access/preset or minimal on an untrusted access makes status exit 2 instead of hiding the problem.
+- policy2.go now calls the shared checkAccessName, and scan.go's sortedKeys was made generic (map[string]V) and is reused by state.go — keep that in mind for P055.2.3 migrations.
+- Unverified: Live roster on this machine: status/conditions were exercised only against internal/roster/testdata/policy-v2.toml and an empty catalog cache, never against real pi/codex/opencode auth state.
+- Unverified: Windows and Linux: only macOS ran. os.Rename over an existing state file and path handling have no platform branch, but the atomic save and ~ expansion are untested there.
+- Unverified: A hand-written state file using inline tables (`expires = { zai = ... }`) parses via agents.ParseTOML but was not tested; error lines for such syntax fall back to line 1.
 
 ### [ ] P055.2.3 Migrate v1 roster
 Read:

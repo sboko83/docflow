@@ -284,9 +284,10 @@ options:
   --target DIR          personal skills directory override
   --project             copy skills/* into the project
 `,
-	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] [--json]
-                      [--refresh] [--online] [--all]
-                      {show,apply,scan,models,status} [ACCESS]
+	"roster": `usage: docflow roster [-h] [--profile NAME] [--roster PATH] [--until DATE]
+                      [--json] [--refresh] [--online] [--all]
+                      {show,apply,scan,models,status,off,on,budget,expire,allow,deny,reset}
+                      [ACCESS] [ARG ...]
 
 scan model access catalogs, show the route chains per plan role from the
 personal roster, or write them into a plan header
@@ -308,20 +309,45 @@ adds models.dev metadata and --refresh fetches it again. A source that
 cannot answer is a warning on stderr and the scan still exits 0.
 roster models lists the models of the roster accesses, or of one
 ACCESS, or of the whole catalog with --all; roster status lists every
-access with its channels, auth status, model count and sources. scan,
-models and status take --json.
+access with its channels, auth status, model count and sources, then
+the active conditions of a v2 roster with their source. scan, models
+and status take --json.
+
+Conditions are the temporary layer over the policy: off, on, budget,
+expire, allow, deny and reset write roster.state.toml next to the
+roster (roster.toml becomes roster.state.toml) and never rewrite
+roster.toml. off ACCESS switches an access off until --until DATE (the
+last day it stays off) or until on ACCESS; budget ACCESS LEVEL sets
+prefer, normal, lean, minimal or off; expire ACCESS DATE drops an
+access after DATE; allow ACCESS PATTERN... narrows the models of an
+access to the globs, deny ACCESS PATTERN... hides them; reset deletes
+the state file. An off condition whose until date has passed is
+dropped when the file is loaded. Only a v2 roster carries conditions:
+a condition command on a roster without version = 2 fails.
 
 subcommands:
   show             print the chains per role
   apply ID         write the chains into the plan header
   scan             collect the catalog and write the cache
   models [ACCESS]  list the models of the catalog
-  status           list the accesses of the catalog
+  status           list the accesses and the active conditions
+  off ACCESS       switch an access off (--until DATE bounds it)
+  on ACCESS        lift the off condition of an access
+  budget ACCESS LEVEL
+                   override the budget of an access
+  expire ACCESS DATE
+                   drop an access after DATE
+  allow ACCESS PATTERN...
+                   narrow the models of an access to the globs
+  deny ACCESS PATTERN...
+                   hide model globs from an access
+  reset            delete the condition state
 
 options:
   -h, --help      show this help message and exit
   --profile NAME  spend and provider-flag overrides from [profile.NAME]
   --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
+  --until DATE    off: the last day the access stays off (YYYY-MM-DD, UTC)
   --json          print the result as JSON
   --refresh       scan: ignore fresh caches and scan again
   --online        scan: enrich the catalog from models.dev

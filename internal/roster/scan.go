@@ -480,8 +480,8 @@ func (n *jsonInt) UnmarshalJSON(data []byte) error {
 }
 
 // sortedKeys orders a decoded table, so a scan of the same files always
-// yields the same catalog.
-func sortedKeys(table map[string]json.RawMessage) []string {
+// yields the same catalog; the condition state sorts its tables with it.
+func sortedKeys[V any](table map[string]V) []string {
 	keys := make([]string, 0, len(table))
 	for key := range table {
 		keys = append(keys, key)
