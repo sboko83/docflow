@@ -763,3 +763,51 @@ func TestSkillsQuestionNeedsTerminalStderr(t *testing.T) {
 		t.Fatal("opened the terminal with stderr redirected to a pipe")
 	}
 }
+
+func TestSkillsApplyFollowsStoredMode(t *testing.T) {
+	f := newReleaseFixture(t)
+	writeReleaseFile(t, releaseAgentPath(f.binDir, "codex"), "#!/bin/sh\nexit 0\n", 0755)
+	if err := os.Mkdir(filepath.Join(f.homeDir, ".zcode"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	modePath := filepath.Join(f.home, "skills-mode")
+	agents := filepath.Join(f.homeDir, ".agents", "skills")
+	zcode := filepath.Join(f.homeDir, ".zcode", "skills")
+
+	// A stored project mode keeps the personal directories clean.
+	runRelease(t, 0, "install", "--skills", "project")
+	f.executable = release.ExecutablePath(f.home)
+	stdout, _ := runRelease(t, 0, "skills-apply")
+	if strings.Contains(stdout, "linked") {
+		t.Fatalf("skills-apply with stored project mode linked skills: %q", stdout)
+	}
+	for _, target := range []string{agents, zcode} {
+		if _, err := os.Lstat(filepath.Join(target, "sample")); !os.IsNotExist(err) {
+			t.Fatalf("sample present in %s: %v", target, err)
+		}
+	}
+
+	// Without a stored mode and without a terminal the fallback applies the
+	// global links, prints the hint once and stores nothing.
+	if err := os.Remove(modePath); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _ = runRelease(t, 0, "skills-apply")
+	if !strings.Contains(stdout, skillsGlobalHint) {
+		t.Fatalf("skills-apply fallback stdout misses the hint: %q", stdout)
+	}
+	releaseLink(t, filepath.Join(agents, "sample"), filepath.Join(f.home, "current", "skills", "sample"))
+	releaseLink(t, filepath.Join(zcode, "sample"), filepath.Join(f.home, "current", "skills", "sample"))
+	if _, err := os.Stat(modePath); !os.IsNotExist(err) {
+		t.Fatalf("fallback stored the mode: %v", err)
+	}
+
+	// A chosen flag applies and stores, like for install and update.
+	stdout, _ = runRelease(t, 0, "skills-apply", "--skills", "project")
+	if !strings.Contains(stdout, "removed 2 personal links") {
+		t.Fatalf("skills-apply --skills project stdout=%q", stdout)
+	}
+	if data, err := os.ReadFile(modePath); err != nil || strings.TrimSpace(string(data)) != "project" {
+		t.Fatalf("stored mode = %q, %v", data, err)
+	}
+}

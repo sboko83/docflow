@@ -55,6 +55,7 @@ var commands = []commandSpec{
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "uninstall", help: "remove the standalone installation and its personal skill links"},
+	{name: "skills-apply", hidden: true, help: "apply the stored skills mode; docflow update runs it through the freshly activated release", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 }
 
 type argumentKind int
@@ -82,6 +83,9 @@ type commandSpec struct {
 	name string
 	help string
 	args []argument
+	// hidden keeps the command out of the root help and the invalid-choice
+	// error; it stays callable and parseable.
+	hidden bool
 }
 
 type parsedArgs struct {
@@ -291,6 +295,7 @@ func makeHandlers() map[string]handlerFunc {
 	out["install"] = releaseCommand(handleInstall)
 	out["update"] = releaseCommand(handleUpdate)
 	out["uninstall"] = releaseCommand(handleUninstall)
+	out["skills-apply"] = releaseCommand(handleSkillsApply)
 	return out
 }
 
@@ -880,9 +885,12 @@ func commandByName(name string) (commandSpec, bool) {
 }
 
 func commandNames() string {
-	names := make([]string, len(commands))
-	for i, spec := range commands {
-		names[i] = spec.name
+	names := make([]string, 0, len(commands))
+	for _, spec := range commands {
+		if spec.hidden {
+			continue
+		}
+		names = append(names, spec.name)
 	}
 	return strings.Join(names, ", ")
 }

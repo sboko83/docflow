@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -269,6 +270,55 @@ func applySkillsMode(home, mode string) (docskills.Result, error) {
 	return installReleaseSkills(home)
 }
 
+// handleSkillsApply applies the stored or given skills mode. It is hidden:
+// `docflow update` runs it through the freshly activated release, whose code
+// knows the agent list and linking rules of the version the links will
+// follow — the running binary may predate them.
+func handleSkillsApply(parsed *parsedArgs) error {
+	home, err := standaloneHome("skills-apply")
+	if err != nil {
+		return err
+	}
+	mode, hint, chosen, err := resolveSkillsMode(home, skillsFlagValue(parsed))
+	if err != nil {
+		return err
+	}
+	result, err := applyChosenSkillsMode(home, mode, chosen)
+	if err != nil {
+		return err
+	}
+	return commandResult{code: result.Code, stdout: result.Stdout + hint, stderr: result.Stderr}
+}
+
+// applySkillsModeForUpdate applies the skills mode after an update through
+// the freshly activated release by running its `skills-apply`. A mode chosen
+// now (flag or answer) is passed on, so the new release applies and stores
+// it; otherwise the new release follows the stored mode or falls back itself.
+// A release binary that cannot even start (broken payload, the fake binary of
+// a test fixture) falls back to the running binary's own linking.
+func applySkillsModeForUpdate(home, mode string, chosen bool) (docskills.Result, bool, error) {
+	args := []string{"skills-apply"}
+	if chosen {
+		args = append(args, "--skills", mode)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(release.ExecutablePath(home), args...)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		code := exitErr.ExitCode()
+		if code < 0 {
+			code = 1
+		}
+		return docskills.Result{Code: code, Stdout: stdout.String(), Stderr: stderr.String()}, true, nil
+	}
+	if err != nil {
+		result, applyErr := applyChosenSkillsMode(home, mode, chosen)
+		return result, false, applyErr
+	}
+	return docskills.Result{Stdout: stdout.String(), Stderr: stderr.String()}, true, nil
+}
+
 // projectCopyHints returns update hints for stale docflow skill copies in the
 // project containing the working directory; the update cannot see other
 // projects.
@@ -431,9 +481,15 @@ func handleUpdate(parsed *parsedArgs) error {
 	if err := activateRelease(home, dir, latest); err != nil {
 		return err
 	}
-	result, err := applyChosenSkillsMode(home, mode, chosen)
+	result, delegated, err := applySkillsModeForUpdate(home, mode, chosen)
 	if err != nil {
 		return err
+	}
+	if delegated {
+		// The new release printed the fallback hint itself when it had to
+		// fall back without a terminal; printing the running binary's hint
+		// again would duplicate the line.
+		hint = ""
 	}
 	return commandResult{code: result.Code, stdout: fmt.Sprintf("updated: %s -> %s\n", version, latest) + result.Stdout + hint + projectCopyHints(home), stderr: result.Stderr}
 }

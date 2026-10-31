@@ -1,6 +1,21 @@
 package main
 
 var helpTexts = map[string]string{
+	"skills-apply": `usage: docflow skills-apply [-h] [--skills {global,project}]
+
+apply the stored skills mode; docflow update runs it through the freshly
+activated release
+
+Not listed in the help on purpose: it is a ` + "`update`" + ` implementation
+detail. Without --skills the mode stored in ~/.docflow/skills-mode applies;
+without a stored mode and without a terminal global is used and nothing is
+stored.
+
+options:
+  -h, --help  show this help message and exit
+  --skills {global,project}
+              personal links (global) or project-only skills (project)
+`,
 	"install": `usage: docflow install [-h] [--skills {global,project}]
 
 install an unpacked release into ~/.docflow and link personal skills

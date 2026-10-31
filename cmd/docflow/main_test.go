@@ -121,9 +121,12 @@ func rootHelpCommands(t *testing.T, help string) []string {
 // itself and cannot see that; this test compares the rendered entries with
 // the registration.
 func TestRootHelpListsRegisteredCommands(t *testing.T) {
-	want := make([]string, len(commands))
-	for i, spec := range commands {
-		want[i] = spec.name
+	want := []string{}
+	for _, spec := range commands {
+		if spec.hidden {
+			continue
+		}
+		want = append(want, spec.name)
 	}
 	for _, flag := range []string{"-h", "--help"} {
 		t.Run(flag, func(t *testing.T) {
@@ -370,9 +373,12 @@ func TestVerifyFindsProjectRootFromSubdirectory(t *testing.T) {
 
 func TestCommandsMatchDesign(t *testing.T) {
 	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "unblock", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "install", "update", "uninstall"}
-	got := make([]string, len(commands))
-	for i, spec := range commands {
-		got[i] = spec.name
+	got := []string{}
+	for _, spec := range commands {
+		if spec.hidden {
+			continue
+		}
+		got = append(got, spec.name)
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("commands = %#v, want %#v", got, want)
