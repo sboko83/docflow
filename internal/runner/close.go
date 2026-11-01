@@ -235,6 +235,10 @@ func closeChecks(root string, plan *format.Plan, head string) ([]string, []strin
 
 func runClose(ctx context.Context, root string, args Args, config map[string]any, plan *format.Plan, p *Progress, totals *runTotals, unavailable map[string]time.Time) (code int, runErr error) {
 	id := plan.Meta["id"]
+	// The closing agent archives and removes the plan itself, so the
+	// checkpoint fingerprint is taken while the file still exists. An empty
+	// value lets the writer take it at the boundary.
+	fingerprint, _ := planFingerprint(root, id)
 	totals.mu.Lock()
 	totals.unit, totals.activity = "", ""
 	totals.mu.Unlock()
@@ -244,14 +248,14 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 	}
 	var route agents.Route
 	defer func() {
-		result, exit := pauseOutcome(ctx, eventStatus(code, runErr), eventExitCode(code, runErr))
+		result, exit := pauseOutcome(totals, eventStatus(code, runErr), eventExitCode(code, runErr))
 		totals.events.emit("close", "", map[string]any{"plan": id, "route": eventRoute(route), "result": result, "exit_code": exit})
 	}()
 	// paused classifies a cancellation the interactive host asked for as a
 	// Pause outside the unit loop: the closing call is not retried and the
 	// checkpoint names the interrupted operation.
 	paused := func(attempt int, logRel, session string) (int, error) {
-		if err := pauseCheckpoint(ctx, totals, root, id, "", "close", route, session, attempt, 0, 0, callLogs(logRel)); err != nil {
+		if err := pauseCheckpoint(ctx, totals, root, id, "", "close", fingerprint, route, session, attempt, 0, 0, callLogs(logRel)); err != nil {
 			return 2, err
 		}
 		return 7, context.Canceled

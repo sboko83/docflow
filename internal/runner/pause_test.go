@@ -235,7 +235,7 @@ func TestPauseCancelsQuotaWait(t *testing.T) {
 		err := waitForExecutorChain(ctx, p, "quota wait", time.Now().Add(time.Hour))
 		if errors.Is(err, context.Canceled) && host.State() == StatePausing {
 			ctx = context.WithValue(ctx, controlContextKey{}, host)
-			_, err := writePauseCheckpoint(ctx, f.root, "P001", "P001.1.1", "quota", agents.Route{Agent: "fake"}, "", 0, 0, 0, nil)
+			_, err := writePauseCheckpoint(ctx, f.root, "P001", "P001.1.1", "quota", "", agents.Route{Agent: "fake"}, "", 0, 0, 0, nil)
 			return err
 		}
 		return err
@@ -1140,6 +1140,90 @@ func TestPauseDuringCloseWritesCheckpoint(t *testing.T) {
 		if record["event"] == "run_end" {
 			if record["paused"] != true || record["reason"] != "paused" || record["exit_code"] != float64(0) {
 				t.Fatalf("paused run_end = %v", record)
+			}
+		}
+	}
+}
+
+// The closing agent archives and deletes the plan itself; the checkpoint
+// still carries the fingerprint taken before the call.
+func TestPauseDuringCloseAfterArchiveKeepsFingerprint(t *testing.T) {
+	f := readyCloseFixture(t)
+	marker := filepath.Join(f.tmp, "close-archived")
+	f.steps(closeArchiveStep(f.binary) + "touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
+	args := Args{Replans: 3, Attempts: 1, Close: true, RunArgs: agents.RunArgs{Config: f.config}}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if _, err := os.Stat(filepath.Join(f.root, planFile)); !os.IsNotExist(err) {
+		t.Fatalf("the closing agent did not remove the plan: %v", err)
+	}
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "close" || cp.Plan != "P001" || cp.PlanHash == "" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	if states := pausedStateEvents(t, f, "close"); len(states) != 1 {
+		t.Fatalf("pause state events = %v", states)
+	}
+	for _, record := range fixtureEvents(t, f) {
+		switch record["event"] {
+		case "close":
+			if record["result"] != "paused" || record["exit_code"] != float64(0) {
+				t.Fatalf("close event = %v, want result paused and exit_code 0", record)
+			}
+		case "run_end":
+			if record["paused"] != true || record["reason"] != "paused" || record["exit_code"] != float64(0) {
+				t.Fatalf("paused run_end = %v", record)
+			}
+		}
+	}
+}
+
+// A failed checkpoint write is a runner error, not a pause: the host fails,
+// the journal shows error/2 and no state event is published.
+func TestPauseCheckpointWriteFailureIsRunnerError(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
+	tui := filepath.Join(f.root, ".git/docflow/tui")
+	if err := os.MkdirAll(filepath.Dir(tui), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tui, []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	control := NewControl(32, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitDone(t, control)
+	if got := control.State(); got != StateFailed {
+		t.Fatalf("state = %s, want Failed", got)
+	}
+	if _, err := ReadCheckpoint(f.root); err == nil {
+		t.Fatal("a failed write left a checkpoint")
+	}
+	for _, record := range fixtureEvents(t, f) {
+		switch record["event"] {
+		case "state":
+			t.Fatalf("a failed checkpoint write published a pause state: %v", record)
+		case "unit_end":
+			if record["status"] != "error" {
+				t.Fatalf("unit_end = %v, want status error", record)
+			}
+		case "run_end":
+			if _, ok := record["paused"]; ok {
+				t.Fatalf("run_end = %v, want no paused field", record)
+			}
+			if record["exit_code"] != float64(2) || record["reason"] == "paused" {
+				t.Fatalf("run_end = %v, want exit_code 2 and the write error", record)
 			}
 		}
 	}

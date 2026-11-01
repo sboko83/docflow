@@ -12,12 +12,17 @@ import (
 )
 
 func TestControlCommandsAreExclusive(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
 	c := NewControl(2, 1)
 	started, finish := make(chan struct{}), make(chan struct{})
 	if err := c.Start(context.Background(), func(ctx context.Context, host *Control) error {
 		close(started)
 		<-finish
-		return nil
+		// A Pause is only reported once its checkpoint is written.
+		return host.checkpoint(root, Checkpoint{Plan: "P001", Head: "abc", Stage: "agent"})
 	}); err != nil {
 		t.Fatal(err)
 	}

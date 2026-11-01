@@ -297,7 +297,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		if items == nil {
 			items = []string{}
 		}
-		result, exit := pauseOutcome(ctx, eventStatus(code, runErr), code)
+		result, exit := pauseOutcome(totals, eventStatus(code, runErr), code)
 		totals.events.emit("replan", uid, map[string]any{"route": eventRoute(route), "result": result, "exit_code": exit, "check_changes": items})
 	}()
 	plan, _, err := cycle.FindUnit(root, uid)
@@ -316,7 +316,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 				return 2, err
 			}
 		}
-		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "replan", route, session, attempt, 0, 0, callLogs(logRel)); err != nil {
+		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "replan", "", route, session, attempt, 0, 0, callLogs(logRel)); err != nil {
 			return 2, err
 		}
 		return 7, context.Canceled

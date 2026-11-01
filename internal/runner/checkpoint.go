@@ -116,7 +116,7 @@ func ReadCheckpoint(root string) (Checkpoint, error) {
 // wrote one. Without a host or outside StatePausing it writes nothing, and the
 // caller publishes the state event only when this returned true: a signal or a
 // canceled parent context must never read as a pause.
-func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage string, route agents.Route, session string, calls, tokens int, remaining time.Duration, logs []string) (bool, error) {
+func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage, fingerprint string, route agents.Route, session string, calls, tokens int, remaining time.Duration, logs []string) (bool, error) {
 	host := controlledHost(ctx)
 	if host == nil || host.State() != StatePausing {
 		return false, nil
@@ -126,9 +126,11 @@ func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage string,
 	if err != nil {
 		return false, fmt.Errorf("runner: checkpoint HEAD: %w", err)
 	}
-	fingerprint, err := planFingerprint(root, planID)
-	if err != nil {
-		return false, err
+	if fingerprint == "" {
+		fingerprint, err = planFingerprint(root, planID)
+		if err != nil {
+			return false, err
+		}
 	}
 	if err := host.checkpoint(root, Checkpoint{
 		Plan: planID, Unit: unit, Head: strings.TrimSpace(string(head)), PlanHash: fingerprint,

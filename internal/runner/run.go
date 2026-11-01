@@ -58,6 +58,24 @@ type runTotals struct {
 	quota, quotaStart          map[string]agentio.Quota
 	names                      []string
 	events                     *eventStream
+	// paused records that a Pause checkpoint was written. The journal and the
+	// host classify a stop as a pause only from this flag: the live Pausing
+	// state of a canceled context is not a durable pause.
+	paused bool
+}
+
+// markPaused records a written Pause checkpoint.
+func (t *runTotals) markPaused() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.paused = true
+}
+
+// isPaused reports whether this run wrote a Pause checkpoint.
+func (t *runTotals) isPaused() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.paused
 }
 
 // lastActivity is what the stream last said the agent was doing: the tool
@@ -290,7 +308,7 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 	}
 	defer func() {
 		fields := map[string]any{}
-		if pauseCancellation(ctx) {
+		if totals.isPaused() {
 			// A Pause is its own reason for stopping, not a runner failure.
 			fields["reason"], fields["exit_code"], fields["paused"] = "paused", 0, true
 		} else {
@@ -747,7 +765,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	// them and the run summary counts them across the run.
 	var testChanges int
 	defer func() {
-		fields := map[string]any{"status": pausedUnitStatus(ctx, eventStatus(code, runErr)), "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
+		fields := map[string]any{"status": pausedUnitStatus(totals, eventStatus(code, runErr)), "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
 		if cost != nil {
 			fields["cost"] = *cost
 		}
@@ -767,7 +785,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			return 7, "", nil
 		}
 		if err := waitForExecutorChain(ctx, p, line, until); err != nil {
-			if checkpointErr := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "quota", waitingRoute, "", 0, 0, 0, nil); checkpointErr != nil {
+			if checkpointErr := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "quota", "", waitingRoute, "", 0, 0, 0, nil); checkpointErr != nil {
 				return 2, "", checkpointErr
 			}
 			return 7, "", err
@@ -816,7 +834,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				if pauseCancellation(ctx) {
 					// The pause ended the verification subprocess; that is not a
 					// failed recovery. The pending commit stays for the next run.
-					if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, 0, nil); err != nil {
+					if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", "", route, "", 0, 0, 0, nil); err != nil {
 						return 2, "", err
 					}
 					return 7, "", context.Canceled
@@ -836,7 +854,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			p.testChanges(changes)
 			totals.testChanges += len(changes)
 			totals.rows = append(totals.rows, unitRow{id: uid})
-			if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, 0, nil); err != nil {
+			if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", "", route, "", 0, 0, 0, nil); err != nil {
 				return 2, "", err
 			}
 			return 0, "", nil
@@ -930,7 +948,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			// resumes that session.
 			session = agentio.CallSession(agent, run.Stdout)
 		}
-		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), remaining, logs); err != nil {
+		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, stage, "", route, session, attempt, valueOrZero(unitIn), remaining, logs); err != nil {
 			return 2, "", err, true
 		}
 		return 7, "", context.Canceled, true
@@ -1029,7 +1047,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					if remaining < 0 {
 						remaining = 0
 					}
-					if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), remaining, []string{rel}); err != nil {
+					if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "agent", "", route, session, attempt, valueOrZero(tokens), remaining, []string{rel}); err != nil {
 						return 2, "", err
 					}
 					// The call was canceled, not refused: the rejected-resume retry
@@ -1416,7 +1434,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		totals.unverified += len(unverified)
 		totals.testChanges += len(changes)
 		totals.rows = append(totals.rows, unitRow{uid, seconds, cost, unitIn, unitOut, attempt})
-		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", route, session, attempt, valueOrZero(unitIn), 0, nil); err != nil {
+		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", "", route, session, attempt, valueOrZero(unitIn), 0, nil); err != nil {
 			return 2, "", err
 		}
 		if args.Verbose {
@@ -1448,12 +1466,13 @@ func valueOrZero(value *int) int {
 // pauseCheckpoint writes the checkpoint of a pause boundary and publishes its
 // state only when the file was written. The two stay one decision, so a
 // canceled parent or a signal emits nothing and leaves no checkpoint.
-func pauseCheckpoint(ctx context.Context, totals *runTotals, root, planID, unit, stage string, route agents.Route, session string, attempt, tokens int, remaining time.Duration, logs []string) error {
-	written, err := writePauseCheckpoint(ctx, root, planID, unit, stage, route, session, attempt, tokens, remaining, logs)
+func pauseCheckpoint(ctx context.Context, totals *runTotals, root, planID, unit, stage, fingerprint string, route agents.Route, session string, attempt, tokens int, remaining time.Duration, logs []string) error {
+	written, err := writePauseCheckpoint(ctx, root, planID, unit, stage, fingerprint, route, session, attempt, tokens, remaining, logs)
 	if err != nil {
 		return err
 	}
 	if written {
+		totals.markPaused()
 		pauseState(totals, unit, stage, attempt)
 	}
 	return nil
@@ -1479,8 +1498,8 @@ func pauseCancellation(ctx context.Context) bool {
 // Pause. A unit that reached its commit boundary before the pause finished
 // stays done; any other stop under an active Pause is the pause itself, not a
 // runner error.
-func pausedUnitStatus(ctx context.Context, status string) string {
-	if status != "done" && pauseCancellation(ctx) {
+func pausedUnitStatus(totals *runTotals, status string) string {
+	if status != "done" && totals.isPaused() {
 		return "paused"
 	}
 	return status

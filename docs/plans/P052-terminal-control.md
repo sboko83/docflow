@@ -177,6 +177,7 @@ gate: go test -timeout 20m ./...
 - Записанный checkpoint — единственный классификатор паузы: `unit_end`, `run_end`, отложенные `replan`/`close` и переход хоста в Paused смотрят на признак записи, а не на живое состояние Pausing; ошибка записи остаётся кодом 2/`error`/Failed — это распространяет правило P052.1.9 на хост и отложенные события — отвергнуто повторное вычисление `pauseCancellation` в каждом эмиттере.
 - Пауза после успешного вызова replan/close останавливает операцию до коммита с checkpoint; после начала коммита операция завершается и журнал/хост дают done/Finished, а не Paused без checkpoint — отвергнуто завершение валидации и коммит под паузой.
 - Checkout lock принадлежит `StartCheckout` на всё время `execute`; управляемый `runWithOptions` не берёт второй замок — отвергнуто повторное снятие внутреннего замка, которое открывает окно второму раннеру.
+- Тест TestControlCommandsAreExclusive теперь пишет checkpoint в своём execute, чтобы по-прежнему проверять переход в Paused — иначе он проверял бы старое поведение «пауза по состоянию» — отвергнуто ослабление проверки до Finished.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -428,7 +429,7 @@ Handoff:
 - Interactive activity events now carry Ref.Stream = "stdout" for stdout and "stderr" for stderr, so a consumer can page both streams by ref.Stream alone; before this a stdout ref had Stream "" and only worked because ReadActivityPage falls back to the call log.
 - Quota probing (internal/agentio/quota.go) also constructs an eventWriter with no stream, but it never sets activity/onActivity, so it emits no ActivityRef and needs no name.
 
-### [ ] P052.1.12 Classify a pause by its written checkpoint
+### [x] P052.1.12 Classify a pause by its written checkpoint
 Read:
 - internal/runner/checkpoint.go:L115-175
 - internal/runner/close.go:L240-430
@@ -446,6 +447,12 @@ Verify: `go test -timeout 20m ./internal/runner/`
 Traps: `readyCloseFixture` сейчас не архивирует план до сна — новый сценарий должен выполнить `closeArchiveStep(f.binary)` до `sleep`, иначе дефект не воспроизводится. Для сценария отказа записи положи обычный файл на место каталога `.git/docflow/tui`; не ослабляй существующие проверки паузы ради зелёного.
 Depends: P052.1.10
 Commit: P052.1.12: classify pause by written checkpoint
+Handoff:
+- writePauseCheckpoint/pauseCheckpoint получили параметр fingerprint после stage: пустое значение — вычислить на месте, непустое — использовать как есть. Новые вызовы вне close передают "".
+- runClose снимает fingerprint в начале функции, до вызова закрывающего агента (агент сам архивирует и удаляет план); ошибка снятия игнорируется, писатель повторит попытку на границе.
+- runTotals.paused (markPaused/isPaused) — единственный признак паузы: на него смотрят unit_end (pausedUnitStatus), run_end, pauseOutcome для отложенных replan/close. pauseOutcome теперь принимает totals, а не ctx.
+- Control.checkpointed сбрасывается в Start и выставляется только после успешной записи WriteCheckpoint; переход Pausing -> Paused и возврат nil в startRun используют Checkpointed(), а не живой State().
+- Unverified: Ошибка записи checkpoint в отложенных операциях replan/close не покрыта тестом: сценарий отказа записи проверен только на пути агента юнита, классификация deferred-событий при этой ошибке держится на общем pauseOutcome.
 
 ### [ ] P052.1.13 Stop replan and close before commit on a Pause
 Read:

@@ -60,6 +60,9 @@ type Control struct {
 	events   chan Event
 	done     chan struct{}
 	root     string
+	// checkpointed records that this execution wrote a Pause checkpoint. A
+	// Pausing state alone is a request, not a saved pause.
+	checkpointed bool
 }
 
 func NewControl(eventBuffer, requestBuffer int) *Control {
@@ -73,6 +76,7 @@ func NewControl(eventBuffer, requestBuffer int) *Control {
 }
 
 func (c *Control) State() State             { c.mu.Lock(); defer c.mu.Unlock(); return c.state }
+func (c *Control) Checkpointed() bool       { c.mu.Lock(); defer c.mu.Unlock(); return c.checkpointed }
 func (c *Control) Events() <-chan Event     { return c.events }
 func (c *Control) Requests() <-chan Request { return c.requests }
 func (c *Control) Done() <-chan struct{}    { return c.done }
@@ -133,11 +137,12 @@ func (c *Control) Start(parent context.Context, execute func(context.Context, *C
 	ctx, cancel := context.WithCancel(parent)
 	c.cancel = cancel
 	c.state = StateStarting
+	c.checkpointed = false
 	c.done = make(chan struct{})
 	c.mu.Unlock()
 	go func() {
 		err := execute(ctx, c)
-		paused := c.State() == StatePausing
+		paused := c.State() == StatePausing && c.Checkpointed()
 		blocked := c.State() == StateBlocked
 		stopping := c.State() == StateStopping
 		cancel()
@@ -227,7 +232,7 @@ func (c *Control) startRun(parent context.Context, root string, args Args, skill
 			return nil
 		}
 		if runErr != nil {
-			if host.State() == StatePausing && errors.Is(runErr, context.Canceled) {
+			if host.Checkpointed() && errors.Is(runErr, context.Canceled) {
 				return nil
 			}
 			return runErr
@@ -265,7 +270,13 @@ func (c *Control) Pause() error {
 // checkpoint persists the last observed execution boundary before a canceled
 // agent call is reported as Paused.
 func (c *Control) checkpoint(root string, cp Checkpoint) error {
-	return WriteCheckpoint(root, cp)
+	if err := WriteCheckpoint(root, cp); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.checkpointed = true
+	c.mu.Unlock()
+	return nil
 }
 
 // CancelStart cancels a pending interactive confirmation without starting work.
