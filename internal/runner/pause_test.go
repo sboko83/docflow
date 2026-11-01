@@ -653,6 +653,25 @@ func TestStopAfterUnitFinishesTheCurrentUnitOnly(t *testing.T) {
 	if strings.Contains(log, "P001.1.2: second unit") {
 		t.Fatalf("a new unit started after Stop after unit:\n%s", log)
 	}
+	// Stop after unit is not a stop of the work: the unit is done and the
+	// run_end keeps the normal finish, with no stopped or paused marker.
+	for _, file := range eventFiles(t, f) {
+		for _, record := range readEvents(t, file) {
+			switch record["event"] {
+			case "unit_end":
+				if record["status"] != "done" {
+					t.Fatalf("stop-after-unit unit_end = %v, want status done", record)
+				}
+			case "run_end":
+				if record["exit_code"] != float64(0) || record["reason"] == "stopped" {
+					t.Fatalf("stop-after-unit run_end = %v, want a normal finish", record)
+				}
+				if _, ok := record["paused"]; ok {
+					t.Fatalf("stop-after-unit run_end carries a pause field: %v", record)
+				}
+			}
+		}
+	}
 }
 
 // A checkpoint survives the process: a fresh controller (Idle, as after
@@ -759,6 +778,106 @@ func assertPausedJournals(t *testing.T, f *runFixture, unitStatus string) {
 	}
 	if units != 1 || runs != 1 {
 		t.Fatalf("unit_end events = %d, run_end events = %d, want one of each", units, runs)
+	}
+}
+
+// assertStoppedJournals checks how a controlled Stop now closes both levels of
+// the stream: the interrupted unit is stopped rather than failed, and the
+// run_end is the action with the success code and no pause field.
+func assertStoppedJournals(t *testing.T, f *runFixture) {
+	t.Helper()
+	units, runs := 0, 0
+	for _, file := range eventFiles(t, f) {
+		for _, record := range readEvents(t, file) {
+			switch record["event"] {
+			case "unit_end":
+				units++
+				if record["status"] != "stopped" {
+					t.Fatalf("unit_end = %v, want status stopped", record)
+				}
+			case "run_end":
+				runs++
+				if record["reason"] != "stopped" || record["exit_code"] != float64(0) {
+					t.Fatalf("stopped run_end = %v, want reason stopped, exit_code 0", record)
+				}
+				if _, ok := record["paused"]; ok {
+					t.Fatalf("stopped run_end carries a pause field: %v", record)
+				}
+			}
+		}
+	}
+	if units != 1 || runs != 1 {
+		t.Fatalf("unit_end events = %d, run_end events = %d, want one of each", units, runs)
+	}
+}
+
+// A controlled Stop now is journaled as its own outcome: the host reports
+// Finished, so neither level of the stream reads as a runner failure.
+func TestStopNowJournalsAsAction(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" + emit(map[string]any{"type": "system", "subtype": "init", "session_id": "stop-session"}) + "sleep 60 &\nwait\n")
+	control := NewControl(32, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 2})
+	awaitMarker(t, f, marker, control)
+	if err := control.StopNow(); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	assertStoppedJournals(t, f)
+	if _, err := ReadCheckpoint(f.root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a Stop now wrote a checkpoint: %v", err)
+	}
+}
+
+// Without a control host the same cancellation stays a runner failure: a
+// canceled parent must not be reclassified as a managed stop.
+func TestCanceledParentDuringAgentCallJournalsAnError(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	f.steps("sleep 60 &\nwait\n")
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	var code int
+	var runErr error
+	go func() {
+		defer close(done)
+		code, runErr = runWithOptions(f.root, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}, io.Discard, io.Discard, "", runOptions{ctx: parent})
+	}()
+	awaitRecord(t, f, "attempt")
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the canceled run did not stop")
+	}
+	if !errors.Is(runErr, context.Canceled) {
+		t.Fatalf("canceled run error = %v, want context.Canceled", runErr)
+	}
+	units, runs := 0, 0
+	for _, file := range eventFiles(t, f) {
+		for _, record := range readEvents(t, file) {
+			switch record["event"] {
+			case "unit_end":
+				units++
+				if record["status"] != "error" {
+					t.Fatalf("canceled unit_end = %v, want status error", record)
+				}
+			case "run_end":
+				runs++
+				if record["exit_code"] != float64(2) || record["reason"] != "context canceled" {
+					t.Fatalf("canceled run_end = %v, want reason context canceled, exit_code 2", record)
+				}
+			}
+		}
+	}
+	if units != 1 || runs != 1 {
+		t.Fatalf("unit_end events = %d, run_end events = %d, want one of each", units, runs)
+	}
+	if code != 7 {
+		t.Fatalf("canceled run code = %d, want 7", code)
 	}
 }
 

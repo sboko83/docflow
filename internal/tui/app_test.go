@@ -1126,16 +1126,19 @@ func TestStopNowNoticeRendersOnScreen(t *testing.T) {
 	model = useControllers(t, model, controller)
 	updated, _ := model.Update(keyMsg("s"))
 	model = updated.(Model)
+	// A managed Stop now closes the journal with its own reason and the
+	// success code; the host reports the run as finished.
+	controller.events = []runner.Event{{Type: "run_end", Fields: map[string]any{"reason": "stopped", "exit_code": 0}}}
 	updated, _ = model.Update(keyMsg("x"))
 	model = updated.(Model)
-	// A managed Stop now cancels the runner context; the host reports the run
-	// as finished with that technical reason and must still show it whole.
-	controller.err = errors.New("context canceled")
 	updated, _ = model.Update(hostPollMsg{})
 	model = updated.(Model)
-	want := "run finished: context canceled"
+	want := "run stopped"
 	if !strings.Contains(model.notice, want) {
 		t.Fatalf("stop-now notice = %q", model.notice)
+	}
+	if strings.Contains(model.notice, "context canceled") || strings.Contains(model.notice, "finished") {
+		t.Fatalf("stop-now notice reuses the failure text: %q", model.notice)
 	}
 	for _, size := range []struct{ w, h int }{{120, 40}, {80, 24}} {
 		view := resize(t, model, size.w, size.h).String()

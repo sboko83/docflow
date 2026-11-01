@@ -229,6 +229,8 @@ gate: go test -timeout 20m ./...
 - The PTY regression test sends "sq\r" in one write instead of waiting for the start dialog — waiting would let the prompt arrive and exercise the already-covered quit path rather than the pending-start cancel — rejected a waitFor("Start the current Queue run?") before quitting.
 - Gave the notice its own wrapped footer lines instead of raising its priority inside the status line — padLine truncates the joined status line from the right, so no ordering inside it can save a long archive path — rejected keeping the notice in statusLine()
 - Cap the notice at two lines and mark the second with '…' — keeps the body panel at least one line on any supported height while signalling that text is missing — rejected rendering the full notice and shrinking the body to zero
+- Classify a controlled Stop now with a dedicated stopCancellation predicate mirroring pauseCancellation instead of reusing internal codes 7/2 or the pause flag — the journal must distinguish a user action from 'no executor' and from a runner failure — rejected overloading pauseCancellation or adding new codes
+- Normalize code and runErr inside the run_end defer rather than adding branches in runLoop/runUnit — one place covers the agent call, the early loop cancellation check and deferred operations, and keeps the host from receiving context.Canceled — rejected returning 0,nil from every stop point
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -903,7 +905,7 @@ Handoff:
 - New tests: TestStopNowNoticeRendersOnScreen ('run finished: context canceled' at 120 and 80 columns) and TestNoticeFitsSmallAndResizedScreens (120->80 resize, 40x12 line width/line count, two-line cap). Existing close/activate/failure/pause/reload checks now assert on Model.String(); the close test also asserts statusLine() no longer carries the archive path.
 - Unverified: No PTY-level check at 40x12 or after a live resize: the notice layout is asserted only against Model.String(), so a real terminal's line wrapping on resize (and Bubble Tea's partial redraw after shrinking height) is not exercised.
 
-### [ ] P052.2.14 Journal a controlled stop as an action
+### [x] P052.2.14 Journal a controlled stop as an action
 Read:
 - internal/runner/run.go:L315-345
 - internal/runner/run.go:L770-790
@@ -924,6 +926,13 @@ Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
 Traps: не переиспользуй внутренние коды 7/2 и не добавляй новые — классификация идёт через состояние хоста и ctx, как у паузы. Не считай Stop after unit остановкой: он не отменяет ctx, файл stop проверяется между юнитами. Поле `paused` в run_end не добавляй вне паузы (P052.1.9). Обычный прогон без хоста идёт теми же ветками — не сломай его журнал.
 Depends: P052.1.8, P052.2.12
 Commit: P052.2.14: journal a controlled stop as an action
+Handoff:
+- The stop classification lives in two deferred emitters: runWithOptions' run_end defer clears (code, runErr) and writes reason stopped/exit_code 0, while runUnit's unit_end defer overrides any non-done status to stopped. Both read stopCancellation(ctx), so the host must still be StateStopping when execute returns; a future change that moves the state transition earlier would lose the classification.
+- The TUI reads the stop from the run_end reason, not from runner state: Model.runStopped is reset in startRun and consulted in handleFinished and when ignoring controller.Err(). Any new run-start path must reset it or a later genuine failure would render as 'run stopped'.
+- assertStoppedJournals, like assertPausedJournals, expects exactly one unit_end and one run_end across all event files; scenarios with Resume (two events.jsonl) need the last-file variant noted in P052.1.8.
+- Unverified: Stop now during an auto-replan or close operation is not reclassified by pauseOutcome; its deferred replan/close event can still carry an error result while run_end says stopped — no test covers that window
+- Unverified: WatchKeys/signal paths and the real TUI stop transition are only covered by fake controllers here; the live Pi/Codex PTY acceptance (P052.3.3) does not exercise this journal shape
+- Unverified: Stop now landing in pending-commit recovery may still run writeFailure and set totals.stop before the deferred reclassification; the journal is corrected, but no test asserts that path's output
 
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:

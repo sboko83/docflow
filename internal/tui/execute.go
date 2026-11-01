@@ -146,6 +146,7 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd, bool) {
 	m.controllerDone = false
 	m.runState = controller.State()
 	m.runErr = ""
+	m.runStopped = false
 	m.checkpointed = false
 	m.blockedUnit, m.blockedReason = "", ""
 	if resume {
@@ -168,7 +169,13 @@ func (m Model) pollController() (Model, tea.Cmd) {
 			break
 		}
 		if event.Type == "run_end" {
-			if reason := strValue(event.Fields["reason"]); reason != "" && reason != "paused" {
+			switch reason := strValue(event.Fields["reason"]); reason {
+			case "", "paused":
+			case "stopped":
+				// A controlled Stop now is an action the user took, not a
+				// runner failure: the status shows it without an error text.
+				m.runStopped = true
+			default:
 				m.runErr = reason
 			}
 		}
@@ -190,7 +197,7 @@ func (m Model) pollController() (Model, tea.Cmd) {
 		m.controllerDone = true
 		m.runState = controller.State()
 		m.checkpointed = controller.Checkpointed()
-		if err := controller.Err(); err != nil {
+		if err := controller.Err(); err != nil && !m.runStopped {
 			m.runErr = err.Error()
 		}
 		m.handleFinished()
@@ -241,7 +248,9 @@ func (m *Model) handleFinished() {
 		}
 		m.notice = "run failed: " + m.runErr
 	case runner.StateFinished:
-		if m.runErr != "" {
+		if m.runStopped {
+			m.notice = "run stopped"
+		} else if m.runErr != "" {
 			m.notice = "run finished: " + m.runErr
 		} else {
 			m.notice = "run finished"

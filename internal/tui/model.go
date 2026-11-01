@@ -139,6 +139,7 @@ type Model struct {
 	controllerDone bool
 	runState       runner.State
 	runErr         string
+	runStopped     bool
 	checkpointed   bool
 	pendingPrompt  *Prompt
 

@@ -317,6 +317,12 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 		if totals.isPaused() {
 			// A Pause is its own reason for stopping, not a runner failure.
 			fields["reason"], fields["exit_code"], fields["paused"] = "paused", 0, true
+		} else if stopCancellation(ctx) {
+			// A controlled Stop now is an action, not a runner failure: the
+			// host reports Finished, so the journal closes with the success
+			// code and no pause field.
+			fields["reason"], fields["exit_code"] = "stopped", 0
+			code, runErr = 0, nil
 		} else {
 			reason := totals.stop
 			if reason == "" {
@@ -777,7 +783,13 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	// them and the run summary counts them across the run.
 	var testChanges int
 	defer func() {
-		fields := map[string]any{"status": pausedUnitStatus(totals, eventStatus(code, runErr)), "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
+		status := pausedUnitStatus(totals, eventStatus(code, runErr))
+		if status != "done" && stopCancellation(ctx) {
+			// The unit a controlled Stop now interrupted is a stopped action,
+			// while one that reached its commit boundary stays done.
+			status = "stopped"
+		}
+		fields := map[string]any{"status": status, "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
 		if cost != nil {
 			fields["cost"] = *cost
 		}
@@ -1504,6 +1516,14 @@ func pauseState(totals *runTotals, uid, stage string, attempt int) {
 func pauseCancellation(ctx context.Context) bool {
 	host := controlledHost(ctx)
 	return host != nil && host.State() == StatePausing && errors.Is(ctx.Err(), context.Canceled)
+}
+
+// stopCancellation reports the cancellation an interactive Stop now requested:
+// the host is Stopping and the run context is done. Stop after unit also sets
+// Stopping but never cancels the context, so it stays a normal finish.
+func stopCancellation(ctx context.Context) bool {
+	host := controlledHost(ctx)
+	return host != nil && host.State() == StateStopping && errors.Is(ctx.Err(), context.Canceled)
 }
 
 // pausedUnitStatus reclassifies the unit the interactive host stopped with
