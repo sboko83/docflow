@@ -171,6 +171,7 @@ gate: go test -timeout 20m ./...
 - Reclassified deferred replan/close results through one shared pauseOutcome helper — keeps future deferred operations consistent and avoids duplicating the pause predicate — rejected inline pauseCancellation in each defer.
 - ResumeRun reports replan/close checkpoints as a recovery conflict instead of silently starting a fresh run from the restored plan — an explicit stop is auditable and avoids surprising a new run from a Resume action — rejected auto-starting startRun on the restored plan.
 - Replan restores the plan only when the `before` snapshot exists; chain-wait pauses write the checkpoint without a restore — the plan is untouched before the first read — rejected a sentinel empty plan and rejecting the pause there.
+- Left ReadActivityPage resolving any non-"stderr" stream to the call log instead of rejecting an empty stream — older persisted refs and journal-free consumers keep resolving — rejected strict stream validation that would break replay of existing state.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -404,7 +405,7 @@ Handoff:
 - Unverified: A genuine non-zero verify in pending-commit recovery that races a pending Pause is classified as a pause and not as the failure; no test distinguishes the two.
 - Unverified: How the TUI renders checkpoint stages `replan`/`close` and the recovery_conflict message is not exercised by this unit's Verify; the TUI surface is built by later P052 units.
 
-### [ ] P052.1.11 Name stdout in activity refs
+### [x] P052.1.11 Name stdout in activity refs
 Read:
 - internal/agentio/process.go:L168-260
 - internal/agentio/activity.go:L40-60
@@ -418,6 +419,9 @@ Verify: `go test -timeout 20m ./internal/agentio/ ./internal/runner/`
 Traps: `ActivityParser.Feed` сам подставляет `stdout` при пустом stream, поэтому тесты парсера дефект не видят — проверять надо ref, который отдаёт `CallAgent`. Поле `Stream` в `CallOptions` — имя декодера профиля, его не переиспользуй как имя потока.
 Depends: P052.1.3
 Commit: P052.1.11: name stdout in activity refs
+Handoff:
+- Interactive activity events now carry Ref.Stream = "stdout" for stdout and "stderr" for stderr, so a consumer can page both streams by ref.Stream alone; before this a stdout ref had Stream "" and only worked because ReadActivityPage falls back to the call log.
+- Quota probing (internal/agentio/quota.go) also constructs an eventWriter with no stream, but it never sets activity/onActivity, so it emits no ActivityRef and needs no name.
 
 ### [ ] P052.1.4 Review runner control and recovery
 Read:

@@ -218,7 +218,9 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 	cmd.Env = options.Env
 	cmd.WaitDelay = PipeGrace
 	procgroup.Detach(cmd)
-	out := &eventWriter{}
+	// stdout names the stream a ref points at; CallOptions.Stream is the
+	// profile's decoder name and must not leak into refs.
+	out := &eventWriter{stream: "stdout"}
 	if options.Liveness != nil {
 		out.observe = options.Liveness.Observe
 	}

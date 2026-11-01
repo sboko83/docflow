@@ -315,6 +315,13 @@ func TestCallAgentActivitySubscription(t *testing.T) {
 		t.Fatalf("call log = %q", data)
 	}
 	for _, activity := range activities {
+		want := "stdout"
+		if activity.Kind == ActivityKindStderr {
+			want = "stderr"
+		}
+		if activity.Ref.Stream != want {
+			t.Fatalf("ref stream = %q, want %q: %#v", activity.Ref.Stream, want, activity.Ref)
+		}
 		page, _, err := ReadActivityPage(log, activity.Ref, 0, activity.Ref.Length)
 		if err != nil {
 			t.Fatalf("page %#v: %v", activity.Ref, err)
@@ -324,6 +331,12 @@ func TestCallAgentActivitySubscription(t *testing.T) {
 		}
 		if activity.Kind == ActivityKindStderr && page != "stderr before result" {
 			t.Fatalf("stderr ref reads %q", page)
+		}
+		if page == "" {
+			t.Fatalf("empty page for %#v", activity)
+		}
+		if activity.Raw != "" && len(activity.Raw) < ActivityInlineLimit && page != activity.Raw {
+			t.Fatalf("%s ref reads %q, want the original %q", want, page, activity.Raw)
 		}
 	}
 }
