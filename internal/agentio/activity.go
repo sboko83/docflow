@@ -742,6 +742,27 @@ func StderrLog(log string) string {
 	return log + ".stderr"
 }
 
+// ReadLiveActivityPage returns at most limit bytes of the fragment ref locates,
+// starting skip bytes into it, and its total length up to the current end of
+// the file. It reads the file size at call time instead of ref.Length, so a
+// call that is still running exposes the bytes appended after its start line.
+// stdout reads the call log; stderr reads its sidecar.
+func ReadLiveActivityPage(log string, ref ActivityRef, skip, limit int) (string, int, error) {
+	path := log
+	if ref.Stream == "stderr" {
+		path = StderrLog(log)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", 0, err
+	}
+	length := int(info.Size() - ref.Offset)
+	if length < 0 {
+		length = 0
+	}
+	return readActivityPageAt(path, ref.Offset, skip, limit, length)
+}
+
 // ReadActivityPage returns at most limit bytes of the fragment ref locates,
 // starting skip bytes into it, and the fragment's total length. stdout reads
 // the call log; stderr reads its sidecar.
@@ -760,6 +781,13 @@ func ReadActivityPage(log string, ref ActivityRef, skip, limit int) (string, int
 	if length < 0 {
 		length = limit
 	}
+	return readActivityPageAt(path, ref.Offset, skip, limit, length)
+}
+
+// readActivityPageAt reads one bounded window at offset+skip within a fragment
+// of the given length. A short read is not an error: the file may grow or
+// shrink between the size lookup and the read.
+func readActivityPageAt(path string, offset int64, skip, limit, length int) (string, int, error) {
 	if skip >= length {
 		return "", length, nil
 	}
@@ -772,7 +800,7 @@ func ReadActivityPage(log string, ref ActivityRef, skip, limit int) (string, int
 	}
 	defer file.Close()
 	buf := make([]byte, limit)
-	n, err := file.ReadAt(buf, ref.Offset+int64(skip))
+	n, err := file.ReadAt(buf, offset+int64(skip))
 	if err != nil && n == 0 {
 		return "", length, err
 	}

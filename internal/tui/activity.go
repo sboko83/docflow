@@ -429,28 +429,49 @@ func isBidiControl(r rune) bool {
 // activityPage is one bounded window into an original log fragment.
 type activityPage struct {
 	Key   string
+	Unit  string
+	Seq   int64
 	Text  string
 	Skip  int
 	Total int
-	Err   string
+	// End is the byte offset just past the raw bytes this page read. It
+	// decides whether the window already reached the end of a live log.
+	End  int
+	Live bool
+	Err  string
 }
 
 // loadActivityPage reads one page of the original bytes behind an entry. It
-// keeps at most activityPagesPerEntry windows, dropping the oldest.
+// keeps at most activityPagesPerEntry windows, dropping the oldest. A running
+// tool whose entry is still the newest observation of the unit reads the call
+// log up to its current end instead of the length of the start line.
 func (m *Model) loadActivityPage(entry ActivityEntry, skip int) {
+	m.loadActivityPageAs(entry, skip, false)
+}
+
+// loadLiveActivityPage reads a page up to the current end of the call log even
+// when the entry has just been superseded by a newer record. The event that
+// supersedes it is the last chance to show the bytes written so far.
+func (m *Model) loadLiveActivityPage(entry ActivityEntry, skip int) {
+	m.loadActivityPageAs(entry, skip, true)
+}
+
+func (m *Model) loadActivityPageAs(entry ActivityEntry, skip int, forceLive bool) {
 	if m.pages == nil {
 		m.pages = map[string]*activityPage{}
 	}
 	if m.pageOrder == nil {
 		m.pageOrder = []string{}
 	}
-	key := activityPageKey(m.selectedUnit(), entry)
-	page := &activityPage{Key: key, Skip: skip}
+	unit := m.selectedUnit()
+	key := activityPageKey(unit, entry)
+	live := forceLive || m.liveActivity(unit, entry)
+	page := &activityPage{Key: key, Unit: unit, Seq: entry.Seq, Skip: skip, Live: live}
 	defer func() {
 		m.pages[key] = page
 		m.rememberPage(key)
 	}()
-	log, ok := m.history.Log(m.selectedUnit(), entry.Activity.Attempt)
+	log, ok := m.history.Log(unit, entry.Activity.Attempt)
 	if !ok || log == "" {
 		page.Err = "call log unknown: the stream link has not arrived"
 		return
@@ -459,13 +480,98 @@ func (m *Model) loadActivityPage(entry ActivityEntry, skip int) {
 	if ref.Stream == "" {
 		ref.Stream = "stdout"
 	}
-	text, total, err := agentio.ReadActivityPage(log, ref, skip, activityPageSize)
+	var (
+		text  string
+		total int
+		err   error
+	)
+	if live {
+		text, total, err = agentio.ReadLiveActivityPage(log, ref, skip, activityPageSize)
+		if err == nil && total == 0 {
+			err = fmt.Errorf("the call log is empty")
+		}
+	} else {
+		text, total, err = agentio.ReadActivityPage(log, ref, skip, activityPageSize)
+	}
 	if err != nil {
 		page.Err = fmt.Sprintf("cannot read %s: %v", log, err)
 		return
 	}
 	page.Text = Sanitize(text)
 	page.Total = total
+	page.End = skip + len(text)
+}
+
+// liveActivity reports whether the entry is a running tool and the newest
+// observation of its unit. Only that entry may read a call log that is still
+// growing; any later record turns the page back into a frozen window.
+func (m Model) liveActivity(unit string, entry ActivityEntry) bool {
+	if entry.Type != "activity" || entry.Activity.Kind != agentio.ActivityKindTool || entry.Activity.State != agentio.ActivityStateRunning {
+		return false
+	}
+	if m.history == nil {
+		return false
+	}
+	entries := m.history.Entries(unit)
+	if len(entries) == 0 {
+		return false
+	}
+	return entries[len(entries)-1].Seq == entry.Seq
+}
+
+// syncLivePages marks every page live only while its entry is still the last
+// running observation of the unit.
+func (m *Model) syncLivePages(unit string) {
+	for _, page := range m.pages {
+		if page.Unit != unit {
+			continue
+		}
+		entry, ok := m.entryBySeq(unit, page.Seq)
+		page.Live = ok && m.liveActivity(unit, entry)
+	}
+}
+
+// refreshLivePage reloads the open first page when an event of the same
+// attempt arrives, so a reader watching the call sees the log grow without
+// collapsing and reopening the entry. The page is refreshed once even when the
+// event itself supersedes it; syncLivePages then freezes it.
+func (m *Model) refreshLivePage(event runner.Event) {
+	attempt, ok := eventAttempt(event)
+	if !ok {
+		return
+	}
+	for _, page := range m.pages {
+		if page.Unit != event.Unit || !page.Live || page.Skip != 0 {
+			continue
+		}
+		entry, ok := m.entryBySeq(event.Unit, page.Seq)
+		if !ok || entry.Type != "activity" || entry.Activity.Kind != agentio.ActivityKindTool || entry.Activity.State != agentio.ActivityStateRunning {
+			continue
+		}
+		if entry.Activity.Attempt != attempt || !m.entryExpanded(event.Unit, entry) {
+			continue
+		}
+		m.loadLiveActivityPage(entry, 0)
+	}
+}
+
+func (m Model) entryBySeq(unit string, seq int64) (ActivityEntry, bool) {
+	for _, entry := range m.history.Entries(unit) {
+		if entry.Seq == seq {
+			return entry, true
+		}
+	}
+	return ActivityEntry{}, false
+}
+
+func eventAttempt(event runner.Event) (int, bool) {
+	if activity, ok := event.Data.(agentio.Activity); ok {
+		return activity.Attempt, activity.Attempt != 0
+	}
+	if activity, ok := event.Data.(*agentio.Activity); ok && activity != nil {
+		return activity.Attempt, activity.Attempt != 0
+	}
+	return intValue(event.Fields["attempt"])
 }
 
 func (m *Model) rememberPage(key string) {
@@ -969,10 +1075,17 @@ func (m Model) entryBody(unit string, entry ActivityEntry, width int) []string {
 		if page := m.pages[key]; page != nil && page.Err != "" {
 			add("result: " + page.Err)
 		} else if page := m.pages[key]; page != nil && page.Text != "" {
-			add("result (page):")
+			if page.Live {
+				add("call output so far (not confirmed):")
+			} else {
+				add("result (page):")
+			}
 			add(page.Text)
 			add(fmt.Sprintf("page %d-%d of %d bytes; [ and ] page, original stays in the call log",
-				page.Skip, page.Skip+len(page.Text), page.Total))
+				page.Skip, page.End, page.Total))
+			if page.Live {
+				add(fmt.Sprintf("call still running, %d bytes so far", page.Total))
+			}
 		} else if activity.State == agentio.ActivityStateRunning {
 			add("result: not confirmed yet")
 		} else if activity.Result != "" {

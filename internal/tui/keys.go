@@ -324,9 +324,15 @@ func (m Model) pageActivity(unit string, entries []ActivityEntry, direction int)
 	skip := 0
 	page := m.pages[key]
 	if page != nil {
-		skip = page.Skip + direction*activityPageSize
-		if page.Total > 0 && skip >= page.Total {
-			return m
+		if direction > 0 && page.Live && page.End >= page.Total {
+			// The window already reached the end of the call log: reread it
+			// with the length the file has now instead of advancing.
+			skip = page.Skip
+		} else {
+			skip = page.Skip + direction*activityPageSize
+			if page.Total > 0 && skip >= page.Total {
+				return m
+			}
 		}
 	}
 	if skip < 0 {

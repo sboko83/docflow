@@ -466,3 +466,186 @@ func TestActivityTimestampUsesEventTime(t *testing.T) {
 		t.Fatalf("rendered history lacks the event time:\n%s", model.String())
 	}
 }
+
+// runningToolLog writes the start line of a call and returns the activity the
+// stream reports while the tool is still running. The log can grow afterwards
+// exactly as CallAgent appends it.
+func runningToolLog(t *testing.T, start string) (string, agentio.Activity) {
+	t.Helper()
+	log := filepath.Join(t.TempDir(), "call.out")
+	if err := os.WriteFile(log, []byte(start), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return log, agentio.Activity{
+		Kind: agentio.ActivityKindTool, State: agentio.ActivityStateRunning,
+		Tool: "Bash", ToolID: "live", Command: "sleep 1", Attempt: 1,
+		Ref: agentio.ActivityRef{Stream: "stdout", Offset: 0, Length: len(start)},
+	}
+}
+
+func appendCallLog(t *testing.T, log, text string) {
+	t.Helper()
+	file, err := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if _, err := file.WriteString(text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestActivityLiveCallTail(t *testing.T) {
+	unit := "P001.1.2"
+	start := `{"type":"tool_execution_start","toolCallId":"live","toolName":"bash"}`
+	log, activity := runningToolLog(t, start)
+	model := historyModel(t, streamEvent(unit, 1, log), activityEvent(unit, activity))
+	model = send(t, model, keyMsg("enter"))
+	model = send(t, model, keyMsg("enter"))
+	entries := model.activityEntries(unit)
+	key := activityPageKey(unit, entries[0])
+	page := model.pages[key]
+	if page == nil || page.Err != "" || !page.Live || page.Total != len(start) {
+		t.Fatalf("first page of a running call = %#v", page)
+	}
+
+	first := "\npartial output\n"
+	appendCallLog(t, log, first)
+	model = send(t, model, keyMsg("]"))
+	page = model.pages[key]
+	if page == nil || !strings.Contains(page.Text, "partial output") {
+		t.Fatalf("] did not reread the growing log: %#v", page)
+	}
+	if page.Total != len(start)+len(first) {
+		t.Fatalf("total after growth = %d, want %d", page.Total, len(start)+len(first))
+	}
+	body := strings.Join(model.entryBody(unit, entries[0], 200), "\n")
+	if !strings.Contains(body, "call still running,") || !strings.Contains(body, "bytes so far") {
+		t.Fatalf("running page has no live footer:\n%s", body)
+	}
+	if !strings.Contains(body, "call output so far (not confirmed)") {
+		t.Fatalf("partial output is presented as a confirmed result:\n%s", body)
+	}
+
+	second := "still running\n"
+	appendCallLog(t, log, second)
+	model = send(t, model, keyMsg("]"))
+	page = model.pages[key]
+	if page == nil || !strings.Contains(page.Text, "still running") || page.Total != len(start)+len(first)+len(second) {
+		t.Fatalf("second ] did not reread the log: %#v", page)
+	}
+
+	// An event of the same attempt refreshes the open first page without a
+	// key press.
+	tail := "event output\n"
+	appendCallLog(t, log, tail)
+	model = addEvents(model, streamEvent(unit, 1, log))
+	page = model.pages[key]
+	if page == nil || !page.Live || !strings.Contains(page.Text, "event output") {
+		t.Fatalf("a same-attempt event did not refresh the live page: %#v", page)
+	}
+	if page.Total != len(start)+len(first)+len(second)+len(tail) {
+		t.Fatalf("total after a same-attempt event = %d", page.Total)
+	}
+}
+
+func TestActivityRunningPageStopsAtCompletion(t *testing.T) {
+	unit := "P001.1.2"
+	start := "start line"
+	log, activity := runningToolLog(t, start)
+	result := "full result\n"
+	model := historyModel(t, streamEvent(unit, 1, log), activityEvent(unit, activity))
+	model = send(t, model, keyMsg("enter"))
+	model = send(t, model, keyMsg("enter"))
+	entries := model.activityEntries(unit)
+	key := activityPageKey(unit, entries[0])
+
+	appendCallLog(t, log, "\n"+result)
+	model = send(t, model, keyMsg("]"))
+	page := model.pages[key]
+	if page == nil || !strings.Contains(page.Text, result) {
+		t.Fatalf("running page did not read the appended result: %#v", page)
+	}
+	frozen := page.Total
+
+	finished := agentio.Activity{
+		Kind: agentio.ActivityKindTool, State: agentio.ActivityStateSucceeded,
+		Tool: "Bash", ToolID: "live", Command: "sleep 1", Result: "full result", Attempt: 1,
+		Ref: agentio.ActivityRef{Stream: "stdout", Offset: int64(len(start) + 1), Length: len(result)},
+	}
+	model = addEvents(model, activityEvent(unit, finished))
+	if running := model.pages[key]; running == nil || running.Live {
+		t.Fatalf("page of a superseded running call is still live: %#v", running)
+	}
+	appendCallLog(t, log, "late bytes after completion\n")
+	model = send(t, model, keyMsg("up"))
+	model = send(t, model, keyMsg("]"))
+	if running := model.pages[key]; running == nil || running.Total != frozen || strings.Contains(running.Text, "late bytes") {
+		t.Fatalf("a finished call kept reading the log: %#v", running)
+	}
+
+	model = send(t, model, keyMsg("down"))
+	model = send(t, model, keyMsg("enter"))
+	entries = model.activityEntries(unit)
+	doneKey := activityPageKey(unit, entries[len(entries)-1])
+	done := model.pages[doneKey]
+	if done == nil || done.Err != "" || done.Live || done.Text != result || done.Total != len(result) {
+		t.Fatalf("finished result page = %#v", done)
+	}
+}
+
+func TestActivityLivePagingIsBounded(t *testing.T) {
+	unit := "P001.1.2"
+	start, activity := runningToolLog(t, "start line")
+	appendCallLog(t, start, strings.Repeat("live output\n", 10000))
+	model := historyModel(t, streamEvent(unit, 1, start), activityEvent(unit, activity))
+	model = send(t, model, keyMsg("enter"))
+	model = send(t, model, keyMsg("enter"))
+	for i := 0; i < 20; i++ {
+		model = send(t, model, keyMsg("]"))
+		if len(model.pageOrder) > activityPagesPerEntry {
+			t.Fatalf("live paging holds %d windows, want <= %d", len(model.pageOrder), activityPagesPerEntry)
+		}
+	}
+}
+
+func TestActivityMissingOrEmptyLogIsExplicit(t *testing.T) {
+	unit := "P001.1.2"
+	for _, scenario := range []struct {
+		name string
+		log  string
+	}{
+		{name: "missing", log: filepath.Join(t.TempDir(), "gone.out")},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			_, activity := runningToolLog(t, "start line")
+			model := historyModel(t, streamEvent(unit, 1, scenario.log), activityEvent(unit, activity))
+			model = send(t, model, keyMsg("enter"))
+			model = send(t, model, keyMsg("enter"))
+			entries := model.activityEntries(unit)
+			page := model.pages[activityPageKey(unit, entries[0])]
+			if page == nil || page.Err == "" || page.Text != "" {
+				t.Fatalf("missing log page = %#v", page)
+			}
+			if !strings.Contains(model.String(), "cannot read") {
+				t.Fatalf("missing log is not shown as an error:\n%s", model.String())
+			}
+		})
+	}
+
+	t.Run("empty", func(t *testing.T) {
+		_, activity := runningToolLog(t, "")
+		log := filepath.Join(t.TempDir(), "empty.out")
+		if err := os.WriteFile(log, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		model := historyModel(t, streamEvent(unit, 1, log), activityEvent(unit, activity))
+		model = send(t, model, keyMsg("enter"))
+		model = send(t, model, keyMsg("enter"))
+		entries := model.activityEntries(unit)
+		page := model.pages[activityPageKey(unit, entries[0])]
+		if page == nil || page.Err == "" || page.Text != "" {
+			t.Fatalf("empty log page = %#v", page)
+		}
+	})
+}

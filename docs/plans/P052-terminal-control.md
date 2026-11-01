@@ -206,6 +206,9 @@ gate: go test -timeout 20m ./...
 - Stop a live run after program.Run rather than intercepting signals in handlers — SIGTERM already becomes QuitMsg inside Bubble Tea and SIGHUP is not its concern, so one path covers both and reuses the existing Pause → Finished → Close sequence — rejected a second event loop or custom SIGTERM handling.
 - Added CancelStart to the TUI Controller instead of calling StopNow on a Starting run — StopNow requires Running and would miss the pending start confirmation — rejected overloading StopNow with a state check.
 - If CancelStart loses the race to MarkRunning, fall back to Pause — otherwise the signal could leave a just-started run and its lock behind — rejected returning nil on that error.
+- Added a separate agentio.ReadLiveActivityPage that reads the current file size, keeping ActivityRef.Length as the stream-line length for finished pages — widening Ref.Length would break the agentio ref test and the persisted link format — rejected inferring a live page from a modified ref
+- The page is refreshed once on an event of the same attempt even when that event supersedes it, then syncLivePages freezes it — the reader sees bytes written up to the next record while later growth is never read — rejected refreshing only while the entry stays last, which would never fire for recorded events
+- Live refresh reloads only the open, expanded first page of a running entry — one bounded 4 KiB read per event, no work for other pages — rejected refreshing every page of the unit on each event
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -672,7 +675,7 @@ Handoff:
 - Unverified: Child-process termination on a terminal signal is exercised with the shell fake agent, not with real Pi/Codex/opencode child process trees; live acceptance remains P052.3.3.
 - Unverified: SIGKILL (and a crash that bypasses deferred code) is not covered, as the unit explicitly excludes it.
 
-### [ ] P052.2.6 Read the result of the call that is still running
+### [x] P052.2.6 Read the result of the call that is still running
 Read:
 - internal/tui/activity.go:L433-470
 - internal/tui/activity.go:L937-1013
@@ -691,6 +694,13 @@ Verify: `go test -timeout 20m ./internal/tui/ ./internal/agentio/`
 Traps: `Ref.Length` — длина строки в потоке, а не окно результата; расширять её в `agentio` нельзя, иначе поедет проверка ref в `internal/agentio/activity_test.go`. Размер файла меняется между stat и чтением — короткое чтение допустимо и не считается ошибкой. Не обновляй страницы всех записей на каждом тике: только открытую и только первую. Не блокируй цикл UI больше одного чтения 4 КиБ и не держи лог в памяти.
 Depends: P052.2.5
 Commit: P052.2.6: read the result of a running call
+Handoff:
+- agentio now exposes ReadLiveActivityPage(log, ref, skip, limit): it stats the file and reads ref.Offset..current EOF, unlike ReadActivityPage which still uses ref.Length. Both share readActivityPageAt.
+- An activityPage now carries Unit, Seq, End and Live. Live mode is computed by Model.liveActivity (running tool and last entry of the unit) and frozen by syncLivePages on every event; refreshLivePage rereads page 0 before that freeze for an event of the same attempt.
+- keys.pageActivity reloads the last live window at the same Skip when page.Live && page.End >= page.Total; it never refreshes pages other than the open first one.
+- P052.2.7 changes path resolution in loadActivityPageAs: the log path still comes from history.Log and must be resolved from the checkout root there.
+- Unverified: The live tail and same-attempt refresh are tested with synthetic events and a manually growing file, not with a real Pi/Codex call log while a tool runs; live acceptance remains P052.3.3.
+- Unverified: A live 4 KiB window boundary inside a multibyte UTF-8 rune is only neutralized by Sanitize (replacement character) and has no dedicated assertion in the live-page tests.
 
 ### [ ] P052.2.7 Resolve event log paths from the checkout root
 Read:

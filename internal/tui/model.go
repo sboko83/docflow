@@ -261,7 +261,12 @@ func (m Model) applyEvent(event runner.Event) Model {
 	if m.history == nil {
 		m.history = NewActivityHistory(activityHistoryLimit)
 	}
-	if _, ok := m.history.Add(event); !ok {
+	_, recorded := m.history.Add(event)
+	if event.Unit == m.selectedUnit() {
+		m.refreshLivePage(event)
+		m.syncLivePages(event.Unit)
+	}
+	if !recorded {
 		return m
 	}
 	if event.Unit == m.selectedUnit() && m.followActivity {
