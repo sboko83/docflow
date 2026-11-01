@@ -137,6 +137,7 @@ gate: go test -timeout 20m ./...
 - Добавил Control host как единственную точку команд и ограниченную очередь событий — медленный UI не задерживает runner; вместо отдельного цикла используется существующий Run/runLoop.
 - Интерактивный запуск использует общий checkout lock и отключает terminal input и Progress output — обычный Run сохраняет прежний терминальный режим.
 - Replan P052.1.2: юнит не влез в одну сессию — первый прогон успел только checkpoint-примитив; разбил на P052.1.2 (Pause, устойчивые границы, checkpoint) и P052.1.5 (Resume, восстановление сессии, Stop after unit, учёт таймаута) — отвергнут один большой юнит.
+- Replan P052.1.2 (2-й): блокер «roster-тест падает в gate» не воспроизведён — 2026-11-01 полный `go test ./...` зелёный, падение списано на нагрузку той сессии, сценарий не менялся; блокер «quota-тест не проверяет классификацию отмены провайдера» закрыт выписыванием сценария явно в тест-список Do — отвергнут вариант оставлять требование неявным в тексте классификации.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -173,13 +174,14 @@ Do:
 - Реализуй Pause через общий контроллер: Pause отменяет текущий вызов агента, останавливает всю группу инструментов, ожидает завершения группы процессов, затем подтверждает Paused; ожидание квоты прерывается сразу, verify/gate и done/commit доходят до устойчивой границы.
 - После Paused новые агенты не запускаются; классифицируй эту отмену до обработки отсутствующего result JSON: не считай Pause отказом, не запускай fallback и не сбрасывай лимиты попыток.
 - При переходе в Paused сохраняй checkpoint через WriteCheckpoint: plan/unit, HEAD, fingerprint плана, этап, agent/model/effort, session id, счётчики и ссылки на логи; секреты не записывай.
-- Создай internal/runner/pause_test.go: пауза на tool-call, quota wait, verify и commit boundary; полная остановка группы процессов без сирот; checkpoint отражает состояние прогона.
+- Создай internal/runner/pause_test.go: пауза на tool-call, quota wait, verify и commit boundary; полная остановка группы процессов без сирот; checkpoint отражает состояние прогона; отмена вызова провайдера паузой доходит до обработки отсутствующего result JSON как не-отказ — retry/fallback счётчики неизменны, fallback не запускается, лимиты попыток не сброшены.
 Verify: `go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/procgroup/`
 Traps: internal/runner/checkpoint.go и checkpoint_test.go уже лежат в дереве без commit — используй и дополняй их, не переписывай с нуля; ReadCheckpoint отвергает чужую версию и пустые plan/HEAD/stage.
 Commit: P052.1.2: pause active work and checkpoint
 Handoff:
 - Blocked (plan): The unit requires safe Pause/Resume integrated with the runner, including quota waits, verify/commit boundaries, session recovery, and timeout accounting. Only the checkpoint storage primitive and its tests were implemented; these runner behaviors remain undone. `docflow verify P052.1.2` passed both the unit Verify and `go test ./...` gate. No commit was made because the unit is unfinished. An existing modification to the plan file was left untouched.
 - Replan (2026-11-01): юнит разбит — Resume, восстановление сессии и Stop after unit переехали в P052.1.5; здесь остаются Pause, устойчивые границы и checkpoint.
+- Blocked (plan): Ожидаемый полный verify с успешным gate не достигнут: воспроизводимо падает существующий тест roster, не относящийся к Pause. Кроме того, quota тест проверяет прерывание ожидания и checkpoint, но не полный путь отказа провайдера с проверкой неизменности retry/fallback счётчиков.
 
 ### [ ] P052.1.5 Resume from checkpoint safely
 Read:
