@@ -16,20 +16,24 @@ gate: go test -timeout 20m ./...
 ## Goal
 
 План с review/acceptance юнитами доводится `docflow run` до конца без
-человека: красный gate на чистом дереве останавливает прогон один раз до
-первого агента и называет пакет, план без `replan:` с review-юнитом не
-проходит lint, а replan не объясняет падающий тест нагрузкой, не
-воспроизведя его.
+человека: auto-replan включён по умолчанию, юнит может отремонтировать
+реальную чужую поломку, не ослабляя проверку, красный gate на чистом дереве
+останавливает прогон один раз до первого агента, а replan не объясняет
+падение нагрузкой без воспроизведения.
 
 ## Context
 
-Инцидент P052: за десять часов четыре блока подряд. Три из них — P052.1.2:
-юнит не влез в сессию, затем дважды предсуществующий красный тест
-`internal/roster` (фикстура с датой `2026-11-01`), причём второй replan
-списал падение на нагрузку сессии и потратил сессию на повторную
-диагностику. Четвёртый — review нашёл настоящие дефекты, и прогон встал,
-потому что в плане был выключен авто-replan. Почему это случилось и какие
-решения приняты — [P052](P052-terminal-control.md).
+Инцидент P052: четыре остановки. Две из них — один и тот же просроченный
+тест `internal/roster` (фикстура с датой `2026-11-01`), причём второй replan
+списал падение на нагрузку сессии и потратил ещё сессию на повторную
+диагностику. Первая — 12-минутный выход агента с просьбой пересмотреть
+объём: в логе `P052.1.2.1.out` 745 с, зелёный verify и явное «с блокировкой
+на пересмотр объёма»; это не контекст и не сбой, хотя в Decisions плана
+записано «не влез в одну сессию». Четвёртая — review нашёл настоящие
+дефекты, прогон встал из-за выключенного авто-replan; после включения
+replan сам добавил юниты 1.8 и 1.9, и прогон продолжился без человека.
+Почему это случилось и какие решения приняты —
+[P052](P052-terminal-control.md).
 
 - docs/design/runner.md#цикл-на-юнит
 - docs/design/runner.md#авто-replan
@@ -44,8 +48,12 @@ gate: go test -timeout 20m ./...
 - Baseline выполняется не больше одного раза за вызов `docflow run`, только
   на чистом дереве и только перед первым `[ ]` юнитом. `[~]`-юнит,
   незавершённый commit и грязное дерево пропускают его одной строкой.
-- Линт-правило действует только в executor-режиме; планы без
-  `executor:`/`Executor:` не меняются.
+- Линт-правило про `replan:` не добавляется: ключ остаётся только выбором
+  маршрута, а не выключателем. Авто-replan включён по умолчанию в
+  executor-режиме; `--replans 0` — единственный отказ и только на запуск.
+- Юнит может отремонтировать падающую проверку вне `Do:`, только если
+  поломка реальная (фикстура, ожидание, устаревший тест), проверка не
+  ослабляется и ремонт назван в Handoff. Среда и крупный ремонт — блок.
 - Правила replan остаются полными без установленного скилла: раннер не
   зависит от `bsv-docflow-plan`.
 - Никаких новых зависимостей, CGO=0, одна поставка; существующие строки
@@ -59,7 +67,10 @@ gate: go test -timeout 20m ./...
 - Лог baseline не должен попадать под glob `uid.*.out`: этот glob считают
   тесты call-логов и восстановление checkpoint.
 - `lint` не знает о прогоне: правило читает шапку плана и `Role:` открытых
-  юнитов, а не историю прогонов.
+  юнитов, а не историю прогонов. Требования `replan:` у review-планов нет —
+  не добавляй его.
+- Маршрут replan по умолчанию берётся из `executor:`/`fallback:` плана, а не
+  из ростера: `run`/`lint` ростер не читают, это правило сохраняется.
 - `replanRules` — Go-константа, её текст сверяют дословно; правило и его
   тест меняются одним юнитом.
 - `## Prerequisites` и baseline — разные вещи: пункт без `(once)`
@@ -80,10 +91,17 @@ gate: go test -timeout 20m ./...
   exists before any change is a repository condition, not plan drift, and
   auto-adding a fix unit would widen the plan's Goal silently. Rejected
   auto-repair.
-- A plan in executor mode with open review/acceptance units and no `replan:`
-  is a lint error, not a warning — the combination deterministically stops the
-  run on the first defect review finds, and the repository already carries
-  more warnings than anyone reads. Rejected a warning.
+- Auto-replan is on by default in executor mode; `replan:` only selects the
+  route and `--replans 0` is the only opt-out, at run time — a plan-class block
+  is normal work, not a decision the planner has to make, and a survey question
+  nobody can answer with "yes" is noise. Rejected the earlier draft that made
+  the key mandatory through lint.
+- A unit may repair a failing check outside its `Do:` when the failure is real,
+  the repair does not weaken the check and Handoff names it — a one-line
+  expired-fixture fix is cheaper than a stop, and `Test changes` already makes
+  a weakened check visible to review and acceptance. Rejected both extremes:
+  never touch a foreign test (two stops in P052) and free rein (an agent can
+  silence a check).
 - The reproduction rule lives in the runner's replan prompt and is repeated in
   the planning skill — the run must work without the skill installed.
   Rejected skill-only wording.
@@ -93,9 +111,14 @@ gate: go test -timeout 20m ./...
   sent P052.1.2 into the same failure an hour later. The replan adds a unit
   that reproduces the failure at HEAD or stops as human. Rejected calling an
   unreproduced failure a flake.
-- Four fixes need no new plan-level mechanism: the baseline, the lint rule and
-  the replan rule are independent changes of existing steps. Rejected a new
-  "run policy" section in the format.
+- Four fixes need no new plan-level mechanism: the baseline, the default
+  replan, the bounded repair and the replan rule are independent changes of
+  existing steps. Rejected a new "run policy" section in the format.
+- The P052.1.2 first block was a 12-minute self-assessment, not a context
+  overflow: the run log shows a 745-second attempt, a green verify and the
+  agent's own "rethink the scope" message, while the six-hour gap was between
+  runs. Rejected the "unit did not fit one session" wording as a diagnosis;
+  the unit was large, but nothing measured a limit.
 
 ## Phase 1: Defects stop the run only once
 
@@ -116,21 +139,27 @@ Verify: `go test -timeout 20m ./internal/runner/ ./internal/cycle/`
 Traps: не дублируй запуск команды — вынеси общий запуск проверки плана в экспортируемый помощник цикла, если `runVerifyCommand` недоступен из раннера; лог baseline не должен совпадать с glob `uid.*.out`.
 Commit: P056.1.1: check the gate before the first unit
 
-### [ ] P056.1.2 Require replan for review plans
+### [ ] P056.1.2 Turn auto-replan on by default
 Read:
-- internal/lint/lint.go:L591-700
-- internal/lint/lint.go:L920-1010
-- internal/lint/lint_test.go:L260-340
-- internal/lint/lint_test.go:L960-1044
+- internal/runner/replan.go:L254-290
+- internal/runner/chain.go:L15-62
+- internal/runner/run.go:L420-440
+- internal/runner/replan_test.go:L240-330
+- internal/lint/lint.go:L653-675
+- skills/bsv-docflow-plan/SKILL.md#ask-before-units
 - docs/design/format.md:L195-240
 - docs/design/runner.md:L125-180
 Do:
-- В `lintPlan`: если план в executor-режиме (шапка `executor:` или `Executor:` открытого юнита) и хотя бы один открытый юнит имеет `Role: review` или `Role: acceptance`, а `replan:` в шапке пуст — ошибка на строке шапки: `plan has review/acceptance units but no replan: the run stops on the first defect it finds; add replan: or remove the review unit`.
-- Добавь в `internal/lint/lint_test.go`: executor-план с review-юнитом без `replan:` — ошибка; с `replan:` — нет; legacy-план без executor и review-юнит — нет; единственный review-юнит `[x]` — нет.
-- Обнови `docs/design/format.md` (ключ `replan:`) и `docs/design/runner.md#авто-replan`: правило и причина — review-дефекты это ожидаемая работа, без самолечения прогон встаёт на первом.
-Verify: `go test -timeout 20m ./internal/lint/ ./cmd/docflow/`
-Traps: lint идёт и по draft-планам — правило должно срабатывать до активации, а не только на active.
-Commit: P056.1.2: require replan for review plans
+- В `runReplan` убери условие `plan.Meta["replan"] == ""`: в executor-режиме план-блок всегда идёт в replan. `--replans 0` остаётся единственным отказом и действует на запуск.
+- В `replanExecutorChain`: если `replan:` пуст, построй цепочку из `executor:` и `fallback:` плана тем же резолвером, что для юнита без `Role:`; ростер `run` не читает. Непустой `replan:` перекрывает маршрут, как сейчас.
+- Строка `<id> replan -> agent | model | effort`, событие `replan` и `--dry-run` показывают фактический маршрут, включая дефолтный.
+- В lint не добавляй требование `replan:` у review/acceptance-планов (в раннем черновике P056 оно предлагалось); сохрани только существующее «`replan:` требует executor-режима».
+- В `skills/bsv-docflow-plan/SKILL.md` убери вопрос про авто-replan из «Ask before units»: replan включён по умолчанию, `replan:` пишется только по явной просьбе о маршруте.
+- Обнови `docs/design/runner.md#авто-replan` и `docs/design/format.md`: без ключа replan идёт по цепочке `executor:`, отказ — `--replans 0`; добавь строку в `CHANGELOG.md` под `[Unreleased]` по bsv-changelog, потому что поведение `docflow run` меняется.
+- Тесты: план без `replan:` авто-репланится маршрутом из `executor:`; `--replans 0` останавливает; явный `replan:` выигрывает; legacy-план без executor не репланится; lint не требует ключ.
+Verify: `go test -timeout 20m ./internal/runner/ ./internal/lint/ ./cmd/docflow/`
+Traps: не читай ростер в `run` — маршрут по умолчанию только из шапки плана. Ключ `replan:` не удаляй из формата: меняется его роль, а не наличие. Лимиты replan и `check_replan` не трогай.
+Commit: P056.1.2: turn auto-replan on by default
 
 ### [ ] P056.1.3 Make replan prove the failure
 Read:
@@ -149,18 +178,35 @@ Verify: `go test -timeout 20m ./internal/runner/`
 Traps: скилл ставится отдельно и может отсутствовать у агента; источник правды для раннера — `replanRules`.
 Commit: P056.1.3: make replan prove the failure
 
+### [ ] P056.1.5 Allow a bounded repair of a failing gate
+Read:
+- internal/agents/agents.go:L175-215
+- internal/runner/helpers.go:L346-420
+- internal/runner/run_test.go:L290-310
+- docs/design/cycle.md#цикл-юнита
+- skills/bsv-docflow-run/SKILL.md
+Do:
+- В `RunnerCycle` пункт 1: разреши ограниченный ремонт проверки вне `Do:` — падает `gate:` или `Verify:` на реальной поломке (просроченная фикстура, неверное ожидание, устаревший тест) → сделай минимальную правку, не ослабляя проверку (не skip, не удаление теста, не размытый ассерт), и назови её в Handoff.
+- Среда (sandbox, права, отсутствующий инструмент) и крупный ремонт остаются блоком: их не «чинят» правкой теста.
+- Повтори правило в `skills/bsv-docflow-run/SKILL.md` (цикл юнита) и в `docs/design/cycle.md#цикл-юнита`: правка теста видна в `Test changes` и в ревью, поэтому ремонт разрешён, а ослабление — дефект.
+- Тест в `internal/runner/run_test.go`: в промпте есть фраза про ремонт и запрет ослаблять проверку.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: правило не отменяет блок для среды — падения process group в sandbox из P052 не повод править тест. `--skip` остаётся аварийным и с согласием человека, а не заменой ремонта.
+Commit: P056.1.5: allow a bounded gate repair
+
 ### [ ] P056.1.4 Review the resilience changes
 Read:
 - internal/runner/run.go:L344-435
-- internal/lint/lint.go:L591-700
-- internal/runner/replan_rules.go
+- internal/runner/replan.go:L254-290
+- internal/runner/chain.go:L15-62
+- internal/agents/agents.go:L175-215
 - internal/runner/run_test.go:L40-180
 Do:
-- Проверь Phase diff по Goal, Constraints, Decisions и Do юнитов фазы: baseline не обходит вызов агента, не повторяет verify и не стреляет на `[~]`-юните; линт-ошибка не задевает legacy-планы; правило replan не отменяет существующие и не требует скилла.
+- Проверь Phase diff по Goal, Constraints, Decisions и Do юнитов фазы: baseline не обходит вызов агента, не повторяет verify и не стреляет на `[~]`-юните; авто-replan по умолчанию берёт маршрут из `executor:` и не читает ростер; `--replans 0` останавливает; правило ремонта не разрешает ослаблять проверку и не отменяет блок для среды; правило replan не отменяет существующие и не требует скилла.
 - Разбери каждый пункт Test changes: обоснованное изменение допускается, ослабленная ради зелёного Verify проверка — дефект.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P056.1.1, P056.1.2, P056.1.3
+Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.5
 Role: review
 Commit: P056.1.4: review resilient run changes
 
@@ -174,10 +220,10 @@ Read:
 - internal/runner/replan_test.go:L240-330
 - tools/parity/run.sh
 Do:
-- Добавь сценарии на реальном бинарнике в фикстуре раннера (временный репозиторий, фиктивный CLI): (а) план с review-юнитом без `replan:` падает `docflow lint`, с `replan:` активируется; (б) план с красным на чистом дереве `gate:` останавливает `docflow run` кодом 2 до вызова агента и называет пакет; (в) review-юнит отвечает blocked, replan добавляет fix-юнит, прогон продолжается и завершает второй юнит без человека; (г) промпт replan содержит правило воспроизведения; (д) после прогона дерево чистое.
+- Добавь сценарии на реальном бинарнике в фикстуре раннера (временный репозиторий, фиктивный CLI): (а) план без `replan:` с review-юнитом — review блокируется, replan идёт маршрутом из `executor:` и добавляет fix-юнит, прогон завершает второй юнит без человека; тот же сценарий с `--replans 0` останавливается; (б) план с красным на чистом дереве `gate:` останавливает `docflow run` кодом 2 до вызова агента и называет пакет; (в) юнит с реальной поломкой чужого теста чинит его в том же коммите, а `Test changes` показывает правку; ослабленный тест (skip или удаление) виден в `Test changes`; (г) промпт replan содержит правило воспроизведения, промпт юнита — правило ограниченного ремонта; (д) после прогона дерево чистое.
 - Повтори инцидент P052: gate, покрасневший между двумя прогонами, останавливает следующий прогон один раз на старте с путём baseline-лога, а не внутри юнита и не дважды.
 - Прогони полный gate, сборку и parity.
 Verify: `go test -timeout 20m ./... && go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow`
-Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.4
+Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.4, P056.1.5
 Role: acceptance
 Commit: P056.2.1: accept hands-off run
