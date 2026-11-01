@@ -214,6 +214,8 @@ gate: go test -timeout 20m ./...
 - Treated a failing CheckoutLockOwner as an unknown lock that refuses control instead of a free checkout — an unreadable lock must not be silently read as "no runner" — rejected keeping the old err==nil-to-free branch
 - Re-read the lock at every control action and after run completion rather than once at load — lifecycle goes through cycle.Self which takes no lock, so the UI guard is the only check and must see a runner that appeared while the workspace was open — rejected a background watcher (no background service) and a load-time-only check
 - Stubbed lockCheck in the app-test loadedModel instead of giving every fixture a git repository — the fixtures are synthetic trees and the real checker would refuse all control actions — rejected adding git init to writeTestProject, which would change the diff/verify fixture behaviour
+- Перезагрузка плана сохраняет notice исхода, а стирает только текст самой загрузки — «reloading» клавиши `r` при StateLoading: snapshot сейчас единственное место, которое затирает путь архива из close и причину паузы или ошибки прогона, и одно правило чинит все источники reload сразу — отвергнуты второе поле для исхода рядом с `notice` (два конкурирующих текста в статус-строке) и полный отказ от очистки (тогда «reloading» не исчезает).
+- Human-block Continue проверяет lock в момент действия, как остальные lifecycle-клавиши, и не перекрывает отказ старта сообщением об unblock: диалог зовёт `cycle.Self` напрямую, поэтому guard из `lifecycleKey` его не покрывает — отвергнуты проверка внутри `cycle.Self` (он lock не берёт) и сохранение «starting the run again» после отказа.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -755,6 +757,52 @@ Handoff:
 - TestTerminalLockAtAction runs at 240 columns: the notice sits at the end of the redrawn status line and is truncated below ~200 columns, so a narrower PTY cannot assert the pid text; selection is done via the / filter plus one down, because the Queue section row is always kept as a match header.
 - Unverified: The unreadable-lock path is driven through the lockCheck seam in app_test only; a real CheckoutLockOwner error on the target (e.g. an unreadable run.lock or a non-git root) is not exercised end-to-end by any test.
 
+### [ ] P052.2.9 Keep outcome notices across a plan reload
+Read:
+- internal/tui/model.go:L210-313
+- internal/tui/execute.go:L157-250
+- internal/tui/execute.go:L550-580
+- internal/tui/keys.go:L84-92
+- internal/tui/view.go:L575-633
+- internal/tui/app_test.go:L448-461
+- internal/tui/app_test.go:L744-797
+- internal/tui/terminal_test.go:L280-300
+Do:
+- Воспроизведи: `applySnapshot` стирает `m.notice` на каждом успешном snapshot, поэтому сообщение close с путём архива (P052.2.3), причина паузы и ошибка прогона живут только до ближайшей перезагрузки плана. В TestCloseNoticeNamesUnwrittenArchiveText применяется лишь ответ lifecycle-команды, а возвращённый ею loadCmd отбрасывается: доведи тест до применения snapshotMsg и получи пустой notice; то же для успешной активации клавишей `a`.
+- Воспроизведи завершение прогона: fakeController финиширует как Failed и как Paused; после `hostPollMsg` примени snapshotMsg, который запрашивает pollController, — «run failed: …» и «paused; Resume continues…» исчезают так же. Покрой случай события: `unit_end` во время Pausing приходит ActivityMsg и планирует reload; notice о паузе обязан пережить и его.
+- Исправь правило в `Model.applySnapshot`: успешный snapshot сохраняет notice исхода, а стирается только текст самой загрузки — «reloading», который ставит клавиша `r` (до загрузки модель в StateLoading). Новое действие по-прежнему заменяет прежний текст.
+- Не меняй поведение ошибки загрузки: StateError с текстом ошибки, без устаревшего успеха рядом; `r` показывает «reloading» до завершения загрузки.
+- Обнови устаревший комментарий в TestTerminalRunPauseResumeQuit (terminal_test.go:L295-296) про замену notice перезагрузкой дерева; остальные утверждения этого теста не трогай.
+- Раздели модельные проверки по сценариям — успешный close, успешная активация, завершение Failed и Paused, notice паузы под `unit_end`. В каждом утверждай, что reload действительно запланирован (команда не пуста), и что после применённого snapshotMsg статус-строка показывает прежний текст.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: путь завершения прогона отдаёт loadCmd внутри tea.Batch — проверяй поведение через snapshotMsg и отдельно утверждай, что pollController и applyLifecycle возвращают непустую команду, иначе тест перестанет замечать отсутствие reload. TestRefreshKeyReloads ожидает «reloading» до загрузки и StateReady после неё — его ожидания не переписывай под новое правило. Не делай notice вечным: иначе статус-строка врёт про результат после следующего действия. Не выводи notice в тело панели и не дублируй его в дереве. Bubble Tea PTY-снимок содержит только изменённые хвосты строк — полный текст notice в терминальном тесте не проверяй (Handoff P052.2.3), оракул — модельный тест.
+Depends: P052.2.8
+Commit: P052.2.9: keep outcome notices across reload
+
+### [ ] P052.2.10 Refuse unblock under a foreign runner
+Read:
+- internal/tui/execute.go:L48-82
+- internal/tui/execute.go:L100-160
+- internal/tui/execute.go:L324-386
+- internal/tui/execute.go:L490-528
+- internal/tui/execute.go:L550-575
+- internal/cycle/commit.go:L500-515
+- internal/tui/app_test.go:L576-594
+- internal/tui/app_test.go:L693-743
+- internal/tui/app_test.go:L896-923
+- internal/tui/terminal_test.go:L807-1053
+Do:
+- Воспроизведи модельным тестом: после прогона как Blocked с needs human диалог открыт; `lockCheck` возвращает живой чужой pid 4242; Enter с заметкой сейчас вызывает lifecycle-шов с `unblock`, меняет план на диске и пишет «unblocked; starting the run again». Ожидаемое: шов не вызван, файл плана побайтно прежний, диалог остался открыт с введённой заметкой, статус называет pid.
+- Повтори с ошибкой `lockCheck` (os.ErrPermission): отказ в формулировке неизвестного lock, шов не вызван, заметка сохранена.
+- Поставь в ветке dialogHuman (Enter) ту же проверку, что в lifecycleKey: `refreshLock`, затем `lockRefusal` до постройки команды. Проверка принадлежит UI — `cycle.Self` это диспетчер CLI и lock не берёт.
+- Устрани перезапись в ветке `unblock` из applyLifecycle: она присваивает «…unblocked; starting the run again» поверх решения startRun, поэтому отказ старта выглядит как перезапуск. Пусть startRun сообщает, создан ли контроллер: при отказе остаётся notice отказа, при старте текст называет и unblock, и запуск.
+- Покрой гонку: lifecycle-шов при вызове переключает `lockCheck` на чужой pid — раннер появился между unblock и стартом. startRun обязан отказать, контроллер не создан, notice называет чужой pid и не подменяется перезагрузкой после unblock.
+- Сохрани свободный путь: lock свободен — unblock вызывается с `--note=…`, второй контроллер стартует, notice переживает перезагрузку (P052.2.9) и называет и unblock, и запуск. TestHumanBlockOffersContinueWithExistingUnblock расширь, а не переписывай.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: заметка живёт в `m.dialogInput` — отказ не должен её очищать, иначе человек набирает заново. Проверка перед unblock и проверка внутри startRun — два разных момента; покрывай оба, иначе гонка вернётся. Шов `model.lifecycle` имеет вид `func(root string, args ...string)`, и существующий тест сверяет аргументы `unblock`, `P001.2.2`, `--note=вошёл` — порядок не меняй. Не эмулируй чужой раннер удалением плана или `run.lock`: меняется только шов `lockCheck`, файлы плана и lock не трогай. Не добавляй `git init` в фикстуры — `loadedModel` уже заглушает `lockCheck` (P052.2.8). Не проверяй отказ по тексту статуса в PTY-тесте: diff-снимок Bubble Tea содержит только изменённые хвосты строк, оракул — модельный тест; TestTerminalLockAtAction не ослабляй.
+Depends: P052.2.9
+Commit: P052.2.10: refuse unblock under a foreign runner
+
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:
 - internal/tui/app.go
@@ -766,11 +814,12 @@ Do:
 - Разбери Test changes; проверь, что тесты нажимают клавиши и проверяют результат процесса, а не только строку View.
 - Ничего не редактируй; дефект оформляй blocked с blocker plan и воспроизводимым сценарием.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8
+Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8, P052.2.9, P052.2.10
 Role: review
 Commit: P052.2.4: review terminal controls
 Handoff:
 - Blocked (plan): Фаза ожидает: любой выход/закрытие TUI с живым прогоном останавливает процессы и пишет checkpoint, живая история позволяет открыть результат текущего вызова, логи читаются при запуске из подкаталога, а lifecycle-действия отказывают под живым чужим раннером. Реально: SIGTERM/SIGHUP оставляет detached агента и lock без checkpoint, страница результата недоступна до конца вызова, относительные пути логов не разрешаются от корня, lock проверяется только при загрузке. План должен развести это на юниты с воспроизведениями выше.
+- Blocked (plan): The phase Do expects accurate statuses, confirmations and no state change under a foreign runner. Real: the plan reload erases every success/failure notice, so the P052.2.3 close message with the archive path (and the run failure/pause reason) is never readable; and the human-block Continue runs 'unblock' through cycle.Self without refreshLock, modifying the plan under a live foreign runner, then overwrites the refused start with 'starting the run again'. Both reproduced deterministically with overlay tests; the plan needs two units with those scenarios.
 
 ## Phase 3: Model setup recovery and delivery
 
