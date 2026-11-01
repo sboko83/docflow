@@ -101,6 +101,17 @@ func (h *ActivityHistory) Add(event runner.Event) (ActivityEntry, bool) {
 		unit = &unitHistory{logs: map[int]string{}}
 		h.units[event.Unit] = unit
 	}
+	if event.Type == "attempt" {
+		// The attempt names the call log before CallAgent starts, while the
+		// stream link only exists once the call returned.
+		if log := strValue(event.Fields["log"]); log != "" {
+			if n, ok := intValue(event.Fields["n"]); ok {
+				unit.logs[n] = log
+			}
+			unit.lastLog = log
+			unit.logMoved = h.now()
+		}
+	}
 	switch event.Type {
 	case "stream":
 		if log := strValue(event.Fields["log"]); log != "" {
@@ -189,23 +200,36 @@ func (h *ActivityHistory) LastSeq(unit string) int64 {
 	return 0
 }
 
-// Log returns the call log of the attempt the entry belongs to. The stream
-// link arrives before any activity of the same call, so a lookup by attempt is
-// exact; an entry without an attempt uses the newest log.
-func (h *ActivityHistory) Log(unit string, attempt int) (string, bool) {
+// Log returns the call log of the attempt the entry belongs to. The attempt
+// event names the log before the call starts, so a lookup by attempt is exact;
+// an entry without an attempt uses the newest log. A numbered attempt never
+// falls back to the newest log of another attempt.
+func (h *ActivityHistory) Log(unit string, attempt int) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	u := h.units[unit]
 	if u == nil {
-		return "", false
+		return "", logUnknown(attempt)
 	}
 	if log, ok := u.logs[attempt]; ok && log != "" {
-		return log, true
+		return log, nil
+	}
+	if attempt > 0 {
+		return "", logUnknown(attempt)
 	}
 	if u.lastLog != "" {
-		return u.lastLog, true
+		return u.lastLog, nil
 	}
-	return "", false
+	return "", logUnknown(attempt)
+}
+
+// logUnknown names the attempt whose log is missing instead of letting the
+// page read another call's bytes.
+func logUnknown(attempt int) error {
+	if attempt > 0 {
+		return fmt.Errorf("call log unknown for attempt %d", attempt)
+	}
+	return fmt.Errorf("call log unknown")
 }
 
 func copyFields(fields map[string]any) map[string]any {
@@ -499,9 +523,9 @@ func (m *Model) loadActivityPageAs(entry ActivityEntry, skip int, forceLive bool
 		m.pages[key] = page
 		m.rememberPage(key)
 	}()
-	log, ok := m.history.Log(unit, entry.Activity.Attempt)
-	if !ok || log == "" {
-		page.Err = "call log unknown: the stream link has not arrived"
+	log, err := m.history.Log(unit, entry.Activity.Attempt)
+	if err != nil {
+		page.Err = err.Error()
 		return
 	}
 	path, err := resolveLogPath(m.root, log)

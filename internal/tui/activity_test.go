@@ -41,6 +41,10 @@ func streamEvent(unit string, attempt int, log string) runner.Event {
 	return runner.Event{Type: "stream", Unit: unit, Fields: map[string]any{"attempt": float64(attempt), "log": log}}
 }
 
+func attemptEvent(unit string, n int, log string) runner.Event {
+	return runner.Event{Type: "attempt", Unit: unit, Fields: map[string]any{"n": float64(n), "log": log}}
+}
+
 func activityEvent(unit string, activity agentio.Activity) runner.Event {
 	activity.Unit = unit
 	if activity.Agent == "" {
@@ -229,6 +233,90 @@ func TestActivityStderrPage(t *testing.T) {
 	if page == nil || page.Err != "" || page.Text != "err line" {
 		t.Fatalf("stderr page = %#v", page)
 	}
+}
+
+func TestActivityLogComesFromAttemptEvent(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	unit := "P001.1.2"
+	writeLog := func(name, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	tool := func(attempt int, body string) agentio.Activity {
+		return agentio.Activity{
+			Kind: agentio.ActivityKindTool, State: agentio.ActivityStateSucceeded,
+			Tool: "Bash", ToolID: "b" + strconv.Itoa(attempt), Attempt: attempt,
+			Ref: agentio.ActivityRef{Stream: "stdout", Offset: 0, Length: len(body)},
+		}
+	}
+	openPage := func(model Model, entry ActivityEntry) *activityPage {
+		t.Helper()
+		model = send(t, model, keyMsg("enter"))
+		model = send(t, model, keyMsg("enter"))
+		return model.pages[activityPageKey(unit, entry)]
+	}
+
+	t.Run("attempt before the call opens the log", func(t *testing.T) {
+		body := "output written before the call returned"
+		log := writeLog("call.out", body)
+		activity := tool(1, body)
+		model := historyModel(t, attemptEvent(unit, 1, log), activityEvent(unit, activity))
+		entries := model.activityEntries(unit)
+		page := openPage(model, entries[len(entries)-1])
+		if page == nil || page.Err != "" || !strings.Contains(page.Text, body) {
+			t.Fatalf("page from attempt event = %#v", page)
+		}
+	})
+
+	t.Run("resumed attempt keeps its own log", func(t *testing.T) {
+		firstBody, secondBody := "first attempt bytes", "second attempt bytes"
+		first, second := writeLog("call.1.out", firstBody), writeLog("call.2.out", secondBody)
+		model := historyModel(t,
+			attemptEvent(unit, 1, first), activityEvent(unit, tool(1, firstBody)),
+			attemptEvent(unit, 2, second), activityEvent(unit, tool(2, secondBody)),
+		)
+		if got, err := model.history.Log(unit, 1); err != nil || got != first {
+			t.Fatalf("log for attempt 1 = %q, %v", got, err)
+		}
+		if got, err := model.history.Log(unit, 2); err != nil || got != second {
+			t.Fatalf("log for attempt 2 = %q, %v", got, err)
+		}
+		entries := model.activityEntries(unit)
+		page := openPage(model, entries[len(entries)-1])
+		if page == nil || page.Err != "" || !strings.Contains(page.Text, secondBody) {
+			t.Fatalf("page of attempt 2 = %#v", page)
+		}
+		if strings.Contains(page.Text, firstBody) {
+			t.Fatalf("page of attempt 2 read attempt 1 bytes: %#v", page)
+		}
+	})
+
+	t.Run("attempt without a number uses the newest log", func(t *testing.T) {
+		body := "un-numbered activity bytes"
+		log := writeLog("call.out", body)
+		activity := tool(0, body)
+		model := historyModel(t, attemptEvent(unit, 1, log), activityEvent(unit, activity))
+		entries := model.activityEntries(unit)
+		page := openPage(model, entries[len(entries)-1])
+		if page == nil || page.Err != "" || !strings.Contains(page.Text, body) {
+			t.Fatalf("page of an un-numbered activity = %#v", page)
+		}
+	})
+
+	t.Run("unknown attempt is an explicit error", func(t *testing.T) {
+		body := "first attempt bytes"
+		log := writeLog("call.1.out", body)
+		model := historyModel(t, attemptEvent(unit, 1, log), activityEvent(unit, tool(2, body)))
+		entries := model.activityEntries(unit)
+		page := openPage(model, entries[len(entries)-1])
+		if page == nil || page.Err != "call log unknown for attempt 2" {
+			t.Fatalf("page without its attempt log = %#v", page)
+		}
+	})
 }
 
 func TestActivityFollowPauseSearchAndJump(t *testing.T) {

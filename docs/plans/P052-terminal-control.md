@@ -223,6 +223,7 @@ gate: go test -timeout 20m ./...
 - Лог вызова страница активности берёт из события `attempt`, а не из `stream`: `attempt` выходит до `CallAgent`, а `stream` — после возврата вызова со смещениями, известными только к этому моменту, поэтому ранний `stream` невозможен без искажения данных — отвергнуто перемещение `stream` перед вызовом и новое поле формата.
 - Управляемый Stop now классифицируется по состоянию хоста и отменённому ctx, как пауза в P052.1.8: `unit_end.status: stopped`, `run_end.reason: stopped`, `exit_code: 0`, без поля `paused`; обычный сигнал и Ctrl-C идут прежним путём error/2 — отвергнуто сохранение «error/context canceled» в журнале при успешном Finished у хоста и отвергнут новый код.
 - Notice исхода выводится отдельной строкой над статусной с переносом по ширине: `padLine` режет строку справа, поэтому notice в конце статусной строки не виден ни при каком приоритете внутри неё — отвергнуты notice в начале статусной строки (вытесняет run/lock/queue) и вывод notice в тело панели (дублирует дерево).
+- ActivityHistory.Log returns an error naming the attempt instead of (string, bool) — the page shows the exact missing attempt without rebuilding the message — rejected keeping the boolean and composing the text at the caller
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -821,7 +822,7 @@ Handoff:
 - The unblock refusal text is '<lock notice>; viewing is allowed, the unblock is refused' — the dialog stays open and m.dialogInput keeps the typed note, so the person does not retype it.
 - Test helper humanBlockModel(t, controllers...) drives a workspace to an open human-block dialog and returns the model plus the P001 plan path; use it for further human-block cases.
 
-### [ ] P052.2.11 Take the call log from the attempt event
+### [x] P052.2.11 Take the call log from the attempt event
 Read:
 - internal/runner/run.go:L1020-1050
 - internal/runner/events.go:L215-274
@@ -838,6 +839,10 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: не двигай `stream` до `CallAgent` — смещения известны только после вызова, а формат v1 менять нельзя. Номер у `attempt` лежит в поле `n`, у activity — в `attempt`, не перепутай. Не расширяй `Ref.Length` (P052.2.6): страница по-прежнему читает от `ref.Offset` до текущего конца файла. `TestCallAgentActivitySubscription` и проверки ref в `internal/agentio` не трогай.
 Depends: P052.2.6
 Commit: P052.2.11: take the call log from the attempt event
+Handoff:
+- activityHistory.logs is filled by both 'attempt' (n/log) and 'stream' (attempt/log); the attempt event arrives before CallAgent, stream only after it returns.
+- ActivityHistory.Log now returns (string, error): numbered attempts never fall back to lastLog; attempt 0 keeps using the newest log.
+- Unverified: The real runner order attempt → activity without a stream is not exercised end-to-end; the new tests construct runner events directly.
 
 ### [ ] P052.2.12 Stop from the start confirmation
 Read:
