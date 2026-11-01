@@ -65,6 +65,9 @@ gate: go test -timeout 20m ./...
 - `## Prerequisites` и baseline — разные вещи: пункт без `(once)`
   повторяется на каждом вызове, а с `(once)` пропускается на уже начатом
   плане.
+- Baseline ловит красный gate до прогона, но не тест, который краснеет
+  посреди юнита (дата, внешний сервис). Этот класс закрывает правило
+  replan про невоспроизведённое падение, а не baseline.
 
 ## Decisions
 
@@ -84,6 +87,12 @@ gate: go test -timeout 20m ./...
 - The reproduction rule lives in the runner's replan prompt and is repeated in
   the planning skill — the run must work without the skill installed.
   Rejected skill-only wording.
+- A green run at replan time does not lift a block whose trigger names a
+  failing gate — the roster fixture passed at 09:01 and failed at 10:12 when
+  its date boundary passed, and treating the green run as proof of "load"
+  sent P052.1.2 into the same failure an hour later. The replan adds a unit
+  that reproduces the failure at HEAD or stops as human. Rejected calling an
+  unreproduced failure a flake.
 - Four fixes need no new plan-level mechanism: the baseline, the lint rule and
   the replan rule are independent changes of existing steps. Rejected a new
   "run policy" section in the format.
@@ -132,6 +141,7 @@ Read:
 - docs/design/runner.md#авто-replan
 Do:
 - Добавь в `replanRules` правило: если триггер называет падающий тест, пакет или команду, выполни её до правки плана и приведи результат в `## Decisions`; падение не считается нагрузкой, флейком или «другой сессией», пока не воспроизведено не меньше трёх раз (`-count=3`, если инструмент это умеет).
+- То же правило для обратного случая: если названный тест сейчас зелёный, снимать блок как флейк нельзя — «не воспроизвелось» не доказательство. Либо добавь юнит, который воспроизводит падение на HEAD и чинит его, либо ответь `blocked` с `blocker: human`; зелёный прогон в момент replan не отменяет красный прогон юнита.
 - Перенумеруй правила, сохранив все существующие; текст должен оставаться полным без скилла.
 - Повтори то же правило в разделе Replan скилла `skills/bsv-docflow-plan/SKILL.md` и в `docs/design/runner.md#авто-replan`.
 - Расширь тест промпта: фраза есть в `replanRules` и в собранном промпте replan.
