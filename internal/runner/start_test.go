@@ -61,13 +61,61 @@ func TestPrerequisiteTimeoutAndClosedInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	code := runPrerequisitesWithTimeout(f.root, plan, newProgress(&out, &errOut, false), time.Second)
+	code, _ := runPrerequisitesWithTimeout(f.root, plan, newProgress(&out, &errOut, false), time.Second)
 	if code != 2 {
 		t.Fatal(code)
 	}
 	want := "prerequisite failed: token (echo no-token >&2; exit 3, exit 3): no-token\nprerequisite failed: server (exec sleep 5, timeout)\nprerequisite failed: input (read x, exit 1)\n"
 	if errOut.String() != want {
 		t.Fatalf("%q, want %q", errOut.String(), want)
+	}
+}
+
+// TestControlledRunReportsPrerequisiteFailure keeps the journal closed for a
+// refusal that happens before run_start while still handing every failure line
+// to the interactive host.
+func TestControlledRunReportsPrerequisiteFailure(t *testing.T) {
+	f := newRunFixture(t)
+	f.replace(planFile, "## Traps", "## Prerequisites\n- token: `echo no-token >&2; exit 3`\n- input: `read x`\n\n## Traps")
+	control := NewControl(16, 2)
+	startControlledRun(t, f, control, Args{Attempts: 1, Replans: 1, NoNotify: true})
+	awaitDone(t, control)
+	if got := control.State(); got != StateFailed {
+		t.Fatalf("state = %s, want %s", got, StateFailed)
+	}
+	var message string
+	sawRunStart := false
+drain:
+	for {
+		select {
+		case event := <-control.Events():
+			switch event.Type {
+			case "start_failure":
+				message = event.Message
+			case "run_start":
+				sawRunStart = true
+			}
+		default:
+			break drain
+		}
+	}
+	for _, want := range []string{
+		"prerequisite failed: token (echo no-token >&2; exit 3, exit 3): no-token",
+		"prerequisite failed: input (read x, exit 1)",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("start_failure message = %q, want %q", message, want)
+		}
+	}
+	if sawRunStart {
+		t.Fatal("a pre-start failure started the event stream")
+	}
+	files, err := filepath.Glob(filepath.Join(f.root, ".git", "docflow", "run", "*.events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("a pre-start failure wrote journal files: %v", files)
 	}
 }
 

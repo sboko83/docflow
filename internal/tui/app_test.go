@@ -1360,6 +1360,27 @@ func TestRunFailureNoticeSurvivesReload(t *testing.T) {
 	}
 }
 
+func TestPreStartFailureNoticeShowsTheReason(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	reason := "prerequisite failed: token (echo no-token >&2; exit 3, exit 3): no-token"
+	controller.events = append(controller.events, runner.Event{Type: "start_failure", Message: reason})
+	controller.finish(runner.StateFailed)
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if !strings.Contains(model.notice, reason) || strings.Contains(model.notice, "the run failed") {
+		t.Fatalf("pre-start failure notice = %q", model.notice)
+	}
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, reason) {
+		t.Fatalf("reload replaced the pre-start failure notice with %q", model.notice)
+	}
+}
+
 func TestPausedNoticeSurvivesReload(t *testing.T) {
 	root := writeTestProject(t)
 	model := resize(t, loadedModel(t, root), 120, 40)

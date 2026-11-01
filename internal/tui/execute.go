@@ -169,6 +169,11 @@ func (m Model) pollController() (Model, tea.Cmd) {
 		if !ok {
 			break
 		}
+		if event.Type == "start_failure" {
+			// The refusal happened before run_start, so no run_end carries
+			// it: the host-only event is the only source of the reason.
+			m.runErr = event.Message
+		}
 		if event.Type == "run_end" {
 			switch reason := strValue(event.Fields["reason"]); reason {
 			case "", "paused":

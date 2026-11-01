@@ -402,11 +402,13 @@ func runnerPrompt(root string, plan *format.Plan, unit *format.Unit, agent map[s
 	return text, nil
 }
 
-func runPrerequisites(root string, plan *format.Plan, progress *Progress) int {
+// runPrerequisites returns the exit code and every failure line, so a
+// controlled run can hand the reason to its host without reading Progress.
+func runPrerequisites(root string, plan *format.Plan, progress *Progress) (int, []string) {
 	return runPrerequisitesWithTimeout(root, plan, progress, prerequisiteTimeout)
 }
 
-func runPrerequisitesWithTimeout(root string, plan *format.Plan, progress *Progress, timeout time.Duration) int {
+func runPrerequisitesWithTimeout(root string, plan *format.Plan, progress *Progress, timeout time.Duration) (int, []string) {
 	failed := make([]string, 0)
 	planStarted := format.PlanStarted(plan)
 	for _, prerequisite := range format.PlanPrerequisites(plan) {
@@ -453,9 +455,9 @@ func runPrerequisitesWithTimeout(root string, plan *format.Plan, progress *Progr
 		progress.line(line, true, "")
 	}
 	if len(failed) > 0 {
-		return clierrors.EXIT_FORMAT
+		return clierrors.EXIT_FORMAT, failed
 	}
-	return clierrors.EXIT_OK
+	return clierrors.EXIT_OK, nil
 }
 
 func commandExitCode(err error) int {

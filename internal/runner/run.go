@@ -291,8 +291,18 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 		for _, line := range warnings {
 			p.line(line, false, "yellow")
 		}
-		if code := runPrerequisites(root, sel.Plan, p); code != 0 {
+		if code, failures := runPrerequisites(root, sel.Plan, p); code != 0 {
 			notify("a prerequisite failed", args.NoNotify, stderr)
+			if options.control != nil && len(failures) > 0 {
+				// Prerequisites run before the event stream exists, so this
+				// refusal cannot appear in the journal: run_start stays the
+				// first event. Publish the reason to the interactive host
+				// and return it as the execution error, which also keeps the
+				// journal-free host from reporting only the exit code.
+				message := strings.Join(failures, "\n")
+				options.control.Publish(Event{Type: "start_failure", Message: message})
+				return code, errors.New(message)
+			}
 			return code, nil
 		}
 		if code := confirmRunStartWithIO(sel.Plan, args.Yes, p, input, stdout); code != 0 {
