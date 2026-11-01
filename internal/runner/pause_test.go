@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,7 +65,14 @@ func gateOn(t *testing.T, command string) (chan struct{}, func(), func([]string)
 
 func startControlledRun(t *testing.T, f *runFixture, control *Control, args Args) {
 	t.Helper()
-	if err := control.StartRun(context.Background(), f.root, args, ""); err != nil {
+	startControlledRunWith(t, f, control, context.Background(), args)
+}
+
+// startControlledRunWith runs under a parent context the test owns: canceling
+// it is not a Pause, and the run must not read as one.
+func startControlledRunWith(t *testing.T, f *runFixture, control *Control, parent context.Context, args Args) {
+	t.Helper()
+	if err := control.StartRun(parent, f.root, args, ""); err != nil {
 		t.Fatal(err)
 	}
 	request := <-control.Requests()
@@ -73,6 +81,15 @@ func startControlledRun(t *testing.T, f *runFixture, control *Control, args Args
 	}
 	if err := request.Answer(Response{Confirmed: true}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func awaitDone(t *testing.T, control *Control) {
+	t.Helper()
+	select {
+	case <-control.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("the run did not stop")
 	}
 }
 
@@ -218,7 +235,8 @@ func TestPauseCancelsQuotaWait(t *testing.T) {
 		err := waitForExecutorChain(ctx, p, "quota wait", time.Now().Add(time.Hour))
 		if errors.Is(err, context.Canceled) && host.State() == StatePausing {
 			ctx = context.WithValue(ctx, controlContextKey{}, host)
-			return writePauseCheckpoint(ctx, f.root, "P001", "P001.1.1", "quota", agents.Route{Agent: "fake"}, "", 0, 0, 0, nil)
+			_, err := writePauseCheckpoint(ctx, f.root, "P001", "P001.1.1", "quota", agents.Route{Agent: "fake"}, "", 0, 0, 0, nil)
+			return err
 		}
 		return err
 	}); err != nil {
@@ -830,23 +848,7 @@ func TestPauseDuringExecutorChainWait(t *testing.T) {
 // Pause after the recovered pending commit finished its transaction writes the
 // complete checkpoint and publishes it; the recovered commit is not repeated.
 func TestPauseAfterRecoveredPendingCommit(t *testing.T) {
-	f := newRunFixture(t)
-	f.write("a_test.go", "package a\nfunc TestA() {}\nfunc TestB() {}\n")
-	f.commit("tests")
-	f.check(f.cli("prompt", "P001.1.1"), 0)
-	f.write("a.txt", "a\n")
-	f.write("a_test.go", "package a\nfunc TestA() {}\n")
-	f.check(f.cli("verify", "P001.1.1"), 0)
-	f.check(f.cli("done", "P001.1.1", "--handoff=done"), 0)
-	// The interrupted commit: the exact message docflow commit expects, made
-	// by hand so the journal done wrote stays behind.
-	f.git("add", "-A")
-	c := exec.Command("git", "commit", "-q", "-F", "-")
-	c.Dir = f.root
-	c.Stdin = strings.NewReader("P001.1.1: first unit\n\n- done\n\nTest changes:\n- a_test.go: -1 lines\n")
-	if out, err := c.CombinedOutput(); err != nil {
-		t.Fatalf("git commit: %v: %s", err, out)
-	}
+	f := pendingCommitFixture(t)
 	reached, release, before := gateOn(t, "commit")
 	controlRunSelf(t, f, before)
 	control := NewControl(64, 2)
@@ -873,4 +875,179 @@ func TestPauseAfterRecoveredPendingCommit(t *testing.T) {
 		t.Fatalf("the recovered commit started an agent: %d calls", len(calls))
 	}
 	assertPausedJournals(t, f, "done")
+}
+
+// pendingCommitFixture leaves the unit with its commit made by hand and the
+// done journal behind it: the next run finds the pending commit and recovers
+// it instead of prompting the agent again.
+func pendingCommitFixture(t *testing.T) *runFixture {
+	t.Helper()
+	f := newRunFixture(t)
+	f.write("a_test.go", "package a\nfunc TestA() {}\nfunc TestB() {}\n")
+	f.commit("tests")
+	f.check(f.cli("prompt", "P001.1.1"), 0)
+	f.write("a.txt", "a\n")
+	f.write("a_test.go", "package a\nfunc TestA() {}\n")
+	f.check(f.cli("verify", "P001.1.1"), 0)
+	f.check(f.cli("done", "P001.1.1", "--handoff=done"), 0)
+	// The interrupted commit: the exact message docflow commit expects, made
+	// by hand so the journal done wrote stays behind.
+	f.git("add", "-A")
+	c := exec.Command("git", "commit", "-q", "-F", "-")
+	c.Dir = f.root
+	c.Stdin = strings.NewReader("P001.1.1: first unit\n\n- done\n\nTest changes:\n- a_test.go: -1 lines\n")
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	return f
+}
+
+// assertNoPause checks that a run stopped by a signal or a canceled parent
+// emitted no pause: no state event, no paused unit or run end, no checkpoint.
+func assertNoPause(t *testing.T, f *runFixture) {
+	t.Helper()
+	for _, file := range eventFiles(t, f) {
+		for _, record := range readEvents(t, file) {
+			switch record["event"] {
+			case "state":
+				if record["state"] == "Paused" {
+					t.Fatalf("a canceled run published a pause state: %v", record)
+				}
+			case "unit_end":
+				if record["status"] == "paused" {
+					t.Fatalf("a canceled run closed its unit as paused: %v", record)
+				}
+			case "run_end":
+				if _, ok := record["paused"]; ok {
+					t.Fatalf("a canceled run wrote a paused run_end: %v", record)
+				}
+			}
+		}
+	}
+	if _, err := ReadCheckpoint(f.root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a canceled run wrote a checkpoint: %v", err)
+	}
+}
+
+// A parent context canceled while the commit gate is up is not a Pause: the
+// boundary completes the unit and publishes no pause state.
+func TestCanceledParentAtCommitBoundaryIsNotPause(t *testing.T) {
+	f := newRunFixture(t)
+	f.steps(writeReply("a.txt"))
+	reached, release, before := gateOn(t, "commit")
+	controlRunSelf(t, f, before)
+	control := NewControl(64, 2)
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startControlledRunWith(t, f, control, parent, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	select {
+	case <-reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the runner did not reach the commit of the unit")
+	}
+	cancel()
+	release()
+	awaitDone(t, control)
+	if got := control.State(); got == StatePaused {
+		t.Fatalf("state = %s, want no pause", got)
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err = %v; the commit boundary did not complete", unit.Status, err)
+	}
+	assertNoPause(t, f)
+}
+
+// A parent context canceled during the executor-chain wait is not a Pause: no
+// checkpoint, no state event, and the usual exit code.
+func TestCanceledParentDuringExecutorChainWaitIsNotPause(t *testing.T) {
+	f := executorRunFixture(t)
+	reset := (time.Now().Unix()/60 + 120) * 60
+	usage := "Current session: 100% used · resets " + time.Unix(reset, 0).UTC().Format("Jan 2 at 3:04pm") + " (UTC)"
+	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testshim.Script(t, filepath.Join(f.tmp, "bin"), "claude", "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec "+shellQuote(testshim.Bash(t))+" "+shellQuote(filepath.ToSlash(fake))+" \"$@\"\n")
+	controlRunSelf(t, f, nil)
+	control := NewControl(64, 2)
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startControlledRunWith(t, f, control, parent, Args{Attempts: 1, MaxUnits: intPointer(1)})
+	awaitEvent(t, control, "quota")
+	cancel()
+	awaitDone(t, control)
+	assertNoPause(t, f)
+}
+
+// A parent context canceled while the recovered pending commit runs is not a
+// Pause either, although the same boundary under a real Pause publishes one.
+func TestCanceledParentAfterRecoveredPendingCommitIsNotPause(t *testing.T) {
+	f := pendingCommitFixture(t)
+	reached, release, before := gateOn(t, "commit")
+	controlRunSelf(t, f, before)
+	control := NewControl(64, 2)
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startControlledRunWith(t, f, control, parent, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	select {
+	case <-reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the runner did not reach the recovered commit")
+	}
+	cancel()
+	release()
+	awaitDone(t, control)
+	assertNoPause(t, f)
+}
+
+// Without a control host a canceled run context stops the executor-chain wait
+// with the usual code and never writes a pause.
+func TestCanceledRunContextDuringExecutorChainWaitIsNotPause(t *testing.T) {
+	f := executorRunFixture(t)
+	reset := (time.Now().Unix()/60 + 120) * 60
+	usage := "Current session: 100% used · resets " + time.Unix(reset, 0).UTC().Format("Jan 2 at 3:04pm") + " (UTC)"
+	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testshim.Script(t, filepath.Join(f.tmp, "bin"), "claude", "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec "+shellQuote(testshim.Bash(t))+" "+shellQuote(filepath.ToSlash(fake))+" \"$@\"\n")
+	controlRunSelf(t, f, nil)
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var code int
+	var runErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		code, runErr = runWithOptions(f.root, Args{Attempts: 1, MaxUnits: intPointer(1)}, io.Discard, io.Discard, "", runOptions{ctx: parent})
+	}()
+	awaitRecord(t, f, "quota")
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the canceled run did not stop")
+	}
+	if code != 7 || !errors.Is(runErr, context.Canceled) {
+		t.Fatalf("canceled run = %d, %v, want 7, context.Canceled", code, runErr)
+	}
+	assertNoPause(t, f)
+}
+
+// awaitRecord waits until the run stream mentions an event type; an ordinary
+// run has no controller to observe it live.
+func awaitRecord(t *testing.T, f *runFixture, typ string) {
+	t.Helper()
+	needle := []byte(`"event":"` + typ + `"`)
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		files, _ := filepath.Glob(filepath.Join(f.root, ".git/docflow/run/*.events.jsonl"))
+		for _, file := range files {
+			if data, err := os.ReadFile(file); err == nil && bytes.Contains(data, needle) {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the run stream published no %q event", typ)
 }

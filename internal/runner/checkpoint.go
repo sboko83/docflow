@@ -112,26 +112,33 @@ func ReadCheckpoint(root string) (Checkpoint, error) {
 	return cp, nil
 }
 
-func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage string, route agents.Route, session string, calls, tokens int, remaining time.Duration, logs []string) error {
+// writePauseCheckpoint records the boundary of a Pause and reports whether it
+// wrote one. Without a host or outside StatePausing it writes nothing, and the
+// caller publishes the state event only when this returned true: a signal or a
+// canceled parent context must never read as a pause.
+func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage string, route agents.Route, session string, calls, tokens int, remaining time.Duration, logs []string) (bool, error) {
 	host := controlledHost(ctx)
 	if host == nil || host.State() != StatePausing {
-		return nil
+		return false, nil
 	}
 	headCmd := exec.Command("git", "-C", root, "rev-parse", "HEAD")
 	head, err := headCmd.Output()
 	if err != nil {
-		return fmt.Errorf("runner: checkpoint HEAD: %w", err)
+		return false, fmt.Errorf("runner: checkpoint HEAD: %w", err)
 	}
 	fingerprint, err := planFingerprint(root, planID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return host.checkpoint(root, Checkpoint{
+	if err := host.checkpoint(root, Checkpoint{
 		Plan: planID, Unit: unit, Head: strings.TrimSpace(string(head)), PlanHash: fingerprint,
 		Stage: stage, Agent: route.Agent, Model: route.Model, Effort: route.Effort,
 		Session: session, Calls: calls, Tokens: tokens, Remaining: remaining.Seconds(),
 		Logs: checkpointLogs(root, logs), Counts: map[string]int{"calls": calls, "tokens": tokens},
-	})
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // planFingerprint hashes the plan file a checkpoint belongs to.

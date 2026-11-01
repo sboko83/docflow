@@ -163,6 +163,8 @@ gate: go test -timeout 20m ./...
 - pausedUnitStatus сохраняет done на complete boundary — юнит действительно выполнен, пауза видна в state и run_end — отвергнуто помечать paused любой юнит под паузой.
 - Поле paused добавляется в run_end только под паузой — читатели версии 1 не видят ложной паузы в обычных и сигнальных прогонах — отвергнуто постоянное поле paused:false.
 - Второй блокер P052.1.4 уходит в новый юнит P052.1.9, ревью возвращается в [ ] с Depends на него — запись checkpoint и событие state должны решаться в одном месте: writePauseCheckpoint возвращает признак записи, pauseState срабатывает только при нём; отвергнуты проверка ctx.Err() в каждом из трёх эмиттеров (она не отличает сигнал и отмену родителя от паузы) и повторное открытие P052.1.8 с уже закрытой первой находкой.
+- Gated the state event on the write result at all five boundaries and removed the outer ctx.Err checks instead of adding pauseCancellation to each — a pre-filter duplicates the write decision and would leave the written flag untestable — rejected adding a second guard at the three emitters.
+- Mutation-checked the new tests by forcing pauseState to fire regardless of the write — all four canceled-parent scenarios then failed, confirming they exercise the new gate — rejected relying on the green run alone.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -337,7 +339,7 @@ Handoff:
 - Unverified: Пауза в окне между юнитами (в runLoop после unit_end, до unit_start следующего юнита): run_end получит paused:true, а unit_end паузы не будет — отдельного теста на это окно нет.
 - Unverified: Отмена родительского контекста при host.State()==StatePausing (совпадение паузы и отмены извне) классифицируется как пауза — сценарий не воспроизведён тестом.
 
-### [~] P052.1.9 Guard pause state by a written checkpoint
+### [x] P052.1.9 Guard pause state by a written checkpoint
 Read:
 - internal/runner/run.go:L760-845
 - internal/runner/run.go:L1395-1430
@@ -355,6 +357,12 @@ Verify: `go test -timeout 20m ./internal/runner/`
 Traps: overlay-тест ревью в репозиторий не попал — сценарий отмены родителя воспроизводится обычной фикстурой; сигнал и отмена `runOptions.ctx` идут одной веткой через `ctx.Err()`, отдельный subprocess с Ctrl-C не нужен; отсутствие события проверяй через `eventFiles`/`readEvents` (у `pausedStateEvents` пустой срез и есть отсутствие); второй файл прогона появляется только с Resume, поэтому в этих сценариях `fixtureEvents` уместен; docs/design/runner.md менять не нужно — контракт «сигнал, Stop now и отмена родителя — не пауза» уже записан, юнит приводит код к нему.
 Depends: P052.1.8
 Commit: P052.1.9: guard pause state by checkpoint
+Handoff:
+- writePauseCheckpoint now returns (bool, error); pauseCheckpoint in internal/runner/run.go is the only place that pairs a written checkpoint with the state event — new pause call sites must use it, not call writePauseCheckpoint directly.
+- The quota, recovered-pending-commit and complete boundaries no longer guard on ctx.Err(): the write decision is authoritative, so a canceled parent or signal is silent there.
+- pauseCancellation remains only in the paused closure and the canceled-agent-call branch, where it also separates a Pause from other cancellation handling (cost recording, rejected-resume guard).
+- Reusable test helpers added in pause_test.go: startControlledRunWith, awaitDone, pendingCommitFixture, assertNoPause, awaitRecord.
+- Unverified: The pause and parent-cancel fixtures use POSIX shell fakes and are skipped on Windows, so the new scenarios do not execute on that target; the changed code path is platform-neutral but untested there.
 
 ### [ ] P052.1.4 Review runner control and recovery
 Read:

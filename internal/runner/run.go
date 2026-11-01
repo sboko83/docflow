@@ -767,11 +767,8 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			return 7, "", nil
 		}
 		if err := waitForExecutorChain(ctx, p, line, until); err != nil {
-			if errors.Is(ctx.Err(), context.Canceled) {
-				if checkpointErr := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "quota", waitingRoute, "", 0, 0, 0, nil); checkpointErr != nil {
-					return 2, "", checkpointErr
-				}
-				pauseState(totals, uid, "quota", 0)
+			if checkpointErr := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "quota", waitingRoute, "", 0, 0, 0, nil); checkpointErr != nil {
+				return 2, "", checkpointErr
 			}
 			return 7, "", err
 		}
@@ -831,11 +828,8 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			p.testChanges(changes)
 			totals.testChanges += len(changes)
 			totals.rows = append(totals.rows, unitRow{id: uid})
-			if ctx.Err() != nil {
-				if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, 0, nil); err != nil {
-					return 2, "", err
-				}
-				pauseState(totals, uid, "complete", 0)
+			if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, 0, nil); err != nil {
+				return 2, "", err
 			}
 			return 0, "", nil
 		}
@@ -928,10 +922,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			// resumes that session.
 			session = agentio.CallSession(agent, run.Stdout)
 		}
-		if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), remaining, logs); err != nil {
+		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), remaining, logs); err != nil {
 			return 2, "", err, true
 		}
-		pauseState(totals, uid, stage, attempt)
 		return 7, "", context.Canceled, true
 	}
 	firstAttempt := 1
@@ -1028,10 +1021,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					if remaining < 0 {
 						remaining = 0
 					}
-					if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), remaining, []string{rel}); err != nil {
+					if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), remaining, []string{rel}); err != nil {
 						return 2, "", err
 					}
-					pauseState(totals, uid, "agent", attempt)
 					// The call was canceled, not refused: the rejected-resume retry
 					// would start another agent with an already canceled context.
 					return 7, "", context.Canceled
@@ -1416,11 +1408,8 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		totals.unverified += len(unverified)
 		totals.testChanges += len(changes)
 		totals.rows = append(totals.rows, unitRow{uid, seconds, cost, unitIn, unitOut, attempt})
-		if ctx.Err() != nil {
-			if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, session, attempt, valueOrZero(unitIn), 0, nil); err != nil {
-				return 2, "", err
-			}
-			pauseState(totals, uid, "complete", attempt)
+		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", route, session, attempt, valueOrZero(unitIn), 0, nil); err != nil {
+			return 2, "", err
 		}
 		if args.Verbose {
 			if err := unitDetail(root, p, totals); err != nil {
@@ -1446,6 +1435,20 @@ func valueOrZero(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+// pauseCheckpoint writes the checkpoint of a pause boundary and publishes its
+// state only when the file was written. The two stay one decision, so a
+// canceled parent or a signal emits nothing and leaves no checkpoint.
+func pauseCheckpoint(ctx context.Context, totals *runTotals, root, planID, unit, stage string, route agents.Route, session string, attempt, tokens int, remaining time.Duration, logs []string) error {
+	written, err := writePauseCheckpoint(ctx, root, planID, unit, stage, route, session, attempt, tokens, remaining, logs)
+	if err != nil {
+		return err
+	}
+	if written {
+		pauseState(totals, unit, stage, attempt)
+	}
+	return nil
 }
 
 // pauseState publishes the state observation of a Pause checkpoint. Every
