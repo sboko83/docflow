@@ -15,6 +15,7 @@ import (
 
 	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/cycle"
+	"bsv-docflow/internal/testshim"
 )
 
 // controlRunSelf routes the cycle's self-calls to the CLI built for the
@@ -661,5 +662,169 @@ func TestResumeFromAFreshController(t *testing.T) {
 	}
 	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
 		t.Fatalf("unit status = %q, err = %v", unit.Status, err)
+	}
+}
+
+// awaitEvent waits for the controller to publish an event of a type. The
+// quota probe runs after the loop's cancellation check, so the event marks the
+// point from which the unit's executor wait is the only thing left to do.
+func awaitEvent(t *testing.T, control *Control, typ string) Event {
+	t.Helper()
+	deadline := time.After(20 * time.Second)
+	for {
+		select {
+		case event := <-control.Events():
+			if event.Type == typ {
+				return event
+			}
+		case <-deadline:
+			t.Fatalf("the controller published no %q event", typ)
+		}
+	}
+}
+
+func pausedStateEvents(t *testing.T, f *runFixture, stage string) []map[string]any {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(f.root, ".git/docflow/run/*.events.jsonl"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("event files = %v, err = %v", files, err)
+	}
+	var states []map[string]any
+	for _, file := range files {
+		for _, record := range readEvents(t, file) {
+			if record["event"] == "state" && record["state"] == "Paused" && record["stage"] == stage {
+				states = append(states, record)
+			}
+		}
+	}
+	return states
+}
+
+// A Pause ending a rejected resume is classified before the rejected-resume
+// retry: the canceled call is the only start of the resumed run, and the
+// runner never opens a replacement session with an already canceled context.
+func TestPauseBeforeRejectedResumeHandlingStartsNoNewSession(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" +
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "paused-session"}) +
+		"sleep 60 &\nwait\n")
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Session != "paused-session" || cp.Stage != "agent" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	rejected := filepath.Join(f.tmp, "rejected-started")
+	f.steps("touch " + shellQuote(rejected) + "\n" +
+		"printf 'error: session paused-session not found\\n' >&2\n" +
+		"sleep 60 &\nwait\n")
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitMarker(t, f, rejected, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	calls := f.calls()
+	if len(calls) != 1 {
+		argv := make([]string, 0, len(calls))
+		for _, call := range calls {
+			argv = append(argv, strings.Join(call.Argv, " "))
+		}
+		t.Fatalf("agent calls = %d, want only the paused resume: %v", len(calls), argv)
+	}
+	if argv := strings.Join(calls[0].Argv, " "); !strings.Contains(argv, "--resume paused-session") {
+		t.Fatalf("the paused call did not resume the saved session: %s", argv)
+	}
+	if len(pausedStateEvents(t, f, "agent")) == 0 {
+		t.Fatal("the paused resume published no state event")
+	}
+}
+
+// Pause while every executor waits for its reset writes the quota checkpoint
+// and publishes the same state, so a reopened application sees the wait.
+func TestPauseDuringExecutorChainWait(t *testing.T) {
+	f := executorRunFixture(t)
+	reset := (time.Now().Unix()/60 + 120) * 60
+	usage := "Current session: 100% used · resets " + time.Unix(reset, 0).UTC().Format("Jan 2 at 3:04pm") + " (UTC)"
+	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testshim.Script(t, filepath.Join(f.tmp, "bin"), "claude", "#!/bin/sh\ncase \"$*\" in *'/usage'*) printf '%s\\n' "+shellQuote(usage)+"; exit 0;; esac\nexec "+shellQuote(testshim.Bash(t))+" "+shellQuote(filepath.ToSlash(fake))+" \"$@\"\n")
+	controlRunSelf(t, f, nil)
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{Attempts: 1, MaxUnits: intPointer(1)})
+	awaitEvent(t, control, "quota")
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "quota" || cp.Unit != "P001.1.1" || cp.Agent != "claude" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	states := pausedStateEvents(t, f, "quota")
+	if len(states) != 1 || states[0]["unit"] != "P001.1.1" {
+		t.Fatalf("pause state events = %v", states)
+	}
+	if calls := f.calls(); len(calls) != 0 {
+		t.Fatalf("an agent started although every executor waits: %d calls", len(calls))
+	}
+}
+
+// Pause after the recovered pending commit finished its transaction writes the
+// complete checkpoint and publishes it; the recovered commit is not repeated.
+func TestPauseAfterRecoveredPendingCommit(t *testing.T) {
+	f := newRunFixture(t)
+	f.write("a_test.go", "package a\nfunc TestA() {}\nfunc TestB() {}\n")
+	f.commit("tests")
+	f.check(f.cli("prompt", "P001.1.1"), 0)
+	f.write("a.txt", "a\n")
+	f.write("a_test.go", "package a\nfunc TestA() {}\n")
+	f.check(f.cli("verify", "P001.1.1"), 0)
+	f.check(f.cli("done", "P001.1.1", "--handoff=done"), 0)
+	// The interrupted commit: the exact message docflow commit expects, made
+	// by hand so the journal done wrote stays behind.
+	f.git("add", "-A")
+	c := exec.Command("git", "commit", "-q", "-F", "-")
+	c.Dir = f.root
+	c.Stdin = strings.NewReader("P001.1.1: first unit\n\n- done\n\nTest changes:\n- a_test.go: -1 lines\n")
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	reached, release, before := gateOn(t, "commit")
+	controlRunSelf(t, f, before)
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	select {
+	case <-reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the runner did not reach the recovered commit")
+	}
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "complete" || cp.Unit != "P001.1.1" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	states := pausedStateEvents(t, f, "complete")
+	if len(states) != 1 || states[0]["unit"] != "P001.1.1" {
+		t.Fatalf("pause state events = %v", states)
+	}
+	if calls := f.calls(); len(calls) != 0 {
+		t.Fatalf("the recovered commit started an agent: %d calls", len(calls))
 	}
 }

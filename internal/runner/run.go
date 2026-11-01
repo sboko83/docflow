@@ -764,6 +764,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				if checkpointErr := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "quota", waitingRoute, "", 0, 0, 0, nil); checkpointErr != nil {
 					return 2, "", checkpointErr
 				}
+				pauseState(totals, uid, "quota", 0)
 			}
 			return 7, "", err
 		}
@@ -827,6 +828,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, 0, nil); err != nil {
 					return 2, "", err
 				}
+				pauseState(totals, uid, "complete", 0)
 			}
 			return 0, "", nil
 		}
@@ -922,7 +924,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), remaining, logs); err != nil {
 			return 2, "", err, true
 		}
-		totals.events.emit("state", uid, map[string]any{"state": "Paused", "stage": stage, "attempt": attempt})
+		pauseState(totals, uid, stage, attempt)
 		return 7, "", context.Canceled, true
 	}
 	firstAttempt := 1
@@ -1022,7 +1024,10 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), remaining, []string{rel}); err != nil {
 						return 2, "", err
 					}
-					totals.events.emit("state", uid, map[string]any{"state": "Paused", "stage": "agent", "attempt": attempt})
+					pauseState(totals, uid, "agent", attempt)
+					// The call was canceled, not refused: the rejected-resume retry
+					// would start another agent with an already canceled context.
+					return 7, "", context.Canceled
 				}
 				if recovery != nil && resume != "" && !resumeRejectedOnce && resumeRejected(run) {
 					resumeRejectedOnce = true
@@ -1093,6 +1098,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				totals.stop = fmt.Sprintf("%s: the agent changed the unit to [%s]", uid, current.Status)
 				p.line(totals.stop, true, "")
 				return 5, "", nil
+			}
+			// A Pause that ended the call stays classified before the rejected
+			// resume: no other session starts after the boundary.
+			if code, trigger, rerr, ok := paused("agent", attempt, callLogs(callLog), 0); ok {
+				return code, trigger, rerr
 			}
 			if recovery != nil && resume != "" && !resumeRejectedOnce && resumeRejected(run) {
 				resumeRejectedOnce = true
@@ -1428,6 +1438,13 @@ func valueOrZero(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+// pauseState publishes the state observation of a Pause checkpoint. Every
+// boundary that writes a checkpoint emits it through here, so the visible
+// state and the saved one never disagree.
+func pauseState(totals *runTotals, uid, stage string, attempt int) {
+	totals.events.emit("state", uid, map[string]any{"state": "Paused", "stage": stage, "attempt": attempt})
 }
 
 // pauseCancellation reports the cancellation an interactive Pause requested:

@@ -152,6 +152,8 @@ gate: go test -timeout 20m ./...
 - Always write the stderr sidecar, even outside an interactive run, so every stream link resolves — rejected an interactive-only sidecar with dangling paths in normal runs.
 - Turn auto-replan on for the rest of P052 after four stops in ten hours — a plan with review and acceptance units without self-healing stops on the first defect it finds, and review findings are expected work rather than a planning error; `check_replan` already forbids weakening the review's own `Verify:`/`Do:`/`Role:`. Rejected lifting every block by hand, as in P052.1.2 three times.
 - Move the P052.1.4 findings into units P052.1.6 (Pause boundaries in the runner: return after the checkpoint on the rejected-resume path, publish `state: Paused` at the executor-chain wait and in pending-commit recovery) and P052.1.7 (clip `Activity.Input`), and return the review to `[ ]` with `Depends:` on them — rejected fixing the defects inside the review unit, which edits nothing.
+- Classify Pause before `resumeRejected` on the success path too, not only where the resume was actually rejected — a pause must never race into another session or attempt — rejected guarding only the rejected-resume branch.
+- The pre-loop executor wait reports `attempt: 0` through the shared `pauseState` helper — no attempt was spent there — rejected a separate event shape without the attempt field.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -257,7 +259,7 @@ Handoff:
 - Unverified: Activity normalization is verified against the repository fixtures and fake agents, not against live Pi/Codex/opencode output; streaming event shapes such as Pi message_update/tool_execution_update and Codex mcp_tool_call payloads are implemented from documented shapes without a live check (live acceptance is P052.4.2).
 - Unverified: ReadActivityPage is tested on a completed log; reading a page while the log is still being appended by a running agent (partial JSON line at the tail) is not covered end-to-end.
 
-### [ ] P052.1.6 Fix pause boundaries in the runner
+### [x] P052.1.6 Fix pause boundaries in the runner
 Read:
 - internal/runner/run.go:L760-830
 - internal/runner/run.go:L960-1060
@@ -271,6 +273,13 @@ Do:
 Verify: `go test -timeout 20m ./internal/runner/`
 Traps: сценарий (а) воспроизводится overlay-тестом из ревью: фиктивный CLI отвечает `session S not found`. Не ослабляй существующие тесты resume ради зелёного прогона.
 Commit: P052.1.6: fix pause boundaries in runner
+Handoff:
+- `pauseState(totals, uid, stage, attempt)` in internal/runner/run.go is now the only emitter of a `state: Paused` event: every new pause boundary must call it right after `writePauseCheckpoint`.
+- The `agentio.CallAgent` error branch returns `(7, context.Canceled)` immediately after the pause checkpoint, so the `resumeRejected` retry below it now only runs for real provider refusals.
+- The success path classifies Pause before `resumeRejected`: a pause that lands while a call returns normally stops the unit at stage `agent` (resume continues that session) instead of running verify/commit.
+- New test helpers in pause_test.go: `awaitEvent(control, type)` and `pausedStateEvents(f, stage)`; the latter reads every `*.events.jsonl` because a resume creates a second run file while `fixtureEvents` requires exactly one.
+- Executor mode refuses `--config`, so the executor-chain wait test runs on the built-in claude profile with a PATH shim answering `claude -p /usage`; it pauses after the `quota` event, since the loop's ctx check precedes the wait and an earlier Pause exits before any checkpoint.
+- Unverified: A Pause that lands while a call returns successfully has no deterministic test: reaching that state needs the pause between the reply and `CallAgent` returning. The new success-path check is exercised only by the rejected-resume scenario.
 
 ### [ ] P052.1.7 Clip large tool input in activity
 Read:
