@@ -244,8 +244,18 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 	}
 	var route agents.Route
 	defer func() {
-		totals.events.emit("close", "", map[string]any{"plan": id, "route": eventRoute(route), "result": eventStatus(code, runErr), "exit_code": eventExitCode(code, runErr)})
+		result, exit := pauseOutcome(ctx, eventStatus(code, runErr), eventExitCode(code, runErr))
+		totals.events.emit("close", "", map[string]any{"plan": id, "route": eventRoute(route), "result": result, "exit_code": exit})
 	}()
+	// paused classifies a cancellation the interactive host asked for as a
+	// Pause outside the unit loop: the closing call is not retried and the
+	// checkpoint names the interrupted operation.
+	paused := func(attempt int, logRel, session string) (int, error) {
+		if err := pauseCheckpoint(ctx, totals, root, id, "", "close", route, session, attempt, 0, 0, callLogs(logRel)); err != nil {
+			return 2, err
+		}
+		return 7, context.Canceled
+	}
 	status, err := gitx.Git(root, "status", "--porcelain")
 	if err != nil {
 		return 2, err
@@ -330,6 +340,9 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 				}
 				limits++
 				if err := waitForExecutorChain(ctx, p, line, until); err != nil {
+					if pauseCancellation(ctx) {
+						return paused(attempt, "", session)
+					}
 					return 7, err
 				}
 				previous := route
@@ -386,6 +399,14 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			streamFields["plan"], streamFields["close"] = id, true
 			totals.events.emit("stream", "", streamFields)
 			if err != nil {
+				if pauseCancellation(ctx) {
+					output := agentio.AgentOutput(agent, run.Stdout)
+					found, _ := agentio.JSONPath(output, stringValue(agent["session"])).(string)
+					if found == "" {
+						found = agentio.CallSession(agent, run.Stdout)
+					}
+					return paused(attempt, rel, found)
+				}
 				return 7, err
 			}
 			output := agentio.AgentOutput(agent, run.Stdout)
@@ -443,6 +464,9 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 				return 7, nil
 			}
 			if err := waitRefusal(ctx, agent, refusal, limitProgress{p}); err != nil {
+				if pauseCancellation(ctx) {
+					return paused(attempt, rel, session)
+				}
 				return 7, err
 			}
 			if session != "" {

@@ -297,11 +297,29 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		if items == nil {
 			items = []string{}
 		}
-		totals.events.emit("replan", uid, map[string]any{"route": eventRoute(route), "result": eventStatus(code, runErr), "exit_code": code, "check_changes": items})
+		result, exit := pauseOutcome(ctx, eventStatus(code, runErr), code)
+		totals.events.emit("replan", uid, map[string]any{"route": eventRoute(route), "result": result, "exit_code": exit, "check_changes": items})
 	}()
 	plan, _, err := cycle.FindUnit(root, uid)
 	if err != nil {
 		return 2, err
+	}
+	planPath := filepath.Join(root, plan.Path)
+	var before []byte
+	// paused classifies a cancellation the interactive host asked for as a
+	// Pause outside the unit loop. A replan edit never survives it: the plan is
+	// restored to its bytes before the replan agent ran, and the checkpoint
+	// names the interrupted operation.
+	paused := func(attempt int, logRel, session string) (int, error) {
+		if before != nil {
+			if err := restorePlan(planPath, string(before)); err != nil {
+				return 2, err
+			}
+		}
+		if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "replan", route, session, attempt, 0, 0, callLogs(logRel)); err != nil {
+			return 2, err
+		}
+		return 7, context.Canceled
 	}
 	chain, err := replanExecutorChain(config, plan, args.RunArgs, unavailable)
 	if err != nil {
@@ -329,6 +347,9 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			return 7, nil
 		}
 		if err := waitForExecutorChain(ctx, p, line, earliest); err != nil {
+			if pauseCancellation(ctx) {
+				return paused(0, "", "")
+			}
 			return 7, err
 		}
 		route, available = chain.pick(time.Now())
@@ -383,8 +404,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		p.unitEnd(uid)
 	}()
 	p.unit(uid, "replan", route, start)
-	planPath := filepath.Join(root, plan.Path)
-	before, err := os.ReadFile(planPath)
+	before, err = os.ReadFile(planPath)
 	if err != nil {
 		return 2, err
 	}
@@ -456,6 +476,14 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			streamFields["replan"] = true
 			totals.events.emit("stream", uid, streamFields)
 			if err != nil {
+				if pauseCancellation(ctx) {
+					output := agentio.AgentOutput(agent, run.Stdout)
+					found, _ := agentio.JSONPath(output, stringValue(agent["session"])).(string)
+					if found == "" {
+						found = agentio.CallSession(agent, run.Stdout)
+					}
+					return paused(attempt, rel, found)
+				}
 				return 7, err
 			}
 			out := agentio.AgentOutput(agent, run.Stdout)
@@ -532,6 +560,9 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 							}
 							limits++
 							if err := waitForExecutorChain(ctx, p, line, earliest); err != nil {
+								if pauseCancellation(ctx) {
+									return paused(attempt, rel, session)
+								}
 								return 7, err
 							}
 							next, available = chain.pick(time.Now())
@@ -578,6 +609,9 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 				return stop(7, line, line+"; the plan is restored", "")
 			}
 			if err := waitRefusal(ctx, agent, refusal, limitProgress{p}); err != nil {
+				if pauseCancellation(ctx) {
+					return paused(attempt, rel, session)
+				}
 				return 7, err
 			}
 			if session != "" {

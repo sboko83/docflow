@@ -18,6 +18,17 @@ type RecoveryConflictError struct{ Reason string }
 
 func (e RecoveryConflictError) Error() string { return "runner: recovery conflict: " + e.Reason }
 
+// ValidateResumable rejects a checkpoint whose interrupted operation left no
+// session to continue: a replan edit is rolled back and a closing writes
+// nothing, so the next run starts from the restored plan instead of resuming.
+func ValidateResumable(cp Checkpoint) error {
+	switch cp.Stage {
+	case "replan", "close":
+		return RecoveryConflictError{Reason: fmt.Sprintf("the run paused during %s; the plan is unchanged — start a new run", cp.Stage)}
+	}
+	return nil
+}
+
 // ValidateCheckpoint checks that a saved pause still belongs to the checkout it
 // was taken in.
 func ValidateCheckpoint(root string, cp Checkpoint) error {

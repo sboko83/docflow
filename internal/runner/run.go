@@ -813,6 +813,14 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				totals.events.emit("commit", uid, map[string]any{"sha": firstWord(result.Stdout), "test_changes": changes})
 			}
 			if result.Code != 0 {
+				if pauseCancellation(ctx) {
+					// The pause ended the verification subprocess; that is not a
+					// failed recovery. The pending commit stays for the next run.
+					if err := pauseCheckpoint(ctx, totals, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, 0, nil); err != nil {
+						return 2, "", err
+					}
+					return 7, "", context.Canceled
+				}
 				if result.Code != 4 {
 					writeFailure(p, result)
 					totals.stop = uid + ": pending commit recovery failed"

@@ -196,6 +196,10 @@ func (c *Control) ResumeRun(parent context.Context, root string, args Args, skil
 	if err != nil {
 		return fmt.Errorf("runner: no resumable checkpoint: %w", err)
 	}
+	if err := ValidateResumable(checkpoint); err != nil {
+		c.Publish(Event{Type: "recovery_conflict", Unit: checkpoint.Unit, Message: err.Error()})
+		return err
+	}
 	if err := ValidateCheckpoint(root, checkpoint); err != nil {
 		c.Publish(Event{Type: "recovery_conflict", Unit: checkpoint.Unit, Message: err.Error()})
 		return err

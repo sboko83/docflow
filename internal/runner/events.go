@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,6 +153,16 @@ func eventExitCode(code int, err error) int {
 		return 2
 	}
 	return code
+}
+
+// pauseOutcome reclassifies a deferred operation that a controlled Pause
+// stopped: the journal shows a pause with the success code the host sees, not
+// the internal stop code of the runner.
+func pauseOutcome(ctx context.Context, result string, exit int) (string, int) {
+	if pauseCancellation(ctx) {
+		return "paused", 0
+	}
+	return result, exit
 }
 
 // eventRoutes is the safe projection of a route chain: assignment only, no

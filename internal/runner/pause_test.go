@@ -1051,3 +1051,138 @@ func awaitRecord(t *testing.T, f *runFixture, typ string) {
 	}
 	t.Fatalf("the run stream published no %q event", typ)
 }
+
+// A Pause during auto-replan restores the plan the agent was editing: the
+// half-validated edit never survives, the checkpoint names the interrupted
+// operation, and no second agent starts after Paused.
+func TestPauseDuringReplanRestoresPlan(t *testing.T) {
+	f := newReplanFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "replan-started")
+	f.steps(blockReply(), "cp "+planFile+" .git/replan-before\n"+
+		editPlan("- write b.txt", "- write b.txt and c.txt")+
+		"touch "+shellQuote(marker)+"\nsleep 60 &\nwait\n")
+	args := Args{Replans: 3, Attempts: 1, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	if got, want := f.read(planFile), f.read(".git/replan-before"); got != want {
+		t.Fatalf("the paused replan left its edit in the plan:\n%s\nwant:\n%s", got, want)
+	}
+	if strings.Contains(f.read(planFile), "and c.txt") {
+		t.Fatal("the replan edit survived the pause")
+	}
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "replan" || cp.Unit != "P001.1.1" || cp.Agent != "claude" || len(cp.Logs) == 0 {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	if states := pausedStateEvents(t, f, "replan"); len(states) != 1 || states[0]["unit"] != "P001.1.1" {
+		t.Fatalf("pause state events = %v", states)
+	}
+	found := false
+	for _, record := range fixtureEvents(t, f) {
+		if record["event"] == "replan" {
+			found = true
+			if record["result"] != "paused" || record["exit_code"] != float64(0) {
+				t.Fatalf("replan event = %v, want result paused and exit_code 0", record)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the paused replan emitted no replan event")
+	}
+	if calls := f.calls(); len(calls) != 2 {
+		t.Fatalf("agent calls = %d, want the unit and its replan only", len(calls))
+	}
+	assertPausedJournals(t, f, "blocked")
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err == nil || !strings.Contains(err.Error(), "paused during replan") {
+		t.Fatalf("resuming a replan checkpoint = %v, want an explicit non-resumable stop", err)
+	}
+}
+
+// A Pause during the closing call writes the checkpoint of the interrupted
+// operation, publishes the state, and makes no closing commit.
+func TestPauseDuringCloseWritesCheckpoint(t *testing.T) {
+	f := readyCloseFixture(t)
+	marker := filepath.Join(f.tmp, "close-started")
+	f.steps("touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
+	args := Args{Replans: 3, Attempts: 1, Close: true, RunArgs: agents.RunArgs{Config: f.config}}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "close" || cp.Plan != "P001" || cp.Agent != "fake" || len(cp.Logs) == 0 {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	if states := pausedStateEvents(t, f, "close"); len(states) != 1 {
+		t.Fatalf("pause state events = %v", states)
+	}
+	if subject := f.git("log", "-1", "--format=%s"); subject == "P001: close plan" {
+		t.Fatal("the paused closing still committed the plan")
+	}
+	if calls := f.calls(); len(calls) != 1 {
+		t.Fatalf("agent calls = %d, want the closing call only", len(calls))
+	}
+	for _, record := range fixtureEvents(t, f) {
+		if record["event"] == "close" {
+			if record["result"] != "paused" || record["exit_code"] != float64(0) {
+				t.Fatalf("close event = %v, want result paused and exit_code 0", record)
+			}
+		}
+		if record["event"] == "run_end" {
+			if record["paused"] != true || record["reason"] != "paused" || record["exit_code"] != float64(0) {
+				t.Fatalf("paused run_end = %v", record)
+			}
+		}
+	}
+}
+
+// A Pause that ends the pending-commit recovery's verify is a pause, not a
+// failed check: the checkpoint names the complete boundary and the next run
+// still finds the pending commit.
+func TestPauseDuringPendingCommitRecoveryFailureIsPause(t *testing.T) {
+	f := pendingCommitFixture(t)
+	previous := runnerSelf
+	reached, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	runnerSelf = func(root string, args ...string) cycle.Result {
+		if len(args) > 0 && args[0] == "verify" {
+			once.Do(func() { close(reached) })
+			<-release
+			return cycle.Result{Code: 2, Stderr: "verify broke"}
+		}
+		return previous(root, args...)
+	}
+	t.Cleanup(func() { runnerSelf = previous })
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	select {
+	case <-reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the runner did not reach the recovered verify")
+	}
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "complete" || cp.Unit != "P001.1.1" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	if states := pausedStateEvents(t, f, "complete"); len(states) != 1 || states[0]["unit"] != "P001.1.1" {
+		t.Fatalf("pause state events = %v", states)
+	}
+	if calls := f.calls(); len(calls) != 0 {
+		t.Fatalf("the failed recovery started an agent: %d calls", len(calls))
+	}
+	assertPausedJournals(t, f, "paused")
+}

@@ -168,6 +168,9 @@ gate: go test -timeout 20m ./...
 - Находки P052.1.4 разведены в P052.1.10 (пауза в auto-replan, close и восстановлении pending commit: восстановить план, записать checkpoint и state, классифицировать событие) и P052.1.11 (stdout-ref активности несёт stream), ревью возвращено в [ ] с Depends на оба — правка ревью недопустима, а P052.1.8 и P052.1.9 уже закрыты.
 - Пауза во время auto-replan восстанавливает план до записи checkpoint и не оставляет полувалидированную правку: следующий прогон читает исходный план, а checkpoint называет прерванную операцию; ResumeRun либо продолжает с восстановленного плана, либо явно сообщает нерезумируемую остановку — отвергнуты checkpoint поверх правки агента и ответ «no resumable checkpoint».
 - События replan и close под управляемой паузой несут result: paused и exit_code 0, как run_end — журнал не показывает паузу как ошибку операции; отвергнут отдельный код паузы.
+- Reclassified deferred replan/close results through one shared pauseOutcome helper — keeps future deferred operations consistent and avoids duplicating the pause predicate — rejected inline pauseCancellation in each defer.
+- ResumeRun reports replan/close checkpoints as a recovery conflict instead of silently starting a fresh run from the restored plan — an explicit stop is auditable and avoids surprising a new run from a Resume action — rejected auto-starting startRun on the restored plan.
+- Replan restores the plan only when the `before` snapshot exists; chain-wait pauses write the checkpoint without a restore — the plan is untouched before the first read — rejected a sentinel empty plan and rejecting the pause there.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -367,7 +370,7 @@ Handoff:
 - Reusable test helpers added in pause_test.go: startControlledRunWith, awaitDone, pendingCommitFixture, assertNoPause, awaitRecord.
 - Unverified: The pause and parent-cancel fixtures use POSIX shell fakes and are skipped on Windows, so the new scenarios do not execute on that target; the changed code path is platform-neutral but untested there.
 
-### [ ] P052.1.10 Recover a Pause during replan and close
+### [x] P052.1.10 Recover a Pause during replan and close
 Read:
 - internal/runner/replan.go:L254-420
 - internal/runner/replan.go:L500-610
@@ -391,6 +394,15 @@ Verify: `go test -timeout 20m ./internal/runner/`
 Traps: replan уже пишет ответ агента в план до проверки `check_replan` — восстановление идёт из снимка `before`, а не из `after`; не ослабляй существующие тесты отказа replan и close ради зелёного прогона. Overlay-тест ревью в репозиторий не попал — сценарий воспроизводится обычной фикстурой.
 Depends: P052.1.8, P052.1.9
 Commit: P052.1.10: recover pause during replan and close
+Handoff:
+- New shared helpers: pauseOutcome(ctx,result,exit) in events.go for deferred replan/close events, and ValidateResumable(cp) in resume.go for stages with no resumable session. New deferred operations must go through pauseOutcome; a new stage without a session belongs in ValidateResumable.
+- A replan pause restores the `before` snapshot taken at replan start, so the block's [!] edit made by runUnit before replan stays in the tree; the next run reads the pre-replan plan, not the pre-block one.
+- A close pause checkpoint has an empty Unit (plan-level operation); consumers must key it by Plan.
+- The pending-commit recovery failure branch checks pauseCancellation before result.Code, so a Pause wins over any non-zero verify result; its checkpoint stage is `complete`, not `verify`.
+- ResumeRun rejects replan/close checkpoints with RecoveryConflictError and publishes a recovery_conflict event; it does not start a run and does not delete the checkpoint.
+- Unverified: Pause during a replan or close executor-chain wait and refusal wait has no automated test: Do's three scenarios cover only the replan agent call, the closing agent call and the pending-commit failure branch.
+- Unverified: A genuine non-zero verify in pending-commit recovery that races a pending Pause is classified as a pause and not as the failure; no test distinguishes the two.
+- Unverified: How the TUI renders checkpoint stages `replan`/`close` and the recovery_conflict message is not exercised by this unit's Verify; the TUI surface is built by later P052 units.
 
 ### [ ] P052.1.11 Name stdout in activity refs
 Read:
