@@ -104,6 +104,10 @@ gate: go test -timeout 20m ./...
 - Будущие файлы в Read создаются явно названными предыдущими юнитами.
   Во время планирования lint может предупреждать об их отсутствии;
   к prompt соответствующего юнита файлы обязаны существовать.
+- Высота тела и высота контента панели — разные величины: заголовок
+  панели и notice-строки занимают строки внутри `bodyHeight()`, поэтому
+  видимость проверяется по отрисованному экрану, а не по числу строк,
+  которое посчитал помощник панели.
 
 ## Decisions
 
@@ -231,6 +235,8 @@ gate: go test -timeout 20m ./...
 - Cap the notice at two lines and mark the second with '…' — keeps the body panel at least one line on any supported height while signalling that text is missing — rejected rendering the full notice and shrinking the body to zero
 - Classify a controlled Stop now with a dedicated stopCancellation predicate mirroring pauseCancellation instead of reusing internal codes 7/2 or the pause flag — the journal must distinguish a user action from 'no executor' and from a runner failure — rejected overloading pauseCancellation or adding new codes
 - Normalize code and runErr inside the run_end defer rather than adding branches in runLoop/runUnit — one place covers the agent call, the early loop cancellation check and deferred operations, and keeps the host from receiving context.Canceled — rejected returning 0,nil from every stop point
+- Седьмой блок P052.2.4 разведён на P052.2.15 (потерянный результат клампа прокрутки Details) и P052.2.16 (высота панели от отрисованного тела с notice-строками); ревью возвращено в `[ ]` с `Depends` на оба — правка ревью запрещена, а находки разные по проверяемому поведению: пустая панель после прокрутки и неверная видимая высота.
+- Видимая высота считается от фактически отрисованного тела, а не от константы `height-5`: заголовок панели и notice-строки уже заняли строки, и повторённый в `treeLines`/`syncActivityScroll` расчёт отрезал последнюю выбранную строку — отвергнуто увеличение `bodyHeight()` на единицу (не покрывает notice) и отказ от двухстрочного notice (теряет текст исхода).
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -934,6 +940,41 @@ Handoff:
 - Unverified: WatchKeys/signal paths and the real TUI stop transition are only covered by fake controllers here; the live Pi/Codex PTY acceptance (P052.3.3) does not exercise this journal shape
 - Unverified: Stop now landing in pending-commit recovery may still run writeFailure and set totals.stop before the deferred reclassification; the journal is corrected, but no test asserts that path's output
 
+### [ ] P052.2.15 Keep the details scroll inside the pane
+Read:
+- internal/tui/keys.go:L172-240
+- internal/tui/view.go:L501-570
+- internal/tui/model.go:L118-132
+- internal/tui/app_test.go:L335-360
+Do:
+- Воспроизведи модельным тестом на `Model.String()`: в `writeTestProject` выбери юнит без активности (`P001.1.2`), открой Details и нажми `down` больше, чем строк в карточке, при 80x24. `detailTop` растёт мимо `maxTop`, `visibleDetailLines` отдаёт пустой срез, и панель Details показывает только заголовок — тело пустое, хотя прокрутка должна упереться в последнюю страницу.
+- Сохраняй результат клампа в модели: в `handleDetailsKey` вызов `m.clampDetailTop()` (keys.go:233) только вычисляет новое значение, а `m` остаётся прежним; после серии `down`/`pgdown` смещение обязано остаться в `[0, maxTop]`.
+- Не допускай смещения больше видимого окна: `visibleDetailLines` не должна получать offset, при котором в панели не остаётся ни одной строки контента. Расчёт высоты здесь не дублируй — его сводит в один помощник P052.2.16.
+- Покрой рендером: после `down` × N и `pgdown` панель Details не пуста и содержит текст карточки; после `up`/`pgup` прежние строки возвращаются; `esc` по-прежнему возвращает фокус в дерево.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: `end`/`G` в Details без оверлея не обрабатывается, а оверлеи diff/verify клампят себя сами (keys.go:203) — их не переписывай. Высотой (`bodyHeight()`, notice-строки, заголовок панели) занимается P052.2.16: здесь чинится только потерянный результат клампа. Не проверяй прокрутку по `statusLine()`: оракул — `Model.String()`.
+Depends: P052.2.13
+Commit: P052.2.15: clamp the details scroll offset
+
+### [ ] P052.2.16 Fit panes to the rendered body
+Read:
+- internal/tui/view.go:L62-140
+- internal/tui/view.go:L255-320
+- internal/tui/view.go:L501-570
+- internal/tui/activity.go:L1210-1246
+- internal/tui/keys.go:L145-170
+- internal/tui/app_test.go:L245-283
+- internal/tui/activity_test.go:L322-360
+Do:
+- Воспроизведи модельными тестами на `Model.String()`. (а) Дерево выше панели: фикстура с тремя фазами по 12 юнитов, 120x40, `end` выбирает последний юнит, но строки с маркером `>` выбранного юнита в отрисованном экране нет — `treeLines` считает строки по `bodyHeight()`, а `pane` тратит одну строку на заголовок. (б) Раскрытый юнит (`enter`) с длинной историей и follow: последняя строка тела новейшей записи срезана — `syncActivityScroll` ставит `len(detailLines)-bodyHeight()` тем же завышенным значением. (в) То же с непустым notice (текст ошибки прогона): `render` вычитает notice-строки из тела, а `bodyHeight()` — нет, поэтому срезано ещё на строки notice.
+- Сведи геометрию к одному источнику: `bodyHeight()` возвращает фактически отрисованное тело (заголовок, notice-строки, разделитель, статус и строка клавиш уже вычтены), высота контента панели — `bodyHeight()` минус заголовок панели; `render` вычисляет тело тем же помощником. `treeLines`, `syncActivityScroll`, `clampDetailTop` и страничные перемещения (`pgup`/`pgdown`) используют высоту контента, а не константу.
+- Не давай `pane` обрезать вычисленный контент: выбранная `end` строка дерева и тело новейшей записи при follow обязаны быть на экране; при пустом notice смещение не меняется.
+- Покрой 80x24 и 120x40 с notice и без, а также 40x12 с notice: экран либо содержит выбранную строку и новейшее тело, либо «Terminal too small»; без паники и без строк шире терминала.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: правило P052.2.13 — notice не больше двух строк и тело не меньше одной — не меняй; `pane`/truncate и оверлеи не трогай. Не дублируй расчёт высоты в `treeLines` и `syncActivityScroll`: второй расчёт снова разойдётся с notice и заголовком панели. Оракул — `Model.String()`; PTY-снимок Bubble Tea содержит только изменённые хвосты строк. Тесты клампа из P052.2.15 не переписывай.
+Depends: P052.2.15
+Commit: P052.2.16: fit panes to the rendered body
+
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:
 - internal/tui/app.go
@@ -945,13 +986,14 @@ Do:
 - Разбери Test changes; проверь, что тесты нажимают клавиши и проверяют результат процесса, а не только строку View.
 - Ничего не редактируй; дефект оформляй blocked с blocker plan и воспроизводимым сценарием.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8, P052.2.9, P052.2.10, P052.2.11, P052.2.12, P052.2.13, P052.2.14
+Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8, P052.2.9, P052.2.10, P052.2.11, P052.2.12, P052.2.13, P052.2.14, P052.2.15, P052.2.16
 Role: review
 Commit: P052.2.4: review terminal controls
 Handoff:
 - Blocked (plan): Фаза ожидает: любой выход/закрытие TUI с живым прогоном останавливает процессы и пишет checkpoint, живая история позволяет открыть результат текущего вызова, логи читаются при запуске из подкаталога, а lifecycle-действия отказывают под живым чужим раннером. Реально: SIGTERM/SIGHUP оставляет detached агента и lock без checkpoint, страница результата недоступна до конца вызова, относительные пути логов не разрешаются от корня, lock проверяется только при загрузке. План должен развести это на юниты с воспроизведениями выше.
 - Blocked (plan): The phase Do expects accurate statuses, confirmations and no state change under a foreign runner. Real: the plan reload erases every success/failure notice, so the P052.2.3 close message with the archive path (and the run failure/pause reason) is never readable; and the human-block Continue runs 'unblock' through cycle.Self without refreshLock, modifying the plan under a live foreign runner, then overwrites the refused start with 'starting the run again'. Both reproduced deterministically with overlay tests; the plan needs two units with those scenarios.
 - Blocked (plan): Three product defects and one status question remain after the Phase 2 diff; all were reproduced on this Mac with the built CLI and a fake codex stream in a real PTY, not only with model tests. 1. The live activity page cannot resolve the current call log. internal/runner/run.go:1028 emits the attempt event with the log path before CallAgent, but run.go:1042 emits the stream link only after CallAgent returns; internal/tui/activity.go records log links only from stream, and ActivityHistory.Log falls back to lastLog. In a real run (fake agent: codex item.started, sleep, item.completed; 120x40 PTY) expanding the running tool shows 'result: call log unknown: the stream link has not arrived'; on a resumed or fallback attempt the same lookup returns the previous attempt's log. P052.2.6 tests feed streamEvent before the activity, an order the runner never produces. Fix: record the attempt event's log (or publish the link before the call), reject the lastLog fallback when attempt > 0, and test the real event order. 2. q + Enter while the run is StateStarting does nothing. internal/tui/execute.go:487 calls Control.StopNow for Starting, but StopNow requires Running and the error is ignored; the start prompt arrives after the exit confirmation. Repro: write s, q, Enter in one PTY write; the process stays alive, opens the start dialog, keeps run.lock and writes no checkpoint. The signal path already uses CancelStart in stopAfterSignal; the q path must do the same and wait for Finished without a checkpoint, with a state-enforcing test. 3. Outcome notices are clipped off the only status line. statusLine appends the notice after state/run/lock/queue/selected/focus/activity, and view.padLine(truncate(...)) cuts it. At 120x40, closing P001 while P002 remains in Queue renders '...the archive needs your Outcome text:...' without the archive path required by P052.2.3's Do; Stop now renders the final status ending 'run fi...', hiding 'run finished: context canceled'; at 80 columns the notice is off the line. Model tests assert statusLine() and PTY tests avoid the notice text. Fix: prioritize, wrap or overlay the notice and assert the rendered screen at 80/120 columns. 4. Stop now is journaled as a runner failure: the same run writes unit_end status 'error' and run_end exit_code 2 with reason 'context canceled' while the host reports Finished and the UI says 'run finished: context canceled'. A controlled Stop now is an action, not a failure; the plan needs a classification like P052.1.8 did for Pause, or an explicit decision that this journal is intended. Test gap from the Test changes review: TestTerminalRunPauseResumeQuit only checks that checkpoint.json exists; it passes when Pause lands at the complete boundary after the fake agent's 5s sleep. Assert the checkpoint stage is the agent stage and a.txt is absent before R, otherwise the terminal test does not prove the current call was interrupted.
+- Blocked (plan): Phase 2's navigation does not survive a full pane: the details clamp result is discarded (keys.go:233), so scrolling past the end blanks Details, and the pane content height is one line smaller than bodyHeight() (plus notice lines), so End hides the selected tree row and follow hides the newest activity body. Both are reproduced with overlay key-driven tests against Model.String(); existing tests never fill a pane past its height. The plan needs units for these two navigation defects with the scenarios above; no file was edited.
 
 ## Phase 3: Model setup recovery and delivery
 
