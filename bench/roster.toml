@@ -32,8 +32,8 @@ class = "cheap"
 cheap      = "cheap"
 executor   = "cheap"
 heavy      = "strong"
-review     = "trusted"
-acceptance = "trusted"
+review     = "cheap"
+acceptance = "cheap"
 replan     = "trusted"
 
 [effort]
