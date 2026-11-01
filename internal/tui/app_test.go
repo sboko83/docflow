@@ -499,6 +499,11 @@ type fakeController struct {
 	// pauseNoCheckpoint models a pause that failed to persist its state.
 	pauseFinishes     bool
 	pauseNoCheckpoint bool
+	// cancelNoFinish keeps a cancelled start live until the test finishes it,
+	// so a quit command before Finished is observable; cancelToRunning models
+	// CancelStart losing the race to MarkRunning.
+	cancelNoFinish  bool
+	cancelToRunning bool
 }
 
 func newFakeController(state runner.State) *fakeController {
@@ -520,8 +525,14 @@ func (f *fakeController) Pause() error {
 }
 func (f *fakeController) CancelStart() error {
 	f.canceled++
+	if f.cancelToRunning {
+		f.state = runner.StateRunning
+		return errors.New("runner: no start confirmation is pending")
+	}
 	f.state = runner.StateStopping
-	f.finish(runner.StateFinished)
+	if !f.cancelNoFinish {
+		f.finish(runner.StateFinished)
+	}
 	return nil
 }
 func (f *fakeController) StopAfterUnit() error {
@@ -1185,6 +1196,140 @@ func TestQuitWithLiveRunPausesAndWaits(t *testing.T) {
 	model = updated.(Model)
 	if cmd == nil {
 		t.Fatal("a confirmed exit did not return the quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("exit command = %T, want tea.QuitMsg", cmd())
+	}
+	if controller.closed != 1 {
+		t.Fatalf("controller closed %d times after exit", controller.closed)
+	}
+}
+
+// TestQuitFromStartCancelsThePendingStart covers s, then q and Enter before
+// the runner published its prompt. StopNow requires a running run, so it
+// cannot stop a start and would leave the process and its checkout lock alive:
+// the workspace must cancel the pending confirmation and wait for Finished.
+func TestQuitFromStartCancelsThePendingStart(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateStarting)
+	controller.cancelNoFinish = true
+	model.controller = controller
+	model.runState = runner.StateStarting
+
+	updated, _ := model.Update(keyMsg("q"))
+	model = updated.(Model)
+	if model.dialog != dialogExit {
+		t.Fatalf("quit during the start opened dialog %v", model.dialog)
+	}
+	updated, cmd := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if controller.canceled != 1 || controller.closed != 0 {
+		t.Fatalf("canceled=%d closed=%d before Finished, want one cancel and no close", controller.canceled, controller.closed)
+	}
+	if controller.stopNow != 0 || controller.paused != 0 {
+		t.Fatalf("stop-now=%d paused=%d, want neither", controller.stopNow, controller.paused)
+	}
+	if cmd == nil {
+		t.Fatal("cancelling the start returned no poll command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); ok {
+		t.Fatal("the workspace quit before the run reached Finished")
+	}
+	controller.finish(runner.StateFinished)
+	updated, cmd = model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("Finished did not return the quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("exit command = %T, want tea.QuitMsg", cmd())
+	}
+	if controller.closed != 1 {
+		t.Fatalf("controller closed %d times after exit", controller.closed)
+	}
+}
+
+// TestQuitFromStartDeclinesTheArrivedPrompt checks that a start confirmation
+// already received is answered with a refusal and the start is still
+// cancelled. A shown dialog consumes q itself, so the quit request is issued
+// through the same seam the exit path uses.
+func TestQuitFromStartDeclinesTheArrivedPrompt(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateStarting)
+	controller.cancelNoFinish = true
+	controller.prompt("confirm_start", nil)
+	model.controller = controller
+	model.runState = runner.StateStarting
+	model = poll(t, model)
+	if model.pendingPrompt == nil || model.dialog != dialogStart {
+		t.Fatalf("start prompt was not shown: prompt=%v dialog=%v", model.pendingPrompt != nil, model.dialog)
+	}
+
+	model, _ = model.requestQuit()
+	if model.dialog != dialogExit {
+		t.Fatalf("quit with a pending prompt opened dialog %v", model.dialog)
+	}
+	updated, _ := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if len(controller.answers) != 1 || controller.answers[0].Confirmed {
+		t.Fatalf("start answers = %+v, want one refusal", controller.answers)
+	}
+	if controller.canceled != 1 || controller.stopNow != 0 || controller.paused != 0 {
+		t.Fatalf("canceled=%d stop-now=%d paused=%d, want one cancel and neither of the others",
+			controller.canceled, controller.stopNow, controller.paused)
+	}
+	if controller.closed != 0 {
+		t.Fatalf("controller closed %d times before Finished", controller.closed)
+	}
+	controller.finish(runner.StateFinished)
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("Finished did not return the quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("exit command = %T, want tea.QuitMsg", cmd())
+	}
+	if controller.closed != 1 {
+		t.Fatalf("controller closed %d times after exit", controller.closed)
+	}
+}
+
+// TestQuitFromStartFallsBackToPause covers CancelStart losing the race to
+// MarkRunning: the run is live, so the exit must pause it and wait for the
+// checkpoint instead of leaving it behind.
+func TestQuitFromStartFallsBackToPause(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateStarting)
+	controller.cancelToRunning = true
+	model.controller = controller
+	model.runState = runner.StateStarting
+
+	updated, _ := model.Update(keyMsg("q"))
+	model = updated.(Model)
+	updated, cmd := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if controller.canceled != 1 || controller.paused != 1 || controller.stopNow != 0 {
+		t.Fatalf("canceled=%d paused=%d stop-now=%d, want one cancel, one pause and no stop-now",
+			controller.canceled, controller.paused, controller.stopNow)
+	}
+	if !controller.checkpointed || model.runState != runner.StatePausing {
+		t.Fatalf("checkpoint=%v state=%s, want a pausing run with a checkpoint", controller.checkpointed, model.runState)
+	}
+	if cmd == nil {
+		t.Fatal("pausing after the lost cancel returned no poll command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); ok {
+		t.Fatal("the workspace quit before the run reached Finished")
+	}
+	controller.finish(runner.StatePaused)
+	updated, cmd = model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("Finished did not return the quit command")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatalf("exit command = %T, want tea.QuitMsg", cmd())

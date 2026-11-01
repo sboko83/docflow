@@ -278,6 +278,25 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 
 	checkpoint := filepath.Join(project, ".git", "docflow", "tui", "checkpoint.json")
 	waitFile(checkpoint, true, 20*time.Second)
+	// The pause must land inside the five-second agent call, not on the
+	// complete boundary after it: only then does the test prove that Resume
+	// continues an interrupted call instead of a finished unit.
+	data, err := os.ReadFile(checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paused struct {
+		Stage string `json:"stage"`
+	}
+	if err := json.Unmarshal(data, &paused); err != nil {
+		t.Fatalf("pause checkpoint is not JSON: %v", err)
+	}
+	if paused.Stage != "agent" {
+		t.Fatalf("pause checkpoint stage = %q, want agent: %s", paused.Stage, data)
+	}
+	if _, err := os.Stat(filepath.Join(project, "a.txt")); !os.IsNotExist(err) {
+		t.Fatalf("the fake agent wrote a.txt before the pause: %v", err)
+	}
 	waitFile(lock, false, 20*time.Second)
 	time.Sleep(200 * time.Millisecond)
 	sendKey("R")
@@ -636,6 +655,117 @@ func TestTerminalQuitWithLiveRunStopsAgent(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(project, ".git", "docflow", "run", "run.lock")); !os.IsNotExist(err) {
 		t.Fatalf("checkout lock left after exit: %v", err)
 	}
+}
+
+// TestTerminalQuitFromStartPrompt sends s, q and Enter in one write, so the
+// quit arrives while the start confirmation is still pending. The workspace
+// must cancel the start, release the checkout lock and exit 0 without calling
+// the agent or writing a checkpoint; StopNow only accepts a running run and
+// would leave the process alive.
+func TestTerminalQuitFromStartPrompt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("terminal test builds the CLI")
+	}
+	root := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "docflow")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/docflow")
+	build.Dir = root
+	build.Env = os.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v\n%s", err, out)
+	}
+
+	project, config, scenario := writeRunnableProject(t)
+	master, slave := openTestPTY(t)
+	if err := setTestWinsize(slave, 120, 40); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command(bin, "tui")
+	child.Dir = project
+	child.Env = append(os.Environ(),
+		"TERM=xterm-256color", "NO_COLOR=1",
+		"DOCFLOW_AGENTS="+config,
+		"FAKE_AGENT_SCENARIO="+scenario,
+		"DOCFLOW_NOTIFY=0", "DOCFLOW_SKILLS_CHECK=0",
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+	)
+	child.Stdin, child.Stdout, child.Stderr = slave, slave, slave
+	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var screen bytes.Buffer
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				screen.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	output := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return screen.String()
+	}
+	waitFor := func(text string) {
+		t.Helper()
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if strings.Contains(output(), text) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("terminal output does not contain %q\n%s", text, output())
+	}
+
+	waitFor("Queue")
+	// One write: s starts the run, q asks to quit and Enter confirms before
+	// the runner has published its start confirmation.
+	writeAll(t, master, "sq\r")
+	exited := make(chan error, 1)
+	go func() { exited <- child.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("tui exited with %v after cancelling the start\n%s", err, output())
+		}
+	case <-time.After(20 * time.Second):
+		_ = child.Process.Kill()
+		t.Fatalf("tui did not exit from the start confirmation\n%s", output())
+	}
+
+	for _, path := range []string{
+		scenario + ".n",
+		filepath.Join(project, ".git", "docflow", "tui", "checkpoint.json"),
+		filepath.Join(project, ".git", "docflow", "run", "run.lock"),
+		filepath.Join(project, "a.txt"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("cancelled start left %s: %v", path, err)
+		}
+	}
+	if !strings.Contains(output(), "\x1b[?1049l") {
+		t.Fatalf("alternate screen was not left\n%q", output())
+	}
+	if !strings.Contains(output(), "\x1b[?25h") {
+		t.Fatalf("cursor was not restored\n%q", output())
+	}
+	if !testEchoEnabled(t, master) {
+		t.Fatal("terminal echo was not restored")
+	}
+	_ = master.Close()
+	<-readDone
 }
 
 // TestTerminalSigtermStopsLiveRun sends SIGTERM while the fake agent is still

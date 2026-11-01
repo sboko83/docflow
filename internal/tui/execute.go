@@ -485,8 +485,25 @@ func (m Model) stopAndExit() (Model, tea.Cmd) {
 			m.notice = "pausing; the checkpoint is written before the exit"
 		}
 	case runner.StateStarting:
-		if m.pendingPrompt == nil {
-			_ = m.controller.StopNow()
+		// Cancel the start whether or not a prompt arrived: s and q can reach
+		// the workspace in one write before the runner publishes it. StopNow
+		// requires a running run and would be swallowed here.
+		if err := m.controller.CancelStart(); err != nil {
+			if m.controller.State() == runner.StateRunning {
+				// The confirmation won the race and the run is live: pause it
+				// instead of leaving it and its checkout lock behind.
+				if pauseErr := m.controller.Pause(); pauseErr != nil {
+					m.notice = pauseErr.Error()
+				} else {
+					m.runState = runner.StatePausing
+					m.notice = "the start won the race; pausing; the checkpoint is written before the exit"
+				}
+			} else {
+				m.runState = m.controller.State()
+			}
+		} else {
+			m.runState = runner.StateStopping
+			m.notice = "cancelling the start; nothing runs"
 		}
 	case runner.StatePausing, runner.StateStopping:
 		m.notice = "stopping; waiting for the stable boundary"

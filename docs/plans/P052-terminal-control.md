@@ -224,6 +224,9 @@ gate: go test -timeout 20m ./...
 - Управляемый Stop now классифицируется по состоянию хоста и отменённому ctx, как пауза в P052.1.8: `unit_end.status: stopped`, `run_end.reason: stopped`, `exit_code: 0`, без поля `paused`; обычный сигнал и Ctrl-C идут прежним путём error/2 — отвергнуто сохранение «error/context canceled» в журнале при успешном Finished у хоста и отвергнут новый код.
 - Notice исхода выводится отдельной строкой над статусной с переносом по ширине: `padLine` режет строку справа, поэтому notice в конце статусной строки не виден ни при каком приоритете внутри неё — отвергнуты notice в начале статусной строки (вытесняет run/lock/queue) и вывод notice в тело панели (дублирует дерево).
 - ActivityHistory.Log returns an error naming the attempt instead of (string, bool) — the page shows the exact missing attempt without rebuilding the message — rejected keeping the boolean and composing the text at the caller
+- Always call CancelStart instead of branching on pendingPrompt — s and q can arrive in one write before the runner publishes its confirmation, and answering a late prompt is not enough to stop the run — rejected the old pendingPrompt == nil guard that silently skipped the stop.
+- Fall back to Pause only when CancelStart errors and the controller now reads Running — that is exactly the lost race to MarkRunning, while any other state means the run already stopped or is stopping — rejected unconditional Pause on a CancelStart error.
+- The PTY regression test sends "sq\r" in one write instead of waiting for the start dialog — waiting would let the prompt arrive and exercise the already-covered quit path rather than the pending-start cancel — rejected a waitFor("Start the current Queue run?") before quitting.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -844,7 +847,7 @@ Handoff:
 - ActivityHistory.Log now returns (string, error): numbered attempts never fall back to lastLog; attempt 0 keeps using the newest log.
 - Unverified: The real runner order attempt → activity without a stream is not exercised end-to-end; the new tests construct runner events directly.
 
-### [ ] P052.2.12 Stop from the start confirmation
+### [x] P052.2.12 Stop from the start confirmation
 Read:
 - internal/tui/execute.go:L340-500
 - internal/tui/execute.go:L160-200
@@ -864,6 +867,14 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: `s` и `q` в одном write приходят до prompt, поэтому условие `m.pendingPrompt == nil` не должно отменять `CancelStart`. Поведение q/Ctrl+C, диалог выхода и путь паузы не меняй; `stopAfterSignal` не переписывай, общий код выноси только если он действительно общий. Фейковому контроллеру понадобится отдельный признак «`CancelStart` ещё не Finished», иначе тест не докажет ожидание (по образцу `pauseFinishes`). Не проверяй терминал по тексту статуса: diff-снимок содержит только хвосты строк; оракул — модельный тест, у PTY — код выхода и файлы.
 Depends: P052.2.3, P052.2.5
 Commit: P052.2.12: stop from the start confirmation
+Handoff:
+- stopAndExit for StateStarting now answers an already-delivered prompt with a refusal, then calls CancelStart regardless of m.pendingPrompt; on a CancelStart error it falls back to Pause only when the controller state reads Running, and the exit still goes through the existing exitAfterRun poll path (no second loop, no os.Exit).
+- fakeController gained cancelNoFinish (a cancelled start stays live until the test calls finish) and cancelToRunning (CancelStart loses the race to MarkRunning): use them to observe 'no quit before Finished' and the Pause fallback.
+- The start dialog consumes keys itself (handleDialogKey has no q branch for dialogStart), so a prompt that arrives after q replaces the exit dialog with the start dialog; the only model state with dialogExit + pendingPrompt is reached through requestQuit directly, which is what TestQuitFromStartDeclinesTheArrivedPrompt drives.
+- TestTerminalRunPauseResumeQuit now asserts the pause checkpoint has stage agent and that a.txt is absent before R, so a pause that slipped onto the complete boundary fails the test.
+- New PTY regression test TestTerminalQuitFromStartPrompt writes "sq\r" in one write and asserts exit 0, no run.lock, no checkpoint.json, no scenario counter, no a.txt, and restored alt screen/cursor/echo.
+- Unverified: The race where a start confirmation arrives between q and Enter is not exercised at the PTY level; the CancelStart-lost-to-MarkRunning fallback is only proven by the fake controller, so a real runner transition remains for live acceptance (P052.3.3).
+- Unverified: The new exit path and its terminal restoration are tested on darwin only; Windows behavior stays compile-checked, as the terminal tests are darwin/linux.
 
 ### [ ] P052.2.13 Keep the outcome notice on screen
 Read:
