@@ -358,6 +358,60 @@ func TestHelpAndDetailScroll(t *testing.T) {
 	}
 }
 
+func TestDetailScrollStopsAtTheLastPage(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 80, 24)
+	model = selectRow(t, model, "unit:P001.1.2")
+	model = send(t, model, keyMsg("enter"))
+	if model.focus != focusDetails {
+		t.Fatal("Enter on a unit did not open details")
+	}
+	card := model.detailLines(model.detailWidth())
+	maxTop := model.maxDetailTop(card)
+	if maxTop == 0 {
+		t.Fatalf("fixture card fits one pane: %d lines, body %d", len(card), model.bodyHeight())
+	}
+	for i := 0; i < len(card)+10; i++ {
+		model = send(t, model, keyMsg("down"))
+	}
+	if model.detailTop != maxTop {
+		t.Fatalf("detailTop after scrolling past the end = %d, want %d", model.detailTop, maxTop)
+	}
+	if visible := model.visibleDetailLines(model.detailWidth()); len(visible) == 0 {
+		t.Fatal("details pane has no content after scrolling to the last page")
+	}
+	if rendered := model.String(); !strings.Contains(rendered, "Handoff") {
+		t.Fatalf("details pane does not show the end of the card:\n%s", rendered)
+	}
+
+	model = send(t, model, keyMsg("pgdown"))
+	if model.detailTop != maxTop {
+		t.Fatalf("detailTop after PgDn = %d, want %d", model.detailTop, maxTop)
+	}
+	model = send(t, model, keyMsg("up"))
+	if model.detailTop != maxTop-1 {
+		t.Fatalf("detailTop after Up = %d, want %d", model.detailTop, maxTop-1)
+	}
+	model = send(t, model, keyMsg("pgup"))
+	if model.detailTop != 0 {
+		t.Fatalf("detailTop after PgUp = %d, want 0", model.detailTop)
+	}
+	if rendered := model.String(); !strings.Contains(rendered, "Goal") {
+		t.Fatalf("details pane does not return to the start of the card:\n%s", rendered)
+	}
+
+	model.detailTop = len(card) + 5
+	if visible := model.visibleDetailLines(model.detailWidth()); len(visible) == 0 {
+		t.Fatal("an out-of-range offset left the details pane empty")
+	}
+
+	model = send(t, model, keyMsg("down"))
+	model = send(t, model, keyMsg("esc"))
+	if model.focus != focusTree {
+		t.Fatal("Esc did not return to the tree")
+	}
+}
+
 func TestLoadingEmptyAndErrorStatesHaveActions(t *testing.T) {
 	root := writeTestProject(t)
 	loading := resize(t, New(root), 80, 24)

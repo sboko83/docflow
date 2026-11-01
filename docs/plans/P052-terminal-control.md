@@ -237,6 +237,7 @@ gate: go test -timeout 20m ./...
 - Normalize code and runErr inside the run_end defer rather than adding branches in runLoop/runUnit — one place covers the agent call, the early loop cancellation check and deferred operations, and keeps the host from receiving context.Canceled — rejected returning 0,nil from every stop point
 - Седьмой блок P052.2.4 разведён на P052.2.15 (потерянный результат клампа прокрутки Details) и P052.2.16 (высота панели от отрисованного тела с notice-строками); ревью возвращено в `[ ]` с `Depends` на оба — правка ревью запрещена, а находки разные по проверяемому поведению: пустая панель после прокрутки и неверная видимая высота.
 - Видимая высота считается от фактически отрисованного тела, а не от константы `height-5`: заголовок панели и notice-строки уже заняли строки, и повторённый в `treeLines`/`syncActivityScroll` расчёт отрезал последнюю выбранную строку — отвергнуто увеличение `bodyHeight()` на единицу (не покрывает notice) и отказ от двухстрочного notice (теряет текст исхода).
+- Added a shared maxDetailTop(lines) helper instead of repeating the len-bodyHeight formula in clampDetailTop and visibleDetailLines — one definition keeps the stored offset and the rendered window in sync — rejected duplicating the arithmetic at the render site
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -940,7 +941,7 @@ Handoff:
 - Unverified: WatchKeys/signal paths and the real TUI stop transition are only covered by fake controllers here; the live Pi/Codex PTY acceptance (P052.3.3) does not exercise this journal shape
 - Unverified: Stop now landing in pending-commit recovery may still run writeFailure and set totals.stop before the deferred reclassification; the journal is corrected, but no test asserts that path's output
 
-### [ ] P052.2.15 Keep the details scroll inside the pane
+### [x] P052.2.15 Keep the details scroll inside the pane
 Read:
 - internal/tui/keys.go:L172-240
 - internal/tui/view.go:L501-570
@@ -955,6 +956,11 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: `end`/`G` в Details без оверлея не обрабатывается, а оверлеи diff/verify клампят себя сами (keys.go:203) — их не переписывай. Высотой (`bodyHeight()`, notice-строки, заголовок панели) занимается P052.2.16: здесь чинится только потерянный результат клампа. Не проверяй прокрутку по `statusLine()`: оракул — `Model.String()`.
 Depends: P052.2.13
 Commit: P052.2.15: clamp the details scroll offset
+Handoff:
+- Model.maxDetailTop(lines) in internal/tui/view.go is now the single scroll-bound helper; clampDetailTop and visibleDetailLines both use it, so P052.2.16 only needs to change what height it gets, not the call sites.
+- TestDetailScrollStopsAtTheLastPage in internal/tui/app_test.go is the scroll oracle for Details; its fixture (P001.1.2 at 80x24) yields maxTop=1, so a height change in P052.2.16 will shift these expectations.
+- Overlays (diff/verify) keep their own clamping in handleDetailsKey and were not touched; only the non-overlay branch changed.
+- Unverified: The last line of the scrolled page is still clipped because maxDetailTop subtracts bodyHeight() while the pane spends a line on its title; the test asserts the Handoff heading rather than the final bullet — the rendered pane height is P052.2.16's scope, not checked here.
 
 ### [ ] P052.2.16 Fit panes to the rendered body
 Read:

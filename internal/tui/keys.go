@@ -230,8 +230,7 @@ func (m Model) handleDetailsKey(key string) Model {
 	case "tab", "shift+tab":
 		return m.switchPanel()
 	}
-	m.clampDetailTop()
-	return m
+	return m.clampDetailTop()
 }
 
 // handleActivityKey navigates the bounded activity history of the selected

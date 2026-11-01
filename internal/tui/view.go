@@ -543,18 +543,24 @@ func (m Model) visibleDetailLines(width int) []string {
 	if offset < 0 {
 		offset = 0
 	}
-	if offset > len(lines) {
-		offset = len(lines)
+	if maxTop := m.maxDetailTop(lines); offset > maxTop {
+		offset = maxTop
 	}
 	return lines[offset:]
 }
 
-func (m Model) clampDetailTop() Model {
-	lines := m.detailLines(m.detailWidth())
+// maxDetailTop is the last scroll offset that still leaves content in the
+// details pane: the clamped window never scrolls past the final line.
+func (m Model) maxDetailTop(lines []string) int {
 	maxTop := len(lines) - m.bodyHeight()
 	if maxTop < 0 {
 		maxTop = 0
 	}
+	return maxTop
+}
+
+func (m Model) clampDetailTop() Model {
+	maxTop := m.maxDetailTop(m.detailLines(m.detailWidth()))
 	if m.detailTop > maxTop {
 		m.detailTop = maxTop
 	}
