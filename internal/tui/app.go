@@ -41,6 +41,19 @@ func Run(root string, in io.Reader, out io.Writer, opts ...Option) error {
 	model := New(root)
 	model.skillDirectory = options.skillDirectory
 	program := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
-	_, err := program.Run()
-	return err
+	stopHangup := watchHangup(program)
+	defer stopHangup()
+	final, runErr := program.Run()
+	// SIGTERM becomes a QuitMsg inside Bubble Tea and a hangup is turned into
+	// one above, so both return from Run without the exit dialog. A run the
+	// workspace still owns is stopped here, after the terminal is restored.
+	if stopped, ok := final.(Model); ok {
+		if stopErr := stopped.stopAfterSignal(); stopErr != nil {
+			if runErr != nil {
+				return fmt.Errorf("%w: %w", runErr, stopErr)
+			}
+			return stopErr
+		}
+	}
+	return runErr
 }

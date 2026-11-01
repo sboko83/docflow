@@ -32,6 +32,7 @@ type Controller interface {
 	Start() error
 	Resume() error
 	Pause() error
+	CancelStart() error
 	StopAfterUnit() error
 	StopNow() error
 	State() runner.State
@@ -97,6 +98,7 @@ func (h *Host) Resume() error {
 }
 
 func (h *Host) Pause() error         { return h.control.Pause() }
+func (h *Host) CancelStart() error   { return h.control.CancelStart() }
 func (h *Host) StopAfterUnit() error { return h.control.StopAfterUnit() }
 func (h *Host) StopNow() error       { return h.control.StopNow() }
 func (h *Host) State() runner.State  { return h.control.State() }

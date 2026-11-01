@@ -203,6 +203,9 @@ gate: go test -timeout 20m ./...
 - Страница запущенного инструмента читает лог от `ref.Offset` до текущего конца файла: `Ref.Length` — длина строки старта, и до прихода завершающей activity байты вызова недоступны — отвергнуто ожидание завершающего события (P052.2.2 требует читать результат текущего вызова) и отвергнуто расширение ref в `agentio`, ломающее формат ссылки.
 - Пути логов из событий разрешаются в TUI от корня checkout в момент чтения: поток версии 1 хранит путь относительно checkout, а процесс может работать из подкаталога — отвергнуты абсолютные пути в событиях (формат версии 1) и смена cwd процесса (глобальное состояние на весь прогон).
 - Чужой lock проверяется в момент действия, а не только при загрузке: lifecycle идёт через `cycle.Self`, который lock не проверяет, поэтому guard в UI — единственный — отвергнуты фоновый watcher (нет фонового сервиса) и опора на ошибку `runLock` у Start для lifecycle-действий.
+- Stop a live run after program.Run rather than intercepting signals in handlers — SIGTERM already becomes QuitMsg inside Bubble Tea and SIGHUP is not its concern, so one path covers both and reuses the existing Pause → Finished → Close sequence — rejected a second event loop or custom SIGTERM handling.
+- Added CancelStart to the TUI Controller instead of calling StopNow on a Starting run — StopNow requires Running and would miss the pending start confirmation — rejected overloading StopNow with a state check.
+- If CancelStart loses the race to MarkRunning, fall back to Pause — otherwise the signal could leave a just-started run and its lock behind — rejected returning nil on that error.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -637,7 +640,7 @@ Handoff:
 - Unverified: The Close success path is tested with a synthetic archive file, not by closing a real completed plan with a filled Outcome through the TUI.
 - Unverified: Terminal tests are darwin/linux only; Windows console behavior for these new controls is not covered.
 
-### [ ] P052.2.5 Stop the run on a terminal signal
+### [x] P052.2.5 Stop the run on a terminal signal
 Read:
 - internal/tui/app.go:L1-46
 - internal/tui/execute.go:L362-407
@@ -660,6 +663,14 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: `os.Exit` и `defer` в момент сигнала не спасают: SIGHUP без обработчика убивает процесс мгновенно, а SIGTERM Bubble Tea проглатывает. SIGKILL не покрывается — не обещай его в тексте. Не запускай остановку в горутине без ожидания: выход процесса обязан дождаться записи checkpoint. Не сокращай таймаут до нуля: пауза на границе verify/commit должна успеть записать состояние. Поведение q/Ctrl+C и существующий диалог выхода не меняй. Пользовательский текст контракта — P052.3.3.
 Depends: P052.2.3
 Commit: P052.2.5: stop the run on a terminal signal
+Handoff:
+- The terminal-signal stop lives in tui.Run after program.Run via Model.stopAfterSignal; Bubble Tea returns the final model, so the run and checkout lock are stopped there, not in a key handler.
+- Controller gained CancelStart(); any new Controller implementation must provide it (fakeController in internal/tui/app_test.go already does).
+- stopWaitTimeout is a package variable (60s in production) shortened by tests; do not move the wait into a goroutine, the process must not exit before the checkpoint is written.
+- watchHangup is split by build tags: SIGHUP is handled in signal_unix.go, signal_windows.go is an empty hook because Windows has no SIGHUP.
+- Unverified: Windows console behavior for SIGTERM/SIGHUP is only compile-checked; there is no Windows runtime test for the empty hangup hook or for stopping a live run.
+- Unverified: Child-process termination on a terminal signal is exercised with the shell fake agent, not with real Pi/Codex/opencode child process trees; live acceptance remains P052.3.3.
+- Unverified: SIGKILL (and a crash that bypasses deferred code) is not covered, as the unit explicitly excludes it.
 
 ### [ ] P052.2.6 Read the result of the call that is still running
 Read:

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -486,8 +487,13 @@ type fakeController struct {
 	checkpointed bool
 	err          error
 
-	started, resumed, paused, stopped, stopNow, closed int
-	answers                                            []runner.Response
+	started, resumed, paused, stopped, stopNow, canceled, closed int
+	answers                                                      []runner.Response
+
+	// pauseFinishes ends the fake run at the stable boundary and
+	// pauseNoCheckpoint models a pause that failed to persist its state.
+	pauseFinishes     bool
+	pauseNoCheckpoint bool
 }
 
 func newFakeController(state runner.State) *fakeController {
@@ -499,7 +505,18 @@ func (f *fakeController) Resume() error { f.resumed++; f.state = runner.StateRun
 func (f *fakeController) Pause() error {
 	f.paused++
 	f.state = runner.StatePausing
-	f.checkpointed = true
+	if !f.pauseNoCheckpoint {
+		f.checkpointed = true
+	}
+	if f.pauseFinishes {
+		f.finish(runner.StatePaused)
+	}
+	return nil
+}
+func (f *fakeController) CancelStart() error {
+	f.canceled++
+	f.state = runner.StateStopping
+	f.finish(runner.StateFinished)
 	return nil
 }
 func (f *fakeController) StopAfterUnit() error {
@@ -770,6 +787,73 @@ func TestCloseNoticeNamesUnwrittenArchiveText(t *testing.T) {
 	model = updated.(Model)
 	if !strings.Contains(model.notice, "needs your Outcome text") || !strings.Contains(model.notice, "docs/archive/P001-cache.md") {
 		t.Fatalf("close notice = %q", model.notice)
+	}
+}
+
+func TestSignalStopPausesOnceAndWaitsForTheCheckpoint(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateIdle)
+	controller.pauseFinishes = true
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if err := model.stopAfterSignal(); err != nil {
+		t.Fatalf("signal stop = %v", err)
+	}
+	if controller.paused != 1 || controller.closed != 1 {
+		t.Fatalf("paused=%d closed=%d, want one pause and one close", controller.paused, controller.closed)
+	}
+}
+
+func TestSignalStopTimesOutAndClosesTheHost(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	previous := stopWaitTimeout
+	stopWaitTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { stopWaitTimeout = previous })
+	err := model.stopAfterSignal()
+	if err == nil || !strings.Contains(err.Error(), "did not stop within") {
+		t.Fatalf("timeout error = %v", err)
+	}
+	if controller.closed != 1 {
+		t.Fatalf("controller closed %d times after the timeout", controller.closed)
+	}
+}
+
+func TestSignalStopRefusesPausedWithoutCheckpoint(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateIdle)
+	controller.pauseFinishes = true
+	controller.pauseNoCheckpoint = true
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	err := model.stopAfterSignal()
+	if err == nil || !strings.Contains(err.Error(), "Paused without") {
+		t.Fatalf("unwritten checkpoint error = %v", err)
+	}
+}
+
+func TestSignalStopCancelsAPendingStart(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateStarting)
+	model.controller = controller
+	model.runState = runner.StateStarting
+	if err := model.stopAfterSignal(); err != nil {
+		t.Fatalf("signal stop during start = %v", err)
+	}
+	if controller.canceled != 1 || controller.closed != 1 {
+		t.Fatalf("canceled=%d closed=%d, want one cancel and one close", controller.canceled, controller.closed)
+	}
+	if controller.paused != 0 {
+		t.Fatalf("a pending start was paused %d times", controller.paused)
 	}
 }
 

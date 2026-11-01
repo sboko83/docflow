@@ -376,6 +376,62 @@ func (m Model) requestQuit() (Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
+// stopWaitTimeout bounds how long a terminal signal waits for the run to
+// reach a stable boundary and write its Pause checkpoint. The pause itself
+// never counts against the agent timeout; the bound only stops a wedged
+// runner from keeping the process alive. Tests shorten it.
+var stopWaitTimeout = 60 * time.Second
+
+// stopAfterSignal stops a run that is still live when the program returned.
+// It mirrors stopAndExit but waits synchronously: the process must not exit
+// before the checkpoint is written and the checkout lock is released.
+func (m Model) stopAfterSignal() error {
+	controller := m.controller
+	if controller == nil {
+		return nil
+	}
+	defer controller.Close()
+	state := controller.State()
+	if state == runner.StatePaused && !controller.Checkpointed() {
+		return fmt.Errorf("docflow tui: the run is Paused without a written checkpoint")
+	}
+	switch state {
+	case runner.StateRunning:
+		if err := controller.Pause(); err != nil {
+			// The run left Running before the signal was applied; nothing is live.
+			return nil
+		}
+	case runner.StateStarting:
+		// No unit started yet: cancel the pending confirmation without a
+		// checkpoint, which is the correct record of an unused start.
+		if err := controller.CancelStart(); err != nil {
+			// The start confirmation was accepted just before the signal and
+			// the run is now live: pause that run instead of leaving it behind.
+			_ = controller.Pause()
+		}
+	case runner.StatePausing, runner.StateStopping:
+		// A stop is already on its way to the stable boundary.
+	default:
+		return nil
+	}
+	deadline := time.Now().Add(stopWaitTimeout)
+	for !controller.Finished() {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("docflow tui: the run did not stop within %s", stopWaitTimeout)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if controller.State() == runner.StatePaused && !controller.Checkpointed() {
+		return fmt.Errorf("docflow tui: the run stopped as Paused without writing a checkpoint")
+	}
+	if controller.State() == runner.StateFailed {
+		if err := controller.Err(); err != nil {
+			return fmt.Errorf("docflow tui: the run failed while stopping: %w", err)
+		}
+	}
+	return nil
+}
+
 func (m Model) stopAndExit() (Model, tea.Cmd) {
 	m.exitAfterRun = true
 	if m.controller == nil {
