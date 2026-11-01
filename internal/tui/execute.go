@@ -306,11 +306,27 @@ func (m Model) handlePrompt(prompt Prompt) Model {
 	}
 	p := prompt
 	m.pendingPrompt = &p
+	if m.dialog != dialogNone {
+		// A dialog already owns the keyboard. Replacing it here would make
+		// the next Enter answer a question the person never saw: remember
+		// the prompt and open its dialog once the current one closes.
+		return m
+	}
+	return m.showPendingPrompt()
+}
+
+// showPendingPrompt opens the dialog for the remembered prompt. Callers use it
+// only when no other dialog is open, so the open dialog keeps every key.
+func (m Model) showPendingPrompt() Model {
+	prompt := m.pendingPrompt
+	if prompt == nil {
+		return m
+	}
 	switch prompt.Kind {
 	case "confirm_start":
 		m.dialog = dialogStart
 		m.dialogTitle = "Start the current Queue run?"
-		m.dialogLines = startDialogLines(prompt)
+		m.dialogLines = startDialogLines(*prompt)
 		m.dialogInput, m.dialogNote = "", false
 	default:
 		m.dialog = dialogStart
@@ -385,6 +401,7 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		case "esc", "n":
 			m.dialog = dialogNone
 			m.notice = "staying with the live run"
+			m = m.showPendingPrompt()
 			return m, pollSoon()
 		}
 		return m, nil
@@ -406,6 +423,7 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				return m, nil
 			}
 			m.dialog = dialogNone
+			m = m.showPendingPrompt()
 			lifecycle := m.lifecycle
 			root := m.root
 			return m, func() tea.Msg {
@@ -415,6 +433,7 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		case "esc":
 			m.dialog = dialogNone
 			m.notice = "left " + m.blockedUnit + " blocked"
+			m = m.showPendingPrompt()
 			return m, nil
 		case "backspace":
 			runes := []rune(m.dialogInput)

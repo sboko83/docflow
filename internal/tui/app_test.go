@@ -1746,6 +1746,100 @@ func TestQuitFromStartFallsBackToPause(t *testing.T) {
 	}
 }
 
+// lateStartPromptQuit drives the order q before the prompt: the exit dialog is
+// already open when the runner publishes its start confirmation.
+func lateStartPromptQuit(t *testing.T) (Model, *fakeController) {
+	t.Helper()
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateStarting)
+	controller.cancelNoFinish = true
+	model.controller = controller
+	model.runState = runner.StateStarting
+
+	updated, _ := model.Update(keyMsg("q"))
+	model = updated.(Model)
+	if model.dialog != dialogExit {
+		t.Fatalf("quit during the start opened dialog %v", model.dialog)
+	}
+	controller.prompt("confirm_start", nil)
+	model = poll(t, model)
+	if model.dialog != dialogExit {
+		t.Fatalf("a late start prompt replaced the exit dialog with %v", model.dialog)
+	}
+	if model.pendingPrompt == nil {
+		t.Fatal("the late start prompt was not remembered")
+	}
+	return model, controller
+}
+
+// TestLateStartPromptKeepsTheExitDialog covers the order the earlier quit test
+// skips: the start confirmation arrives while the exit dialog is open. Enter
+// must still mean "stop and exit", answer the prompt with one refusal and
+// cancel the pending start.
+func TestLateStartPromptKeepsTheExitDialog(t *testing.T) {
+	model, controller := lateStartPromptQuit(t)
+
+	updated, _ := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if len(controller.answers) != 1 || controller.answers[0].Confirmed {
+		t.Fatalf("start answers = %+v, want one refusal", controller.answers)
+	}
+	if controller.canceled != 1 || controller.paused != 0 || controller.stopNow != 0 {
+		t.Fatalf("canceled=%d paused=%d stop-now=%d, want one cancel and neither of the others",
+			controller.canceled, controller.paused, controller.stopNow)
+	}
+	controller.finish(runner.StateCancelled)
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "nothing runs") {
+		t.Fatalf("cancelled start notice = %q", model.notice)
+	}
+	if cmd == nil {
+		t.Fatal("Finished did not return the quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("exit command = %T, want tea.QuitMsg", cmd())
+	}
+	if controller.closed != 1 {
+		t.Fatalf("controller closed %d times after exit", controller.closed)
+	}
+}
+
+// TestEscapeExitShowsTheLateStartPrompt checks the other branch of that order:
+// Esc keeps the workspace, then the remembered prompt gets its own dialog and
+// is answered exactly once.
+func TestEscapeExitShowsTheLateStartPrompt(t *testing.T) {
+	model, controller := lateStartPromptQuit(t)
+
+	updated, _ := model.Update(keyMsg("esc"))
+	model = updated.(Model)
+	if model.dialog != dialogStart {
+		t.Fatalf("escaping the exit left dialog %v, want the start dialog", model.dialog)
+	}
+	if model.exitAfterRun {
+		t.Fatal("staying with the run still marked the workspace for exit")
+	}
+	if len(controller.answers) != 0 {
+		t.Fatalf("the late prompt was answered before its dialog: %+v", controller.answers)
+	}
+	if view := model.String(); !strings.Contains(view, "Start the current Queue run?") {
+		t.Fatalf("the start dialog did not render after Esc:\n%s", view)
+	}
+
+	updated, _ = model.Update(keyMsg("esc"))
+	model = updated.(Model)
+	if len(controller.answers) != 1 || controller.answers[0].Confirmed {
+		t.Fatalf("start answers = %+v, want exactly one refusal", controller.answers)
+	}
+	if model.pendingPrompt != nil || model.dialog != dialogNone {
+		t.Fatalf("declined prompt left dialog %v pending=%v", model.dialog, model.pendingPrompt != nil)
+	}
+	if controller.canceled != 0 {
+		t.Fatalf("declining the start cancelled it %d times from the workspace", controller.canceled)
+	}
+}
+
 func TestForeignRunnerLockAllowsViewingButRefusesControl(t *testing.T) {
 	root := writeTestProject(t)
 	model := resize(t, loadedModel(t, root), 100, 30)

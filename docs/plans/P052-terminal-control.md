@@ -252,6 +252,7 @@ gate: go test -timeout 20m ./...
 - Carry the pre-start reason as a host-only start_failure event plus the execute error — runWithOptions builds the journal only after prerequisites, so a journal event there would reorder run_start — rejected a journal event before run_start and enabling Progress output for the interactive host.
 - Added an explicit MarkStartCancelled called by startRun on a declined confirmation instead of inferring cancellation from 'execute returned while still Starting' — the decline must be a recorded host decision that CancelStart and the dialog share, not a guess from the leftover state — rejected inferring from StateStarting, which leaves the classification implicit and untestable.
 - Classified the startCancelled flag ahead of the Stopping branch in the Start goroutine — a cancel of a pending start also moves the host to Stopping, and the flag must win over the generic ControlledStop-to-Finished mapping — rejected a separate internal exit code or reusing StatePaused.
+- Remember a late prompt and open its dialog via one showPendingPrompt helper instead of per-call branches — the invariant 'no dialog is replaced under the person's keys' is enforced in one place — rejected replacing the dialog in handlePrompt and re-opening it only in the exit-Esc branch
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1070,7 +1071,7 @@ Handoff:
 - A cancelled start writes no checkpoint and does not become Paused; runner tests check both via Checkpointed and ReadCheckpoint.
 - Unverified: No terminal (PTY) scenario declines the start dialog against the real runner: the model test fakes the cancelled state and the runner test covers StartRun's decline, but the joined TUI dialogs → real Control path for a decline is not exercised end to end.
 
-### [ ] P052.2.20 Keep the open dialog's keys on a late prompt
+### [x] P052.2.20 Keep the open dialog's keys on a late prompt
 Read:
 - internal/tui/execute.go:L274-297
 - internal/tui/execute.go:L335-405
@@ -1087,6 +1088,9 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: prompt без ответа держит горутину `Ask` до отмены ctx — «просто проигнорировать» нельзя. Не отвечай на prompt в обход `handlePrompt`. Порядок диалогов проверяй моделью: PTY-снимок не годится как оракул.
 Depends: P052.2.3, P052.2.12
 Commit: P052.2.20: keep an open dialog on a late prompt
+Handoff:
+- handlePrompt now only stores a prompt when m.dialog != dialogNone; showPendingPrompt opens its dialog and is called from every dialog-close path (exit Esc, human Enter/Esc). A new dialog-close path must call it too or the prompt stays unanswered.
+- Unverified: Only confirm_start late prompts are tested; a non-start prompt (kind default) arriving over dialogHuman/exit follows the same showPendingPrompt path but has no model test.
 
 ### [ ] P052.2.21 Accept shifted characters in text input
 Read:
