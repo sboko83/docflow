@@ -93,9 +93,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		return m.switchPanel(), nil
 	case "s":
-		return m.startRun(false)
+		model, cmd, _ := m.startRun(false)
+		return model, cmd
 	case "R":
-		return m.startRun(true)
+		model, cmd, _ := m.startRun(true)
+		return model, cmd
 	case "p":
 		if m.controller == nil || m.controllerDone || m.runState != runner.StateRunning {
 			m.notice = "Pause needs a running run"

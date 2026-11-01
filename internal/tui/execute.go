@@ -96,11 +96,13 @@ func (m Model) selectedPlan() *PlanView {
 
 // startRun starts a fresh run or resumes the checkpoint. The runner asks for
 // its own start confirmation through the prompt channel; the workspace never
-// answers it on the person's behalf.
-func (m Model) startRun(resume bool) (Model, tea.Cmd) {
+// answers it on the person's behalf. The last result reports whether a
+// controller was created: a caller that also did something else, such as an
+// unblock, must not report a start that never happened.
+func (m Model) startRun(resume bool) (Model, tea.Cmd, bool) {
 	if m.runIsActive() || (m.controller != nil && !m.controllerDone) {
 		m.notice = "a run is already active; wait for it or stop it"
-		return m, nil
+		return m, nil, false
 	}
 	if m.controller != nil && m.controllerDone {
 		m.controller.Close()
@@ -111,14 +113,14 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd) {
 	m.refreshLock()
 	if notice, refused := m.lockRefusal("starting is not"); refused {
 		m.notice = notice
-		return m, nil
+		return m, nil, false
 	}
 	if resume {
 		// ResumeRun validates the checkpoint and reports recovery conflicts;
 		// a second check here would duplicate its decision.
 	} else if len(m.snapshot.Queue) == 0 {
 		m.notice = "nothing to start: Queue is empty"
-		return m, nil
+		return m, nil, false
 	}
 	factory := m.newController
 	if factory == nil {
@@ -127,7 +129,7 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd) {
 	controller := factory(m.root, m.skillDirectory)
 	if controller == nil {
 		m.notice = "cannot create the runner host"
-		return m, nil
+		return m, nil, false
 	}
 	var err error
 	if resume {
@@ -138,7 +140,7 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd) {
 	if err != nil {
 		controller.Close()
 		m.notice = err.Error()
-		return m, nil
+		return m, nil, false
 	}
 	m.controller = controller
 	m.controllerDone = false
@@ -151,7 +153,7 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd) {
 	} else {
 		m.notice = "starting the current Queue run"
 	}
-	return m, pollSoon()
+	return m, pollSoon(), true
 }
 
 func (m Model) pollController() (Model, tea.Cmd) {
@@ -353,11 +355,20 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		switch key {
 		case "enter":
 			unit := m.blockedUnit
-			m.dialog = dialogNone
 			note := strings.TrimSpace(m.dialogInput)
 			if unit == "" {
+				m.dialog = dialogNone
 				return m, nil
 			}
+			// The unblock runs through cycle.Self, which takes no lock of its
+			// own: this guard is the only check, and it must read the lock now,
+			// not at load. A refusal keeps the dialog and the typed note.
+			m.refreshLock()
+			if notice, refused := m.lockRefusal("the unblock is refused"); refused {
+				m.notice = notice
+				return m, nil
+			}
+			m.dialog = dialogNone
 			lifecycle := m.lifecycle
 			root := m.root
 			return m, func() tea.Msg {
@@ -563,10 +574,15 @@ func (m Model) applyLifecycle(msg lifecycleDoneMsg) (Model, tea.Cmd) {
 	case "close":
 		m.notice = m.closeNotice(msg.planID, msg.result)
 	case "unblock":
-		m.notice = fmt.Sprintf("%s unblocked; starting the run again", msg.planID)
 		m.blockedUnit, m.blockedReason = "", ""
-		reloaded, cmd := m.startRun(false)
-		reloaded.notice = m.notice
+		reloaded, cmd, started := m.startRun(false)
+		if started {
+			// The start ran only after the unblock, so the note names both. A
+			// refused start keeps its own notice: overwriting it would report
+			// a run that never began, and the reload keeps whatever text this
+			// branch leaves in place.
+			reloaded.notice = fmt.Sprintf("%s unblocked; starting the run again", msg.planID)
+		}
 		return reloaded, tea.Batch(cmd, loadCmd(m.load))
 	default:
 		m.notice = fmt.Sprintf("%s %s: %s", msg.action, msg.planID, firstLine(strings.TrimSpace(msg.result.Stdout)))

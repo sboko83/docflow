@@ -731,7 +731,7 @@ func TestHumanBlockOffersContinueWithExistingUnblock(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("Enter on a human block returned no unblock command")
 	}
-	updated, _ = model.Update(cmd())
+	updated, cmd = model.Update(cmd())
 	model = updated.(Model)
 	want := []string{"unblock", "P001.2.2", "--note=вошёл"}
 	if strings.Join(calls, "\x00") != strings.Join(want, "\x00") {
@@ -739,6 +739,144 @@ func TestHumanBlockOffersContinueWithExistingUnblock(t *testing.T) {
 	}
 	if second.started != 1 {
 		t.Fatalf("Continue did not start the runner again: %d", second.started)
+	}
+	// The note names both halves of the action, and the tree reload that
+	// follows the unblock keeps it.
+	if !strings.Contains(model.notice, "unblocked") || !strings.Contains(model.notice, "starting the run again") {
+		t.Fatalf("unblock notice = %q", model.notice)
+	}
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, "unblocked") || !strings.Contains(model.notice, "starting the run again") {
+		t.Fatalf("reload replaced the unblock notice with %q", model.notice)
+	}
+}
+
+// humanBlockModel drives a workspace to an open human-block dialog and returns
+// it together with the plan path. The controllers are prepared so a test sees
+// whether the Continue created one.
+func humanBlockModel(t *testing.T, controllers ...*fakeController) (Model, string) {
+	t.Helper()
+	root := writeTestProject(t)
+	planPath := filepath.Join(root, "docs", "plans", "P001-cache.md")
+	text, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := strings.Replace(string(text), "### [!] P001.2.2 Заблокированный юнит\nDo:\n- ждать человека\n", "### [!] P001.2.2 Заблокированный юнит\nDo:\n- ждать человека\nHandoff:\n- Blocked (human): нужен вход в аккаунт\n", 1)
+	if err := os.WriteFile(planPath, []byte(blocked), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := resize(t, loadedModel(t, root), 120, 40)
+	first := controllers[0]
+	model = useControllers(t, model, controllers...)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	first.finish(runner.StateBlocked)
+	model = poll(t, model)
+	if model.dialog != dialogHuman {
+		t.Fatalf("blocked dialog = %v (%s)", model.dialog, model.notice)
+	}
+	for _, part := range []string{"в", "о", "ш", "ё", "л"} {
+		updated, _ = model.Update(keyMsg(part))
+		model = updated.(Model)
+	}
+	return model, planPath
+}
+
+// TestUnblockRefusedUnderForeignRunner keeps the unblock dialog open when a
+// live foreign runner owns the checkout: the lifecycle seam is never called,
+// the plan on disk stays byte-identical and the typed note is kept.
+func TestUnblockRefusedUnderForeignRunner(t *testing.T) {
+	model, planPath := humanBlockModel(t, newFakeController(runner.StateIdle))
+	before, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.lockCheck = func(string) (int, bool, error) { return 4242, true, nil }
+	model.lifecycle = func(string, ...string) cycle.Result {
+		t.Fatal("a live foreign runner allowed the unblock")
+		return cycle.Result{}
+	}
+	model.newController = func(string, string) Controller {
+		t.Fatal("a refused unblock created a controller")
+		return nil
+	}
+
+	updated, cmd := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if cmd != nil {
+		t.Fatal("a refused unblock scheduled a command")
+	}
+	if model.dialog != dialogHuman {
+		t.Fatalf("a refused unblock closed the dialog: %v", model.dialog)
+	}
+	if model.dialogInput != "вошёл" {
+		t.Fatalf("a refused unblock lost the typed note: %q", model.dialogInput)
+	}
+	if !strings.Contains(model.notice, "4242") || !strings.Contains(model.notice, "the unblock is refused") {
+		t.Fatalf("refusal notice = %q", model.notice)
+	}
+	after, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("a refused unblock changed the plan on disk")
+	}
+}
+
+// TestUnblockRefusedWithUnreadableLock treats a failing lock check as unknown
+// on the unblock path too: nothing runs and the note survives.
+func TestUnblockRefusedWithUnreadableLock(t *testing.T) {
+	model, _ := humanBlockModel(t, newFakeController(runner.StateIdle))
+	model.lockCheck = func(string) (int, bool, error) { return 0, false, os.ErrPermission }
+	model.lifecycle = func(string, ...string) cycle.Result {
+		t.Fatal("an unreadable lock allowed the unblock")
+		return cycle.Result{}
+	}
+
+	updated, cmd := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if cmd != nil {
+		t.Fatal("a refused unblock scheduled a command")
+	}
+	if model.dialog != dialogHuman || model.dialogInput != "вошёл" {
+		t.Fatalf("dialog=%v input=%q", model.dialog, model.dialogInput)
+	}
+	if !strings.Contains(model.notice, "cannot read the checkout lock") || !strings.Contains(model.notice, "permission denied") {
+		t.Fatalf("refusal notice = %q", model.notice)
+	}
+}
+
+// TestUnblockRaceWithForeignRunnerRefusesTheStart covers the second moment: the
+// unblock itself went through, then another runner took the checkout. The
+// start must refuse, name that pid and not be reported as a restart.
+func TestUnblockRaceWithForeignRunnerRefusesTheStart(t *testing.T) {
+	first := newFakeController(runner.StateIdle)
+	second := newFakeController(runner.StateIdle)
+	model, _ := humanBlockModel(t, first, second)
+	model.lifecycle = func(string, ...string) cycle.Result {
+		// The runner appears between the unblock and the start.
+		model.lockCheck = func(string) (int, bool, error) { return 4242, true, nil }
+		return cycle.Result{Code: 0, Stdout: "commit: P001.2.2: unblock unit\n"}
+	}
+
+	updated, cmd := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("Enter on a human block returned no unblock command")
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(Model)
+	if second.started != 0 || model.controller != nil {
+		t.Fatalf("the race started a runner: started=%d controller=%v", second.started, model.controller)
+	}
+	if !strings.Contains(model.notice, "4242") || strings.Contains(model.notice, "starting the run again") {
+		t.Fatalf("the refused start reported %q", model.notice)
+	}
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, "4242") || strings.Contains(model.notice, "starting the run again") {
+		t.Fatalf("the reload replaced the refused start with %q", model.notice)
 	}
 }
 

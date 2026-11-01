@@ -217,6 +217,8 @@ gate: go test -timeout 20m ./...
 - Перезагрузка плана сохраняет notice исхода, а стирает только текст самой загрузки — «reloading» клавиши `r` при StateLoading: snapshot сейчас единственное место, которое затирает путь архива из close и причину паузы или ошибки прогона, и одно правило чинит все источники reload сразу — отвергнуты второе поле для исхода рядом с `notice` (два конкурирующих текста в статус-строке) и полный отказ от очистки (тогда «reloading» не исчезает).
 - Human-block Continue проверяет lock в момент действия, как остальные lifecycle-клавиши, и не перекрывает отказ старта сообщением об unblock: диалог зовёт `cycle.Self` напрямую, поэтому guard из `lifecycleKey` его не покрывает — отвергнуты проверка внутри `cycle.Self` (он lock не берёт) и сохранение «starting the run again» после отказа.
 - Test-side applyLoad fails loudly when a command carries no snapshotMsg — a lost loadCmd then breaks the test instead of passing without exercising the reload — rejected asserting only pollController/applyLifecycle cmd != nil with a separate manual snapshotMsg.
+- The unblock lock guard lives in the dialogHuman Enter branch with the same refreshLock/lockRefusal pair as lifecycleKey — cycle.Self is a CLI dispatcher that takes no lock, so the UI is the only check — rejected checking the lock inside cycle.Self.
+- applyLifecycle keeps the refusal notice instead of the unblock text when startRun created no controller — the reload only clears its own placeholder, so the refusal survives — rejected a second notice field.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -787,7 +789,7 @@ Handoff:
 - Unverified: The live terminal no longer asserts the notice text after reload anywhere: the PTY test only checks exit code and the plan unit, so the full status-line text survives only as a model-level claim (terminal_test.go:295 comment).
 - Unverified: applyLoad handles a one-level tea.BatchMsg only; a future wrapper such as SequenceMsg would make such tests fatal rather than silently wrong, so a real regression in that wrapper shape is not covered until a test adapts applyLoad.
 
-### [ ] P052.2.10 Refuse unblock under a foreign runner
+### [x] P052.2.10 Refuse unblock under a foreign runner
 Read:
 - internal/tui/execute.go:L48-82
 - internal/tui/execute.go:L100-160
@@ -810,6 +812,10 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: заметка живёт в `m.dialogInput` — отказ не должен её очищать, иначе человек набирает заново. Проверка перед unblock и проверка внутри startRun — два разных момента; покрывай оба, иначе гонка вернётся. Шов `model.lifecycle` имеет вид `func(root string, args ...string)`, и существующий тест сверяет аргументы `unblock`, `P001.2.2`, `--note=вошёл` — порядок не меняй. Не эмулируй чужой раннер удалением плана или `run.lock`: меняется только шов `lockCheck`, файлы плана и lock не трогай. Не добавляй `git init` в фикстуры — `loadedModel` уже заглушает `lockCheck` (P052.2.8). Не проверяй отказ по тексту статуса в PTY-тесте: diff-снимок Bubble Tea содержит только изменённые хвосты строк, оракул — модельный тест; TestTerminalLockAtAction не ослабляй.
 Depends: P052.2.9
 Commit: P052.2.10: refuse unblock under a foreign runner
+Handoff:
+- startRun now returns (Model, tea.Cmd, bool) where the bool reports a created controller; future callers that combine the start with another action must branch on it instead of overwriting m.notice.
+- The unblock refusal text is '<lock notice>; viewing is allowed, the unblock is refused' — the dialog stays open and m.dialogInput keeps the typed note, so the person does not retype it.
+- Test helper humanBlockModel(t, controllers...) drives a workspace to an open human-block dialog and returns the model plus the P001 plan path; use it for further human-block cases.
 
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:
