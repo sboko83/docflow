@@ -219,6 +219,10 @@ gate: go test -timeout 20m ./...
 - Test-side applyLoad fails loudly when a command carries no snapshotMsg — a lost loadCmd then breaks the test instead of passing without exercising the reload — rejected asserting only pollController/applyLifecycle cmd != nil with a separate manual snapshotMsg.
 - The unblock lock guard lives in the dialogHuman Enter branch with the same refreshLock/lockRefusal pair as lifecycleKey — cycle.Self is a CLI dispatcher that takes no lock, so the UI is the only check — rejected checking the lock inside cycle.Self.
 - applyLifecycle keeps the refusal notice instead of the unblock text when startRun created no controller — the reload only clears its own placeholder, so the refusal survives — rejected a second notice field.
+- Шестой блок P052.2.4 разведён на P052.2.11 (лог текущего вызова из события attempt), P052.2.12 (остановка из стартового подтверждения через CancelStart), P052.2.13 (notice отдельной строкой над статусной), P052.2.14 (управляемый Stop now классифицируется как действие); ревью возвращено в `[ ]` с `Depends` на все четыре — правка ревью запрещена, а находки разные по проверяемому поведению.
+- Лог вызова страница активности берёт из события `attempt`, а не из `stream`: `attempt` выходит до `CallAgent`, а `stream` — после возврата вызова со смещениями, известными только к этому моменту, поэтому ранний `stream` невозможен без искажения данных — отвергнуто перемещение `stream` перед вызовом и новое поле формата.
+- Управляемый Stop now классифицируется по состоянию хоста и отменённому ctx, как пауза в P052.1.8: `unit_end.status: stopped`, `run_end.reason: stopped`, `exit_code: 0`, без поля `paused`; обычный сигнал и Ctrl-C идут прежним путём error/2 — отвергнуто сохранение «error/context canceled» в журнале при успешном Finished у хоста и отвергнут новый код.
+- Notice исхода выводится отдельной строкой над статусной с переносом по ширине: `padLine` режет строку справа, поэтому notice в конце статусной строки не виден ни при каком приоритете внутри неё — отвергнуты notice в начале статусной строки (вытесняет run/lock/queue) и вывод notice в тело панели (дублирует дерево).
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -817,6 +821,86 @@ Handoff:
 - The unblock refusal text is '<lock notice>; viewing is allowed, the unblock is refused' — the dialog stays open and m.dialogInput keeps the typed note, so the person does not retype it.
 - Test helper humanBlockModel(t, controllers...) drives a workspace to an open human-block dialog and returns the model plus the P001 plan path; use it for further human-block cases.
 
+### [ ] P052.2.11 Take the call log from the attempt event
+Read:
+- internal/runner/run.go:L1020-1050
+- internal/runner/events.go:L215-274
+- internal/tui/activity.go:L87-120
+- internal/tui/activity.go:L195-210
+- internal/tui/activity.go:L495-530
+- internal/tui/activity_test.go:L40-130
+Do:
+- Воспроизведи реальным порядком событий: `attempt` с путём лога приходит до `CallAgent`, `stream` — только после возврата вызова. Страница активности, построенная по `attempt` и activity без `stream`, сейчас отвечает «the stream link has not arrived», хотя лог уже назван; `activity_test.go` этого не видит, потому что подаёт `streamEvent` до activity — порядок, которого раннер не даёт.
+- Записывай лог попытки из события `attempt` (поля `log` и `n`) в историю юнита; формат события не меняй: `stream` остаётся ссылкой с offset/length после вызова и обновляет те же данные.
+- В `ActivityHistory.Log` не подставляй `lastLog` для попытки с номером больше нуля: неизвестная попытка — явная ошибка «call log unknown for attempt N», а `lastLog` остаётся только для записей без номера (attempt 0).
+- Покрой в `activity_test.go`: (а) порядок `attempt` → activity открывает лог и показывает байты текущего вызова; (б) resumed/fallback-попытка (attempt 2) не берёт лог attempt 1; (в) activity без номера попытки по-прежнему пользуется последним логом; (г) отсутствие лога даёт ошибку с номером попытки, а не пустую страницу.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: не двигай `stream` до `CallAgent` — смещения известны только после вызова, а формат v1 менять нельзя. Номер у `attempt` лежит в поле `n`, у activity — в `attempt`, не перепутай. Не расширяй `Ref.Length` (P052.2.6): страница по-прежнему читает от `ref.Offset` до текущего конца файла. `TestCallAgentActivitySubscription` и проверки ref в `internal/agentio` не трогай.
+Depends: P052.2.6
+Commit: P052.2.11: take the call log from the attempt event
+
+### [ ] P052.2.12 Stop from the start confirmation
+Read:
+- internal/tui/execute.go:L340-500
+- internal/tui/execute.go:L160-200
+- internal/runner/control.go:L289-345
+- internal/tui/app_test.go:L495-545
+- internal/tui/app_test.go:L1165-1195
+- internal/tui/terminal_test.go:L184-323
+- internal/tui/terminal_test.go:L523-643
+Do:
+- Воспроизведи модельным тестом: контроллер в `StateStarting`, prompt старта ещё не пришёл, `q` и Enter; `stopAndExit` зовёт `StopNow`, который требует Running, ошибку глотает, и выхода не происходит. Ожидаемое: `CancelStart` вызван один раз, `StopNow` и `Pause` — ни разу, `Close` один раз, команда выхода появляется только после `Finished`.
+- Воспроизведи в терминальном тесте одним write `s`, `q`, `Enter`: сейчас процесс остаётся жив, открывает стартовый диалог, держит `run.lock` и не пишет checkpoint. Ожидаемое: код выхода 0, `run.lock` снят, `checkpoint.json` отсутствует, агент не вызван, терминал восстановлен.
+- В `stopAndExit` для `StateStarting` сначала ответь на пришедший prompt отказом, затем вызови `CancelStart` независимо от `m.pendingPrompt`; если `CancelStart` проиграл гонку `MarkRunning`, переходи в Pause и жди checkpoint, как в `stopAfterSignal`. Ожидание `Finished` — существующим poll-путём с `exitAfterRun`, без второго цикла и без `os.Exit`.
+- Не рапортуй успешный выход раньше факта: пока `Finished` не наступил и `Close` не сделан, процесс не завершается; при `Finished` без ошибки — выход 0.
+- Закрой пробел ревью в `TestTerminalRunPauseResumeQuit`: проверь, что checkpoint после паузы имеет стадию агента и `a.txt` отсутствует до `R`. Сейчас тест проходит и тогда, когда пауза попала на границу complete после 5-секундного сна фейка.
+- Раздели модельные проверки по сценариям: Starting без prompt, Starting с пришедшим prompt, гонка `CancelStart` → Pause; в каждом утверждай, что `StopNow` не вызван.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: `s` и `q` в одном write приходят до prompt, поэтому условие `m.pendingPrompt == nil` не должно отменять `CancelStart`. Поведение q/Ctrl+C, диалог выхода и путь паузы не меняй; `stopAfterSignal` не переписывай, общий код выноси только если он действительно общий. Фейковому контроллеру понадобится отдельный признак «`CancelStart` ещё не Finished», иначе тест не докажет ожидание (по образцу `pauseFinishes`). Не проверяй терминал по тексту статуса: diff-снимок содержит только хвосты строк; оракул — модельный тест, у PTY — код выхода и файлы.
+Depends: P052.2.3, P052.2.5
+Commit: P052.2.12: stop from the start confirmation
+
+### [ ] P052.2.13 Keep the outcome notice on screen
+Read:
+- internal/tui/view.go:L55-95
+- internal/tui/view.go:L575-635
+- internal/tui/view.go:L700-745
+- internal/tui/model.go:L120-165
+- internal/tui/app_test.go:L620-760
+- internal/tui/app_test.go:L900-945
+Do:
+- Воспроизведи модельным тестом на отрендеренном экране, а не на `statusLine()`: закрытие P001 при непустом Queue даёт notice с путём архива, а `Model.String()` на 120 и 80 колонках его обрезает; то же с «run finished: context canceled» после Stop now — виден только хвост технической части.
+- Выведи notice отдельной строкой над статусной: перенос по ширине существующим `wrapLine`, не больше двух строк, тело панели не меньше одной строки. Статусная строка оставляет технические части (state/run/lock/queue/selected/focus/activity), без notice.
+- Убери notice из `statusLine()` и не дублируй его в дереве и в теле панели; пустой notice не занимает строку.
+- Перепиши модельные проверки с `statusLine()` на отрендеренный экран так, чтобы они падали при обрезке: путь архива при 80 и 120 колонках, «run finished: context canceled», notice паузы, notice отказа lock, отсутствие «reloading» после загрузки.
+- Проверь 40x12 и resize со 120 на 80: notice либо видим, либо экран «Terminal too small» — без паники и без выхода за ширину.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: `padLine`/`truncate` режут справа — notice в конце статусной строки не спасти приоритетом внутри неё. PTY-снимок Bubble Tea содержит только изменённые хвосты строк, поэтому оракул — `Model.String()` при заданных width/height, а не `terminal_test.go`. Не выводи notice в тело панели и не делай его вечным: новое действие по-прежнему заменяет текст (P052.2.9). Строку клавиш не трогай.
+Depends: P052.2.9
+Commit: P052.2.13: keep the outcome notice on screen
+
+### [ ] P052.2.14 Journal a controlled stop as an action
+Read:
+- internal/runner/run.go:L315-345
+- internal/runner/run.go:L770-790
+- internal/runner/run.go:L1490-1525
+- internal/runner/events.go:L120-175
+- internal/runner/control.go:L325-345
+- internal/runner/pause_test.go:L140-195
+- internal/runner/pause_test.go:L738-765
+- internal/tui/execute.go:L160-200
+- internal/tui/execute.go:L230-250
+Do:
+- Воспроизведи: контролируемый прогон, Stop now во время вызова агента. Сейчас `unit_end.status=error`, `run_end.reason=context canceled`, `exit_code=2`, хотя хост рапортует Finished, а UI пишет «run finished: context canceled».
+- Классифицируй управляемую остановку так же, как паузу в P052.1.8/P052.1.9: для хоста в `StateStopping` с отменённым ctx — `unit_end.status: stopped` для юнита, прерванного остановкой, и `run_end` с `reason: stopped`, `exit_code: 0`, без поля `paused`; юнит, дошедший до commit, остаётся `done`.
+- Обычный сигнал/Ctrl-C без контролируемого хоста сохраняет прежние `error`/`context canceled`/код сигнала; `Stop after unit` остаётся успешным завершением после юнита.
+- В TUI не показывай `stopped` как ошибку: `run_end` с `reason: stopped` не попадает в `runErr`, статус-строка называет остановку действием («run stopped»), а не «run finished: context canceled».
+- Покрой в `pause_test.go` по образцу `assertPausedJournals`: хелпер сверяет unit_end/run_end для StopNow и отсутствие поля `paused`; сценарий с отменой родителя без хоста по-прежнему даёт error/2; Stop after unit — done и обычный run_end. В `app_test.go` — notice после Stop now без текста ошибки.
+Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
+Traps: не переиспользуй внутренние коды 7/2 и не добавляй новые — классификация идёт через состояние хоста и ctx, как у паузы. Не считай Stop after unit остановкой: он не отменяет ctx, файл stop проверяется между юнитами. Поле `paused` в run_end не добавляй вне паузы (P052.1.9). Обычный прогон без хоста идёт теми же ветками — не сломай его журнал.
+Depends: P052.1.8, P052.2.12
+Commit: P052.2.14: journal a controlled stop as an action
+
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:
 - internal/tui/app.go
@@ -828,12 +912,13 @@ Do:
 - Разбери Test changes; проверь, что тесты нажимают клавиши и проверяют результат процесса, а не только строку View.
 - Ничего не редактируй; дефект оформляй blocked с blocker plan и воспроизводимым сценарием.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8, P052.2.9, P052.2.10
+Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8, P052.2.9, P052.2.10, P052.2.11, P052.2.12, P052.2.13, P052.2.14
 Role: review
 Commit: P052.2.4: review terminal controls
 Handoff:
 - Blocked (plan): Фаза ожидает: любой выход/закрытие TUI с живым прогоном останавливает процессы и пишет checkpoint, живая история позволяет открыть результат текущего вызова, логи читаются при запуске из подкаталога, а lifecycle-действия отказывают под живым чужим раннером. Реально: SIGTERM/SIGHUP оставляет detached агента и lock без checkpoint, страница результата недоступна до конца вызова, относительные пути логов не разрешаются от корня, lock проверяется только при загрузке. План должен развести это на юниты с воспроизведениями выше.
 - Blocked (plan): The phase Do expects accurate statuses, confirmations and no state change under a foreign runner. Real: the plan reload erases every success/failure notice, so the P052.2.3 close message with the archive path (and the run failure/pause reason) is never readable; and the human-block Continue runs 'unblock' through cycle.Self without refreshLock, modifying the plan under a live foreign runner, then overwrites the refused start with 'starting the run again'. Both reproduced deterministically with overlay tests; the plan needs two units with those scenarios.
+- Blocked (plan): Three product defects and one status question remain after the Phase 2 diff; all were reproduced on this Mac with the built CLI and a fake codex stream in a real PTY, not only with model tests. 1. The live activity page cannot resolve the current call log. internal/runner/run.go:1028 emits the attempt event with the log path before CallAgent, but run.go:1042 emits the stream link only after CallAgent returns; internal/tui/activity.go records log links only from stream, and ActivityHistory.Log falls back to lastLog. In a real run (fake agent: codex item.started, sleep, item.completed; 120x40 PTY) expanding the running tool shows 'result: call log unknown: the stream link has not arrived'; on a resumed or fallback attempt the same lookup returns the previous attempt's log. P052.2.6 tests feed streamEvent before the activity, an order the runner never produces. Fix: record the attempt event's log (or publish the link before the call), reject the lastLog fallback when attempt > 0, and test the real event order. 2. q + Enter while the run is StateStarting does nothing. internal/tui/execute.go:487 calls Control.StopNow for Starting, but StopNow requires Running and the error is ignored; the start prompt arrives after the exit confirmation. Repro: write s, q, Enter in one PTY write; the process stays alive, opens the start dialog, keeps run.lock and writes no checkpoint. The signal path already uses CancelStart in stopAfterSignal; the q path must do the same and wait for Finished without a checkpoint, with a state-enforcing test. 3. Outcome notices are clipped off the only status line. statusLine appends the notice after state/run/lock/queue/selected/focus/activity, and view.padLine(truncate(...)) cuts it. At 120x40, closing P001 while P002 remains in Queue renders '...the archive needs your Outcome text:...' without the archive path required by P052.2.3's Do; Stop now renders the final status ending 'run fi...', hiding 'run finished: context canceled'; at 80 columns the notice is off the line. Model tests assert statusLine() and PTY tests avoid the notice text. Fix: prioritize, wrap or overlay the notice and assert the rendered screen at 80/120 columns. 4. Stop now is journaled as a runner failure: the same run writes unit_end status 'error' and run_end exit_code 2 with reason 'context canceled' while the host reports Finished and the UI says 'run finished: context canceled'. A controlled Stop now is an action, not a failure; the plan needs a classification like P052.1.8 did for Pause, or an explicit decision that this journal is intended. Test gap from the Test changes review: TestTerminalRunPauseResumeQuit only checks that checkpoint.json exists; it passes when Pause lands at the complete boundary after the fake agent's 5s sleep. Assert the checkpoint stage is the agent stage and a.txt is absent before R, otherwise the terminal test does not prove the current call was interrupted.
 
 ## Phase 3: Model setup recovery and delivery
 
