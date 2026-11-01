@@ -156,6 +156,8 @@ gate: go test -timeout 20m ./...
 - The pre-loop executor wait reports `attempt: 0` through the shared `pauseState` helper — no attempt was spent there — rejected a separate event shape without the attempt field.
 - Clip strings with a margin of 256 bytes under the inline limit — leaves room for keys, quotes and braces so one long argument is clipped rather than replaced wholesale by the marker — rejected a fixed per-string rune cap that ignores the number of values and the JSON overhead.
 - Keep the marker as {"truncated": true, "bytes": original serialized size} — a machine-readable size, no duplicated payload text — rejected embedding the clipped text plus size in the marker.
+- Return the P052.1.4 findings to a new Phase 1 unit P052.1.8 and reopen the review with `Depends` on it — a controlled Pause is journaled as `unit_end.status=error`, `run_end.reason=context canceled`, `exit_code=2`, and the complete boundary writes its checkpoint without `state: Paused`; the review unit edits nothing, and P052.1.6 is already committed — rejected fixing the defects inside the review and rejected reopening P052.1.6.
+- A controlled Pause closes the journal as an event of its own, not as a failure: `unit_end.status: paused` for a unit the pause stopped, `run_end` with `reason: paused`, `paused: true` and `exit_code: 0` — the interactive host treats that stop as success; the unit finished at the complete boundary keeps `done` — rejected keeping the internal codes 7/2 in the journal, where 7 already means "no executor available" and 2 means a runner failure.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -301,6 +303,29 @@ Handoff:
 - The string-clip budget is (ActivityInlineLimit-256)/countStrings; payloads with many keys/values that still exceed the limit become the {"truncated": true, "bytes": N} marker.
 - Unverified: Rendering of the new size marker and of clipped argument strings in the TUI activity detail is not covered: no UI test or live run in this unit.
 
+### [ ] P052.1.8 Classify paused runs in the event stream
+Read:
+- internal/runner/run.go:L293-306
+- internal/runner/run.go:L734-750
+- internal/runner/run.go:L1400-1420
+- internal/runner/events.go:L132-157
+- internal/runner/control.go:L114-175
+- docs/design/runner.md#поток-событий
+- internal/runner/pause_test.go:L130-200
+- internal/runner/pause_test.go:L202-350
+- internal/runner/events_test.go:L56-102
+Do:
+- Добавь в internal/runner/run.go единую классификацию управляемой паузы по `pauseCancellation(ctx)`: юнит, который остановила пауза, получает `unit_end.status: paused`, а `run_end` — `paused: true`, `reason: paused`, `exit_code: 0`. Отмена сигналом, Stop now, отмена родительского контекста и обычный `run` без хозяина сохраняют прежние статусы, причины и коды: `context canceled` и 2 в потоке означают ошибку раннера, а не паузу.
+- Примени классификацию в обеих отложенных записях — `unit_end` (run.go:747) и `run_end` (run.go:302); путь паузы на вызове агента, в ожидании квоты и после восстановленного pending commit даёт `paused` на обоих уровнях.
+- Доведённый паузой до complete boundary юнит остаётся `done` в `unit_end` — он выполнен; пауза видна в событии `state` и в `run_end`.
+- Вызови `pauseState(totals, uid, "complete", attempt)` сразу после `writePauseCheckpoint(..., "complete", ...)` в успешном пути run.go:1413; grep'ом проверь, что ни один `writePauseCheckpoint` не остался без `pauseState`.
+- Обнови docs/design/runner.md: в потоке событий опиши `unit_end.status: paused`, поля `paused` и `reason: paused` у `run_end` и правило, что пауза на complete boundary закрывает юнит как `done`; `v: 1` и остальные значения набора не меняй.
+- Расширь internal/runner/pause_test.go: (а) TestPauseStopsAgentGroupAndWritesCheckpoint и TestPauseCancelsQuotaWait — `unit_end.status == "paused"` и `run_end` с `paused: true`, `reason: "paused"`, `exit_code: 0`; (б) TestPauseDuringVerifyFinishesCommitBoundary, TestPauseAtCommitBoundaryCompletesUnit и TestPauseAfterRecoveredPendingCommit — событие `state: Paused` со `stage: "complete"`, `unit_end.status == "done"` и тот же `paused` `run_end`; (в) в events_test.go — обычный прогон и прогон с сигналом не несут `paused` и сохраняют прежний `exit_code`.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: классифицируй только через `pauseCancellation` — `errors.Is(err, context.Canceled)` без состояния хозяина пометит паузой Ctrl-C, Stop now и отмену родителя; `fixtureEvents` требует ровно один файл прогона, а resume создаёт второй — читай события через `readEvents` по glob, как `pausedStateEvents`; `pauseState` остаётся единственным источником события `state` (Handoff P052.1.6) — не добавляй второй эмиттер и не дублируй событие там, где оно уже есть.
+Depends: P052.1.1, P052.1.6
+Commit: P052.1.8: classify paused runs in events
+
 ### [ ] P052.1.4 Review runner control and recovery
 Read:
 - internal/runner/control.go
@@ -313,9 +338,11 @@ Do:
 - Убедись, что находки предыдущего ревью закрыты сценариями с проверкой побочных эффектов: (а) после Paused на отвергнутом resume второго старта нет, (б) `Activity.Input` на аргументе 1 МБ в пределах лимита при живом `Ref`, (в) `state: Paused` публикуется на ожидании executor-chain и в pending-commit recovery.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7, P052.1.8
 Role: review
 Commit: P052.1.4: review runner control
+Handoff:
+- Blocked (plan): Phase 1 records a controlled Pause as a runner error in the durable event stream and drops the state event at the completion boundary. Reproduced on the existing fixtures: (1) pause while the fake agent sleeps (TestPauseStopsAgentGroupAndWritesCheckpoint) - events contain state:Paused, but unit_end.status=error and run_end has reason "context canceled", exit_code=2; (2) pause while verify/commit completes the unit (TestPauseDuringVerifyFinishesCommitBoundary, TestPauseAtCommitBoundaryCompletesUnit) - checkpoint stage=complete and unit_end.status=done, but there is no state:Paused event at all and run_end still reports context canceled/exit 2. docs/design/runner.md defines unit_end.status=error as a runner-call failure and run_end.exit_code as the runner's final code; P052.1.6 requires pauseState right after every writePauseCheckpoint, but run.go:1413 writes the complete checkpoint without it. A TUI reading the journal (P052.3.2) cannot show the paused stage and presents the paused run as failed. Fix: classify a controlled Pause in the unit_end/run_end emission (a paused status/reason, not error/context canceled/2) and call pauseState after the checkpoint at run.go:1413; extend pause_test.go to assert the state event at the complete boundary and the paused unit_end/run_end records in both scenarios.
 
 ## Phase 2: Terminal workspace and live inspection
 
