@@ -136,6 +136,7 @@ gate: go test -timeout 20m ./...
   локальные ресурсы и используют фиктивные CLI.
 - Добавил Control host как единственную точку команд и ограниченную очередь событий — медленный UI не задерживает runner; вместо отдельного цикла используется существующий Run/runLoop.
 - Интерактивный запуск использует общий checkout lock и отключает terminal input и Progress output — обычный Run сохраняет прежний терминальный режим.
+- Replan P052.1.2: юнит не влез в одну сессию — первый прогон успел только checkpoint-примитив; разбил на P052.1.2 (Pause, устойчивые границы, checkpoint) и P052.1.5 (Resume, восстановление сессии, Stop after unit, учёт таймаута) — отвергнут один большой юнит.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -159,22 +160,45 @@ Handoff:
 - Пауза во время verify/gate и устойчивой границы done/commit не покрыта отдельным тестовым сценарием.
 - Unverified: Не проверен отдельным тестом интерактивный Pause во время verify/gate и завершения транзакции done/commit.
 
-### [ ] P052.1.2 Pause and resume active work safely
+### [~] P052.1.2 Pause active work and write checkpoint
 Read:
 - internal/runner/control.go
 - internal/runner/run.go:L299-435
 - internal/runner/helpers.go:L246-337
+- internal/runner/checkpoint.go
 - internal/agentio/process.go
 - internal/procgroup/procgroup.go
 - internal/runner/verify_guard_acceptance_test.go:L330-420
 Do:
-- Реализуй Pause/Resume и Stop after unit через общий контроллер; Pause отменяет текущий вызов, ожидает завершения группы процессов, затем подтверждает Paused; ожидание квоты прерывается сразу, verify/gate и done/commit доходят до устойчивой границы.
-- Создай internal/runner/checkpoint.go: атомарный версионированный checkpoint под <git-dir>/docflow/tui/ с plan/unit, HEAD, fingerprint плана, этапом, agent/model/effort, session id, счётчиками и ссылками на логи; не сохраняй секреты.
-- Продолжай ту же сессию при совместимом назначении; если session id отсутствует или resume отвергнут, один раз начни новую с полным промптом, текущим деревом и причиной восстановления. Не считай Pause отказом, не запускай fallback и не сбрасывай лимиты попыток или остаток активного timeout; классифицируй эту отмену до обработки отсутствующего result JSON.
-- Останови всю группу инструментов при отмене; после Paused новые агенты не запускаются. Не возвращай готовую проверку после изменения дерева и не повторяй завершённый commit.
-- Создай internal/runner/pause_test.go и checkpoint_test.go: пауза на tool-call, quota wait, verify, commit boundary, повторные команды, resume без сессии, исключение времени паузы из таймаута и отсутствие сирот.
+- Реализуй Pause через общий контроллер: Pause отменяет текущий вызов агента, останавливает всю группу инструментов, ожидает завершения группы процессов, затем подтверждает Paused; ожидание квоты прерывается сразу, verify/gate и done/commit доходят до устойчивой границы.
+- После Paused новые агенты не запускаются; классифицируй эту отмену до обработки отсутствующего result JSON: не считай Pause отказом, не запускай fallback и не сбрасывай лимиты попыток.
+- При переходе в Paused сохраняй checkpoint через WriteCheckpoint: plan/unit, HEAD, fingerprint плана, этап, agent/model/effort, session id, счётчики и ссылки на логи; секреты не записывай.
+- Создай internal/runner/pause_test.go: пауза на tool-call, quota wait, verify и commit boundary; полная остановка группы процессов без сирот; checkpoint отражает состояние прогона.
 Verify: `go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/procgroup/`
-Commit: P052.1.2: pause and checkpoint active work
+Traps: internal/runner/checkpoint.go и checkpoint_test.go уже лежат в дереве без commit — используй и дополняй их, не переписывай с нуля; ReadCheckpoint отвергает чужую версию и пустые plan/HEAD/stage.
+Commit: P052.1.2: pause active work and checkpoint
+Handoff:
+- Blocked (plan): The unit requires safe Pause/Resume integrated with the runner, including quota waits, verify/commit boundaries, session recovery, and timeout accounting. Only the checkpoint storage primitive and its tests were implemented; these runner behaviors remain undone. `docflow verify P052.1.2` passed both the unit Verify and `go test ./...` gate. No commit was made because the unit is unfinished. An existing modification to the plan file was left untouched.
+- Replan (2026-11-01): юнит разбит — Resume, восстановление сессии и Stop after unit переехали в P052.1.5; здесь остаются Pause, устойчивые границы и checkpoint.
+
+### [ ] P052.1.5 Resume from checkpoint safely
+Read:
+- internal/runner/control.go
+- internal/runner/checkpoint.go
+- internal/runner/run.go:L299-435
+- internal/runner/helpers.go:L246-337
+- internal/agents/agents.go:L922-980
+- internal/runner/pause_test.go
+Do:
+- Реализуй Resume через общий контроллер: загрузи checkpoint, продолжи тот же unit на том же agent/model/effort; при расхождении fingerprint плана или HEAD не продолжай молча — покажи конфликт восстановления.
+- Продолжай ту же сессию при совместимом назначении; если session id отсутствует или resume отвергнут, один раз начни новую сессию с полным промптом, текущим деревом и причиной восстановления.
+- Не считай Pause отказом и не запускай fallback; не сбрасывай лимиты попыток и остаток активного timeout; исключи время паузы из таймаута.
+- После возобновления не возвращай готовую проверку после изменения дерева и не повторяй завершённый commit; реализуй Stop after unit через контроллер — текущий юнит доходит до устойчивой границы, новые не запускаются.
+- Расширь internal/runner/pause_test.go: resume без сессии и отвергнутый resume ровно с одной новой сессией, повторные команды Pause/Resume, исключение времени паузы из таймаута, отсутствие повторного commit.
+Verify: `go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/procgroup/`
+Traps: формат session id у агентов разный (`json:session_id`, `thread_id`, `session`) — бери его из ответа агента, а не вычисляй сам; resume идёт только на той же тройке agent/model/effort.
+Depends: P052.1.2
+Commit: P052.1.5: resume from checkpoint safely
 
 ### [ ] P052.1.3 Preserve inspectable agent activity
 Read:
@@ -204,7 +228,7 @@ Do:
 - Разбери каждый пункт Test changes: обоснованное изменение допускается, ослабленная ради зелёного Verify проверка — дефект.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.1.1, P052.1.2, P052.1.3
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5
 Role: review
 Commit: P052.1.4: review runner control
 
@@ -285,7 +309,7 @@ Commit: P052.2.4: review terminal controls
 Read:
 - internal/agents/agents.go:L548-605
 - internal/agents/agents.go:L701-745
-- internal/roster/resolve.go
+- internal/roster/resolve.go:L14-100
 - internal/roster/resolve_chain.go
 - internal/tui/model.go
 - internal/runner/control.go
