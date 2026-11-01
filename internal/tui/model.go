@@ -602,7 +602,10 @@ func (m Model) setCursor(index int) Model {
 	if index >= len(rows) {
 		index = len(rows) - 1
 	}
-	if rows[index].key != m.selected {
+	changed := rows[index].key != m.selected
+	m.cursor = index
+	m.selected = rows[index].key
+	if changed {
 		m.detailTop = 0
 		m.activityCursor = 0
 		m.expandedActivity = map[string]bool{}
@@ -611,12 +614,11 @@ func (m Model) setCursor(index int) Model {
 		m.activityMatches = 0
 		m.overlay = overlayNone
 		m.diffText, m.diffErr, m.verifyText, m.verifyErr = "", "", "", ""
-		if m.followActivity {
-			m.syncActivityCursor()
-		}
+		// A pause belongs to the history of the unit the reader paused on:
+		// another unit opens following its own newest observation.
+		m.followActivity = true
+		return m.syncActivityScroll()
 	}
-	m.cursor = index
-	m.selected = rows[index].key
 	return m
 }
 

@@ -255,6 +255,7 @@ gate: go test -timeout 20m ./...
 - Remember a late prompt and open its dialog via one showPendingPrompt helper instead of per-call branches — the invariant 'no dialog is replaced under the person's keys' is enforced in one place — rejected replacing the dialog in handlePrompt and re-opening it only in the exit-Esc branch
 - Added one shared typedText helper masking command modifiers instead of checking Mod == 0 per handler — shift and lock states must not suppress printable text, and search and the unblock note must behave identically — rejected duplicating the condition in handleSearchKey and handleDialogKey
 - Kept key matching on msg.String() and added the text predicate separately — String() returns the shifted character, so Keystroke() would misread Shift+A — rejected switching dispatch to Keystroke()
+- A reading pause belongs to the history of the unit it was made on: selecting another unit turns follow on and jumps to its newest entry — one flag and an existing sync path instead of a position map per unit — rejected storing cursor/scroll per unit, which is a separate design decision with no requirement.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1116,7 +1117,7 @@ Handoff:
 - The plan file docs/plans/P052-terminal-control.md was already modified before this unit; this unit did not edit or commit it.
 - Unverified: Shifted and caps-lock input is asserted only with synthetic KeyPressMsg values; a live terminal (Kitty protocol / macOS console) typing into search and the unblock note is not exercised by Verify.
 
-### [ ] P052.2.22 Keep follow and the cursor per selected unit
+### [x] P052.2.22 Keep follow and the cursor per selected unit
 Read:
 - internal/tui/model.go:L140-170
 - internal/tui/model.go:L577-608
@@ -1134,6 +1135,11 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: `followActivity` — общий флаг модели; карту позиций по юнитам не заводи (это отдельное решение, здесь его нет). `detailTop` уже сбрасывается при смене строки — не дублируй сброс. Оракул — `Model.String()`, не `syncActivityCursor` в отрыве от отрисовки.
 Depends: P052.2.2, P052.2.16
 Commit: P052.2.22: keep follow per selected unit
+Handoff:
+- setCursor in internal/tui/model.go now sets followActivity=true on a real selection change and returns syncActivityScroll() after updating cursor/selected; any new selection path must go through setCursor to keep follow/cursor/scroll consistent.
+- syncCursor (used by tree search filtering) still changes m.selected without resetting activityCursor or followActivity; that path was left as-is by this unit.
+- The tests pin flow with Model.String() (status line activity:N/M and the 'following the newest event'/'paused: new events...' texts), so changes to those strings break the oracle.
+- Unverified: Selection changed by a filtered tree search (syncCursor, not setCursor) does not reset follow/cursor; no test covers the follow state after such a change, and this unit leaves that path unchanged.
 
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -842,4 +843,71 @@ func TestActivityMissingOrEmptyLogIsExplicit(t *testing.T) {
 			t.Fatalf("empty log page = %#v", page)
 		}
 	})
+}
+
+// TestSelectingAnotherUnitFollowsItsOwnHistory pins the reading pause to the
+// unit it was made on: switching units resumes following, and a unit without
+// history never inherits the previous unit's cursor or entries.
+func TestSelectingAnotherUnitFollowsItsOwnHistory(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model = selectRow(t, model, "unit:P001.1.2")
+	var events []runner.Event
+	for i := 0; i < 20; i++ {
+		text := fmt.Sprintf("A history %02d", i)
+		if i == 19 {
+			text = "A-ONLY-NEWEST"
+		}
+		events = append(events, activityEvent("P001.1.2", agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: text}))
+	}
+	events = append(events,
+		activityEvent("P001.1.1", agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "B-ONLY-OLD"}),
+		activityEvent("P001.1.1", agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "B-ONLY-NEWEST"}),
+	)
+	model = addEvents(model, events...)
+
+	// Read older history of A: follow pauses on A only.
+	model = send(t, model, keyMsg("enter"))
+	model = send(t, model, keyMsg("up"))
+	if rendered := model.String(); !strings.Contains(rendered, "paused") {
+		t.Fatalf("reading older history of A did not report a paused reader:\n%s", rendered)
+	}
+
+	// Select B through the tree: B opens following its own newest entry.
+	model = send(t, model, keyMsg("tab"))
+	model = send(t, model, keyMsg("up"))
+	if model.selected != "unit:P001.1.1" {
+		t.Fatalf("selected %q after moving up from P001.1.2", model.selected)
+	}
+	rendered := model.String()
+	for _, want := range []string{"B-ONLY-NEWEST", "following the newest event", "activity:2/2 follow"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("selection of B did not follow its newest entry (%q missing):\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "paused: new events do not move the view") {
+		t.Fatalf("B inherited the paused reader of A:\n%s", rendered)
+	}
+
+	// Pausing on B is local to B as well.
+	model = send(t, model, keyMsg("tab"))
+	model = send(t, model, keyMsg("up"))
+	if !strings.Contains(model.String(), "activity:1/2 paused") {
+		t.Fatalf("reading older history of B did not pause it:\n%s", model.String())
+	}
+	model = addEvents(model, activityEvent("P001.1.1", agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "B-LATE"}))
+	if rendered := model.String(); !strings.Contains(rendered, "activity:1/3 paused") {
+		t.Fatalf("a new event moved the paused reader of B:\n%s", rendered)
+	}
+
+	// A unit without history neither panics nor shows A.
+	model = send(t, model, keyMsg("tab"))
+	model = selectRow(t, model, "unit:P001.2.2")
+	rendered = model.String()
+	for _, unwanted := range []string{"A-ONLY-NEWEST", "B-ONLY-NEWEST", "B-LATE"} {
+		if strings.Contains(rendered, unwanted) {
+			t.Fatalf("unit without history shows %q:\n%s", unwanted, rendered)
+		}
+	}
 }
