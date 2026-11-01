@@ -255,6 +255,26 @@ func TestLintCommandExitCodesAndVersionPrecheck(t *testing.T) {
 	}
 }
 
+func TestTUIHelpAndNonTerminalRefusal(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"tui", "--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("tui --help = %d, stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "interactive terminal workspace") {
+		t.Fatalf("tui help = %q", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"tui"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("tui without a terminal = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"interactive terminal", "docflow status", "docflow run"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("tui refusal = %q, missing %q", stderr.String(), want)
+		}
+	}
+}
+
 func TestEveryCommandHasHandler(t *testing.T) {
 	for _, spec := range commands {
 		if handlers[spec.name] == nil {
@@ -372,7 +392,7 @@ func TestVerifyFindsProjectRootFromSubdirectory(t *testing.T) {
 }
 
 func TestCommandsMatchDesign(t *testing.T) {
-	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "unblock", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "install", "update", "uninstall"}
+	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "unblock", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "tui", "install", "update", "uninstall"}
 	got := []string{}
 	for _, spec := range commands {
 		if spec.hidden {

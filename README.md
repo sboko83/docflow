@@ -149,7 +149,7 @@ rollback: [installation and updates](docs/usage.md#установка) (in Russi
 
 ### Development
 
-From a checkout (requires Go 1.24+ and git):
+From a checkout (requires Go 1.26+ and git):
 
 ~~~bash
 git clone https://github.com/sboko83/docflow bsv-docflow

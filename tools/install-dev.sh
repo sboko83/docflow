@@ -63,11 +63,11 @@ MAIN_SOURCE="$REPO_DIR/cmd/docflow/main.go"
 [ -d "$REPO_DIR/templates" ] || fail "incomplete checkout: missing $REPO_DIR/templates"
 
 GO=$(command -v go 2>/dev/null) \
-    || fail 'Go 1.24 or newer is required (go was not found)'
+    || fail 'Go 1.26 or newer is required (go was not found)'
 GO_VERSION=$("$GO" version 2>&1) \
     || fail "cannot run Go toolchain: $GO_VERSION"
-if ! printf '%s\n' "$GO_VERSION" | grep -qE 'go1\.(2[4-9]|[3-9][0-9])'; then
-    fail "Go 1.24 or newer is required (found $GO_VERSION)"
+if ! printf '%s\n' "$GO_VERSION" | grep -qE 'go1\.(2[6-9]|[3-9][0-9])'; then
+    fail "Go 1.26 or newer is required (found $GO_VERSION)"
 fi
 
 case "$BIN_DIR" in

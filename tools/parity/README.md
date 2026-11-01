@@ -4,7 +4,7 @@
 `docflow` в свежем репозитории. С одним бинарником на обеих сторонах
 (`run.sh bin/docflow bin/docflow`) это e2e-прогон текущей сборки, его
 запускает CI. С двумя разными сборками харнесс сравнивает их вывод вызов за
-вызовом. Запускать из checkout. Нужны bash 3.2+, git и Go 1.24+.
+вызовом. Запускать из checkout. Нужны bash 3.2+, git и Go 1.26+.
 
 ```bash
 bash tools/parity/run.sh bin/docflow bin/docflow      # e2e-прогон одной сборки

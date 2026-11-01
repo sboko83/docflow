@@ -408,6 +408,19 @@ options:
                         skill directory set (default: claude)
   --target DIR          personal skills directory override
 `,
+	"tui": `usage: docflow tui [-h]
+
+open the interactive terminal workspace for the queue and plans
+
+The workspace reads docs/docflow.md and the plans it names with the docflow
+parser. It shows the tree of phases and units, the selected unit card, and
+the workspace load state. It is read-only in this version: it never edits a
+plan, starts an agent or takes the runner lock. Without a terminal it refuses
+and points at the ordinary CLI commands.
+
+options:
+  -h, --help  show this help message and exit
+`,
 	"run": `usage: docflow run [-h] [--config PATH] [--agent NAME] [--model M]
                    [--effort E] [--attempts N] [--replans N] [--max-units N]
                    [--no-wait] [--no-notify] [--dry-run] [--all] [--plan ID]

@@ -183,6 +183,10 @@ gate: go test -timeout 20m ./...
 - Explicit runOptions.locked flag marks that the caller owns the checkout lock — the ownership is visible at the call site instead of inferred from a Control root — rejected inferring via host root
 - A lock file naming any live pid now refuses a second owner, even the same pid — nested acquisition is gone and same-pid allowance would let two StartCheckout calls share a checkout — rejected keeping the pid==Getpid escape
 - Release re-reads the lock and removes it only when it still names our pid — protects a lock another process took (e.g. a replacement after a stale file) from being deleted — rejected unconditional os.Remove
+- Used the charm.land/bubbletea/v2 and charm.land/lipgloss/v2 module paths at the pinned versions — the old github.com module paths now declare the vanity path and fail go get — rejected forcing the old import path or falling back to Bubble Tea v1
+- A malformed or missing queued plan puts the whole workspace in the error state with r retry — one actionable error instead of a partially rendered tree — rejected showing stale or partial plan content
+- Kept Backlog out of the tree and exposed only its count implicitly through the docflow file load — the unit asks for Queue, plans, phases and units — rejected adding a third tree section before the Backlog UI is designed
+- Raised the Go guard in tools/install-dev.sh, tools/release.sh and tools/parity/README.md to 1.26 in addition to the four files named in Do — go.mod now requires 1.26 and the old guards/messages would be wrong — rejected leaving the tooling text inconsistent
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -539,7 +543,7 @@ Handoff:
 
 ## Phase 2: Terminal workspace and live inspection
 
-### [ ] P052.2.1 Build the terminal plan workspace
+### [x] P052.2.1 Build the terminal plan workspace
 Read:
 - cmd/docflow/main.go:L1-110
 - cmd/docflow/main.go:L209-321
@@ -559,6 +563,12 @@ Do:
 Verify: `go test -timeout 20m ./internal/tui/ ./cmd/docflow/`
 Depends: P052.1.4
 Commit: P052.2.1: add terminal plan workspace
+Handoff:
+- internal/tui is read-only for this unit: Load() parses docs/docflow.md and queue/frozen plans with format.LoadPlan; no agent, lock, checkpoint or plan edit is wired yet. Later units extend Model, rows/detailLines and Keys from here.
+- The command wrapper is cmd/docflow.handleTUI: it resolves projectRoot, enables VT processing on stdout when it is a file, then calls tui.Run with os.Stdin and the supplied stdout. tui.Run refuses non-terminals before loading plans.
+- Layout contract implemented: two panes at width >= 100, one switchable pane below; sections/plans/phases default expanded; unit rows carry the status word and the details card shows plan Goal plus Do/Verify/Depends/Handoff.
+- PTY smoke builds ./cmd/docflow into a temp dir and drives a real terminal; it asserts queue rendering, Enter collapse, resize to too-small and back, q exit, alternate-screen exit, cursor show and echo restore.
+- Unverified: Terminal behavior on Windows consoles and Linux terminals is not exercised locally: Verify ran the darwin PTY smoke and cross-compiled builds/tests for windows/amd64 and linux/amd64, but did not run them.
 
 ### [ ] P052.2.2 Inspect live messages tools and changes
 Read:

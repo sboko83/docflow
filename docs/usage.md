@@ -182,7 +182,7 @@ docflow doctor --agent codex
 
 ### Режим разработки
 
-Разработка ведётся из checkout репозитория (нужны Go 1.24+ и git):
+Разработка ведётся из checkout репозитория (нужны Go 1.26+ и git):
 
 ~~~bash
 git clone https://github.com/sboko83/docflow bsv-docflow

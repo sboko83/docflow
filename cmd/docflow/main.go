@@ -22,6 +22,8 @@ import (
 	"bsv-docflow/internal/runner"
 	docskills "bsv-docflow/internal/skills"
 	"bsv-docflow/internal/stats"
+	"bsv-docflow/internal/term"
+	tuiterm "bsv-docflow/internal/tui"
 )
 
 var version = "0.21.0"
@@ -54,6 +56,7 @@ var commands = []commandSpec{
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
 	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 2 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief and apply: accesses switched off for this call only"), appendOption("--minimal", "A,B", "brief and apply: accesses at the minimal budget for this call only"), appendOption("--lean", "A,B", "brief and apply: accesses at the lean budget for this call only"), appendOption("--prefer", "A,B", "brief and apply: accesses at the prefer budget for this call only"), appendOption("--expires", "A=DATE", "brief and apply: expire an access on DATE for this call only"), appendOption("--only", "A=GLOB", "brief and apply: narrow an access to the model glob for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
+	{name: "tui", help: "open the interactive terminal workspace for the queue and plans"},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "update", help: "download and activate the latest release", args: []argument{flag("--check", "check for a new release without installing it"), choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
 	{name: "uninstall", help: "remove the standalone installation and its personal skill links"},
@@ -205,6 +208,8 @@ positional arguments:
                     plan role from the personal roster, or write them into
                     a plan header
     run             drive the plan unit by unit through a coding agent
+    tui             open the interactive terminal workspace for the queue and
+                    plans
     install         install an unpacked release into ~/.docflow and link
                     personal skills
     update          download and activate the latest release
@@ -238,6 +243,9 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	handler := handlers[parsed.command]
 	if parsed.command == "run" {
 		handler = func(parsed *parsedArgs) error { return handleRun(parsed, stdout, stderr) }
+	}
+	if parsed.command == "tui" {
+		handler = func(parsed *parsedArgs) error { return handleTUI(parsed, stdout) }
 	}
 	if handler == nil {
 		fmt.Fprintf(stderr, "docflow: %s is not implemented yet\n", parsed.command)
@@ -302,6 +310,7 @@ func makeHandlers() map[string]handlerFunc {
 	out["doctor"] = handleDoctor
 	out["roster"] = handleRoster
 	out["stats"] = handleStats
+	out["tui"] = func(parsed *parsedArgs) error { return handleTUI(parsed, os.Stdout) }
 	out["install"] = releaseCommand(handleInstall)
 	out["update"] = releaseCommand(handleUpdate)
 	out["uninstall"] = releaseCommand(handleUninstall)
@@ -337,6 +346,17 @@ func handleRun(parsed *parsedArgs, stdout, stderr io.Writer) error {
 		return err
 	}
 	return commandResult{code: code}
+}
+
+func handleTUI(_ *parsedArgs, stdout io.Writer) error {
+	root, err := projectRoot()
+	if err != nil {
+		return err
+	}
+	if file, ok := stdout.(*os.File); ok {
+		term.EnableVTProcessing(file)
+	}
+	return tuiterm.Run(root, os.Stdin, stdout)
 }
 
 func handleRoster(parsed *parsedArgs) error {

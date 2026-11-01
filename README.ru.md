@@ -145,7 +145,7 @@ docflow init --agent codex
 
 ### Разработка
 
-Из checkout (нужны Go 1.24+ и git):
+Из checkout (нужны Go 1.26+ и git):
 
 ~~~bash
 git clone https://github.com/sboko83/docflow bsv-docflow
