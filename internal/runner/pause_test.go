@@ -202,7 +202,7 @@ func TestPauseCancelsQuotaWait(t *testing.T) {
 		err := waitForExecutorChain(ctx, p, "quota wait", time.Now().Add(time.Hour))
 		if errors.Is(err, context.Canceled) && host.State() == StatePausing {
 			ctx = context.WithValue(ctx, controlContextKey{}, host)
-			return writePauseCheckpoint(ctx, f.root, "P001", "P001.1.1", "quota", agents.Route{Agent: "fake"}, "", 0, 0, nil)
+			return writePauseCheckpoint(ctx, f.root, "P001", "P001.1.1", "quota", agents.Route{Agent: "fake"}, "", 0, 0, 0, nil)
 		}
 		return err
 	}); err != nil {
@@ -322,3 +322,335 @@ func TestPauseAtCommitBoundaryCompletesUnit(t *testing.T) {
 }
 
 func intPointer(value int) *int { return &value }
+
+func awaitFinished(t *testing.T, control *Control) {
+	t.Helper()
+	select {
+	case <-control.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("the resumed run did not finish")
+	}
+	if got := control.State(); got != StateFinished {
+		t.Fatalf("state = %s, want Finished", got)
+	}
+}
+
+// A pause taken before the agent wrote any result line has no session id. The
+// resume starts exactly one new session with the full prompt and the recovery
+// reason, never a fallback route.
+func TestResumeWithoutSessionStartsOneNewSession(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 2, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Session != "" || cp.Stage != "agent" || cp.Calls != 1 {
+		t.Fatalf("checkpoint = %#v, err = %v; want a paused first call without a session", cp, err)
+	}
+	f.steps(writeReply("a.txt"))
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	calls := f.calls()
+	if len(calls) != 1 {
+		t.Fatalf("agent calls = %d, want one resumed call", len(calls))
+	}
+	if argv := strings.Join(calls[0].Argv, " "); strings.Contains(argv, "--resume") {
+		t.Fatalf("a session without an id was resumed anyway: %s", argv)
+	}
+	for _, text := range []string{"## Recovery", "no session id", "Working tree"} {
+		if !strings.Contains(calls[0].Stdin, text) {
+			t.Fatalf("new session prompt lacks %q:\n%s", text, calls[0].Stdin)
+		}
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err = %v", unit.Status, err)
+	}
+}
+
+// A provider that refuses the saved session is retried once in a new session,
+// inside the same attempt: the attempt limit is not reset and no fallback runs.
+func TestResumeRejectedSessionStartsExactlyOneNewSession(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" +
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "paused-session"}) +
+		"sleep 60 &\nwait\n")
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Session != "paused-session" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	f.steps(
+		"printf 'error: session paused-session not found\\n' >&2\nexit 1\n",
+		writeReply("a.txt"),
+	)
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	calls := f.calls()
+	if len(calls) != 2 {
+		t.Fatalf("agent calls = %d, want the rejected resume and one new session", len(calls))
+	}
+	if argv := strings.Join(calls[0].Argv, " "); !strings.Contains(argv, "--resume paused-session") {
+		t.Fatalf("the first resumed call did not use the saved session: %s", argv)
+	}
+	if argv := strings.Join(calls[1].Argv, " "); strings.Contains(argv, "--resume") {
+		t.Fatalf("the rejected session was resumed twice: %s", argv)
+	}
+	for _, text := range []string{"## Recovery", "rejected the resumed session"} {
+		if !strings.Contains(calls[1].Stdin, text) {
+			t.Fatalf("replacement session prompt lacks %q:\n%s", text, calls[1].Stdin)
+		}
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err = %v; a rejected resume must not spend the only attempt", unit.Status, err)
+	}
+}
+
+// Pause then Resume can repeat: the second resume still continues the same
+// attempt and session, and the unit finishes normally.
+func TestRepeatedPauseAndResumeContinueTheSameAttempt(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	first := filepath.Join(f.tmp, "first-started")
+	second := filepath.Join(f.tmp, "second-started")
+	kickoff := emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-session"})
+	f.steps("touch " + shellQuote(first) + "\n" + kickoff + "sleep 60 &\nwait\n")
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 2, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, first, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	f.steps("touch " + shellQuote(second) + "\n" +
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-session-2"}) +
+		"sleep 60 &\nwait\n")
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitMarker(t, f, second, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Session != "pause-session-2" || cp.Calls != 1 {
+		t.Fatalf("checkpoint after the second pause = %#v, err = %v; the attempt or session was reset", cp, err)
+	}
+	f.steps(writeReply("a.txt"))
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	calls := f.calls()
+	if len(calls) != 1 {
+		t.Fatalf("agent calls = %d, want one final call", len(calls))
+	}
+	if argv := strings.Join(calls[0].Argv, " "); !strings.Contains(argv, "--resume pause-session-2") {
+		t.Fatalf("the second resume did not continue the saved session: %s", argv)
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err = %v", unit.Status, err)
+	}
+}
+
+// The time spent Paused is not charged to the agent call: the resumed call gets
+// the timeout left at the pause, and a wait as long as the whole timeout does
+// not kill it.
+func TestResumeExcludesPauseTimeFromTimeout(t *testing.T) {
+	f := newRunFixture(t)
+	f.replace(planFile, "created: 2026-10-12\n", "created: 2026-10-12\ntimeout: 4\n")
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("sleep 0.5\ntouch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Remaining <= 0 || cp.Remaining >= 4 {
+		t.Fatalf("checkpoint remaining timeout = %v, err = %v", cp.Remaining, err)
+	}
+	time.Sleep(3 * time.Second)
+	f.steps("sleep 2.5\n" + writeReply("a.txt"))
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err = %v; the pause was charged to the timeout", unit.Status, err)
+	}
+}
+
+// A checkpoint taken after the unit's commit resumes at the next unit: the
+// finished commit is not repeated and the agent is not called for it again.
+func TestResumeDoesNotRepeatACompletedCommit(t *testing.T) {
+	f := newRunFixture(t)
+	f.steps(writeReply("a.txt"))
+	reached, release, before := gateOn(t, "commit")
+	controlRunSelf(t, f, before)
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(2)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	select {
+	case <-reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the runner did not reach the first commit")
+	}
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "complete" || cp.Unit != "P001.1.1" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	subject := "P001.1.1: first unit"
+	beforeLog := f.git("log", "--format=%s")
+	f.steps(writeReply("b.txt"))
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	afterLog := f.git("log", "--format=%s")
+	if strings.Count(afterLog, subject) != 1 {
+		t.Fatalf("the completed commit was repeated:\nbefore:\n%s\nafter:\n%s", beforeLog, afterLog)
+	}
+	if !strings.Contains(afterLog, "P001.1.2: second unit") {
+		t.Fatalf("the resumed run did not continue to the next unit:\n%s", afterLog)
+	}
+	calls := f.calls()
+	if len(calls) != 1 || !strings.Contains(calls[0].Stdin, "P001.1.2") {
+		t.Fatalf("agent calls after resume = %d, want only the next unit", len(calls))
+	}
+}
+
+// A moved HEAD or an edited plan is a visible recovery conflict, not a silent
+// continuation of the wrong work.
+func TestResumeReportsPlanAndHeadConflicts(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*runFixture)
+	}{
+		{"plan", func(f *runFixture) { f.replace(planFile, "title: Plan", "title: Renamed") }},
+		{"head", func(f *runFixture) { f.write("unrelated.txt", "x"); f.commit("unrelated") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRunFixture(t)
+			controlRunSelf(t, f, nil)
+			marker := filepath.Join(f.tmp, "agent-started")
+			f.steps("touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
+			args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
+			control := NewControl(64, 2)
+			startControlledRun(t, f, control, args)
+			awaitMarker(t, f, marker, control)
+			if err := control.Pause(); err != nil {
+				t.Fatal(err)
+			}
+			awaitPaused(t, control)
+			tc.change(f)
+			err := control.ResumeRun(context.Background(), f.root, args, "")
+			var conflict RecoveryConflictError
+			if !errors.As(err, &conflict) {
+				t.Fatalf("ResumeRun error = %v, want RecoveryConflictError", err)
+			}
+			if got := control.State(); got != StatePaused {
+				t.Fatalf("state = %s, want Paused after a conflict", got)
+			}
+			select {
+			case event := <-control.Events():
+				for event.Type != "recovery_conflict" && event.Type != "" {
+					event = <-control.Events()
+				}
+			default:
+			}
+		})
+	}
+}
+
+// Stop after unit is a controller command: the running unit reaches its commit
+// boundary and the next unit never starts.
+func TestStopAfterUnitFinishesTheCurrentUnitOnly(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\nsleep 0.5\n" + writeReply("a.txt"))
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1})
+	awaitMarker(t, f, marker, control)
+	if err := control.StopAfterUnit(); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	log := f.git("log", "--format=%s")
+	if !strings.Contains(log, "P001.1.1: first unit") {
+		t.Fatalf("the current unit did not finish:\n%s", log)
+	}
+	if strings.Contains(log, "P001.1.2: second unit") {
+		t.Fatalf("a new unit started after Stop after unit:\n%s", log)
+	}
+}
+
+// A checkpoint survives the process: a fresh controller (Idle, as after
+// reopening the application) resumes the paused unit.
+func TestResumeFromAFreshController(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" +
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "reopen-session"}) +
+		"sleep 60 &\nwait\n")
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	f.steps(writeReply("a.txt"))
+	reopened := NewControl(64, 2)
+	if got := reopened.State(); got != StateIdle {
+		t.Fatalf("fresh controller state = %s, want Idle", got)
+	}
+	if err := reopened.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, reopened)
+	calls := f.calls()
+	if len(calls) != 1 {
+		t.Fatalf("agent calls = %d, want one resumed call", len(calls))
+	}
+	if argv := strings.Join(calls[0].Argv, " "); !strings.Contains(argv, "--resume reopen-session") {
+		t.Fatalf("the reopened controller did not continue the saved session: %s", argv)
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err = %v", unit.Status, err)
+	}
+}

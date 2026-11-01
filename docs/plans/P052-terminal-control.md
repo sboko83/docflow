@@ -142,6 +142,9 @@ gate: go test -timeout 20m ./...
 - Replan P052.1.2: юнит не влез в одну сессию — первый прогон успел только checkpoint-примитив; разбил на P052.1.2 (Pause, устойчивые границы, checkpoint) и P052.1.5 (Resume, восстановление сессии, Stop after unit, учёт таймаута) — отвергнут один большой юнит.
 - Replan P052.1.2 (2-й): блокер «roster-тест падает в gate» не воспроизведён — 2026-11-01 полный `go test ./...` зелёный, падение списано на нагрузку той сессии, сценарий не менялся; блокер «quota-тест не проверяет классификацию отмены провайдера» закрыт выписыванием сценария явно в тест-список Do — отвергнут вариант оставлять требование неявным в тексте классификации.
 - A fixed calendar fixture in roster tests is replaced by a now-relative day — the old fixture expired on 2026-11-01 and broke the gate independently of runner code — rejected keeping a fixed date and changing LoadState's expiry rules.
+- Store the remaining timeout in the checkpoint rather than active elapsed time — repeated resumes would otherwise subtract already-spent time twice — rejected an accumulated active-duration field.
+- Pin the checkpoint agent/model/effort when that exact route is still available and only then resume its session; a mismatch starts one new full-prompt session — rejected silently pairing an old session with a new assignment.
+- Detect a rejected resume from provider text with the same one-new-session guard — rejected adding an agent-specific exit-code contract that the three CLIs do not share.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -197,7 +200,7 @@ Handoff:
 - Unverified: Pause during the provider refusal/reset wait (waitRefusal) has a classification branch but no dedicated test; only the executor-chain quota wait is exercised.
 - Unverified: Windows process-group termination on Pause is untested: the runner pause tests use POSIX shell fixtures and skip on Windows.
 
-### [ ] P052.1.5 Resume from checkpoint safely
+### [x] P052.1.5 Resume from checkpoint safely
 Read:
 - internal/runner/control.go
 - internal/runner/checkpoint.go
@@ -215,6 +218,12 @@ Verify: `go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/
 Traps: формат session id у агентов разный (`json:session_id`, `thread_id`, `session`) — бери его из ответа агента, а не вычисляй сам; resume идёт только на той же тройке agent/model/effort.
 Depends: P052.1.2
 Commit: P052.1.5: resume from checkpoint safely
+Handoff:
+- P052.2.3 should call Control.ResumeRun(parent, root, args, skillDir); it validates the checkpoint, accepts both Idle (reopened app) and Paused states, publishes a recovery_conflict event and does not ask confirm_start.
+- Checkpoint gained timeout_remaining_seconds; the resumed first call spends that remainder, later attempts get the full timeout again.
+- Conflicts are a typed runner.RecoveryConflictError for plan-fingerprint or HEAD drift; a fresh checkpoint path read failure is reported separately as no resumable checkpoint.
+- Stop after unit already travels through Control.StopAfterUnit and the stop file; a resumed run removes that file on start, so stopping is not carried into the next run.
+- Unverified: The resume-rejection matcher is exercised only with a fake `session ... not found` stderr; the actual wording of a refused session from Pi, Codex and opencode is not covered by an integration test.
 
 ### [ ] P052.1.3 Preserve inspectable agent activity
 Read:

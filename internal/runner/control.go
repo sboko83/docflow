@@ -180,18 +180,40 @@ func (c *Control) StartCheckout(parent context.Context, root string, execute fun
 
 // StartRun starts the standard runner loop under interactive ownership.
 func (c *Control) StartRun(parent context.Context, root string, args Args, skillDirectory string) error {
+	return c.startRun(parent, root, args, skillDirectory, nil, true)
+}
+
+// ResumeRun continues the checkpoint saved by a Pause on the same unit and
+// assignment. A checkpoint whose plan or HEAD moved is reported as a recovery
+// conflict and nothing is started. A fresh process is Idle, and a live one is
+// Paused, so both are accepted.
+func (c *Control) ResumeRun(parent context.Context, root string, args Args, skillDirectory string) error {
+	checkpoint, err := ReadCheckpoint(root)
+	if err != nil {
+		return fmt.Errorf("runner: no resumable checkpoint: %w", err)
+	}
+	if err := ValidateCheckpoint(root, checkpoint); err != nil {
+		c.Publish(Event{Type: "recovery_conflict", Unit: checkpoint.Unit, Message: err.Error()})
+		return err
+	}
+	return c.startRun(parent, root, args, skillDirectory, &checkpoint, false)
+}
+
+func (c *Control) startRun(parent context.Context, root string, args Args, skillDirectory string, checkpoint *Checkpoint, confirm bool) error {
 	return c.StartCheckout(parent, root, func(ctx context.Context, host *Control) error {
-		answer, err := host.Ask(ctx, Request{Kind: "confirm_start", Message: "Start the current Queue run?"})
-		if err != nil {
-			return err
-		}
-		if !answer.Confirmed {
-			return nil
+		if confirm {
+			answer, err := host.Ask(ctx, Request{Kind: "confirm_start", Message: "Start the current Queue run?"})
+			if err != nil {
+				return err
+			}
+			if !answer.Confirmed {
+				return nil
+			}
 		}
 		if !host.MarkRunning() {
 			return errors.New("runner: invalid start transition")
 		}
-		code, runErr := RunControlled(ctx, root, args, skillDirectory, host)
+		code, runErr := runControlled(ctx, root, args, skillDirectory, host, checkpoint)
 		if code == 3 {
 			host.MarkBlocked()
 			return nil

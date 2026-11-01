@@ -136,6 +136,7 @@ func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string
 type runOptions struct {
 	ctx     context.Context
 	control *Control
+	resume  *Checkpoint
 }
 
 var runnerSelf = cycle.Self
@@ -144,9 +145,13 @@ var runnerSelf = cycle.Self
 // output. Events are forwarded to the interactive host from the existing
 // runner event points.
 func RunControlled(ctx context.Context, root string, args Args, skillDirectory string, host *Control) (int, error) {
+	return runControlled(ctx, root, args, skillDirectory, host, nil)
+}
+
+func runControlled(ctx context.Context, root string, args Args, skillDirectory string, host *Control, resume *Checkpoint) (int, error) {
 	args.Yes = true
 	ctx = context.WithValue(ctx, controlContextKey{}, host)
-	return runWithOptions(root, args, io.Discard, io.Discard, skillDirectory, runOptions{ctx: ctx, control: host})
+	return runWithOptions(root, args, io.Discard, io.Discard, skillDirectory, runOptions{ctx: ctx, control: host, resume: resume})
 }
 
 type controlContextKey struct{}
@@ -300,7 +305,7 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 		go watchKeys(root, input.stream, p, nil, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.unit })
 	}
 	defer os.Remove(stop)
-	code, err = runLoop(ctx, root, args, config, p, totals)
+	code, err = runLoop(ctx, root, args, config, p, totals, options.resume)
 	if code := signalStopCode(p, totals, &signalMu, &stopped, "the current unit stays [~]"); code != 0 {
 		return code, nil
 	}
@@ -332,7 +337,7 @@ func signalStopCode(p *Progress, totals *runTotals, signalMu *sync.Mutex, stoppe
 	return 128 + signalNumber(s)
 }
 
-func runLoop(ctx context.Context, root string, args Args, config map[string]any, p *Progress, totals *runTotals) (int, error) {
+func runLoop(ctx context.Context, root string, args Args, config map[string]any, p *Progress, totals *runTotals, resume *Checkpoint) (int, error) {
 	planID, done := "", 0
 	replans := map[string]int{}
 	unavailable := make(map[string]time.Time)
@@ -410,7 +415,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 		for _, name := range chain.routeAgents() {
 			before[name] = append(agentio.Quota(nil), totals.quota[name]...)
 		}
-		code, trigger, err := runUnit(ctx, root, args, config, chain, sel.Unit.ID, p, totals)
+		code, trigger, err := runUnit(ctx, root, args, config, chain, sel.Unit.ID, p, totals, resume)
 		unitQuotas(p, totals, chain.agentsUsed(), before)
 		p.unitEnd(sel.Unit.ID)
 		if err != nil {
@@ -719,7 +724,7 @@ func transcriptPath(root, log string) string {
 	return filepath.ToSlash(log)
 }
 
-func runUnit(ctx context.Context, root string, args Args, config map[string]any, chain *executorChain, uid string, p *Progress, totals *runTotals) (code int, trigger string, runErr error) {
+func runUnit(ctx context.Context, root string, args Args, config map[string]any, chain *executorChain, uid string, p *Progress, totals *runTotals, resumeFrom *Checkpoint) (code int, trigger string, runErr error) {
 	plan, unit, err := cycle.FindUnit(root, uid)
 	if err != nil {
 		return 2, "", err
@@ -752,7 +757,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		}
 		if err := waitForExecutorChain(ctx, p, line, until); err != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
-				if checkpointErr := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "quota", waitingRoute, "", 0, 0, nil); checkpointErr != nil {
+				if checkpointErr := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "quota", waitingRoute, "", 0, 0, 0, nil); checkpointErr != nil {
 					return 2, "", checkpointErr
 				}
 			}
@@ -760,7 +765,17 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		}
 		route, ok = chain.pick(time.Now())
 	}
+	recovery := resumeFor(resumeFrom, uid)
+	if recovery != nil {
+		if pinned, found := chain.findRoute(checkpointRoute(*recovery)); found && chain.available(pinned, time.Now()) {
+			route = pinned
+		}
+	}
 	initialRoute, _ := chain.firstRoute()
+	if recovery != nil {
+		// The paused assignment is where the unit continues, not a switch.
+		initialRoute = route
+	}
 	if chain.enabled && routeIdentity(route) != routeIdentity(initialRoute) {
 		totals.switches++
 	}
@@ -805,7 +820,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			totals.testChanges += len(changes)
 			totals.rows = append(totals.rows, unitRow{id: uid})
 			if ctx.Err() != nil {
-				if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, nil); err != nil {
+				if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, 0, nil); err != nil {
 					return 2, "", err
 				}
 			}
@@ -891,7 +906,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	// for Pause: it records the checkpoint and returns what stops the run
 	// without a retry, a quota spent, a fallback route started or an attempt
 	// consumed. The last result says whether the caller has to return.
-	paused := func(stage string, attempt int, logs []string) (int, string, error, bool) {
+	paused := func(stage string, attempt int, logs []string, remaining time.Duration) (int, string, error, bool) {
 		if !pauseCancellation(ctx) {
 			return 0, "", nil, false
 		}
@@ -900,17 +915,47 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			// resumes that session.
 			session = agentio.CallSession(agent, run.Stdout)
 		}
-		if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), logs); err != nil {
+		if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), remaining, logs); err != nil {
 			return 2, "", err, true
 		}
 		return 7, "", context.Canceled, true
 	}
-	for attempt := 1; attempt <= args.Attempts; attempt++ {
+	firstAttempt := 1
+	resumedSession := ""
+	resumeReason := ""
+	resumeRejectedOnce := false
+	var resumedRemaining time.Duration
+	if recovery != nil {
+		if recovery.Calls > 0 {
+			firstAttempt = recovery.Calls
+		}
+		if routeIdentity(checkpointRoute(*recovery)) == routeIdentity(route) {
+			resumedSession = recovery.Session
+		}
+		if resumedSession == "" {
+			if recovery.Session == "" {
+				resumeReason = "the paused call left no session id"
+			} else {
+				resumeReason = "the paused assignment is not available on this route"
+			}
+		}
+		if recovery.Stage == "agent" && recovery.Remaining > 0 {
+			resumedRemaining = time.Duration(recovery.Remaining * float64(time.Second))
+		}
+	}
+	for attempt := firstAttempt; attempt <= args.Attempts; attempt++ {
 		// After Paused no new agent starts; the calls already made stand.
-		if code, trigger, rerr, ok := paused("agent", attempt-1, callLogs(callLog)); ok {
+		if code, trigger, rerr, ok := paused("agent", attempt-1, callLogs(callLog), 0); ok {
 			return code, trigger, rerr
 		}
 		text, resume := prompt, ""
+		if recovery != nil && attempt == firstAttempt {
+			if resumedSession != "" {
+				text, resume = recoveryContinuation(*recovery), resumedSession
+			} else {
+				text = prompt + recoveryPrompt(root, *recovery, resumeReason)
+			}
+		}
 		if problem != "" {
 			note := problem
 			if stalled {
@@ -937,8 +982,13 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			p.detail(fmt.Sprintf("attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))
+			callTimeout := timeout
+			if recovery != nil && attempt == firstAttempt && resumedRemaining > 0 && resumedRemaining < callTimeout {
+				callTimeout = resumedRemaining
+			}
+			callStart := time.Now()
 			p.spin(func() string { return livenessLabel(uid+" "+agentio.Duration(time.Since(start).Seconds()), live) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live})
+			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: callTimeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live})
 			p.stop()
 			if err != nil {
 				if pauseCancellation(ctx) {
@@ -955,9 +1005,20 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 						return 2, "", err
 					}
 					cost, totals.cost = agentio.Add(cost, spent), agentio.Add(totals.cost, spent)
-					if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), []string{rel}); err != nil {
+					remaining := callTimeout - time.Since(callStart)
+					if remaining < 0 {
+						remaining = 0
+					}
+					if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), remaining, []string{rel}); err != nil {
 						return 2, "", err
 					}
+				}
+				if recovery != nil && resume != "" && !resumeRejectedOnce && resumeRejected(run) {
+					resumeRejectedOnce = true
+					p.line(uid+": the paused session was rejected; starting a new session with the current tree", false, "yellow")
+					session, resume = "", ""
+					text = prompt + recoveryPrompt(root, *recovery, "the agent rejected the resumed session")
+					continue
 				}
 				return 7, "", err
 			}
@@ -1022,6 +1083,13 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				p.line(totals.stop, true, "")
 				return 5, "", nil
 			}
+			if recovery != nil && resume != "" && !resumeRejectedOnce && resumeRejected(run) {
+				resumeRejectedOnce = true
+				p.line(uid+": the paused session was rejected; starting a new session with the current tree", false, "yellow")
+				session, resume = "", ""
+				text = prompt + recoveryPrompt(root, *recovery, "the agent rejected the resumed session")
+				continue
+			}
 			refusal := agentio.Classify(agent, run, time.Now())
 			if refusal == nil {
 				break
@@ -1029,7 +1097,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			// The truncated stream of a call Pause ended reads like a provider
 			// refusal: no route is marked unavailable, no fallback starts and
 			// the refusal counters of the call stay as they were.
-			if code, trigger, rerr, ok := paused("agent", attempt, callLogs(callLog)); ok {
+			if code, trigger, rerr, ok := paused("agent", attempt, callLogs(callLog), 0); ok {
 				return code, trigger, rerr
 			}
 			if refusal.Kind == agentio.RefusalLimit && refusal.Reset == nil {
@@ -1083,7 +1151,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 						if err := waitForExecutorChain(ctx, p, line, earliest); err != nil {
 							// Pause interrupts the quota wait at once: the wait
 							// spends no route and consumes no attempt.
-							if code, trigger, rerr, ok := paused("quota", attempt, callLogs(callLog)); ok {
+							if code, trigger, rerr, ok := paused("quota", attempt, callLogs(callLog), 0); ok {
 								return code, trigger, rerr
 							}
 							return 7, "", err
@@ -1130,7 +1198,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			if err := waitRefusal(ctx, agent, refusal, limitProgress{p}); err != nil {
 				// Pause interrupts the refusal wait at once, on the same terms
 				// as the quota wait above.
-				if code, trigger, rerr, ok := paused("quota", attempt, callLogs(callLog)); ok {
+				if code, trigger, rerr, ok := paused("quota", attempt, callLogs(callLog), 0); ok {
 					return code, trigger, rerr
 				}
 				return 7, "", err
@@ -1165,7 +1233,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		if problem != "" {
 			// The absent result JSON of a call Pause canceled is the
 			// cancellation, not the agent's failure: no retry follows it.
-			if code, trigger, rerr, ok := paused("agent", attempt, callLogs(callLog)); ok {
+			if code, trigger, rerr, ok := paused("agent", attempt, callLogs(callLog), 0); ok {
 				return code, trigger, rerr
 			}
 			last = "agent"
@@ -1227,7 +1295,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			if res.Code != 0 {
 				// Pause arrived while the check ran: the check ran to its end and
 				// its result is the stable boundary, the unit stays [~].
-				if code, trigger, rerr, ok := paused("verify", attempt, callLogs(callLog)); ok {
+				if code, trigger, rerr, ok := paused("verify", attempt, callLogs(callLog), 0); ok {
 					return code, trigger, rerr
 				}
 			}
@@ -1265,7 +1333,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		if !committing {
 			res = runnerSelf(root, step...)
 			if res.Code != 0 {
-				if code, trigger, rerr, ok := paused("commit", attempt, callLogs(callLog)); ok {
+				if code, trigger, rerr, ok := paused("commit", attempt, callLogs(callLog), 0); ok {
 					return code, trigger, rerr
 				}
 				writeFailure(p, res)
@@ -1278,7 +1346,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			// Pause arrived while the commit ran: the transaction ran to its
 			// end, and the pending-commit journal of an interrupted commit is
 			// the boundary the next run recovers.
-			if code, trigger, rerr, ok := paused("commit", attempt, callLogs(callLog)); ok {
+			if code, trigger, rerr, ok := paused("commit", attempt, callLogs(callLog), 0); ok {
 				return code, trigger, rerr
 			}
 		}
@@ -1317,7 +1385,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		totals.testChanges += len(changes)
 		totals.rows = append(totals.rows, unitRow{uid, seconds, cost, unitIn, unitOut, attempt})
 		if ctx.Err() != nil {
-			if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, session, attempt, valueOrZero(unitIn), nil); err != nil {
+			if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, session, attempt, valueOrZero(unitIn), 0, nil); err != nil {
 				return 2, "", err
 			}
 		}

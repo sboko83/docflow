@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/cycle"
@@ -21,20 +22,24 @@ const checkpointVersion = 1
 // Checkpoint is the durable, secret-free state needed to inspect or recover a
 // controlled run. Log paths are relative to the checkout.
 type Checkpoint struct {
-	Version  int            `json:"version"`
-	Plan     string         `json:"plan"`
-	Unit     string         `json:"unit,omitempty"`
-	Head     string         `json:"head"`
-	PlanHash string         `json:"plan_fingerprint"`
-	Stage    string         `json:"stage"`
-	Agent    string         `json:"agent,omitempty"`
-	Model    string         `json:"model,omitempty"`
-	Effort   string         `json:"effort,omitempty"`
-	Session  string         `json:"session_id,omitempty"`
-	Calls    int            `json:"calls"`
-	Tokens   int            `json:"tokens"`
-	Logs     []string       `json:"logs,omitempty"`
-	Counts   map[string]int `json:"counts,omitempty"`
+	Version  int    `json:"version"`
+	Plan     string `json:"plan"`
+	Unit     string `json:"unit,omitempty"`
+	Head     string `json:"head"`
+	PlanHash string `json:"plan_fingerprint"`
+	Stage    string `json:"stage"`
+	Agent    string `json:"agent,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Effort   string `json:"effort,omitempty"`
+	Session  string `json:"session_id,omitempty"`
+	Calls    int    `json:"calls"`
+	Tokens   int    `json:"tokens"`
+	// Remaining is the time left of the interrupted agent call's timeout. A
+	// resume spends this remainder before the attempt gets its full limit
+	// again; the pause itself never counts against it.
+	Remaining float64        `json:"timeout_remaining_seconds,omitempty"`
+	Logs      []string       `json:"logs,omitempty"`
+	Counts    map[string]int `json:"counts,omitempty"`
 }
 
 func checkpointPath(root string) (string, error) {
@@ -107,7 +112,7 @@ func ReadCheckpoint(root string) (Checkpoint, error) {
 	return cp, nil
 }
 
-func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage string, route agents.Route, session string, calls, tokens int, logs []string) error {
+func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage string, route agents.Route, session string, calls, tokens int, remaining time.Duration, logs []string) error {
 	host := controlledHost(ctx)
 	if host == nil || host.State() != StatePausing {
 		return nil
@@ -117,30 +122,29 @@ func writePauseCheckpoint(ctx context.Context, root, planID, unit, stage string,
 	if err != nil {
 		return fmt.Errorf("runner: checkpoint HEAD: %w", err)
 	}
-	files, err := filepath.Glob(filepath.Join(root, "docs", "plans", "*.md"))
+	fingerprint, err := planFingerprint(root, planID)
 	if err != nil {
 		return err
-	}
-	var fingerprint string
-	for _, file := range files {
-		data, readErr := os.ReadFile(file)
-		if readErr != nil {
-			return readErr
-		}
-		if strings.Contains(string(data), "id: "+planID) || strings.Contains(string(data), "id: '"+planID+"'") || strings.Contains(string(data), "id: \""+planID+"\"") {
-			fingerprint = PlanFingerprint(data)
-			break
-		}
-	}
-	if fingerprint == "" {
-		return fmt.Errorf("runner: checkpoint plan %s was not found", planID)
 	}
 	return host.checkpoint(root, Checkpoint{
 		Plan: planID, Unit: unit, Head: strings.TrimSpace(string(head)), PlanHash: fingerprint,
 		Stage: stage, Agent: route.Agent, Model: route.Model, Effort: route.Effort,
-		Session: session, Calls: calls, Tokens: tokens, Logs: checkpointLogs(root, logs),
-		Counts: map[string]int{"calls": calls, "tokens": tokens},
+		Session: session, Calls: calls, Tokens: tokens, Remaining: remaining.Seconds(),
+		Logs: checkpointLogs(root, logs), Counts: map[string]int{"calls": calls, "tokens": tokens},
 	})
+}
+
+// planFingerprint hashes the plan file a checkpoint belongs to.
+func planFingerprint(root, planID string) (string, error) {
+	plan, err := cycle.FindPlan(root, planID)
+	if err != nil {
+		return "", fmt.Errorf("runner: checkpoint plan %s: %w", planID, err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(plan.Path)))
+	if err != nil {
+		return "", err
+	}
+	return PlanFingerprint(data), nil
 }
 
 // checkpointLogs names the call logs relative to the checkout. macOS puts a

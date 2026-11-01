@@ -99,6 +99,25 @@ func (c *executorChain) firstRoute() (agents.Route, bool) {
 	return c.routes[0], true
 }
 
+// findRoute returns the configured route with the same agent, model and
+// effort, so a resume can stay on the paused assignment instead of picking
+// another profile that happens to come first in the chain.
+func (c *executorChain) findRoute(route agents.Route) (agents.Route, bool) {
+	for _, candidate := range c.routes {
+		if routeIdentity(candidate) == routeIdentity(route) {
+			return candidate, true
+		}
+	}
+	return agents.Route{}, false
+}
+
+// available reports whether a route may start a call now: a provider refusal
+// marks it unavailable until its reset.
+func (c *executorChain) available(route agents.Route, now time.Time) bool {
+	until, blocked := c.unavailable[availabilityKey(route)]
+	return !blocked || !now.Before(until)
+}
+
 func (c *executorChain) mark(route agents.Route, refusal *agentio.Refusal, now time.Time) (time.Time, error) {
 	if refusal == nil || (refusal.Kind != agentio.RefusalLimit && refusal.Kind != agentio.RefusalOutage) {
 		return time.Time{}, nil
