@@ -317,7 +317,138 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	}
 }
 
+// TestTerminalVerifyFromSubdirectory runs the CLI from a directory below the
+// checkout root and checks the verify overlay reads the log the version 1
+// event names relative to that root instead of the process directory.
+func TestTerminalVerifyFromSubdirectory(t *testing.T) {
+	if testing.Short() {
+		t.Skip("terminal test builds the CLI")
+	}
+	root := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "docflow")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/docflow")
+	build.Dir = root
+	build.Env = os.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v\n%s", err, out)
+	}
+
+	project, config, scenario := writeRunnableProjectVerify(t, "echo verify-marker-ok")
+	sub := filepath.Join(project, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	master, slave := openTestPTY(t)
+	if err := setTestWinsize(slave, 120, 40); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command(bin, "tui")
+	child.Dir = sub
+	child.Env = append(os.Environ(),
+		"TERM=xterm-256color", "NO_COLOR=1",
+		"DOCFLOW_AGENTS="+config,
+		"FAKE_AGENT_SCENARIO="+scenario,
+		"DOCFLOW_NOTIFY=0", "DOCFLOW_SKILLS_CHECK=0",
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+	)
+	child.Stdin, child.Stdout, child.Stderr = slave, slave, slave
+	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var screen bytes.Buffer
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				screen.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	output := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return screen.String()
+	}
+	waitFor := func(text string) {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
+			if strings.Contains(output(), text) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("terminal output does not contain %q\n%s", text, output())
+	}
+	sendKey := func(key string) {
+		writeAll(t, master, key)
+		time.Sleep(100 * time.Millisecond)
+	}
+	waitFile := func(path string, present bool, timeout time.Duration) {
+		t.Helper()
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			_, err := os.Stat(path)
+			if present == (err == nil) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("file %s present=%v not reached\n%s", path, present, output())
+	}
+
+	waitFor("Queue")
+	sendKey("s")
+	waitFor("Start the current Queue run?")
+	sendKey("\r")
+	waitFile(filepath.Join(project, "a.txt"), true, 30*time.Second)
+	waitFile(filepath.Join(project, ".git", "docflow", "run", "run.lock"), false, 30*time.Second)
+	time.Sleep(300 * time.Millisecond)
+
+	// Select the finished unit and open its verify result.
+	for i := 0; i < 3; i++ {
+		sendKey("\x1b[B")
+	}
+	sendKey("\r")
+	sendKey("v")
+	waitFor("verify-marker-ok")
+	if strings.Contains(output(), "cannot read verify log") {
+		t.Fatalf("verify log was resolved from the process directory\n%s", output())
+	}
+	sendKey("\x1b")
+	sendKey("q")
+
+	exited := make(chan error, 1)
+	go func() { exited <- child.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("tui exited with %v\n%s", err, output())
+		}
+	case <-time.After(20 * time.Second):
+		_ = child.Process.Kill()
+		t.Fatalf("tui did not exit\n%s", output())
+	}
+	_ = master.Close()
+	<-readDone
+}
+
 func writeRunnableProject(t *testing.T) (project, config, scenario string) {
+	t.Helper()
+	return writeRunnableProjectVerify(t, "test -f a.txt")
+}
+
+func writeRunnableProjectVerify(t *testing.T, verify string) (project, config, scenario string) {
 	t.Helper()
 	project = t.TempDir()
 	write := func(path, text string) {
@@ -346,7 +477,7 @@ Exercise the interactive runner.
 ### [ ] P001.1.1 Live control
 Do:
 - write a.txt
-Verify: `+"`test -f a.txt`"+`
+Verify: `+"`"+verify+"`"+`
 Commit: P001.1.1: live control
 `)
 	for _, args := range [][]string{

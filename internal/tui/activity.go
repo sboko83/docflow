@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -426,6 +427,30 @@ func isBidiControl(r rune) bool {
 	return false
 }
 
+// resolveLogPath maps a stream path from a version 1 event to the file the
+// workspace reads. Events store paths relative to the checkout, while the
+// process may run from a subdirectory; an absolute path is taken as is. A
+// relative path that leaves the checkout root is rejected instead of silently
+// reading an unrelated file.
+func resolveLogPath(root, path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("log path is empty")
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(path))
+	if filepath.IsAbs(cleaned) {
+		return cleaned, nil
+	}
+	resolved := filepath.Clean(filepath.Join(root, cleaned))
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return "", fmt.Errorf("path %q is outside the checkout root: %v", resolved, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q is outside the checkout root", resolved)
+	}
+	return resolved, nil
+}
+
 // activityPage is one bounded window into an original log fragment.
 type activityPage struct {
 	Key   string
@@ -434,6 +459,9 @@ type activityPage struct {
 	Text  string
 	Skip  int
 	Total int
+	// Path is the resolved location of the original bytes, not the relative
+	// path the version 1 event carries.
+	Path string
 	// End is the byte offset just past the raw bytes this page read. It
 	// decides whether the window already reached the end of a live log.
 	End  int
@@ -476,25 +504,31 @@ func (m *Model) loadActivityPageAs(entry ActivityEntry, skip int, forceLive bool
 		page.Err = "call log unknown: the stream link has not arrived"
 		return
 	}
+	path, err := resolveLogPath(m.root, log)
+	if err != nil {
+		page.Err = fmt.Sprintf("cannot read %s: %v", log, err)
+		return
+	}
+	page.Path = path
 	ref := entry.Activity.Ref
 	if ref.Stream == "" {
 		ref.Stream = "stdout"
 	}
 	var (
-		text  string
-		total int
-		err   error
+		text    string
+		total   int
+		readErr error
 	)
 	if live {
-		text, total, err = agentio.ReadLiveActivityPage(log, ref, skip, activityPageSize)
-		if err == nil && total == 0 {
-			err = fmt.Errorf("the call log is empty")
+		text, total, readErr = agentio.ReadLiveActivityPage(path, ref, skip, activityPageSize)
+		if readErr == nil && total == 0 {
+			readErr = fmt.Errorf("the call log is empty")
 		}
 	} else {
-		text, total, err = agentio.ReadActivityPage(log, ref, skip, activityPageSize)
+		text, total, readErr = agentio.ReadActivityPage(path, ref, skip, activityPageSize)
 	}
-	if err != nil {
-		page.Err = fmt.Sprintf("cannot read %s: %v", log, err)
+	if readErr != nil {
+		page.Err = fmt.Sprintf("cannot read %s: %v", path, readErr)
 		return
 	}
 	page.Text = Sanitize(text)
@@ -1081,8 +1115,8 @@ func (m Model) entryBody(unit string, entry ActivityEntry, width int) []string {
 				add("result (page):")
 			}
 			add(page.Text)
-			add(fmt.Sprintf("page %d-%d of %d bytes; [ and ] page, original stays in the call log",
-				page.Skip, page.End, page.Total))
+			add(fmt.Sprintf("page %d-%d of %d bytes; [ and ] page, original stays in the call log: %s",
+				page.Skip, page.End, page.Total, page.Path))
 			if page.Live {
 				add(fmt.Sprintf("call still running, %d bytes so far", page.Total))
 			}

@@ -209,6 +209,8 @@ gate: go test -timeout 20m ./...
 - Added a separate agentio.ReadLiveActivityPage that reads the current file size, keeping ActivityRef.Length as the stream-line length for finished pages — widening Ref.Length would break the agentio ref test and the persisted link format — rejected inferring a live page from a modified ref
 - The page is refreshed once on an event of the same attempt even when that event supersedes it, then syncLivePages freezes it — the reader sees bytes written up to the next record while later growth is never read — rejected refreshing only while the entry stays last, which would never fire for recorded events
 - Live refresh reloads only the open, expanded first page of a running entry — one bounded 4 KiB read per event, no work for other pages — rejected refreshing every page of the unit on each event
+- Resolve paths at read time with one helper used by both the activity page and the verify overlay — keeps the event format at version 1 and the runner unaware of the TUI cwd — rejected making event paths absolute or changing the process cwd
+- Keep the original relative path in history and store the resolved path only on the rendered page — replay and journal consumers still see the persisted stream link — rejected rewriting history entries during load
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -702,7 +704,7 @@ Handoff:
 - Unverified: The live tail and same-attempt refresh are tested with synthetic events and a manually growing file, not with a real Pi/Codex call log while a tool runs; live acceptance remains P052.3.3.
 - Unverified: A live 4 KiB window boundary inside a multibyte UTF-8 rune is only neutralized by Sanitize (replacement character) and has no dedicated assertion in the live-page tests.
 
-### [ ] P052.2.7 Resolve event log paths from the checkout root
+### [x] P052.2.7 Resolve event log paths from the checkout root
 Read:
 - internal/tui/activity.go:L194-210
 - internal/tui/activity.go:L433-470
@@ -719,6 +721,11 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: не склеивай root с уже абсолютным путём и используй `filepath.FromSlash` для путей из событий; verify-лог тоже лежит в `<git-dir>/docflow/run` и его путь относителен. Несуществующий лог остаётся явной ошибкой, а не пустой страницей. Не подменяй корень на cwd: TUI специально работает от корня checkout.
 Depends: P052.2.6
 Commit: P052.2.7: resolve event log paths from the root
+Handoff:
+- Log paths from version 1 events now go through resolveLogPath(root, path) in internal/tui/activity.go; activity pages keep the resolved location in page.Path, verifyReference returns the resolved path so m.verifyLog is absolute.
+- The activity footer now names the resolved call-log path. resolveLogPath treats absolute event paths as-is and only joins relative ones to m.root; a relative path escaping the root and an empty path are explicit read errors.
+- Tests added: TestResolveLogPath, TestLogPathsResolveFromCheckoutRoot (t.Chdir into project/sub), TestTerminalVerifyFromSubdirectory; writeRunnableProject now delegates to writeRunnableProjectVerify(t, verify).
+- Unverified: Windows path resolution (drive letters, backslash separators) is not exercised: tests run on the current macOS target and the terminal PTY tests are POSIX-only.
 
 ### [ ] P052.2.8 Refuse control under a live foreign runner
 Read:

@@ -445,6 +445,112 @@ func TestVerifyWithoutEventIsNotSuccess(t *testing.T) {
 	}
 }
 
+func TestResolveLogPath(t *testing.T) {
+	root := t.TempDir()
+	absolute := filepath.Join(t.TempDir(), "absolute.out")
+	cases := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{name: "relative", path: ".git/docflow/run/call.out", want: filepath.Join(root, ".git", "docflow", "run", "call.out")},
+		{name: "relative slash", path: "logs/../call.out", want: filepath.Join(root, "call.out")},
+		{name: "absolute", path: absolute, want: absolute},
+		{name: "empty", path: "", wantErr: true},
+		{name: "parent escape", path: "../outside.out", wantErr: true},
+		{name: "deep escape", path: ".git/../../outside.out", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveLogPath(root, tc.path)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("resolveLogPath(%q) = %q, want an error", tc.path, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveLogPath(%q): %v", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("resolveLogPath(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLogPathsResolveFromCheckoutRoot(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	runDir := filepath.Join(root, ".git", "docflow", "run")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	callBody := "call marker\n"
+	callLog := filepath.Join(runDir, "call.out")
+	if err := os.WriteFile(callLog, []byte(callBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	verifyBody := "--- stdout\nverify marker\n--- stderr\n"
+	verifyLog := filepath.Join(runDir, "verify.P001.1.2.0.out")
+	if err := os.WriteFile(verifyLog, []byte(verifyBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	relCall, err := filepath.Rel(root, callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relVerify, err := filepath.Rel(root, verifyLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const unit = "P001.1.2"
+	activity := agentio.Activity{
+		Kind: agentio.ActivityKindTool, State: agentio.ActivityStateSucceeded,
+		Tool: "Bash", ToolID: "b1", Command: "echo marker",
+		Ref: agentio.ActivityRef{Stream: "stdout", Offset: 0, Length: len(callBody)},
+	}
+	verify := runner.Event{Type: "verify", Unit: unit, Fields: map[string]any{
+		"exit_code": float64(0),
+		"log":       filepath.ToSlash(relVerify),
+		"stdout":    map[string]any{"path": filepath.ToSlash(relVerify), "offset": float64(len("--- stdout\n")), "length": len("verify marker")},
+		"stderr":    map[string]any{"path": filepath.ToSlash(relVerify), "offset": float64(len(verifyBody)), "length": 0},
+	}}
+	model := loadedModel(t, root)
+	model = selectRow(t, model, "unit:"+unit)
+	model = resize(t, model, 120, 40)
+	model = addEvents(model, streamEvent(unit, 1, filepath.ToSlash(relCall)), activityEvent(unit, activity), verify)
+
+	// The process runs from a subdirectory, as `docflow tui` does when the
+	// checkout root is above the current directory.
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+
+	model = send(t, model, keyMsg("enter"))
+	// The verify event is newer than the call; move to the tool entry.
+	model = send(t, model, keyMsg("up"))
+	model = send(t, model, keyMsg("enter"))
+	page := model.pages[activityPageKey(unit, model.activityEntries(unit)[0])]
+	if page == nil || page.Err != "" || !strings.Contains(page.Text, "call marker") {
+		t.Fatalf("activity page from a subdirectory = %#v", page)
+	}
+	if page.Path != callLog {
+		t.Fatalf("activity page path = %q, want %q", page.Path, callLog)
+	}
+
+	model = send(t, model, keyMsg("v"))
+	if model.overlay != overlayVerify || model.verifyErr != "" || !strings.Contains(model.verifyText, "verify marker") {
+		t.Fatalf("verify overlay from a subdirectory = %v err=%q text=%q", model.overlay, model.verifyErr, model.verifyText)
+	}
+	if model.verifyLog != verifyLog {
+		t.Fatalf("verify log path = %q, want %q", model.verifyLog, verifyLog)
+	}
+}
+
 func runGit(t *testing.T, root string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", root}, args...)...)

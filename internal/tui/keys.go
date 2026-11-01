@@ -389,6 +389,10 @@ func (m Model) verifyReference(unit string) (string, agentio.ActivityRef, string
 		if log == "" {
 			return "", agentio.ActivityRef{}, fmt.Sprintf("verify event of %s has no log path", unit)
 		}
+		path, err := resolveLogPath(m.root, log)
+		if err != nil {
+			return "", agentio.ActivityRef{}, fmt.Sprintf("cannot read %s: %v", log, err)
+		}
 		// The log holds both sections; page it from the start so a failing
 		// stderr tail is visible with the stdout that produced the verdict.
 		ref := agentio.ActivityRef{Stream: "stdout", Offset: 0, Length: -1}
@@ -407,7 +411,7 @@ func (m Model) verifyReference(unit string) (string, agentio.ActivityRef, string
 		if end > 0 {
 			ref.Length = end
 		}
-		return log, ref, ""
+		return path, ref, ""
 	}
 	return "", agentio.ActivityRef{}, fmt.Sprintf("no verify event recorded for %s", unit)
 }
