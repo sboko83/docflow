@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bsv-docflow/internal/agentio"
 	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/runner"
@@ -106,6 +108,32 @@ func writeTestProject(t *testing.T) string {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "docs", "plans", "P002-draft.md"), []byte(draftPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// writeTallPlanProject writes one active plan whose tree is taller than any
+// supported terminal: three phases with twelve units each.
+func writeTallPlanProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs", "plans"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	docflow := "---\ndocflow: 3\n---\n## Queue\n- P010\n\n## Frozen\n\n## Backlog\n"
+	if err := os.WriteFile(filepath.Join(root, "docs", "docflow.md"), []byte(docflow), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var plan strings.Builder
+	plan.WriteString("---\nid: P010\ntitle: Tall tree\nstatus: active\ncreated: 2026-11-01\n---\n## Goal\n\nLong tree fixture.\n")
+	for phase := 1; phase <= 3; phase++ {
+		fmt.Fprintf(&plan, "\n## Phase %d: Phase %d\n\n", phase, phase)
+		for unit := 1; unit <= 12; unit++ {
+			fmt.Fprintf(&plan, "### [ ] P010.%d.%d Unit %d\nDo:\n- step\n\n", phase, unit, unit)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "plans", "P010-tall.md"), []byte(plan.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -410,6 +438,84 @@ func TestDetailScrollStopsAtTheLastPage(t *testing.T) {
 	if model.focus != focusTree {
 		t.Fatal("Esc did not return to the tree")
 	}
+}
+
+// TestTreeAndDetailsFitTheRenderedBody pins the geometry to the screen: the
+// selected tree row and the newest activity body must survive the pane title,
+// the notice lines and the footer.
+func TestTreeAndDetailsFitTheRenderedBody(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTallPlanProject(t)
+	unit := "P010.3.12"
+	const newest = "NEWEST-TAIL"
+	var events []runner.Event
+	for i := 0; i < 60; i++ {
+		text := fmt.Sprintf("history line %02d", i)
+		if i == 59 {
+			text = newest + " of the live history"
+		}
+		events = append(events, activityEvent(unit, agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: text}))
+	}
+	notice := "run failed: provider returned an invalid response while starting the unit"
+	cases := []struct {
+		name          string
+		width, height int
+		notice        string
+	}{
+		{"120x40", 120, 40, ""},
+		{"120x40 with notice", 120, 40, notice},
+		{"80x24", 80, 24, ""},
+		{"80x24 with notice", 80, 24, notice},
+		{"40x12 with notice", 40, 12, notice},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			model := loadedModel(t, root)
+			model = resize(t, model, tc.width, tc.height)
+			model = addEvents(model, events...)
+			model = selectRow(t, model, "unit:"+unit)
+			model.notice = tc.notice
+			if tooSmall(tc.width, tc.height) {
+				if !strings.Contains(model.String(), "Terminal too small") {
+					t.Fatal("a small terminal did not report its size")
+				}
+				return
+			}
+			rendered := model.String()
+			assertScreenFits(t, rendered, tc.width, tc.height)
+			if !hasSelectedTreeLine(rendered, unit) {
+				t.Fatalf("the selected tree row %q is not on screen:\n%s", unit, rendered)
+			}
+			model = send(t, model, keyMsg("enter"))
+			rendered = model.String()
+			assertScreenFits(t, rendered, tc.width, tc.height)
+			if !strings.Contains(rendered, newest) {
+				t.Fatalf("the newest activity body is clipped from the screen:\n%s", rendered)
+			}
+		})
+	}
+}
+
+func assertScreenFits(t *testing.T, rendered string, width, height int) {
+	t.Helper()
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != height {
+		t.Fatalf("rendered %d lines, want %d", len(lines), height)
+	}
+	for i, line := range lines {
+		if got := lipgloss.Width(line); got > width {
+			t.Fatalf("line %d is %d columns wide, want at most %d: %q", i, got, width, line)
+		}
+	}
+}
+
+func hasSelectedTreeLine(rendered, key string) bool {
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.HasPrefix(line, "> ") && strings.Contains(line, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadingEmptyAndErrorStatesHaveActions(t *testing.T) {

@@ -1232,7 +1232,7 @@ func (m Model) syncActivityScroll() Model {
 	offset := len(m.unitCardLines(selected, width)) + 3
 	start := offset + section.starts[cursor]
 	end := offset + section.ends[cursor]
-	body := m.bodyHeight()
+	body := m.paneContentHeight()
 	if m.followActivity {
 		m.detailTop = max(0, len(m.detailLines(width))-body)
 	} else {

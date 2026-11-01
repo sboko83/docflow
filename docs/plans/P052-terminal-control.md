@@ -238,6 +238,9 @@ gate: go test -timeout 20m ./...
 - Седьмой блок P052.2.4 разведён на P052.2.15 (потерянный результат клампа прокрутки Details) и P052.2.16 (высота панели от отрисованного тела с notice-строками); ревью возвращено в `[ ]` с `Depends` на оба — правка ревью запрещена, а находки разные по проверяемому поведению: пустая панель после прокрутки и неверная видимая высота.
 - Видимая высота считается от фактически отрисованного тела, а не от константы `height-5`: заголовок панели и notice-строки уже заняли строки, и повторённый в `treeLines`/`syncActivityScroll` расчёт отрезал последнюю выбранную строку — отвергнуто увеличение `bodyHeight()` на единицу (не покрывает notice) и отказ от двухстрочного notice (теряет текст исхода).
 - Added a shared maxDetailTop(lines) helper instead of repeating the len-bodyHeight formula in clampDetailTop and visibleDetailLines — one definition keeps the stored offset and the rendered window in sync — rejected duplicating the arithmetic at the render site
+- Moved notice trimming into fitNotice and body-height arithmetic into bodyHeightFor shared by render and bodyHeight() — one source of geometry that cannot drift from the rendered screen — rejected recomputing the trim loop inside bodyHeight only
+- paneContentHeight() clamps at 0, not 1 — a body of one line is only the title, so no phantom content line is reported to scroll math; supported heights always yield at least two content lines — rejected max(1, ...) which could show a clipped selection position
+- The tall-tree test selects the last unit by key instead of End — the tree ends with the empty Frozen section row, so End would assert on a section rather than a unit — rejected removing Frozen from the fixture or accepting a section assertion
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -962,7 +965,7 @@ Handoff:
 - Overlays (diff/verify) keep their own clamping in handleDetailsKey and were not touched; only the non-overlay branch changed.
 - Unverified: The last line of the scrolled page is still clipped because maxDetailTop subtracts bodyHeight() while the pane spends a line on its title; the test asserts the Handoff heading rather than the final bullet — the rendered pane height is P052.2.16's scope, not checked here.
 
-### [ ] P052.2.16 Fit panes to the rendered body
+### [x] P052.2.16 Fit panes to the rendered body
 Read:
 - internal/tui/view.go:L62-140
 - internal/tui/view.go:L255-320
@@ -980,6 +983,11 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: правило P052.2.13 — notice не больше двух строк и тело не меньше одной — не меняй; `pane`/truncate и оверлеи не трогай. Не дублируй расчёт высоты в `treeLines` и `syncActivityScroll`: второй расчёт снова разойдётся с notice и заголовком панели. Оракул — `Model.String()`; PTY-снимок Bubble Tea содержит только изменённые хвосты строк. Тесты клампа из P052.2.15 не переписывай.
 Depends: P052.2.15
 Commit: P052.2.16: fit panes to the rendered body
+Handoff:
+- Pane geometry now has two levels: bodyHeight() is the rendered panel height (header/footer/notice already subtracted), paneContentHeight() is bodyHeight()-1 for the panel title. Scroll and page code must use paneContentHeight(); bodyHeight() is only for whole-body views (message/help/dialog).
+- fitNotice/bodyHeightFor in view.go are shared by render and bodyHeight(), so any notice change automatically resizes tree/detail scroll windows; do not reintroduce a height constant at a call site.
+- TestTreeAndDetailsFitTheRenderedBody is the screen oracle for this geometry; TestDetailScrollStopsAtTheLastPage still derives its maxTop dynamically and passes with the new -1 height.
+- Unverified: Real alt-screen Bubble Tea rendering was not exercised: the oracle is Model.String() at fixed sizes, so a live terminal's own wrapping/resize behaviour at these geometries is not checked.
 
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:

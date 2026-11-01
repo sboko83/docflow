@@ -60,14 +60,7 @@ func (m Model) View() tea.View {
 func (m Model) String() string { return m.render() }
 
 func (m Model) render() string {
-	width := m.width
-	height := m.height
-	if width <= 0 {
-		width = 80
-	}
-	if height <= 0 {
-		height = 24
-	}
+	width, height := m.size()
 	if tooSmall(width, height) {
 		return m.renderTooSmall(width, height)
 	}
@@ -79,10 +72,7 @@ func (m Model) render() string {
 	// The outcome notice owns its own wrapped lines above the status line: a
 	// long archive path or run error at the end of the status line was cut by
 	// padLine before the reader could see it.
-	notice := m.noticeLines(width)
-	for len(notice) > 0 && height-len(header)-len(notice)-3 < 1 {
-		notice = notice[:len(notice)-1]
-	}
+	notice := fitNotice(m.noticeLines(width), height)
 	footer := []string{strings.Repeat("─", width)}
 	for _, line := range notice {
 		footer = append(footer, padLine(line, width))
@@ -91,10 +81,7 @@ func (m Model) render() string {
 		padLine(styles.dim.Render(m.statusLine()), width),
 		padLine(styles.dim.Render(keysLine()), width),
 	)
-	bodyHeight := height - len(header) - len(footer)
-	if bodyHeight < 1 {
-		bodyHeight = 1
-	}
+	bodyHeight := bodyHeightFor(height, notice)
 	var body []string
 	switch m.state {
 	case StateLoading:
@@ -261,7 +248,7 @@ func (m Model) treeLines(width int) []string {
 		}
 		return []string{truncate(message, width)}
 	}
-	height := m.bodyHeight()
+	height := m.paneContentHeight()
 	offset := m.treeScroll
 	if m.cursor < offset {
 		offset = m.cursor
@@ -521,12 +508,51 @@ func (m Model) pane(title string, content []string, _ int, width, height int, fo
 	return lines
 }
 
+// bodyHeight is the height of the rendered body between the header and the
+// footer, with the notice lines that actually fit already subtracted.
 func (m Model) bodyHeight() int {
+	width, height := m.size()
+	return bodyHeightFor(height, fitNotice(m.noticeLines(width), height))
+}
+
+// paneContentHeight is how many content lines a pane renders: the body minus
+// the title line pane always draws. Every scroll and page step uses it, so the
+// computed window matches what the screen shows.
+func (m Model) paneContentHeight() int {
+	return max(0, m.bodyHeight()-1)
+}
+
+func (m Model) size() (int, int) {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
 	height := m.height
 	if height <= 0 {
 		height = 24
 	}
-	return max(1, height-5)
+	return width, height
+}
+
+const (
+	headerHeight = 2 // title and rule
+	footerHeight = 3 // rule, status and keys
+)
+
+// fitNotice drops notice lines until the rendered body keeps at least one
+// line, so a notice never pushes the panel off screen.
+func fitNotice(notice []string, height int) []string {
+	for len(notice) > 0 && height-headerHeight-len(notice)-footerHeight < 1 {
+		notice = notice[:len(notice)-1]
+	}
+	return notice
+}
+
+// bodyHeightFor is the height of the body between the header and the footer
+// for the notice lines actually rendered. It is the single source of the panel
+// geometry: render, scrolling and paging all derive from it.
+func bodyHeightFor(height int, notice []string) int {
+	return max(1, height-headerHeight-len(notice)-footerHeight)
 }
 
 func (m Model) singlePanel() bool {
@@ -552,7 +578,7 @@ func (m Model) visibleDetailLines(width int) []string {
 // maxDetailTop is the last scroll offset that still leaves content in the
 // details pane: the clamped window never scrolls past the final line.
 func (m Model) maxDetailTop(lines []string) int {
-	maxTop := len(lines) - m.bodyHeight()
+	maxTop := len(lines) - m.paneContentHeight()
 	if maxTop < 0 {
 		maxTop = 0
 	}

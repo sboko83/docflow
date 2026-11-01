@@ -152,9 +152,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		return m.moveCursor(1), nil
 	case "pgup":
-		return m.moveCursor(-m.bodyHeight()), nil
+		return m.moveCursor(-m.paneContentHeight()), nil
 	case "pgdown":
-		return m.moveCursor(m.bodyHeight()), nil
+		return m.moveCursor(m.paneContentHeight()), nil
 	case "home", "g":
 		return m.setCursor(0), nil
 	case "end", "G":
@@ -179,9 +179,9 @@ func (m Model) handleDetailsKey(key string) Model {
 		case "down", "j":
 			m.detailTop++
 		case "pgup":
-			m.detailTop -= m.bodyHeight()
+			m.detailTop -= m.paneContentHeight()
 		case "pgdown":
-			m.detailTop += m.bodyHeight()
+			m.detailTop += m.paneContentHeight()
 		case "home", "g":
 			m.detailTop = 0
 		case "end", "G":
@@ -213,12 +213,12 @@ func (m Model) handleDetailsKey(key string) Model {
 	case "down", "j":
 		m.detailTop++
 	case "pgup":
-		m.detailTop -= m.bodyHeight()
+		m.detailTop -= m.paneContentHeight()
 		if m.detailTop < 0 {
 			m.detailTop = 0
 		}
 	case "pgdown":
-		m.detailTop += m.bodyHeight()
+		m.detailTop += m.paneContentHeight()
 	case "home", "g":
 		m.detailTop = 0
 	case "esc", "left", "h", "enter":
@@ -252,10 +252,10 @@ func (m Model) handleActivityKey(key string) Model {
 		}
 		m.followActivity = m.activityCursor == last
 	case "pgup":
-		m.activityCursor = max(0, m.activityCursor-m.bodyHeight())
+		m.activityCursor = max(0, m.activityCursor-m.paneContentHeight())
 		m.followActivity = false
 	case "pgdown":
-		m.activityCursor = min(last, m.activityCursor+m.bodyHeight())
+		m.activityCursor = min(last, m.activityCursor+m.paneContentHeight())
 		m.followActivity = m.activityCursor == last
 	case "home", "g":
 		m.activityCursor = 0
