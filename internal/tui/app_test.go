@@ -751,6 +751,19 @@ func poll(t *testing.T, model Model) Model {
 	return updated.(Model)
 }
 
+// pollLoad applies the host poll and the plan reload it requests: a finished
+// block is decided from the reloaded plan, not from the snapshot loaded before
+// the run stopped.
+func pollLoad(t *testing.T, model Model) Model {
+	t.Helper()
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("the finished run requested no reload")
+	}
+	return applyLoad(t, model, cmd)
+}
+
 func useControllers(t *testing.T, model Model, controllers ...*fakeController) Model {
 	t.Helper()
 	next := 0
@@ -886,7 +899,7 @@ func TestHumanBlockOffersContinueWithExistingUnblock(t *testing.T) {
 	updated, _ := model.Update(keyMsg("s"))
 	model = updated.(Model)
 	first.finish(runner.StateBlocked)
-	model = poll(t, model)
+	model = pollLoad(t, model)
 	if model.dialog != dialogHuman {
 		t.Fatalf("blocked dialog = %v (%s)", model.dialog, model.notice)
 	}
@@ -922,6 +935,123 @@ func TestHumanBlockOffersContinueWithExistingUnblock(t *testing.T) {
 	}
 }
 
+// blockedRunModel starts a run whose plan gains the `[!]` status and Handoff
+// item that `docflow block` writes while the runner is still stopping, then
+// stops the controller as Blocked. The reload the poll requests is left to the
+// caller, so a test sets the order: block written, Finished, reload.
+func blockedRunModel(t *testing.T, handoff string) Model {
+	t.Helper()
+	root := writeTestProject(t)
+	planPath := filepath.Join(root, "docs", "plans", "P001-cache.md")
+	text, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := "### [!] P001.2.2 Заблокированный юнит\nDo:\n- ждать человека\nVerify: `true`\n"
+	stale := strings.Replace(string(text), block, "", 1)
+	if stale == string(text) {
+		t.Fatal("fixture lacks the blocked unit")
+	}
+	if err := os.WriteFile(planPath, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := resize(t, loadedModel(t, root), 120, 40)
+	first := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, first)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	// The block is written after the snapshot the workspace loaded.
+	grown := stale + "\n" + block
+	if handoff != "" {
+		grown = strings.Replace(grown, "Verify: `true`\n", "Verify: `true`\nHandoff:\n- "+handoff+"\n", 1)
+	}
+	if err := os.WriteFile(planPath, []byte(grown), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first.finish(runner.StateBlocked)
+	return model
+}
+
+// TestBlockOutcomeComesFromTheReloadedPlan keeps the snapshot loaded before
+// the block from deciding the outcome: the reload is the first read that can
+// see the `[!]` and its Handoff item.
+func TestBlockOutcomeComesFromTheReloadedPlan(t *testing.T) {
+	cases := []struct {
+		name       string
+		handoff    string
+		wantDialog dialogKind
+		wantText   string
+	}{
+		{name: "human", handoff: "Blocked (human): нужен вход в аккаунт", wantDialog: dialogHuman, wantText: "нужен вход в аккаунт"},
+		{name: "plan", handoff: "Blocked (plan): нужен новый юнит", wantDialog: dialogNone, wantText: "P001.2.2 is blocked (needs plan): нужен новый юнит"},
+		{name: "without handoff", wantDialog: dialogNone, wantText: "the run stopped on a block"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			model := blockedRunModel(t, tc.handoff)
+			updated, cmd := model.Update(hostPollMsg{})
+			model = updated.(Model)
+			if model.dialog != dialogNone {
+				t.Fatalf("the stale snapshot decided the block: dialog %v", model.dialog)
+			}
+			if !model.blockedPending {
+				t.Fatal("the block decision was not deferred to the reload")
+			}
+			model = applyLoad(t, model, cmd)
+			if model.blockedPending {
+				t.Fatal("the reload did not consume the deferred decision")
+			}
+			if model.dialog != tc.wantDialog {
+				t.Fatalf("dialog = %v, want %v (notice %q)", model.dialog, tc.wantDialog, model.notice)
+			}
+			shown := model.notice
+			if tc.wantDialog == dialogHuman {
+				shown = model.String()
+			}
+			if !strings.Contains(shown, tc.wantText) {
+				t.Fatalf("outcome lacks %q: notice %q\n%s", tc.wantText, model.notice, model.String())
+			}
+			if tc.wantDialog == dialogHuman {
+				// The dialog opens once: declining it and reloading again must
+				// not reopen the same block.
+				model = send(t, model, keyMsg("esc"))
+				model = applyLoad(t, model, loadCmd(model.load))
+				if model.dialog != dialogNone {
+					t.Fatalf("a later reload reopened the block dialog: %v", model.dialog)
+				}
+			}
+		})
+	}
+}
+
+// TestBlockReloadFailureNamesTheBlockedPlan keeps the pending decision when
+// the reload fails: the notice explains the read error and that the plan is
+// still blocked, and a retry can still resolve the outcome.
+func TestBlockReloadFailureNamesTheBlockedPlan(t *testing.T) {
+	model := blockedRunModel(t, "Blocked (human): нужен вход в аккаунт")
+	good := model.load
+	model.load = func() (Snapshot, error) { return Snapshot{}, errors.New("broken plan") }
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	model = applyLoad(t, model, cmd)
+	if model.state != StateError || model.dialog != dialogNone {
+		t.Fatalf("failed reload: state=%v dialog=%v", model.state, model.dialog)
+	}
+	if !strings.Contains(model.notice, "broken plan") || !strings.Contains(model.notice, "still blocked") {
+		t.Fatalf("failed reload notice = %q", model.notice)
+	}
+	if !model.blockedPending {
+		t.Fatal("a failed reload dropped the deferred block decision")
+	}
+	model.load = good
+	updated, cmd = model.Update(keyMsg("r"))
+	model = updated.(Model)
+	model = applyLoad(t, model, cmd)
+	if model.dialog != dialogHuman {
+		t.Fatalf("retry after a failed reload: dialog=%v notice=%q", model.dialog, model.notice)
+	}
+}
+
 // humanBlockModel drives a workspace to an open human-block dialog and returns
 // it together with the plan path. The controllers are prepared so a test sees
 // whether the Continue created one.
@@ -943,7 +1073,7 @@ func humanBlockModel(t *testing.T, controllers ...*fakeController) (Model, strin
 	updated, _ := model.Update(keyMsg("s"))
 	model = updated.(Model)
 	first.finish(runner.StateBlocked)
-	model = poll(t, model)
+	model = pollLoad(t, model)
 	if model.dialog != dialogHuman {
 		t.Fatalf("blocked dialog = %v (%s)", model.dialog, model.notice)
 	}

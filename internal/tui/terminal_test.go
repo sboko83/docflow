@@ -337,6 +337,117 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	}
 }
 
+// TestTerminalBlockOpensHumanDialog drives a real run whose fake agent reports
+// a human block. The `[!]` and its Handoff item are written by the runner while
+// it stops, so the dialog can only appear from the plan reloaded afterwards.
+func TestTerminalBlockOpensHumanDialog(t *testing.T) {
+	if testing.Short() {
+		t.Skip("terminal test builds the CLI")
+	}
+	root := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "docflow")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/docflow")
+	build.Dir = root
+	build.Env = os.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v\n%s", err, out)
+	}
+
+	project, config, scenario := writeBlockedProject(t)
+	master, slave := openTestPTY(t)
+	if err := setTestWinsize(slave, 120, 40); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command(bin, "tui")
+	child.Dir = project
+	child.Env = append(os.Environ(),
+		"TERM=xterm-256color", "NO_COLOR=1",
+		"DOCFLOW_AGENTS="+config,
+		"FAKE_AGENT_SCENARIO="+scenario,
+		"DOCFLOW_NOTIFY=0", "DOCFLOW_SKILLS_CHECK=0",
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+	)
+	child.Stdin, child.Stdout, child.Stderr = slave, slave, slave
+	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var screen bytes.Buffer
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				screen.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	output := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return screen.String()
+	}
+	waitFor := func(text string) {
+		t.Helper()
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if strings.Contains(output(), text) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("terminal output does not contain %q\n%s", text, output())
+	}
+	sendKey := func(key string) {
+		writeAll(t, master, key)
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	waitFor("Queue")
+	sendKey("s")
+	waitFor("Start the current Queue run?")
+	sendKey("\r")
+
+	// The Continue dialog is the model oracle; this scenario only proves it
+	// appears from the plan the runner rewrote. No unblock key is pressed.
+	waitFor("Continue runs the existing unblock command")
+	planText, err := os.ReadFile(filepath.Join(project, "docs", "plans", "P001-tui.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(planText), "[!] P001.1.1") || !strings.Contains(string(planText), "Blocked (human)") {
+		t.Fatalf("runner did not record the block in the plan:\n%s", planText)
+	}
+
+	sendKey("\x1b")
+	sendKey("q")
+
+	exited := make(chan error, 1)
+	go func() { exited <- child.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("tui exited with %v\n%s", err, output())
+		}
+	case <-time.After(20 * time.Second):
+		_ = child.Process.Kill()
+		t.Fatalf("tui did not exit after the block\n%s", output())
+	}
+	_ = master.Close()
+	<-readDone
+	if _, err := os.Stat(filepath.Join(project, ".git", "docflow", "run", "run.lock")); !os.IsNotExist(err) {
+		t.Fatalf("checkout lock left after exit: %v", err)
+	}
+}
+
 // TestTerminalVerifyFromSubdirectory runs the CLI from a directory below the
 // checkout root and checks the verify overlay reads the log the version 1
 // event names relative to that root instead of the process directory.
@@ -470,6 +581,21 @@ func writeRunnableProject(t *testing.T) (project, config, scenario string) {
 
 func writeRunnableProjectVerify(t *testing.T, verify string) (project, config, scenario string) {
 	t.Helper()
+	result := `{"type":"result","is_error":false,"result":"ok","session_id":"s1","structured_output":{"status":"done","handoff":["done"]}}`
+	return writeRunnableProjectAgent(t, verify, result, "sleep 5\n")
+}
+
+// writeBlockedProject prepares a runnable project whose fake agent reports a
+// human block, which makes the runner write `[!]` and a Handoff item through
+// `docflow block` while it is stopping.
+func writeBlockedProject(t *testing.T) (project, config, scenario string) {
+	t.Helper()
+	result := `{"type":"result","is_error":false,"result":"blocked","session_id":"s1","structured_output":{"status":"blocked","blocker":"human","reason":"needs a person"}}`
+	return writeRunnableProjectAgent(t, "true", result, "")
+}
+
+func writeRunnableProjectAgent(t *testing.T, verify, result, prelude string) (project, config, scenario string) {
+	t.Helper()
 	project = t.TempDir()
 	write := func(path, text string) {
 		t.Helper()
@@ -515,8 +641,7 @@ Commit: P001.1.1: live control
 	if err := os.MkdirAll(scenario, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	result := `{"type":"result","is_error":false,"result":"ok","session_id":"s1","structured_output":{"status":"done","handoff":["done"]}}`
-	if err := os.WriteFile(filepath.Join(scenario, "0.sh"), []byte("sleep 5\nprintf a > a.txt\nprintf '%s\\n' '"+result+"'\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(scenario, "0.sh"), []byte(prelude+"printf a > a.txt\nprintf '%s\\n' '"+result+"'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(scenario, "1.sh"), []byte("printf a > a.txt\nprintf '%s\\n' '"+result+"'\n"), 0o644); err != nil {

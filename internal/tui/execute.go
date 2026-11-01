@@ -149,6 +149,7 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd, bool) {
 	m.runStopped = false
 	m.checkpointed = false
 	m.blockedUnit, m.blockedReason = "", ""
+	m.blockedPending = false
 	if resume {
 		m.notice = "resuming from checkpoint"
 	} else {
@@ -223,19 +224,13 @@ func (m *Model) handleFinished() {
 	m.refreshLock()
 	switch m.runState {
 	case runner.StateBlocked:
-		if unit, reason, needs, ok := m.blockedInfo(); ok {
-			m.blockedUnit, m.blockedReason = unit, reason
-			if needs == "human" {
-				m.dialog = dialogHuman
-				m.dialogTitle = unit + " is blocked (needs human)"
-				m.dialogLines = []string{reason, "", "Continue runs the existing unblock command with your note."}
-				m.dialogInput, m.dialogNote = "", true
-				return
-			}
-			m.notice = fmt.Sprintf("%s is blocked (needs %s): %s — replan or return it to the CLI", unit, needs, reason)
-			return
-		}
-		m.notice = "the run stopped on a block"
+		// `docflow block` writes `[!]` and its Handoff item while the runner is
+		// still stopping, so the snapshot loaded before the stop cannot contain
+		// them. Defer the decision to the reload pollController requests next;
+		// reading the plan here would add a second loader to the UI thread.
+		m.blockedPending = true
+		m.blockedUnit, m.blockedReason = "", ""
+		m.notice = "the run stopped on a block; reloading the plan"
 	case runner.StatePaused:
 		if m.checkpointed {
 			m.notice = "paused; Resume continues the interrupted unit from its checkpoint"
@@ -256,6 +251,28 @@ func (m *Model) handleFinished() {
 			m.notice = "run finished"
 		}
 	}
+}
+
+func (m Model) resolveBlocked() Model {
+	unit, reason, needs, ok := m.blockedInfo()
+	if !ok || needs == "" {
+		// A unit blocked by hand has no Handoff item naming who lifts it.
+		m.notice = "the run stopped on a block"
+		return m
+	}
+	m.blockedUnit, m.blockedReason = unit, reason
+	if needs != "human" {
+		m.notice = fmt.Sprintf("%s is blocked (needs %s): %s — replan or return it to the CLI", unit, needs, reason)
+		return m
+	}
+	if reason == "" {
+		reason = "the plan records no reason"
+	}
+	m.dialog = dialogHuman
+	m.dialogTitle = unit + " is blocked (needs human)"
+	m.dialogLines = []string{reason, "", "Continue runs the existing unblock command with your note."}
+	m.dialogInput, m.dialogNote = "", true
+	return m
 }
 
 func (m Model) blockedInfo() (unit, reason, needs string, ok bool) {

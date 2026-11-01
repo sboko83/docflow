@@ -247,6 +247,8 @@ gate: go test -timeout 20m ./...
 - Поздний prompt запоминается и показывается после закрытия текущего диалога, а выход отвечает на него отказом и зовёт `CancelStart` — отвергнуты замена открытого диалога стартовым (Enter в диалоге выхода подтверждал старт) и молчаливое игнорирование prompt (горутина `Ask` висит до отмены ctx).
 - Текстовый ввод принимает `msg.Text` при shift и caps lock, а ctrl/alt/meta остаются командами: Shift+A приходит как `Text: "A"` с модификатором, а `keyMsg` с `Mod: 0` не воспроизводил верхний регистр — отвергнуты проверка `msg.Mod == 0` и разбор `Keystroke()`.
 - Смена выбранного юнита включает follow и ставит курсор на новейшую запись: пауза чтения принадлежит истории одного юнита, а общий флаг делал новый юнит «замороженным» на первой записи — отвергнуто хранение позиции по юнитам (лишняя карта без требования).
+- Kept blockedPending set when the post-block reload fails and worded the notice 'press r to try again' — a retry then still resolves the outcome from a valid snapshot — rejected dropping the decision and leaving only the old 'stopped on a block' text
+- Treat a unit with status [!] but no Blocked Handoff item as the previous 'the run stopped on a block' outcome instead of formatting an empty needs/reason — matches how blockNeeds reports a hand-blocked unit
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -995,7 +997,7 @@ Handoff:
 - TestTreeAndDetailsFitTheRenderedBody is the screen oracle for this geometry; TestDetailScrollStopsAtTheLastPage still derives its maxTop dynamically and passes with the new -1 height.
 - Unverified: Real alt-screen Bubble Tea rendering was not exercised: the oracle is Model.String() at fixed sizes, so a live terminal's own wrapping/resize behaviour at these geometries is not checked.
 
-### [ ] P052.2.17 Decide a finished block from the reloaded plan
+### [x] P052.2.17 Decide a finished block from the reloaded plan
 Read:
 - internal/tui/execute.go:L160-259
 - internal/tui/model.go:L211-330
@@ -1012,6 +1014,11 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: не открывай диалог из `blockedInfo()` и не отвечай на prompt human автоматически. PTY-снимок содержит только изменённые хвосты строк: в терминальном тесте жди текст диалога через `waitFor`, а не строку статуса. Загрузку после блока не отменяй ради порядка событий: `unit_end` и так требует перезагрузки.
 Depends: P052.2.3, P052.2.9
 Commit: P052.2.17: decide a finished block from the reloaded plan
+Handoff:
+- Block resolution is deferred through Model.blockedPending: handleFinished only marks it, applySnapshot consumes it after the reload, and a failed load keeps it so the r retry still opens the dialog.
+- Model tests that finish a run as StateBlocked must use the new pollLoad helper (poll + applyLoad); the old poll-only path leaves the dialog unopened by design.
+- The terminal block scenario uses writeRunnableProjectAgent with writeBlockedProject; the fake agent returns structured_output status blocked/blocker human and the runner writes [!] via cycle.Self.
+- Unverified: The failed-reload notice is exercised with an injected loader error, not a real malformed plan file on disk.
 
 ### [ ] P052.2.18 Report the reason of a pre-start failure
 Read:

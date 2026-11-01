@@ -150,8 +150,9 @@ type Model struct {
 	dialogNote   bool
 	exitAfterRun bool
 
-	blockedUnit   string
-	blockedReason string
+	blockedUnit    string
+	blockedReason  string
+	blockedPending bool
 
 	lifecycle func(root string, args ...string) cycle.Result
 	lockCheck func(root string) (int, bool, error)
@@ -298,6 +299,12 @@ func (m Model) applySnapshot(msg snapshotMsg) Model {
 		m.state = StateError
 		m.errText = msg.err.Error()
 		m.notice = ""
+		if m.blockedPending {
+			// The block decision waits for this snapshot: name both the read
+			// error and the block that is still on disk. The pending flag stays
+			// set so a successful retry still resolves the outcome.
+			m.notice = fmt.Sprintf("cannot reload the plan after the block: %s; the plan is still blocked — press r to try again", msg.err)
+		}
 		m.syncCursor()
 		return m
 	}
@@ -322,6 +329,13 @@ func (m Model) applySnapshot(msg snapshotMsg) Model {
 	m.refreshLock()
 	m.recountMatches()
 	m.syncCursor()
+	if m.blockedPending {
+		// The snapshot loaded before the run stopped cannot see the `[!]` that
+		// `docflow block` writes while the runner is still stopping. This
+		// reload is the first one that can.
+		m.blockedPending = false
+		m = m.resolveBlocked()
+	}
 	return m
 }
 
