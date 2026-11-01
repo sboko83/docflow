@@ -9,4 +9,5 @@ person running it. Fixture Go modules are isolated from the `bsv-docflow`
 module by `go.mod`.
 
 See [the benchmark design](../docs/design/bench.md) for the runner and result
-format.
+format. Run history lives in `bench/results/`: `runs.jsonl` plus a generated
+README summary; every run appends its rows and commits them itself.
