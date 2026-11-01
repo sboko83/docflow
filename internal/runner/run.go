@@ -53,6 +53,7 @@ type runTotals struct {
 	switches                   int
 	mu                         sync.Mutex
 	unit, activity             string
+	activitySeq                int64
 	hints                      []string
 	quota, quotaStart          map[string]agentio.Quota
 	names                      []string
@@ -284,6 +285,9 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 		fields["plan"], fields["units"] = sel.Plan.Meta["id"], len(sel.Plan.Units)
 	}
 	totals.events.emit("run_start", "", fields)
+	if sel.Plan != nil {
+		totals.events.emit("config", "", eventConfig(sel.Plan))
+	}
 	defer func() {
 		reason := totals.stop
 		if reason == "" {
@@ -918,6 +922,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), remaining, logs); err != nil {
 			return 2, "", err, true
 		}
+		totals.events.emit("state", uid, map[string]any{"state": "Paused", "stage": stage, "attempt": attempt})
 		return 7, "", context.Canceled, true
 	}
 	firstAttempt := 1
@@ -988,8 +993,13 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 			callStart := time.Now()
 			p.spin(func() string { return livenessLabel(uid+" "+agentio.Duration(time.Since(start).Seconds()), live) }, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: callTimeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live})
+			options := agentio.CallOptions{Timeout: callTimeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live, Stream: stringValue(agent["stream"])}
+			if host := controlledHost(ctx); host != nil {
+				options.OnActivity = activityObserver(totals, host, uid, attempt, name, route)
+			}
+			run, err = agentio.CallAgent(root, argv, stdin, log, options)
 			p.stop()
+			totals.events.emit("stream", uid, callStreamFields(root, uid, attempt, log, run))
 			if err != nil {
 				if pauseCancellation(ctx) {
 					output := agentio.AgentOutput(agent, run.Stdout)
@@ -1012,6 +1022,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 					if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), remaining, []string{rel}); err != nil {
 						return 2, "", err
 					}
+					totals.events.emit("state", uid, map[string]any{"state": "Paused", "stage": "agent", "attempt": attempt})
 				}
 				if recovery != nil && resume != "" && !resumeRejectedOnce && resumeRejected(run) {
 					resumeRejectedOnce = true
@@ -1291,7 +1302,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			p.spin(uid+" verify", nil)
 			res = runnerSelf(root, "verify", uid)
 			p.stop()
-			totals.events.emit("verify", uid, map[string]any{"exit_code": res.Code})
+			verifyFields := map[string]any{"exit_code": res.Code}
+			for key, value := range verifyStreamFields(root, uid, res) {
+				verifyFields[key] = value
+			}
+			totals.events.emit("verify", uid, verifyFields)
 			if res.Code != 0 {
 				// Pause arrived while the check ran: the check ran to its end and
 				// its result is the stable boundary, the unit stays [~].

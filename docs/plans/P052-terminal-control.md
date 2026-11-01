@@ -145,6 +145,10 @@ gate: go test -timeout 20m ./...
 - Store the remaining timeout in the checkpoint rather than active elapsed time — repeated resumes would otherwise subtract already-spent time twice — rejected an accumulated active-duration field.
 - Pin the checkpoint agent/model/effort when that exact route is still available and only then resume its session; a mismatch starts one new full-prompt session — rejected silently pairing an old session with a new assignment.
 - Detect a rejected resume from provider text with the same one-new-session guard — rejected adding an agent-specific exit-code contract that the three CLIs do not share.
+- Write stderr to a sidecar <call>.stderr while keeping the original call log byte-identical — stderr offsets cannot be known live in the one-file layout, and rewriting the log layout breaks parity — rejected interleaving stderr into the main log or resolving stderr offsets only after the call.
+- Do not persist one JSONL event per activity — an fsync per agent line and duplicated message bodies would slow ordinary runs and bloat the event stream; stream links plus the parser rebuild history — rejected per-line activity events.
+- Name verify logs verify.<uid>.<n>.out — the uid.*.out glob is the call-log namespace counted by tests and checkpoint recovery — rejected <uid>.verify.<n>.out.
+- Always write the stderr sidecar, even outside an interactive run, so every stream link resolves — rejected an interactive-only sidecar with dangling paths in normal runs.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -225,7 +229,7 @@ Handoff:
 - Stop after unit already travels through Control.StopAfterUnit and the stop file; a resumed run removes that file on start, so stopping is not carried into the next run.
 - Unverified: The resume-rejection matcher is exercised only with a fake `session ... not found` stderr; the actual wording of a refused session from Pi, Codex and opencode is not covered by an integration test.
 
-### [ ] P052.1.3 Preserve inspectable agent activity
+### [x] P052.1.3 Preserve inspectable agent activity
 Read:
 - internal/agentio/output.go:L205-374
 - internal/agentio/process.go:L51-173
@@ -241,6 +245,14 @@ Do:
 - Расширь events_test.go и тесты парсера случаями частичной строки, stderr до завершения, неизвестного события, отменённого инструмента и медленного читателя.
 Verify: `go test -timeout 20m ./internal/agentio/ ./internal/runner/`
 Commit: P052.1.3: expose inspectable agent activity
+Handoff:
+- Activity API for P052.2.2: agentio.NewActivityParser(agent), Feed(stream, text, ref), Finalize(state), ReadActivityPage(log, ref, skip, limit), StderrLog(log); refs carry stream+absolute offset+length and the original call log stays unchanged.
+- Interactive runner publishes Control.Event{Type:"activity", Data: agentio.Activity} only when a Control host is present; a normal run writes no per-activity event, history is rebuilt from logs with the parser.
+- New JSONL v1 events to consume: config (plan/permissions/executor/fallback/replan/roles, no secrets or bodies), state (Paused with stage+attempt), stream (log plus stdout/stderr path/offset/length; replan/close flags). Existing event names and fields are unchanged.
+- Verify output is now stored at .git/docflow/run/verify.<uid>.<n>.out and linked from the existing verify event (log, stage, stdout/stderr ranges); the verify.<uid> prefix deliberately avoids the uid.*.out call-log namespace.
+- Activity.Seq is renumbered run-wide by the runner; the parser's own sequence is per call. Delta messages are emitted as running activities and the final text is trimmed to its unseen remainder.
+- Unverified: Activity normalization is verified against the repository fixtures and fake agents, not against live Pi/Codex/opencode output; streaming event shapes such as Pi message_update/tool_execution_update and Codex mcp_tool_call payloads are implemented from documented shapes without a live check (live acceptance is P052.4.2).
+- Unverified: ReadActivityPage is tested on a completed log; reading a page while the log is still being appended by a running agent (partial JSON line at the tail) is not covered end-to-end.
 
 ### [ ] P052.1.4 Review runner control and recovery
 Read:

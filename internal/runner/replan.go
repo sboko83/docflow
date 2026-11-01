@@ -446,8 +446,15 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			p.spin(func() string {
 				return livenessLabel(uid+" replan "+agentio.Duration(time.Since(start).Seconds()), live)
 			}, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.activity })
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live})
+			options := agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live, Stream: stringValue(agent["stream"])}
+			if host := controlledHost(ctx); host != nil {
+				options.OnActivity = activityObserver(totals, host, uid, attempt, name, route)
+			}
+			run, err = agentio.CallAgent(root, argv, stdin, log, options)
 			p.stop()
+			streamFields := callStreamFields(root, uid, attempt, log, run)
+			streamFields["replan"] = true
+			totals.events.emit("stream", uid, streamFields)
 			if err != nil {
 				return 7, err
 			}

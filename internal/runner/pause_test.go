@@ -160,6 +160,15 @@ func TestPauseStopsAgentGroupAndWritesCheckpoint(t *testing.T) {
 	if cp.Logs[0] != ".git/docflow/run/P001.1.1.1.out" {
 		t.Fatalf("checkpoint log = %q, want the call log relative to the checkout", cp.Logs[0])
 	}
+	var states []map[string]any
+	for _, record := range fixtureEvents(t, f) {
+		if record["event"] == "state" {
+			states = append(states, record)
+		}
+	}
+	if len(states) != 1 || states[0]["state"] != "Paused" || states[0]["stage"] != "agent" || states[0]["unit"] != "P001.1.1" {
+		t.Fatalf("pause state events = %v", states)
+	}
 }
 
 func TestPauseDuringVerifyFinishesCommitBoundary(t *testing.T) {

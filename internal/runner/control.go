@@ -30,6 +30,10 @@ type Event struct {
 	Unit    string
 	Message string
 	Fields  map[string]any
+	// Data carries a typed observation, currently an agentio.Activity. It is
+	// published to the interactive host only and never serialized into the
+	// event stream.
+	Data any
 }
 
 // Request is a decision the interactive owner must answer.

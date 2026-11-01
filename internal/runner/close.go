@@ -367,7 +367,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			totals.activity = ""
 			totals.mu.Unlock()
 			p.spin(func() string { return livenessLabel(id+" close", live) }, totals.lastActivity)
-			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Context: ctx, Env: env, Timeout: timeout, Idle: agentIdleTimeout(agent), Liveness: live, OnStreamEvent: func(event agentio.Event) {
+			options := agentio.CallOptions{Context: ctx, Env: env, Timeout: timeout, Idle: agentIdleTimeout(agent), Liveness: live, Stream: stringValue(agent["stream"]), OnStreamEvent: func(event agentio.Event) {
 				parsed := agentio.StreamEvent(agent, event)
 				if quota, ok := parsed["quota"].(agentio.Quota); ok {
 					totals.mergeQuota(quotaName(route), quota)
@@ -376,8 +376,15 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 					totals.activity = activity
 					totals.mu.Unlock()
 				}
-			}})
+			}}
+			if host := controlledHost(ctx); host != nil {
+				options.OnActivity = activityObserver(totals, host, "", attempt, route.Agent, route)
+			}
+			run, err = agentio.CallAgent(root, argv, stdin, log, options)
 			p.stop()
+			streamFields := callStreamFields(root, id, attempt, log, run)
+			streamFields["plan"], streamFields["close"] = id, true
+			totals.events.emit("stream", "", streamFields)
 			if err != nil {
 				return 7, err
 			}

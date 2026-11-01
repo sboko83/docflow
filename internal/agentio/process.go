@@ -53,6 +53,10 @@ type AgentRun struct {
 	Stdout, Stderr string
 	TimedOut       bool
 	Stalled        bool
+	// The stream links locate the raw bytes in the call log. StdoutOffset is
+	// where stdout starts after the log header; stderr lives in a sidecar.
+	StdoutOffset, StdoutLength int64
+	StderrOffset, StderrLength int64
 }
 
 type CallOptions struct {
@@ -65,6 +69,12 @@ type CallOptions struct {
 	OnEvent  func(map[string]any)
 	// OnStreamEvent retains JSON object order for StreamEvent quota decoding.
 	OnStreamEvent func(Event)
+	// OnActivity receives normalized observations of stdout and stderr lines
+	// with offsets into the original bytes. Nil keeps the call's previous
+	// behavior; the runner sets it only for an interactive run. Stream names
+	// the profile's decoder ("codex", "claude", "pi", "opencode").
+	OnActivity func(Activity)
+	Stream     string
 	// A nil Env inherits the environment; an empty slice supplies no variables.
 	Env []string
 	// Context lets the runner's signal handler cancel and reap the process group.
@@ -112,6 +122,12 @@ type eventWriter struct {
 	callback func(Event)
 	observe  func(string)
 	log      io.Writer
+	// activity normalizes lines for an interactive observer; base and pos turn
+	// a line's position in this stream into an absolute offset in its file.
+	activity   *ActivityParser
+	onActivity func(Activity)
+	stream     string
+	base, pos  int64
 }
 
 func (w *eventWriter) Write(p []byte) (int, error) {
@@ -119,7 +135,7 @@ func (w *eventWriter) Write(p []byte) (int, error) {
 	if w.log != nil {
 		w.log.Write(p)
 	}
-	if w.callback != nil || w.observe != nil {
+	if w.callback != nil || w.observe != nil || w.activity != nil {
 		w.pending += string(p)
 		for {
 			i := strings.IndexAny(w.pending, "\r\n")
@@ -136,26 +152,37 @@ func (w *eventWriter) Write(p []byte) (int, error) {
 					width = 2
 				}
 			}
-			w.line(w.pending[:i])
+			w.line(w.pending[:i], i)
+			w.pos += int64(i + width)
 			w.pending = w.pending[i+width:]
 		}
 	}
 	return len(p), nil
 }
 func (w *eventWriter) flush() {
-	if (w.callback != nil || w.observe != nil) && w.pending != "" {
-		w.line(w.pending)
+	if (w.callback != nil || w.observe != nil || w.activity != nil) && w.pending != "" {
+		w.line(w.pending, len(w.pending))
 		w.pending = ""
 	}
 }
 
-// line handles one complete stdout line. The log and the observer run
+// line handles one complete stdout line. The log and the observers run
 // before the event callback, so by the time a caller reacts to an event
-// its line is already in the log file.
-func (w *eventWriter) line(line string) {
+// its line is already in the log file. length is the line's byte length in the
+// stream, which locates the original fragment for paging.
+func (w *eventWriter) line(line string, length int) {
 	text := textOutput(line)
 	if w.observe != nil {
 		func() { defer func() { _ = recover() }(); w.observe(line) }()
+	}
+	if w.activity != nil && w.onActivity != nil {
+		ref := ActivityRef{Stream: w.stream, Offset: w.base + w.pos, Length: length}
+		for _, activity := range w.activity.Feed(w.stream, text, ref) {
+			func(activity Activity) {
+				defer func() { _ = recover() }()
+				w.onActivity(activity)
+			}(activity)
+		}
 	}
 	if w.callback != nil {
 		if obj := ParseLine(text); obj != nil {
@@ -205,31 +232,51 @@ func CallAgent(root string, argv []string, stdin *string, log string, options Ca
 			}
 		}
 	}
-	var stderr bytes.Buffer
+	// stderr is always line-split and mirrored to its sidecar: the sidecar
+	// gives an interactive reader stable offsets even before the call ends.
+	stderr := &eventWriter{stream: "stderr"}
 	cmd.Stdout = out
-	cmd.Stderr = &stderr
+	cmd.Stderr = stderr
 	if stdin != nil {
 		cmd.Stdin = strings.NewReader(*stdin)
 	}
+	parser := (*ActivityParser)(nil)
+	if options.OnActivity != nil {
+		parser = NewActivityParser(map[string]any{"stream": options.Stream})
+		out.activity, out.onActivity = parser, options.OnActivity
+		stderr.activity, stderr.onActivity = parser, options.OnActivity
+	}
 	// The call log is written while the call runs: the header before the
-	// process starts, stdout lines as they arrive, the rest at the end.
-	var logFile *os.File
+	// process starts, stdout lines as they arrive, the rest at the end. The
+	// stderr sidecar carries raw stderr as it arrives, so its offsets can be
+	// read before the call finishes.
+	var logFile, stderrFile *os.File
 	if log != "" {
 		file, err := os.OpenFile(log, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 		if err != nil {
 			return run, err
 		}
 		logFile = file
-		if _, err := fmt.Fprintf(file, "$ %s\n--- stdout\n", shellJoin(argv)); err != nil {
+		header := fmt.Sprintf("$ %s\n--- stdout\n", shellJoin(argv))
+		if _, err := io.WriteString(file, header); err != nil {
 			logFile.Close()
 			return run, err
 		}
-		out.log = logFile
+		out.log, out.base = logFile, int64(len(header))
+		// The sidecar is an inspection aid: if it cannot be opened the call
+		// still runs and its original log stays complete.
+		if sidecar, err := os.OpenFile(StderrLog(log), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err == nil {
+			stderrFile = sidecar
+			stderr.log = sidecar
+		}
 	}
 	watch, err := procgroup.Start(cmd)
 	if err != nil {
 		if logFile != nil {
 			logFile.Close()
+		}
+		if stderrFile != nil {
+			stderrFile.Close()
 		}
 		return run, AgentError{clierrors.DocflowError{Message: fmt.Sprintf("run: cannot start %s: %s", argv[0], startError(err, argv[0])), Code: clierrors.EXIT_AGENT}}
 	}
@@ -280,9 +327,27 @@ wait:
 		}
 	}
 	out.flush()
+	stderr.flush()
 	run.Code = exitCode(cmd, waitErr)
 	run.Stdout = textOutput(out.all.String())
-	run.Stderr = textOutput(stderr.String())
+	run.StdoutOffset, run.StdoutLength = out.base, int64(out.all.Len())
+	run.Stderr = textOutput(stderr.all.String())
+	run.StderrLength = int64(stderr.all.Len())
+	if stderrFile != nil {
+		stderrFile.Close()
+	}
+	if parser != nil {
+		state := ActivityStateUnknown
+		if canceled || run.TimedOut || run.Stalled {
+			state = ActivityStateCancelled
+		}
+		for _, activity := range parser.Finalize(state) {
+			func(activity Activity) {
+				defer func() { _ = recover() }()
+				options.OnActivity(activity)
+			}(activity)
+		}
+	}
 	if logFile != nil {
 		suffix := ""
 		if run.TimedOut {

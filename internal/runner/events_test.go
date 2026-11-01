@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/agents"
 )
 
 func readEvents(t *testing.T, path string) []map[string]any {
@@ -60,18 +62,18 @@ func TestRunEventStream(t *testing.T) {
 	for _, record := range records {
 		name := record["event"].(string)
 		names = append(names, name)
-		if name != "run_start" && name != "run_end" && record["unit"] != "P001.1.1" {
+		if name != "run_start" && name != "run_end" && name != "config" && record["unit"] != "P001.1.1" {
 			t.Fatalf("missing unit: %v", record)
 		}
 	}
-	want := []string{"run_start", "unit_start", "attempt", "route_switch", "attempt", "quota", "verify", "commit", "unit_end", "run_end"}
+	want := []string{"run_start", "config", "unit_start", "attempt", "stream", "route_switch", "attempt", "stream", "quota", "verify", "commit", "unit_end", "run_end"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("events = %v, want %v", names, want)
 	}
 	if records[0]["plan"] != "P001" || records[0]["units"] != float64(2) {
 		t.Fatalf("run_start = %v", records[0])
 	}
-	for _, i := range []int{2, 4} {
+	for _, i := range []int{3, 6} {
 		record := records[i]
 		if record["n"] != float64(1) {
 			t.Fatalf("refusal consumed an attempt: %v", record)
@@ -80,21 +82,21 @@ func TestRunEventStream(t *testing.T) {
 			t.Fatalf("attempt log: %v", err)
 		}
 	}
-	if records[2]["log"] != ".git/docflow/run/P001.1.1.1.out" || records[4]["log"] != ".git/docflow/run/P001.1.1.2.out" {
-		t.Fatalf("call log naming changed: %v, %v", records[2], records[4])
+	if records[3]["log"] != ".git/docflow/run/P001.1.1.1.out" || records[6]["log"] != ".git/docflow/run/P001.1.1.2.out" {
+		t.Fatalf("call log naming changed: %v, %v", records[3], records[6])
 	}
-	switchEvent := records[3]
+	switchEvent := records[5]
 	if switchEvent["kind"] != "limit" || switchEvent["from"].(map[string]any)["agent"] != "pi" || switchEvent["to"].(map[string]any)["agent"] != "codex" {
 		t.Fatalf("route switch = %v", switchEvent)
 	}
-	if records[5]["name"] != "codex" || len(records[5]["windows"].([]any)) != 2 {
-		t.Fatalf("quota = %v", records[5])
+	if records[8]["name"] != "codex" || len(records[8]["windows"].([]any)) != 2 {
+		t.Fatalf("quota = %v", records[8])
 	}
-	if records[6]["exit_code"] != float64(0) || records[7]["sha"] != f.git("rev-parse", "--short", "HEAD") {
-		t.Fatalf("verify/commit = %v / %v", records[6], records[7])
+	if records[9]["exit_code"] != float64(0) || records[10]["sha"] != f.git("rev-parse", "--short", "HEAD") {
+		t.Fatalf("verify/commit = %v / %v", records[9], records[10])
 	}
-	if records[8]["status"] != "done" || records[8]["seconds"].(float64) <= 0 || records[9]["exit_code"] != float64(0) || records[9]["reason"] == "" {
-		t.Fatalf("end events = %v", records[8:])
+	if records[11]["status"] != "done" || records[11]["seconds"].(float64) <= 0 || records[12]["exit_code"] != float64(0) || records[12]["reason"] == "" {
+		t.Fatalf("end events = %v", records[11:])
 	}
 }
 
@@ -204,5 +206,100 @@ func TestRunEventStreamUnwritableDirectory(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(dir, "*.events.jsonl"))
 	if err != nil || len(files) != 0 {
 		t.Fatalf("disabled stream was reopened: %v, err = %v", files, err)
+	}
+}
+
+func TestRunEventStreamConfigAndStreamLinks(t *testing.T) {
+	f := newRunFixture(t)
+	f.steps("printf 'diagnostic line\\n' >&2\n" + writeReply("a.txt"))
+	f.check(f.cli("run", "--config", f.config, "--no-wait", "--max-units", "1"), 0)
+	records := fixtureEvents(t, f)
+	var config, verify, stream map[string]any
+	for _, record := range records {
+		switch record["event"] {
+		case "config":
+			config = record
+		case "verify":
+			if verify == nil {
+				verify = record
+			}
+		case "stream":
+			if stream == nil {
+				stream = record
+			}
+		}
+	}
+	if config == nil {
+		t.Fatalf("no config event: %v", records)
+	}
+	if config["plan"] != "P001" || config["permissions"] != "auto" {
+		t.Fatalf("config = %v", config)
+	}
+	for _, secret := range []string{"cmd", "env", "api_key", "token", "key"} {
+		if _, ok := config[secret]; ok {
+			t.Fatalf("config snapshot carries %q: %v", secret, config)
+		}
+	}
+	if stream == nil {
+		t.Fatalf("no stream event: %v", records)
+	}
+	if stream["attempt"] != float64(1) || stream["log"] != ".git/docflow/run/P001.1.1.1.out" {
+		t.Fatalf("stream = %v", stream)
+	}
+	stdout := stream["stdout"].(map[string]any)
+	stderr := stream["stderr"].(map[string]any)
+	log := filepath.Join(f.root, stream["log"].(string))
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offset, length := int64(stdout["offset"].(float64)), int64(stdout["length"].(float64))
+	if offset+length > int64(len(data)) || length == 0 {
+		t.Fatalf("stdout link %d+%d outside %d", offset, length, len(data))
+	}
+	if !strings.Contains(string(data[offset:offset+length]), "structured_output") {
+		t.Fatalf("stdout link does not point at the stream: %q", data[offset:offset+length])
+	}
+	sidecar := filepath.Join(f.root, stderr["path"].(string))
+	side, err := os.ReadFile(sidecar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(side) != "diagnostic line\n" || int64(stderr["length"].(float64)) != int64(len(side)) {
+		t.Fatalf("stderr sidecar = %q, link = %v", side, stderr)
+	}
+	if verify == nil || verify["log"] == nil || verify["stage"] != "verify" || verify["exit_code"] != float64(0) {
+		t.Fatalf("verify = %v", verify)
+	}
+	if _, err := os.Stat(filepath.Join(f.root, verify["log"].(string))); err != nil {
+		t.Fatalf("verify log: %v", err)
+	}
+}
+
+func TestVerifyStageNamesTheFailedCheck(t *testing.T) {
+	for _, c := range []struct{ stdout, want string }{
+		{"P001.1.1: gate failed (exit 4)", "gate"},
+		{"P001.1.1: preflight failed (exit 2)", "preflight"},
+		{"P001.1.1: verify failed (exit 4)", "verify"},
+	} {
+		if got := verifyStage(c.stdout); got != c.want {
+			t.Fatalf("verifyStage(%q) = %q, want %q", c.stdout, got, c.want)
+		}
+	}
+}
+
+func TestRunEventStreamSlowHostDoesNotBlock(t *testing.T) {
+	f := newRunFixture(t)
+	noise := strings.Repeat("printf '%s\\n' '{\"type\":\"unknown_event\"}'\n", 40)
+	f.steps(noise + writeReply("a.txt"))
+	control := NewControl(1, 1)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	select {
+	case <-control.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatalf("a full event queue blocked the run; state=%s", control.State())
+	}
+	if got := control.State(); got != StateFinished {
+		t.Fatalf("state = %s", got)
 	}
 }

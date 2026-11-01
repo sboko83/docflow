@@ -312,7 +312,7 @@ func TestReplanFallback(t *testing.T) {
 			t.Fatalf("replan result = %v", record)
 		}
 	}
-	if got := strings.Join(replanEvents, ","); got != "attempt,route_switch,attempt,commit,replan" {
+	if got := strings.Join(replanEvents, ","); got != "attempt,stream,route_switch,attempt,stream,commit,replan" {
 		t.Fatalf("replan events = %s", got)
 	}
 }
