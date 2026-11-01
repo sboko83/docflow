@@ -197,6 +197,12 @@ gate: go test -timeout 20m ./...
 - Stop now is a new Control.StopNow with no checkpoint, distinct from Pause — the journal and host do not misreport a non-resumable stop as Paused; rejected overloading Pause with a flag.
 - The TUI invokes existing lifecycle commands through cycle.Self — lint, reference and archive checks stay identical to the CLI; rejected calling cycle functions and lint checks directly from the UI.
 - A new Controller is created for Start/Resume after the old one finished and the old one is closed — resets context/channels cleanly; rejected reusing a finished Control indefinitely.
+- Пятый блок P052.2.4 разведён на P052.2.5 (остановка прогона по сигналу терминала), P052.2.6 (страница результата текущего вызова), P052.2.7 (пути логов от корня checkout) и P052.2.8 (проверка lock в момент действия); ревью возвращено в `[ ]` с `Depends` на все четыре — правка ревью запрещена, а находки разные по проверяемому поведению.
+- Остановка по сигналу живёт после `program.Run`, а не в отдельном обработчике клавиш: Bubble Tea превращает SIGTERM в QuitMsg и возвращается из Run мимо `requestQuit`, а SIGHUP не ловит вовсе — один путь остановки (Pause → ожидание Finished → Close) после Run покрывает оба сигнала и не заводит второй цикл событий.
+- Обработчик SIGHUP ставится платформенным файлом под build tag: на Windows этого сигнала нет, а сборка под Windows остаётся целью — отвергнуто общее объявление SIGHUP без тегов и отвергнут собственный перехват SIGTERM вместо уже существующего в Bubble Tea.
+- Страница запущенного инструмента читает лог от `ref.Offset` до текущего конца файла: `Ref.Length` — длина строки старта, и до прихода завершающей activity байты вызова недоступны — отвергнуто ожидание завершающего события (P052.2.2 требует читать результат текущего вызова) и отвергнуто расширение ref в `agentio`, ломающее формат ссылки.
+- Пути логов из событий разрешаются в TUI от корня checkout в момент чтения: поток версии 1 хранит путь относительно checkout, а процесс может работать из подкаталога — отвергнуты абсолютные пути в событиях (формат версии 1) и смена cwd процесса (глобальное состояние на весь прогон).
+- Чужой lock проверяется в момент действия, а не только при загрузке: lifecycle идёт через `cycle.Self`, который lock не проверяет, поэтому guard в UI — единственный — отвергнуты фоновый watcher (нет фонового сервиса) и опора на ошибку `runLock` у Start для lifecycle-действий.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -631,6 +637,87 @@ Handoff:
 - Unverified: The Close success path is tested with a synthetic archive file, not by closing a real completed plan with a filled Outcome through the TUI.
 - Unverified: Terminal tests are darwin/linux only; Windows console behavior for these new controls is not covered.
 
+### [ ] P052.2.5 Stop the run on a terminal signal
+Read:
+- internal/tui/app.go:L1-46
+- internal/tui/execute.go:L362-407
+- internal/tui/control.go:L96-146
+- internal/runner/control.go:L120-170
+- internal/runner/control.go:L320-347
+- internal/runner/run.go:L228-250
+- internal/procgroup/procgroup_unix.go:L20-30
+- internal/tui/terminal_test.go:L390-506
+- internal/tui/app_test.go:L776-806
+- cmd/docflow/main.go:L351-362
+Do:
+- Воспроизведи сначала тестом: собери CLI, запусти его в PTY на `writeRunnableProject` (fake agent спит 5 секунд), дождись старта прогона и пошли процессу TUI SIGTERM, затем отдельным сценарием SIGHUP. Сейчас агент доживает сон и пишет `a.txt`, `run.lock` остаётся, `checkpoint.json` не появляется: `program.Run` возвращается по QuitMsg от Bubble Tea мимо `requestQuit`/`stopAndExit`, а SIGHUP никто не ловит и процесс умирает сразу.
+- Сделай один путь остановки после `program.Run` в `tui.Run`: возьми возвращённую модель и, если прогон жив, останови его как `stopAndExit` — Pause для Running, CancelStart для Starting с ожидающим подтверждением, ожидание Finished для Pausing/Stopping — затем закрой хост. Работу, не дошедшую до старта (Starting), заверши без checkpoint и без ошибки; прогон, уже начавший юнит, обязан дать `StatePaused` с `Checkpointed()`.
+- Ограничь ожидание тестовым швом (пакетная переменная с разумным значением в проде): по таймауту закрой хост и верни ошибку «прогон не остановился за N»; при `StatePaused` без checkpoint верни ошибку, называющую незаписанное состояние. Не рапортуй успешный выход, если checkpoint не записан.
+- Поставь собственный обработчик SIGHUP в платформенных файлах под build tag (unix — SIGHUP, windows — пустая реализация): сигнал штатно завершает программу (`tea.QuitMsg` через `program.Send`), чтобы отработал тот же путь остановки и восстановление терминала. SIGTERM не перехватывай повторно — его уже превращает в QuitMsg Bubble Tea.
+- Не добавляй второй цикл событий и не читай клавиатуру в обход Bubble Tea; отмена ctx хоста уже убивает группу дочерних процессов (`procgroup.Detach` даёт агенту свою сессию, поэтому без отмены он переживает родителя) и отпускает `run.lock` — не удаляй lock вручную и не трогай обычный `docflow run`.
+- Расширь `terminal_test.go` двумя сценариями по образцу `TestTerminalQuitWithLiveRunStopsAgent`: после SIGTERM и после SIGHUP процесс TUI выходит с кодом 0, `checkpoint.json` есть со `stage`, `run.lock` снят, `a.txt` не появляется после сна, терминал восстановлен (курсор и echo). В `app_test.go` добавь тест остановки на фейковом контроллере: Pause вызван один раз, ожидание Finished, Close один раз, ошибка при незавершившемся за таймаут прогоне и при Paused без checkpoint.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: `os.Exit` и `defer` в момент сигнала не спасают: SIGHUP без обработчика убивает процесс мгновенно, а SIGTERM Bubble Tea проглатывает. SIGKILL не покрывается — не обещай его в тексте. Не запускай остановку в горутине без ожидания: выход процесса обязан дождаться записи checkpoint. Не сокращай таймаут до нуля: пауза на границе verify/commit должна успеть записать состояние. Поведение q/Ctrl+C и существующий диалог выхода не меняй. Пользовательский текст контракта — P052.3.3.
+Depends: P052.2.3
+Commit: P052.2.5: stop the run on a terminal signal
+
+### [ ] P052.2.6 Read the result of the call that is still running
+Read:
+- internal/tui/activity.go:L433-470
+- internal/tui/activity.go:L937-1013
+- internal/tui/keys.go:L240-350
+- internal/tui/activity_test.go:L1-70
+- internal/tui/activity_test.go:L155-185
+- internal/agentio/activity.go:L740-780
+- internal/tui/model.go:L100-170
+Do:
+- Воспроизведи: running-запись инструмента (`item.started`) с ref на строку старта, после старта в лог дописывается вывод; expand и `]` показывают только строку старта, `total` равен длине этой строки — байты, появившиеся во время вызова, недоступны до прихода завершающей activity.
+- Читай страницу запущенного инструмента от `ref.Offset` до текущего конца файла: длину бери из размера лога в момент чтения, а не из `ref.Length`, и показывай в подвале «call still running, N bytes so far».
+- Разреши живой хвост: `]` в последнем доступном окне перечитывает лог с текущей длиной, а открытая первая страница записи обновляется при новом событии того же attempt, чтобы рост был виден без повторного раскрытия. Живой режим действует, только пока запись последняя в истории юнита и её состояние running; следующая запись переводит страницу в обычный режим и больше не дочитывает лог.
+- Не выдавай неполный вывод за результат: состояние инструмента остаётся running, результат помечается неподтверждённым, завершающая activity со своим ref остаётся источником полного результата; исходный лог не меняется, частично записанная последняя строка не ломает страницу (Sanitize), окно остаётся 4 КиБ и окон не больше `activityPagesPerEntry`.
+- Покрой в `activity_test.go`: (а) живой лог растёт между нажатиями `]` — новые байты появляются, `total` растёт; (б) после завершающей записи полный результат читается из неё, а запущенная запись больше не дочитывает лог; (в) многократный `]` по живому логу не превышает лимит окон; (г) исчезнувший или пустой лог даёт явную ошибку, а не пустую страницу.
+Verify: `go test -timeout 20m ./internal/tui/ ./internal/agentio/`
+Traps: `Ref.Length` — длина строки в потоке, а не окно результата; расширять её в `agentio` нельзя, иначе поедет проверка ref в `internal/agentio/activity_test.go`. Размер файла меняется между stat и чтением — короткое чтение допустимо и не считается ошибкой. Не обновляй страницы всех записей на каждом тике: только открытую и только первую. Не блокируй цикл UI больше одного чтения 4 КиБ и не держи лог в памяти.
+Depends: P052.2.5
+Commit: P052.2.6: read the result of a running call
+
+### [ ] P052.2.7 Resolve event log paths from the checkout root
+Read:
+- internal/tui/activity.go:L194-210
+- internal/tui/activity.go:L433-470
+- internal/tui/keys.go:L355-435
+- internal/runner/events.go:L250-300
+- internal/tui/app_test.go:L94-160
+- internal/tui/terminal_test.go:L183-318
+Do:
+- Воспроизведи: запусти TUI из подкаталога проекта (в модельном тесте `t.Chdir(sub)`, в терминальном `child.Dir = project/sub`); страница активности и оверлей verify отвечают `cannot read .git/docflow/run/…: no such file or directory`, потому что событие хранит путь относительно checkout (`relativeLog`), а TUI открывает его от cwd процесса.
+- Разрешай путь в момент чтения: относительный — от `m.root` (корень checkout из `format.FindRoot`), абсолютный — как есть; после `Clean` отвергай выход за корень (`..`) и показывай разрешённый путь в ошибке и в подвале страницы.
+- Храни в истории исходный путь события: `relativeLog` остаётся форматом потока версии 1; не делай пути абсолютными в событиях, не меняй cwd процесса и не дублируй разрешение в двух местах — один помощник для страницы активности и оверлея verify.
+- Покрой: тест помощника (относительный, абсолютный, `../..`, пустой путь) без чтения файлов; модельный тест из подкаталога читает страницу активности и оверлей verify; терминальный тест из подкаталога — прогон до verify, клавиша `v` показывает маркер из `Verify` юнита, а не ошибку чтения.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: не склеивай root с уже абсолютным путём и используй `filepath.FromSlash` для путей из событий; verify-лог тоже лежит в `<git-dir>/docflow/run` и его путь относителен. Несуществующий лог остаётся явной ошибкой, а не пустой страницей. Не подменяй корень на cwd: TUI специально работает от корня checkout.
+Depends: P052.2.6
+Commit: P052.2.7: resolve event log paths from the root
+
+### [ ] P052.2.8 Refuse control under a live foreign runner
+Read:
+- internal/tui/execute.go:L48-60
+- internal/tui/execute.go:L80-135
+- internal/tui/execute.go:L407-425
+- internal/tui/model.go:L295-310
+- internal/tui/app_test.go:L808-831
+- internal/runner/helpers.go:L254-275
+- internal/tui/terminal_test.go:L183-260
+Do:
+- Воспроизведи: TUI открыт на свободном checkout, затем появляется живой чужой раннер (в терминальном тесте — процесс `sleep`, его pid записан в `.git/docflow/run/run.lock`); клавиша `a` активирует draft, хотя должна отказать, а отказ виден только если lock был при загрузке.
+- Проверяй lock в момент действия, а не только при загрузке: `refreshLock` перед Start/Resume и перед каждым lifecycle-действием, а также после завершения прогона, чтобы статус-строка и guard не расходились; решение принимай по живому pid, а не по наличию файла.
+- Ошибку `CheckoutLockOwner` показывай как unknown и отказывай в управлении, а не считай checkout свободным; просмотр планов и истории остаётся доступен.
+- Покрой в `app_test.go`: `lockCheck` меняется после загрузки — `s` и `a` отказывают без вызова фабрики контроллера и lifecycle-шва, после снятия lock те же клавиши проходят, ошибка `lockCheck` даёт отказ с причиной. В `terminal_test.go`: открыть TUI, подложить `run.lock` живого процесса — `a` не меняет `status` плана на диске и называет pid; убрать lock — `a` активирует план (`status: active` на диске и id в Queue).
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: свой живой прогон держит тот же lock с нашим pid — не считай его чужим (`refreshLock` уже сравнивает с `os.Getpid`). Не удаляй и не перезаписывай `run.lock` чужого процесса, lifecycle идёт через `cycle.Self`, который сам lock не проверяет. Не вызывай `refreshLock` на каждое нажатие стрелки: только перед действиями и после прогона. В терминальном тесте убей процесс и сними lock в `t.Cleanup`, иначе lock переживёт тест.
+Depends: P052.2.7
+Commit: P052.2.8: refuse control under a foreign runner
+
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:
 - internal/tui/app.go
@@ -642,9 +729,11 @@ Do:
 - Разбери Test changes; проверь, что тесты нажимают клавиши и проверяют результат процесса, а не только строку View.
 - Ничего не редактируй; дефект оформляй blocked с blocker plan и воспроизводимым сценарием.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.2.1, P052.2.2, P052.2.3
+Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8
 Role: review
 Commit: P052.2.4: review terminal controls
+Handoff:
+- Blocked (plan): Фаза ожидает: любой выход/закрытие TUI с живым прогоном останавливает процессы и пишет checkpoint, живая история позволяет открыть результат текущего вызова, логи читаются при запуске из подкаталога, а lifecycle-действия отказывают под живым чужим раннером. Реально: SIGTERM/SIGHUP оставляет detached агента и lock без checkpoint, страница результата недоступна до конца вызова, относительные пути логов не разрешаются от корня, lock проверяется только при загрузке. План должен развести это на юниты с воспроизведениями выше.
 
 ## Phase 3: Model setup recovery and delivery
 
@@ -693,7 +782,7 @@ Read:
 - tools/test-install.sh:L1-100
 - tools/smoke-run.sh:L1-100
 Do:
-- Создай docs/design/tui.md с действующим контрактом состояния, паузы, конфигурации и восстановления; добавь его в индекс docs/design/README.md. Причины решений оставь в Decisions плана до архивации, в теме сошлись на этот план.
+- Создай docs/design/tui.md с действующим контрактом состояния, паузы, конфигурации, восстановления, выхода по сигналу, живой страницы результата текущего вызова, разрешения путей логов от корня checkout и проверки lock в момент действия; добавь его в индекс docs/design/README.md. Причины решений оставь в Decisions плана до архивации, в теме сошлись на этот план.
 - В docs/design/runner.md опиши интерактивный API и совместимые дополнения событий; в docs/usage.md добавь запуск tui, клавиши, выбор исполнителей, Pause/Stop, human block, восстановление и ограничения поддержки терминалов.
 - Синхронно обнови README.md и README.ru.md кратким входом в TUI и добавь пользовательское изменение в CHANGELOG.md по bsv-changelog; не дублируй справочник.
 - Расширь существующие installer/smoke-проверки наличием tui --help в установленном бинарнике; сохрани одну поставку, отсутствие runtime-зависимостей и CGO=0.
