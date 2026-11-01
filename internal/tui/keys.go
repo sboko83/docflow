@@ -446,6 +446,21 @@ func (m Model) loadVerifyPage(skip int) Model {
 	return m
 }
 
+// commandMods are the modifiers that turn a key press into a command instead
+// of text. Shift and the lock states only choose the printed character and must
+// keep it in the input.
+const commandMods = tea.ModCtrl | tea.ModAlt | tea.ModMeta | tea.ModHyper | tea.ModSuper
+
+// typedText returns the printable text a key press contributes. Bubble Tea v2
+// reports Shift+A and caps lock as Text "A" with ModShift, so the text is taken
+// whenever no command modifier is held instead of requiring Mod == 0.
+func typedText(msg tea.KeyPressMsg) string {
+	if msg.Text == "" || msg.Mod&commandMods != 0 {
+		return ""
+	}
+	return msg.Text
+}
+
 func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
@@ -483,11 +498,11 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.query = ""
 		}
 	default:
-		if msg.Text != "" && msg.Mod == 0 {
+		if text := typedText(msg); text != "" {
 			if m.searchTarget == searchActivity {
-				m.activityQuery += msg.Text
+				m.activityQuery += text
 			} else {
-				m.query += msg.Text
+				m.query += text
 			}
 		}
 	}

@@ -442,9 +442,7 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			}
 			return m, nil
 		default:
-			if msg.Text != "" && msg.Mod == 0 {
-				m.dialogInput += msg.Text
-			}
+			m.dialogInput += typedText(msg)
 			return m, nil
 		}
 	}

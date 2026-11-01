@@ -253,6 +253,8 @@ gate: go test -timeout 20m ./...
 - Added an explicit MarkStartCancelled called by startRun on a declined confirmation instead of inferring cancellation from 'execute returned while still Starting' — the decline must be a recorded host decision that CancelStart and the dialog share, not a guess from the leftover state — rejected inferring from StateStarting, which leaves the classification implicit and untestable.
 - Classified the startCancelled flag ahead of the Stopping branch in the Start goroutine — a cancel of a pending start also moves the host to Stopping, and the flag must win over the generic ControlledStop-to-Finished mapping — rejected a separate internal exit code or reusing StatePaused.
 - Remember a late prompt and open its dialog via one showPendingPrompt helper instead of per-call branches — the invariant 'no dialog is replaced under the person's keys' is enforced in one place — rejected replacing the dialog in handlePrompt and re-opening it only in the exit-Esc branch
+- Added one shared typedText helper masking command modifiers instead of checking Mod == 0 per handler — shift and lock states must not suppress printable text, and search and the unblock note must behave identically — rejected duplicating the condition in handleSearchKey and handleDialogKey
+- Kept key matching on msg.String() and added the text predicate separately — String() returns the shifted character, so Keystroke() would misread Shift+A — rejected switching dispatch to Keystroke()
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1092,7 +1094,7 @@ Handoff:
 - handlePrompt now only stores a prompt when m.dialog != dialogNone; showPendingPrompt opens its dialog and is called from every dialog-close path (exit Esc, human Enter/Esc). A new dialog-close path must call it too or the prompt stays unanswered.
 - Unverified: Only confirm_start late prompts are tested; a non-start prompt (kind default) arriving over dialogHuman/exit follows the same showPendingPrompt path but has no model test.
 
-### [ ] P052.2.21 Accept shifted characters in text input
+### [x] P052.2.21 Accept shifted characters in text input
 Read:
 - internal/tui/keys.go:L449-502
 - internal/tui/execute.go:L335-405
@@ -1108,6 +1110,11 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: `msg.String()` для Shift+A возвращает сам символ, а не «shift+a», поэтому не переводи обработку на `Keystroke()` и не ломай клавиши с настоящим shift. Проверяй принятый текст и отфильтрованные строки, а не только notice.
 Depends: P052.2.2, P052.2.3
 Commit: P052.2.21: accept shifted characters in text input
+Handoff:
+- Text input now goes through typedText in internal/tui/keys.go: it accepts msg.Text unless a command modifier (ctrl/alt/meta/hyper/super) is held, so shift and caps lock arrive as typed characters; use it for any new text field instead of checking msg.Mod == 0.
+- Tests build shifted events with shiftKeyMsg in internal/tui/app_test.go; it sets Text to the shifted character and Mod to tea.ModShift, matching Bubble Tea v2 delivery.
+- The plan file docs/plans/P052-terminal-control.md was already modified before this unit; this unit did not edit or commit it.
+- Unverified: Shifted and caps-lock input is asserted only with synthetic KeyPressMsg values; a live terminal (Kitty protocol / macOS console) typing into search and the unblock note is not exercised by Verify.
 
 ### [ ] P052.2.22 Keep follow and the cursor per selected unit
 Read:

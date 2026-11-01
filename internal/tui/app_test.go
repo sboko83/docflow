@@ -184,6 +184,12 @@ func keyMsg(key string) tea.KeyPressMsg {
 	}
 }
 
+func shiftKeyMsg(key string) tea.KeyPressMsg {
+	msg := keyMsg(key)
+	msg.Mod = tea.ModShift
+	return msg
+}
+
 func send(t *testing.T, model Model, msg tea.Msg) Model {
 	t.Helper()
 	updated, _ := model.Update(msg)
@@ -327,6 +333,125 @@ func mustLoad(t *testing.T, root string) Snapshot {
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+func TestSearchAcceptsShiftedCharacters(t *testing.T) {
+	root := writeTestProject(t)
+	planPath := filepath.Join(root, "docs", "plans", "P001-cache.md")
+	text, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shifted := strings.Replace(string(text), "### [ ] P001.2.1 Ожидающий юнит", "### [ ] P001.2.1 TUI unit", 1)
+	if shifted == string(text) {
+		t.Fatal("fixture lacks the pending unit")
+	}
+	if err := os.WriteFile(planPath, []byte(shifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model = selectRow(t, model, "unit:P001.2.1")
+	model = addEvents(model,
+		activityEvent("P001.2.1", agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "the TUI redraws"}),
+		activityEvent("P001.2.1", agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "plain message"}),
+	)
+
+	model = send(t, model, keyMsg("/"))
+	for _, part := range []string{"T", "U", "I"} {
+		model = send(t, model, shiftKeyMsg(part))
+	}
+	if model.query != "TUI" {
+		t.Fatalf("shifted search query = %q, want TUI", model.query)
+	}
+	model = send(t, model, tea.KeyPressMsg{Text: "x", Code: 'x', Mod: tea.ModAlt})
+	model = send(t, model, tea.KeyPressMsg{Text: "y", Code: 'y', Mod: tea.ModMeta})
+	if model.query != "TUI" {
+		t.Fatalf("alt/meta changed the search query: %q", model.query)
+	}
+	model = send(t, model, keyMsg("enter"))
+	keys := strings.Join(rowKeys(model), ",")
+	if !strings.Contains(keys, "unit:P001.2.1") {
+		t.Fatalf("search did not keep the matching unit: %s", keys)
+	}
+	if strings.Contains(keys, "unit:P001.1.1") {
+		t.Fatalf("search kept an unrelated unit: %s", keys)
+	}
+
+	model = send(t, model, keyMsg("/"))
+	model = send(t, model, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	if model.query != "" {
+		t.Fatalf("ctrl+u did not clear the search query: %q", model.query)
+	}
+	model = send(t, model, tea.KeyPressMsg{Text: "C", Code: 'c', Mod: tea.ModCapsLock})
+	if model.query != "C" {
+		t.Fatalf("caps lock text = %q, want C", model.query)
+	}
+	model = send(t, model, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	if model.query != "" {
+		t.Fatalf("ctrl+u did not clear the caps lock query: %q", model.query)
+	}
+	model = send(t, model, keyMsg("esc"))
+	if model.searching || model.query != "" {
+		t.Fatalf("Esc did not cancel search: searching=%v query=%q", model.searching, model.query)
+	}
+
+	model = selectRow(t, model, "unit:P001.2.1")
+	model = send(t, model, keyMsg("enter"))
+	model = send(t, model, keyMsg("/"))
+	for _, part := range []string{"T", "U", "I"} {
+		model = send(t, model, shiftKeyMsg(part))
+	}
+	model = send(t, model, keyMsg("enter"))
+	if model.activityQuery != "TUI" {
+		t.Fatalf("shifted activity query = %q, want TUI", model.activityQuery)
+	}
+	entries := model.activityEntries("P001.2.1")
+	if len(entries) != 1 || entries[0].Activity.Text != "the TUI redraws" {
+		t.Fatalf("activity search kept %d entries: %+v", len(entries), entries)
+	}
+}
+
+func TestShiftedNoteReachesUnblock(t *testing.T) {
+	model := blockedRunModel(t, "Blocked (human): нужен вход в аккаунт")
+	model = pollLoad(t, model)
+	if model.dialog != dialogHuman {
+		t.Fatalf("blocked dialog = %v (%s)", model.dialog, model.notice)
+	}
+	var calls []string
+	model.lifecycle = func(root string, args ...string) cycle.Result {
+		calls = append(calls, args...)
+		return cycle.Result{Code: 0, Stdout: "commit: P001.2.2: unblock unit\n"}
+	}
+	model = useControllers(t, model, newFakeController(runner.StateIdle))
+
+	model = send(t, model, shiftKeyMsg("C"))
+	for _, part := range strings.Split("ontinue", "") {
+		model = send(t, model, keyMsg(part))
+	}
+	model = send(t, model, keyMsg(" "))
+	model = send(t, model, shiftKeyMsg("P"))
+	for _, part := range strings.Split("001.", "") {
+		model = send(t, model, keyMsg(part))
+	}
+	if model.dialogInput != "Continue P001." {
+		t.Fatalf("shifted note = %q, want Continue P001.", model.dialogInput)
+	}
+	model = send(t, model, tea.KeyPressMsg{Text: "z", Code: 'z', Mod: tea.ModAlt})
+	if model.dialogInput != "Continue P001." {
+		t.Fatalf("alt changed the note: %q", model.dialogInput)
+	}
+
+	updated, cmd := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("Enter on a human block returned no unblock command")
+	}
+	updated, _ = model.Update(cmd())
+	_ = updated.(Model)
+	want := []string{"unblock", "P001.2.2", "--note=Continue P001."}
+	if strings.Join(calls, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unblock call = %v, want %v", calls, want)
+	}
 }
 
 func TestSearchFiltersPlansAndUnits(t *testing.T) {
