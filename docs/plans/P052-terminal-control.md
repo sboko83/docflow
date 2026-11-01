@@ -227,6 +227,8 @@ gate: go test -timeout 20m ./...
 - Always call CancelStart instead of branching on pendingPrompt — s and q can arrive in one write before the runner publishes its confirmation, and answering a late prompt is not enough to stop the run — rejected the old pendingPrompt == nil guard that silently skipped the stop.
 - Fall back to Pause only when CancelStart errors and the controller now reads Running — that is exactly the lost race to MarkRunning, while any other state means the run already stopped or is stopping — rejected unconditional Pause on a CancelStart error.
 - The PTY regression test sends "sq\r" in one write instead of waiting for the start dialog — waiting would let the prompt arrive and exercise the already-covered quit path rather than the pending-start cancel — rejected a waitFor("Start the current Queue run?") before quitting.
+- Gave the notice its own wrapped footer lines instead of raising its priority inside the status line — padLine truncates the joined status line from the right, so no ordering inside it can save a long archive path — rejected keeping the notice in statusLine()
+- Cap the notice at two lines and mark the second with '…' — keeps the body panel at least one line on any supported height while signalling that text is missing — rejected rendering the full notice and shrinking the body to zero
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -876,7 +878,7 @@ Handoff:
 - Unverified: The race where a start confirmation arrives between q and Enter is not exercised at the PTY level; the CancelStart-lost-to-MarkRunning fallback is only proven by the fake controller, so a real runner transition remains for live acceptance (P052.3.3).
 - Unverified: The new exit path and its terminal restoration are tested on darwin only; Windows behavior stays compile-checked, as the terminal tests are darwin/linux.
 
-### [ ] P052.2.13 Keep the outcome notice on screen
+### [x] P052.2.13 Keep the outcome notice on screen
 Read:
 - internal/tui/view.go:L55-95
 - internal/tui/view.go:L575-635
@@ -894,6 +896,12 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: `padLine`/`truncate` режут справа — notice в конце статусной строки не спасти приоритетом внутри неё. PTY-снимок Bubble Tea содержит только изменённые хвосты строк, поэтому оракул — `Model.String()` при заданных width/height, а не `terminal_test.go`. Не выводи notice в тело панели и не делай его вечным: новое действие по-прежнему заменяет текст (P052.2.9). Строку клавиш не трогай.
 Depends: P052.2.9
 Commit: P052.2.13: keep the outcome notice on screen
+Handoff:
+- Model.render() now builds notice lines via Model.noticeLines(width) and puts them between the footer separator and the dim status line; statusLine() no longer mentions m.notice.
+- noticeLines wraps with wrapLine, caps at two lines and marks a capped notice by truncating the joined remainder with '…'; an empty notice returns nil and adds no line.
+- Footer/body arithmetic drops notice lines only if the body would fall below one line; at minHeight 10 a two-line notice still leaves three body lines.
+- New tests: TestStopNowNoticeRendersOnScreen ('run finished: context canceled' at 120 and 80 columns) and TestNoticeFitsSmallAndResizedScreens (120->80 resize, 40x12 line width/line count, two-line cap). Existing close/activate/failure/pause/reload checks now assert on Model.String(); the close test also asserts statusLine() no longer carries the archive path.
+- Unverified: No PTY-level check at 40x12 or after a live resize: the notice layout is asserted only against Model.String(), so a real terminal's line wrapping on resize (and Bubble Tea's partial redraw after shrinking height) is not exercised.
 
 ### [ ] P052.2.14 Journal a controlled stop as an action
 Read:

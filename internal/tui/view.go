@@ -76,11 +76,21 @@ func (m Model) render() string {
 		padLine(styles.title.Render("docflow tui")+"  "+styles.dim.Render(truncate(m.root, max(0, width-14))), width),
 		strings.Repeat("─", width),
 	}
-	footer := []string{
-		strings.Repeat("─", width),
+	// The outcome notice owns its own wrapped lines above the status line: a
+	// long archive path or run error at the end of the status line was cut by
+	// padLine before the reader could see it.
+	notice := m.noticeLines(width)
+	for len(notice) > 0 && height-len(header)-len(notice)-3 < 1 {
+		notice = notice[:len(notice)-1]
+	}
+	footer := []string{strings.Repeat("─", width)}
+	for _, line := range notice {
+		footer = append(footer, padLine(line, width))
+	}
+	footer = append(footer,
 		padLine(styles.dim.Render(m.statusLine()), width),
 		padLine(styles.dim.Render(keysLine()), width),
-	}
+	)
 	bodyHeight := height - len(header) - len(footer)
 	if bodyHeight < 1 {
 		bodyHeight = 1
@@ -625,10 +635,23 @@ func (m Model) statusLine() string {
 		}
 		parts = append(parts, "overlay:"+name)
 	}
-	if m.notice != "" {
-		parts = append(parts, m.notice)
-	}
 	return strings.Join(parts, " · ")
+}
+
+// noticeLines wraps the outcome notice to the terminal width and keeps at most
+// two lines, so it stays visible without pushing the body panel off screen. A
+// longer notice keeps its beginning and ends with an ellipsis.
+func (m Model) noticeLines(width int) []string {
+	text := strings.TrimSpace(m.notice)
+	if text == "" {
+		return nil
+	}
+	width = max(1, width)
+	lines := wrapLine(text, width)
+	if len(lines) > 2 {
+		lines = []string{lines[0], truncate(strings.Join(lines[1:], " "), width)}
+	}
+	return lines
 }
 
 func keysLine() string {

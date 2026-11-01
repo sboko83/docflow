@@ -950,8 +950,21 @@ func TestCloseNoticeNamesUnwrittenArchiveText(t *testing.T) {
 	if !strings.Contains(model.notice, want) || !strings.Contains(model.notice, "docs/archive/P001-cache.md") {
 		t.Fatalf("reload replaced the close notice with %q", model.notice)
 	}
-	if !strings.Contains(model.statusLine(), "docs/archive/P001-cache.md") {
-		t.Fatalf("status line lost the close notice: %q", model.statusLine())
+	// The notice keeps its own wrapped line above the status line, so the
+	// archive path survives the right-edge padding at both widths.
+	for _, width := range []int{120, 80} {
+		view := resize(t, model, width, 40).String()
+		if !strings.Contains(view, want) || !strings.Contains(view, "docs/archive/P001-cache.md") {
+			t.Fatalf("rendered screen at %d columns lost the close notice:\n%s", width, view)
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if lipgloss.Width(line) > width {
+				t.Fatalf("rendered line wider than %d: %q", width, line)
+			}
+		}
+	}
+	if strings.Contains(model.statusLine(), "docs/archive/P001-cache.md") {
+		t.Fatalf("status line still carries the notice: %q", model.statusLine())
 	}
 }
 
@@ -996,8 +1009,8 @@ func TestReloadPlaceholderIsCleared(t *testing.T) {
 	if model.notice != "" {
 		t.Fatalf("completed reload kept the placeholder: %q", model.notice)
 	}
-	if strings.Contains(model.statusLine(), reloadingText) {
-		t.Fatalf("status line still says reloading: %q", model.statusLine())
+	if strings.Contains(model.String(), reloadingText) {
+		t.Fatalf("rendered screen still says reloading:\n%s", model.String())
 	}
 	// A new action replaces the previous outcome instead of stacking on it.
 	updated, _ = model.Update(keyMsg("p"))
@@ -1028,8 +1041,8 @@ func TestActivateNoticeSurvivesReload(t *testing.T) {
 	if !strings.Contains(model.notice, "activate P002: activated P002") {
 		t.Fatalf("reload replaced the activate notice with %q", model.notice)
 	}
-	if !strings.Contains(model.statusLine(), "activate P002: activated P002") {
-		t.Fatalf("status line lost the activate notice: %q", model.statusLine())
+	if !strings.Contains(model.String(), "activate P002: activated P002") {
+		t.Fatalf("rendered screen lost the activate notice:\n%s", model.String())
 	}
 }
 
@@ -1052,8 +1065,8 @@ func TestRunFailureNoticeSurvivesReload(t *testing.T) {
 	if !strings.Contains(model.notice, want) {
 		t.Fatalf("reload replaced the failure notice with %q", model.notice)
 	}
-	if !strings.Contains(model.statusLine(), want) {
-		t.Fatalf("status line lost the failure notice: %q", model.statusLine())
+	if !strings.Contains(model.String(), want) {
+		t.Fatalf("rendered screen lost the failure notice:\n%s", model.String())
 	}
 }
 
@@ -1077,8 +1090,8 @@ func TestPausedNoticeSurvivesReload(t *testing.T) {
 	if !strings.Contains(model.notice, want) {
 		t.Fatalf("reload replaced the pause notice with %q", model.notice)
 	}
-	if !strings.Contains(model.statusLine(), want) {
-		t.Fatalf("status line lost the pause notice: %q", model.statusLine())
+	if !strings.Contains(model.String(), want) {
+		t.Fatalf("rendered screen lost the pause notice:\n%s", model.String())
 	}
 }
 
@@ -1101,8 +1114,70 @@ func TestPausingNoticeSurvivesUnitEndReload(t *testing.T) {
 	if !strings.Contains(model.notice, want) {
 		t.Fatalf("unit_end reload replaced the pause notice with %q", model.notice)
 	}
-	if !strings.Contains(model.statusLine(), want) {
-		t.Fatalf("status line lost the pause notice: %q", model.statusLine())
+	if !strings.Contains(model.String(), want) {
+		t.Fatalf("rendered screen lost the pause notice:\n%s", model.String())
+	}
+}
+
+func TestStopNowNoticeRendersOnScreen(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	updated, _ = model.Update(keyMsg("x"))
+	model = updated.(Model)
+	// A managed Stop now cancels the runner context; the host reports the run
+	// as finished with that technical reason and must still show it whole.
+	controller.err = errors.New("context canceled")
+	updated, _ = model.Update(hostPollMsg{})
+	model = updated.(Model)
+	want := "run finished: context canceled"
+	if !strings.Contains(model.notice, want) {
+		t.Fatalf("stop-now notice = %q", model.notice)
+	}
+	for _, size := range []struct{ w, h int }{{120, 40}, {80, 24}} {
+		view := resize(t, model, size.w, size.h).String()
+		if !strings.Contains(view, want) {
+			t.Fatalf("rendered screen at %dx%d lost the notice:\n%s", size.w, size.h, view)
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if lipgloss.Width(line) > size.w {
+				t.Fatalf("%dx%d line wider than the terminal: %q", size.w, size.h, line)
+			}
+		}
+	}
+}
+
+func TestNoticeFitsSmallAndResizedScreens(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model.notice = "closed P001; the archive needs your Outcome text: docs/archive/P001-cache.md"
+	model = resize(t, model, 80, 24)
+	view := model.String()
+	if !strings.Contains(view, "docs/archive/P001-cache.md") {
+		t.Fatalf("resized 120 -> 80 screen lost the notice:\n%s", view)
+	}
+	model = resize(t, model, 40, 12)
+	small := model.String()
+	lines := strings.Split(small, "\n")
+	if len(lines) != 12 {
+		t.Fatalf("40x12 rendered %d lines", len(lines))
+	}
+	for _, line := range lines {
+		if lipgloss.Width(line) > 40 {
+			t.Fatalf("40x12 line wider than the terminal: %q", line)
+		}
+	}
+	if !strings.Contains(small, "closed P001") {
+		t.Fatalf("40x12 hid the notice:\n%s", small)
+	}
+	// A notice that cannot fit two lines keeps its beginning and is marked.
+	model.notice = strings.Repeat("long outcome text ", 10)
+	wrapped := model.noticeLines(40)
+	if len(wrapped) != 2 || !strings.HasSuffix(wrapped[1], "…") {
+		t.Fatalf("a long notice was not capped at two marked lines: %#v", wrapped)
 	}
 }
 
@@ -1355,6 +1430,9 @@ func TestForeignRunnerLockAllowsViewingButRefusesControl(t *testing.T) {
 	model = updated.(Model)
 	if !strings.Contains(model.notice, "another runner is active") {
 		t.Fatalf("start notice = %q", model.notice)
+	}
+	if !strings.Contains(model.String(), "another runner is active") {
+		t.Fatalf("rendered screen lost the lock refusal:\n%s", model.String())
 	}
 	model = selectRow(t, model, "plan:P002")
 	updated, cmd := model.Update(keyMsg("a"))
