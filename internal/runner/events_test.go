@@ -98,6 +98,10 @@ func TestRunEventStream(t *testing.T) {
 	if records[11]["status"] != "done" || records[11]["seconds"].(float64) <= 0 || records[12]["exit_code"] != float64(0) || records[12]["reason"] == "" {
 		t.Fatalf("end events = %v", records[11:])
 	}
+	// A run without a host has no pause to journal.
+	if _, ok := records[12]["paused"]; ok {
+		t.Fatalf("an ordinary run reported a pause: %v", records[12])
+	}
 }
 
 func TestRunEventStreamDryRun(t *testing.T) {

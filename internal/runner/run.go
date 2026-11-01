@@ -289,17 +289,24 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 		totals.events.emit("config", "", eventConfig(sel.Plan))
 	}
 	defer func() {
-		reason := totals.stop
-		if reason == "" {
-			reason = totals.notification
+		fields := map[string]any{}
+		if pauseCancellation(ctx) {
+			// A Pause is its own reason for stopping, not a runner failure.
+			fields["reason"], fields["exit_code"], fields["paused"] = "paused", 0, true
+		} else {
+			reason := totals.stop
+			if reason == "" {
+				reason = totals.notification
+			}
+			if runErr != nil {
+				reason = runErr.Error()
+			}
+			if reason == "" {
+				reason = fmt.Sprintf("exit %d", code)
+			}
+			fields["reason"], fields["exit_code"] = reason, eventExitCode(code, runErr)
 		}
-		if runErr != nil {
-			reason = runErr.Error()
-		}
-		if reason == "" {
-			reason = fmt.Sprintf("exit %d", code)
-		}
-		totals.events.emit("run_end", "", map[string]any{"reason": reason, "exit_code": eventExitCode(code, runErr)})
+		totals.events.emit("run_end", "", fields)
 		totals.events.close()
 	}()
 	if options.control == nil && term.IsTerminal(input.stream) {
@@ -740,7 +747,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	// them and the run summary counts them across the run.
 	var testChanges int
 	defer func() {
-		fields := map[string]any{"status": eventStatus(code, runErr), "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
+		fields := map[string]any{"status": pausedUnitStatus(ctx, eventStatus(code, runErr)), "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
 		if cost != nil {
 			fields["cost"] = *cost
 		}
@@ -1413,6 +1420,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, session, attempt, valueOrZero(unitIn), 0, nil); err != nil {
 				return 2, "", err
 			}
+			pauseState(totals, uid, "complete", attempt)
 		}
 		if args.Verbose {
 			if err := unitDetail(root, p, totals); err != nil {
@@ -1454,6 +1462,17 @@ func pauseState(totals *runTotals, uid, stage string, attempt int) {
 func pauseCancellation(ctx context.Context) bool {
 	host := controlledHost(ctx)
 	return host != nil && host.State() == StatePausing && errors.Is(ctx.Err(), context.Canceled)
+}
+
+// pausedUnitStatus reclassifies the unit the interactive host stopped with
+// Pause. A unit that reached its commit boundary before the pause finished
+// stays done; any other stop under an active Pause is the pause itself, not a
+// runner error.
+func pausedUnitStatus(ctx context.Context, status string) string {
+	if status != "done" && pauseCancellation(ctx) {
+		return "paused"
+	}
+	return status
 }
 
 // callLogs names the log of the call in flight, and nothing before the first

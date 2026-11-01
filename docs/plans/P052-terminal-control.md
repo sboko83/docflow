@@ -158,6 +158,9 @@ gate: go test -timeout 20m ./...
 - Keep the marker as {"truncated": true, "bytes": original serialized size} — a machine-readable size, no duplicated payload text — rejected embedding the clipped text plus size in the marker.
 - Return the P052.1.4 findings to a new Phase 1 unit P052.1.8 and reopen the review with `Depends` on it — a controlled Pause is journaled as `unit_end.status=error`, `run_end.reason=context canceled`, `exit_code=2`, and the complete boundary writes its checkpoint without `state: Paused`; the review unit edits nothing, and P052.1.6 is already committed — rejected fixing the defects inside the review and rejected reopening P052.1.6.
 - A controlled Pause closes the journal as an event of its own, not as a failure: `unit_end.status: paused` for a unit the pause stopped, `run_end` with `reason: paused`, `paused: true` and `exit_code: 0` — the interactive host treats that stop as success; the unit finished at the complete boundary keeps `done` — rejected keeping the internal codes 7/2 in the journal, where 7 already means "no executor available" and 2 means a runner failure.
+- Классифицировать паузу в отложенных эмиттерах unit_end/run_end через pauseCancellation, а не через новые коды — внутренние 7/2 уже заняты «нет исполнителя» и ошибкой раннера, журнал должен отличать паузу от сбоя — отвергнуто переиспользование кодов 7/2 как маркера паузы.
+- pausedUnitStatus сохраняет done на complete boundary — юнит действительно выполнен, пауза видна в state и run_end — отвергнуто помечать paused любой юнит под паузой.
+- Поле paused добавляется в run_end только под паузой — читатели версии 1 не видят ложной паузы в обычных и сигнальных прогонах — отвергнуто постоянное поле paused:false.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -303,7 +306,7 @@ Handoff:
 - The string-clip budget is (ActivityInlineLimit-256)/countStrings; payloads with many keys/values that still exceed the limit become the {"truncated": true, "bytes": N} marker.
 - Unverified: Rendering of the new size marker and of clipped argument strings in the TUI activity detail is not covered: no UI test or live run in this unit.
 
-### [ ] P052.1.8 Classify paused runs in the event stream
+### [x] P052.1.8 Classify paused runs in the event stream
 Read:
 - internal/runner/run.go:L293-306
 - internal/runner/run.go:L734-750
@@ -325,6 +328,12 @@ Verify: `go test -timeout 20m ./internal/runner/`
 Traps: классифицируй только через `pauseCancellation` — `errors.Is(err, context.Canceled)` без состояния хозяина пометит паузой Ctrl-C, Stop now и отмену родителя; `fixtureEvents` требует ровно один файл прогона, а resume создаёт второй — читай события через `readEvents` по glob, как `pausedStateEvents`; `pauseState` остаётся единственным источником события `state` (Handoff P052.1.6) — не добавляй второй эмиттер и не дублируй событие там, где оно уже есть.
 Depends: P052.1.1, P052.1.6
 Commit: P052.1.8: classify paused runs in events
+Handoff:
+- assertPausedJournals требует ровно один unit_end и один run_end на все файлы прогона: для сценариев с Resume (два events.jsonl) нужен отдельный вариант, читающий последний файл.
+- Тест паузы в ожидании квоты с журнальными проверками — TestPauseDuringExecutorChainWait; TestPauseCancelsQuotaWait остаётся без потока событий (ручной execute).
+- Классификация живёт в отложенных эмиттерах: pauseCancellation(ctx) читает host.State() == StatePausing, что верно во время выполнения Run/runUnit, потому что Control переводит состояние после возврата execute.
+- Unverified: Пауза в окне между юнитами (в runLoop после unit_end, до unit_start следующего юнита): run_end получит paused:true, а unit_end паузы не будет — отдельного теста на это окно нет.
+- Unverified: Отмена родительского контекста при host.State()==StatePausing (совпадение паузы и отмены извне) классифицируется как пауза — сценарий не воспроизведён тестом.
 
 ### [ ] P052.1.4 Review runner control and recovery
 Read:

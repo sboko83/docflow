@@ -494,6 +494,10 @@ func TestRunStopSignalsKillAgent(t *testing.T) {
 			if end["event"] != "run_end" || end["exit_code"] != float64(128+int(s)) || end["reason"] != "stopped by "+signalName(s) {
 				t.Fatalf("signal run_end = %v", end)
 			}
+			// A signal is not a Pause: the run_end keeps its failure code.
+			if _, ok := end["paused"]; ok {
+				t.Fatalf("a signal run reported a pause: %v", end)
+			}
 			if strings.Count(out.String(), "P001.1.1 time: ") != 1 {
 				t.Fatalf("interrupted unit did not report duration once:\n%s", out.String())
 			}

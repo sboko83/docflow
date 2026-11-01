@@ -170,6 +170,7 @@ func TestPauseStopsAgentGroupAndWritesCheckpoint(t *testing.T) {
 	if len(states) != 1 || states[0]["state"] != "Paused" || states[0]["stage"] != "agent" || states[0]["unit"] != "P001.1.1" {
 		t.Fatalf("pause state events = %v", states)
 	}
+	assertPausedJournals(t, f, "paused")
 }
 
 func TestPauseDuringVerifyFinishesCommitBoundary(t *testing.T) {
@@ -197,6 +198,11 @@ func TestPauseDuringVerifyFinishesCommitBoundary(t *testing.T) {
 	if err != nil || cp.Stage != "complete" || cp.Unit != unit.ID {
 		t.Fatalf("checkpoint = %#v, err=%v", cp, err)
 	}
+	if states := pausedStateEvents(t, f, "complete"); len(states) != 1 {
+		t.Fatalf("pause state events at the commit boundary = %v", states)
+	}
+	// The unit did finish: the pause closes the run, not the unit.
+	assertPausedJournals(t, f, "done")
 }
 
 func TestPauseCancelsQuotaWait(t *testing.T) {
@@ -329,6 +335,10 @@ func TestPauseAtCommitBoundaryCompletesUnit(t *testing.T) {
 	if err != nil || cp.Stage != "complete" || cp.Unit != unit.ID || cp.Calls != 1 {
 		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
 	}
+	if states := pausedStateEvents(t, f, "complete"); len(states) != 1 {
+		t.Fatalf("pause state events at the commit boundary = %v", states)
+	}
+	assertPausedJournals(t, f, "done")
 }
 
 func intPointer(value int) *int { return &value }
@@ -685,12 +695,8 @@ func awaitEvent(t *testing.T, control *Control, typ string) Event {
 
 func pausedStateEvents(t *testing.T, f *runFixture, stage string) []map[string]any {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join(f.root, ".git/docflow/run/*.events.jsonl"))
-	if err != nil || len(files) == 0 {
-		t.Fatalf("event files = %v, err = %v", files, err)
-	}
 	var states []map[string]any
-	for _, file := range files {
+	for _, file := range eventFiles(t, f) {
 		for _, record := range readEvents(t, file) {
 			if record["event"] == "state" && record["state"] == "Paused" && record["stage"] == stage {
 				states = append(states, record)
@@ -698,6 +704,44 @@ func pausedStateEvents(t *testing.T, f *runFixture, stage string) []map[string]a
 		}
 	}
 	return states
+}
+
+// eventFiles lists every run stream of the checkout: a resume opens a second
+// one, so a fixture-wide read cannot rely on exactly one file.
+func eventFiles(t *testing.T, f *runFixture) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(f.root, ".git/docflow/run/*.events.jsonl"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("event files = %v, err = %v", files, err)
+	}
+	return files
+}
+
+// assertPausedJournals checks how a paused run closes both levels of the
+// stream: the paused unit is an event of its own rather than a runner failure,
+// and the run_end carries the pause with the success code.
+func assertPausedJournals(t *testing.T, f *runFixture, unitStatus string) {
+	t.Helper()
+	units, runs := 0, 0
+	for _, file := range eventFiles(t, f) {
+		for _, record := range readEvents(t, file) {
+			switch record["event"] {
+			case "unit_end":
+				units++
+				if record["status"] != unitStatus {
+					t.Fatalf("unit_end = %v, want status %q", record, unitStatus)
+				}
+			case "run_end":
+				runs++
+				if record["paused"] != true || record["reason"] != "paused" || record["exit_code"] != float64(0) {
+					t.Fatalf("paused run_end = %v, want paused true, reason paused, exit_code 0", record)
+				}
+			}
+		}
+	}
+	if units != 1 || runs != 1 {
+		t.Fatalf("unit_end events = %d, run_end events = %d, want one of each", units, runs)
+	}
 }
 
 // A Pause ending a rejected resume is classified before the rejected-resume
@@ -780,6 +824,7 @@ func TestPauseDuringExecutorChainWait(t *testing.T) {
 	if calls := f.calls(); len(calls) != 0 {
 		t.Fatalf("an agent started although every executor waits: %d calls", len(calls))
 	}
+	assertPausedJournals(t, f, "paused")
 }
 
 // Pause after the recovered pending commit finished its transaction writes the
@@ -827,4 +872,5 @@ func TestPauseAfterRecoveredPendingCommit(t *testing.T) {
 	if calls := f.calls(); len(calls) != 0 {
 		t.Fatalf("the recovered commit started an agent: %d calls", len(calls))
 	}
+	assertPausedJournals(t, f, "done")
 }
