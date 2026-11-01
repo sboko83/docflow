@@ -191,6 +191,12 @@ gate: go test -timeout 20m ./...
 - Render only a 200-entry window around the cursor/follow point and keep at most 8 paged log windows — a long run stays responsive and memory-bounded — rejected rendering the full 1000-entry bounded history every frame
 - Verify overlay pages the same 4 KiB windows and reads the full verify log from its start, while git diff is capped at 512 KiB with a truncation note — rejected unbounded reads or a stdout-only verify view
 - Manual movement pauses follow; G/f resume it — new events never move a reader who is inspecting older history — rejected unconditional autoscroll
+- Polled Controller interface instead of one wait command per runner channel — avoids blocked goroutines and lets tests drive every transition synchronously; rejected channel-waiter commands in Bubble Tea.
+- One start confirmation supplied by the runner with StartReview fields, not a separate TUI pre-flight plus runner confirmation — the person answers once and the displayed prerequisites come from the same helper the CLI uses; rejected duplicating selection/prerequisite logic in the UI.
+- A human-block Continue is offered after the controlled run stops as Blocked, then runs existing unblock and starts a fresh run — preserves the runner's controlled-stop path; rejected adding a second Ask call inside runWithOptions.
+- Stop now is a new Control.StopNow with no checkpoint, distinct from Pause — the journal and host do not misreport a non-resumable stop as Paused; rejected overloading Pause with a flag.
+- The TUI invokes existing lifecycle commands through cycle.Self — lint, reference and archive checks stay identical to the CLI; rejected calling cycle functions and lint checks directly from the UI.
+- A new Controller is created for Start/Resume after the old one finished and the old one is closed — resets context/channels cleanly; rejected reusing a finished Control indefinitely.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -598,7 +604,7 @@ Handoff:
 - Unverified: No live Control publish loop is wired in this unit, so follow, bounded queue drops and paging under a real Pi/Codex/opencode stream are exercised only by synthetic events; the live path is P052.2.3 and final acceptance.
 - Unverified: Paging across a 4 KiB boundary inside a multibyte UTF-8 rune is repaired to a replacement character by Sanitize but is not asserted by a dedicated test.
 
-### [ ] P052.2.3 Connect execution and lifecycle controls
+### [x] P052.2.3 Connect execution and lifecycle controls
 Read:
 - internal/tui/app.go
 - internal/tui/model.go
@@ -614,6 +620,16 @@ Do:
 - Расширь app_test.go и terminal_test.go проверками клавиш и реальных переходов на фиктивном агенте: pause/resume, human block, отказ активации с lint-ошибкой и отсутствие фонового агента после выхода.
 Verify: `go test -timeout 20m ./internal/tui/ ./internal/runner/ ./cmd/docflow/`
 Commit: P052.2.3: connect terminal execution controls
+Handoff:
+- The TUI uses the polled Controller seam in internal/tui/control.go: Host wraps runner.Control, Start/Resume create a fresh Host, and the model polls events/prompts/done from the Bubble Tea loop. No Bubble Tea command blocks on a runner channel.
+- Start confirmation carries runner.StartReview in runner.Request.Fields; the dialog renders permissions and prerequisites from it. StartRequirements is now shared by the CLI prompt and the dialog, so their skip rules cannot drift.
+- runner.CheckoutLockOwner(root) reports a live foreign lock without acquiring it; the TUI refuses Start and lifecycle actions while it names another pid but still renders the plans.
+- Lifecycle keys call cycle.Self with the same subcommands as the CLI (activate/freeze/thaw/close/unblock); tests inject this seam. A successful Close checks the archive Outcome section and names the path when the person still has to write it.
+- Terminal tests follow runner files (scenario counter, checkpoint, run.lock, plan status) rather than redrawn status text: Bubble Tea's PTY diff output contains only changed suffixes, so full status words are not reliable in raw captures.
+- Unverified: The live Pi/Codex/opencode paths are not exercised by this unit: terminal tests use the shell fake agent, so real session resume, provider wording and platform-specific child-process termination remain for live acceptance.
+- Unverified: The Stop-after-unit path has only the fake-controller app test; no terminal test runs a real plan through it to a stable boundary.
+- Unverified: The Close success path is tested with a synthetic archive file, not by closing a real completed plan with a filled Outcome through the TUI.
+- Unverified: Terminal tests are darwin/linux only; Windows console behavior for these new controls is not covered.
 
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:

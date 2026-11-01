@@ -10,7 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
+	"bsv-docflow/internal/runner"
 )
 
 const testDocflow = `---
@@ -470,5 +472,360 @@ func TestResetUnknownStatusIsNamed(t *testing.T) {
 	unit := &format.Unit{ID: "P001.1.1", Title: "test", Status: "?"}
 	if got := statusWord(unit.Status); got != "unknown" {
 		t.Fatalf("statusWord = %q", got)
+	}
+}
+
+// fakeController stands in for the runner host: the test decides when the
+// run reaches a stable state and what the runner asks the person.
+type fakeController struct {
+	state        runner.State
+	done         chan struct{}
+	finished     bool
+	events       []runner.Event
+	prompts      []Prompt
+	checkpointed bool
+	err          error
+
+	started, resumed, paused, stopped, stopNow, closed int
+	answers                                            []runner.Response
+}
+
+func newFakeController(state runner.State) *fakeController {
+	return &fakeController{state: state, done: make(chan struct{})}
+}
+
+func (f *fakeController) Start() error  { f.started++; f.state = runner.StateRunning; return nil }
+func (f *fakeController) Resume() error { f.resumed++; f.state = runner.StateRunning; return nil }
+func (f *fakeController) Pause() error {
+	f.paused++
+	f.state = runner.StatePausing
+	f.checkpointed = true
+	return nil
+}
+func (f *fakeController) StopAfterUnit() error {
+	f.stopped++
+	f.state = runner.StateStopping
+	return nil
+}
+func (f *fakeController) StopNow() error {
+	f.stopNow++
+	f.state = runner.StateStopping
+	f.finish(runner.StateFinished)
+	return nil
+}
+func (f *fakeController) State() runner.State { return f.state }
+func (f *fakeController) Checkpointed() bool  { return f.checkpointed }
+func (f *fakeController) NextEvent() (runner.Event, bool) {
+	if len(f.events) == 0 {
+		return runner.Event{}, false
+	}
+	event := f.events[0]
+	f.events = f.events[1:]
+	return event, true
+}
+func (f *fakeController) NextPrompt() (Prompt, bool) {
+	if len(f.prompts) == 0 {
+		return Prompt{}, false
+	}
+	prompt := f.prompts[0]
+	f.prompts = f.prompts[1:]
+	return prompt, true
+}
+func (f *fakeController) Finished() bool { return f.finished }
+func (f *fakeController) Err() error     { return f.err }
+func (f *fakeController) Close()         { f.closed++ }
+
+func (f *fakeController) finish(state runner.State) {
+	if f.finished {
+		return
+	}
+	f.finished = true
+	f.state = state
+	close(f.done)
+}
+
+func (f *fakeController) prompt(kind string, fields map[string]any) {
+	prompt := Prompt{Kind: kind, Message: "Start the current Queue run?", Fields: fields}
+	prompt.answer = func(confirmed bool, note string) {
+		f.answers = append(f.answers, runner.Response{Confirmed: confirmed, Note: note})
+	}
+	f.prompts = append(f.prompts, prompt)
+}
+
+func poll(t *testing.T, model Model) Model {
+	t.Helper()
+	updated, _ := model.Update(hostPollMsg{})
+	return updated.(Model)
+}
+
+func useControllers(t *testing.T, model Model, controllers ...*fakeController) Model {
+	t.Helper()
+	next := 0
+	model.newController = func(string, string) Controller {
+		if next >= len(controllers) {
+			t.Fatalf("workspace created controller %d, only %d prepared", next+1, len(controllers))
+		}
+		controller := controllers[next]
+		next++
+		return controller
+	}
+	return model
+}
+
+func TestStartDialogShowsPreconditionsAndDeclineRunsNothing(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	first := newFakeController(runner.StateIdle)
+	first.prompt("confirm_start", map[string]any{"preview": runner.StartReview{
+		Plan: "P001", Title: "Кеш", Unit: "P001.1.2", Kind: "unit",
+		Permissions: "full", Full: true,
+		Prerequisites: []string{"apple watch: `test -d /watch`", "login — needs a person"},
+	}})
+	second := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, first, second)
+
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if first.started != 1 || model.runState != runner.StateRunning {
+		t.Fatalf("start: started=%d state=%s", first.started, model.runState)
+	}
+	model = poll(t, model)
+	if model.dialog != dialogStart {
+		t.Fatalf("start dialog = %v", model.dialog)
+	}
+	view := model.String()
+	for _, want := range []string{"Start the current Queue run?", "P001 Кеш", "P001.1.2", "permissions: full", "without a sandbox", "apple watch", "needs a person"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("start dialog does not contain %q:\n%s", want, view)
+		}
+	}
+	updated, _ = model.Update(keyMsg("esc"))
+	model = updated.(Model)
+	if len(first.answers) != 1 || first.answers[0].Confirmed {
+		t.Fatalf("decline answers = %#v", first.answers)
+	}
+	if model.dialog != dialogNone || !strings.Contains(model.notice, "nothing ran") {
+		t.Fatalf("decline dialog=%v notice=%q", model.dialog, model.notice)
+	}
+	first.finish(runner.StateFinished)
+	model = poll(t, model)
+	if model.runState != runner.StateFinished {
+		t.Fatalf("declined run state = %s", model.runState)
+	}
+
+	// A second Start is refused while the host still owns an unfinished run,
+	// and is allowed again only after it finished.
+	third := newFakeController(runner.StateIdle)
+	model.newController = func(string, string) Controller {
+		model.newController = nil
+		return third
+	}
+	updated, _ = model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if third.started != 1 {
+		t.Fatalf("Start after completion started %d controllers", third.started)
+	}
+	updated, _ = model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "already active") || third.started != 1 {
+		t.Fatalf("repeated Start: notice=%q started=%d", model.notice, third.started)
+	}
+}
+
+func TestPauseResumeAndStopControls(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	first := newFakeController(runner.StateIdle)
+	second := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, first, second)
+
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	updated, _ = model.Update(keyMsg("p"))
+	model = updated.(Model)
+	if first.paused != 1 || model.runState != runner.StatePausing {
+		t.Fatalf("pause: paused=%d state=%s", first.paused, model.runState)
+	}
+	if !strings.Contains(model.String(), "Pausing") {
+		t.Fatal("Pausing is not shown before the checkpoint confirms it")
+	}
+	if first.checkpointed == false {
+		t.Fatal("fake pause did not record a checkpoint")
+	}
+	first.finish(runner.StatePaused)
+	model = poll(t, model)
+	if model.runState != runner.StatePaused || !strings.Contains(model.notice, "Resume continues") {
+		t.Fatalf("paused state=%s notice=%q", model.runState, model.notice)
+	}
+	updated, _ = model.Update(keyMsg("R"))
+	model = updated.(Model)
+	if second.resumed != 1 || model.runState != runner.StateRunning {
+		t.Fatalf("resume: resumed=%d state=%s", second.resumed, model.runState)
+	}
+	updated, _ = model.Update(keyMsg("S"))
+	model = updated.(Model)
+	if second.stopped != 1 || model.runState != runner.StateStopping {
+		t.Fatalf("stop after unit: stopped=%d state=%s", second.stopped, model.runState)
+	}
+}
+
+func TestHumanBlockOffersContinueWithExistingUnblock(t *testing.T) {
+	root := writeTestProject(t)
+	planPath := filepath.Join(root, "docs", "plans", "P001-cache.md")
+	text, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocked := strings.Replace(string(text), "### [!] P001.2.2 Заблокированный юнит\nDo:\n- ждать человека\n", "### [!] P001.2.2 Заблокированный юнит\nDo:\n- ждать человека\nHandoff:\n- Blocked (human): нужен вход в аккаунт\n", 1)
+	if err := os.WriteFile(planPath, []byte(blocked), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := resize(t, loadedModel(t, root), 120, 40)
+	first := newFakeController(runner.StateIdle)
+	second := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, first, second)
+	var calls []string
+	model.lifecycle = func(root string, args ...string) cycle.Result {
+		calls = append(calls, args...)
+		return cycle.Result{Code: 0, Stdout: "commit: P001.2.2: unblock unit\n"}
+	}
+
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	first.finish(runner.StateBlocked)
+	model = poll(t, model)
+	if model.dialog != dialogHuman {
+		t.Fatalf("blocked dialog = %v (%s)", model.dialog, model.notice)
+	}
+	if !strings.Contains(model.String(), "нужен вход в аккаунт") || !strings.Contains(model.String(), "Continue") {
+		t.Fatalf("block dialog lacks the reason or Continue:\n%s", model.String())
+	}
+	for _, part := range []string{"в", "о", "ш", "ё", "л"} {
+		updated, _ = model.Update(keyMsg(part))
+		model = updated.(Model)
+	}
+	updated, cmd := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("Enter on a human block returned no unblock command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	want := []string{"unblock", "P001.2.2", "--note=вошёл"}
+	if strings.Join(calls, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unblock call = %v, want %v", calls, want)
+	}
+	if second.started != 1 {
+		t.Fatalf("Continue did not start the runner again: %d", second.started)
+	}
+}
+
+func TestLifecycleActionsUseCLIAndShowLintRefusal(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	var calls [][]string
+	model.lifecycle = func(root string, args ...string) cycle.Result {
+		calls = append(calls, args)
+		return cycle.Result{Code: 2, Stderr: "docs/plans/P002-draft.md:12: error: Read: missing file\n"}
+	}
+	model = selectRow(t, model, "plan:P002")
+	if len(calls) != 0 {
+		t.Fatal("selecting a draft plan ran a lifecycle command")
+	}
+	updated, cmd := model.Update(keyMsg("a"))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("activate returned no command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if len(calls) != 1 || strings.Join(calls[0], " ") != "activate P002" {
+		t.Fatalf("lifecycle calls = %v", calls)
+	}
+	if !strings.Contains(model.notice, "activate P002 failed") || !strings.Contains(model.notice, "Read: missing file") {
+		t.Fatalf("lint refusal notice = %q", model.notice)
+	}
+	if model.snapshot.Queue[1].Status != "draft" {
+		t.Fatalf("refused activation changed the plan status to %q", model.snapshot.Queue[1].Status)
+	}
+}
+
+func TestCloseNoticeNamesUnwrittenArchiveText(t *testing.T) {
+	root := writeTestProject(t)
+	if err := os.MkdirAll(filepath.Join(root, "docs", "archive"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archive := "---\nid: P001\ntitle: cache\nclosed: 2026-11-01\n---\n## Outcome           <!-- 2–3 строки: что теперь есть -->\n\n## Decisions\n\n## Gotchas\n\n## Follow-ups\n"
+	if err := os.WriteFile(filepath.Join(root, "docs", "archive", "P001-cache.md"), []byte(archive), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model.lifecycle = func(string, ...string) cycle.Result {
+		return cycle.Result{Code: 0, Stdout: "docs/archive/P001-cache.md\n"}
+	}
+	model = selectRow(t, model, "plan:P001")
+	updated, cmd := model.Update(keyMsg("C"))
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "needs your Outcome text") || !strings.Contains(model.notice, "docs/archive/P001-cache.md") {
+		t.Fatalf("close notice = %q", model.notice)
+	}
+}
+
+func TestQuitWithLiveRunPausesAndWaits(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+
+	updated, _ = model.Update(keyMsg("q"))
+	model = updated.(Model)
+	if model.dialog != dialogExit {
+		t.Fatalf("quit with a live run opened dialog %v", model.dialog)
+	}
+	updated, _ = model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if controller.paused != 1 || !controller.checkpointed || model.runState != runner.StatePausing {
+		t.Fatalf("exit did not pause: paused=%d checkpoint=%v state=%s", controller.paused, controller.checkpointed, model.runState)
+	}
+	controller.finish(runner.StatePaused)
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("a confirmed exit did not return the quit command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("exit command = %T, want tea.QuitMsg", cmd())
+	}
+	if controller.closed != 1 {
+		t.Fatalf("controller closed %d times after exit", controller.closed)
+	}
+}
+
+func TestForeignRunnerLockAllowsViewingButRefusesControl(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	model.lockCheck = func(string) (int, bool, error) { return 4242, true, nil }
+	model.refreshLock()
+	model.newController = func(string, string) Controller {
+		t.Fatal("a foreign runner lock allowed a new controller")
+		return nil
+	}
+	if !strings.Contains(model.String(), "P001.1.2") {
+		t.Fatal("a foreign runner lock hid the plans")
+	}
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "another runner is active") {
+		t.Fatalf("start notice = %q", model.notice)
+	}
+	model = selectRow(t, model, "plan:P002")
+	updated, cmd := model.Update(keyMsg("a"))
+	model = updated.(Model)
+	if cmd != nil || !strings.Contains(model.notice, "lifecycle changes are refused") {
+		t.Fatalf("activate under a foreign lock: cmd=%v notice=%q", cmd, model.notice)
 	}
 }

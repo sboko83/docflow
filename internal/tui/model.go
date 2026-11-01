@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bsv-docflow/internal/agentio"
+	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/runner"
 )
@@ -128,10 +129,33 @@ type Model struct {
 	query        string
 	matches      int
 
-	help   bool
-	notice string
-
+	help    bool
+	notice  string
 	noColor bool
+
+	skillDirectory string
+	controller     Controller
+	newController  func(root, skillDirectory string) Controller
+	controllerDone bool
+	runState       runner.State
+	runErr         string
+	checkpointed   bool
+	pendingPrompt  *Prompt
+
+	dialog       dialogKind
+	dialogTitle  string
+	dialogLines  []string
+	dialogInput  string
+	dialogNote   bool
+	exitAfterRun bool
+
+	blockedUnit   string
+	blockedReason string
+
+	lifecycle func(root string, args ...string) cycle.Result
+	lockCheck func(root string) (int, bool, error)
+	lockPID   int
+	lockHeld  bool
 
 	history          *ActivityHistory
 	activityCursor   int
@@ -176,6 +200,9 @@ func newModel(root string, load Loader, noColor bool) Model {
 		followActivity:   true,
 		expandedActivity: map[string]bool{},
 		pages:            map[string]*activityPage{},
+		newController:    func(root, skills string) Controller { return NewHost(root, skills) },
+		lifecycle:        cycle.Self,
+		lockCheck:        runner.CheckoutLockOwner,
 	}
 }
 
@@ -209,7 +236,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapshotMsg:
 		return m.applySnapshot(msg), nil
 	case ActivityMsg:
-		return m.applyEvent(msg.Event), nil
+		m = m.applyEvent(msg.Event)
+		if eventReloadsPlan(msg.Event.Type) {
+			return m, loadCmd(m.load)
+		}
+		return m, nil
+	case hostPollMsg:
+		return m.pollController()
+	case lifecycleDoneMsg:
+		return m.applyLifecycle(msg)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
@@ -266,6 +301,7 @@ func (m Model) applySnapshot(msg snapshotMsg) Model {
 		m.state = StateReady
 	}
 	m.notice = ""
+	m.refreshLock()
 	m.recountMatches()
 	m.syncCursor()
 	return m

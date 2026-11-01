@@ -1,0 +1,531 @@
+package tui
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"bsv-docflow/internal/cycle"
+	"bsv-docflow/internal/runner"
+)
+
+type dialogKind int
+
+const (
+	dialogNone dialogKind = iota
+	dialogStart
+	dialogExit
+	dialogHuman
+)
+
+type hostPollMsg struct{}
+
+type lifecycleDoneMsg struct {
+	action string
+	planID string
+	result cycle.Result
+}
+
+func pollSoon() tea.Cmd {
+	return tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg { return hostPollMsg{} })
+}
+
+// eventReloadsPlan names observations after which the tree can show a new
+// unit status or a changed Queue and plan list.
+func eventReloadsPlan(kind string) bool {
+	switch kind {
+	case "run_start", "unit_start", "unit_end", "commit", "verify", "replan", "close", "run_end":
+		return true
+	}
+	return false
+}
+
+// refreshLock records a live foreign runner. The workspace keeps reading the
+// plans, but refuses to start or change their lifecycle until it is gone.
+func (m *Model) refreshLock() {
+	if m.lockCheck == nil {
+		m.lockCheck = runner.CheckoutLockOwner
+	}
+	pid, held, err := m.lockCheck(m.root)
+	if err != nil || !held || pid == os.Getpid() {
+		m.lockPID, m.lockHeld = 0, false
+		return
+	}
+	m.lockPID, m.lockHeld = pid, true
+}
+
+func (m Model) runIsActive() bool {
+	switch m.runState {
+	case runner.StateStarting, runner.StateRunning, runner.StatePausing, runner.StateStopping:
+		return true
+	}
+	return false
+}
+
+func (m Model) selectedPlan() *PlanView {
+	selected, ok := m.selectedRow()
+	if !ok {
+		return nil
+	}
+	return selected.plan
+}
+
+// startRun starts a fresh run or resumes the checkpoint. The runner asks for
+// its own start confirmation through the prompt channel; the workspace never
+// answers it on the person's behalf.
+func (m Model) startRun(resume bool) (Model, tea.Cmd) {
+	if m.runIsActive() || (m.controller != nil && !m.controllerDone) {
+		m.notice = "a run is already active; wait for it or stop it"
+		return m, nil
+	}
+	if m.controller != nil && m.controllerDone {
+		m.controller.Close()
+		m.controller = nil
+	}
+	if m.lockHeld {
+		m.notice = fmt.Sprintf("another runner is active (pid %d); viewing is allowed, starting is not", m.lockPID)
+		return m, nil
+	}
+	if resume {
+		// ResumeRun validates the checkpoint and reports recovery conflicts;
+		// a second check here would duplicate its decision.
+	} else if len(m.snapshot.Queue) == 0 {
+		m.notice = "nothing to start: Queue is empty"
+		return m, nil
+	}
+	factory := m.newController
+	if factory == nil {
+		factory = func(root, skills string) Controller { return NewHost(root, skills) }
+	}
+	controller := factory(m.root, m.skillDirectory)
+	if controller == nil {
+		m.notice = "cannot create the runner host"
+		return m, nil
+	}
+	var err error
+	if resume {
+		err = controller.Resume()
+	} else {
+		err = controller.Start()
+	}
+	if err != nil {
+		controller.Close()
+		m.notice = err.Error()
+		return m, nil
+	}
+	m.controller = controller
+	m.controllerDone = false
+	m.runState = controller.State()
+	m.runErr = ""
+	m.checkpointed = false
+	m.blockedUnit, m.blockedReason = "", ""
+	if resume {
+		m.notice = "resuming from checkpoint"
+	} else {
+		m.notice = "starting the current Queue run"
+	}
+	return m, pollSoon()
+}
+
+func (m Model) pollController() (Model, tea.Cmd) {
+	controller := m.controller
+	if controller == nil {
+		return m, nil
+	}
+	reload := false
+	for i := 0; i < 256; i++ {
+		event, ok := controller.NextEvent()
+		if !ok {
+			break
+		}
+		if event.Type == "run_end" {
+			if reason := strValue(event.Fields["reason"]); reason != "" && reason != "paused" {
+				m.runErr = reason
+			}
+		}
+		m = m.applyEvent(event)
+		reload = reload || eventReloadsPlan(event.Type)
+	}
+	for m.pendingPrompt == nil {
+		prompt, ok := controller.NextPrompt()
+		if !ok {
+			break
+		}
+		m = m.handlePrompt(prompt)
+	}
+	if !m.controllerDone {
+		m.runState = controller.State()
+		m.checkpointed = controller.Checkpointed()
+	}
+	if !m.controllerDone && controller.Finished() {
+		m.controllerDone = true
+		m.runState = controller.State()
+		m.checkpointed = controller.Checkpointed()
+		if err := controller.Err(); err != nil {
+			m.runErr = err.Error()
+		}
+		m.handleFinished()
+		reload = true
+		if m.exitAfterRun {
+			controller.Close()
+			return m, tea.Quit
+		}
+	}
+	var commands []tea.Cmd
+	if reload {
+		commands = append(commands, loadCmd(m.load))
+	}
+	if !m.controllerDone && (m.runIsActive() || m.pendingPrompt != nil) {
+		commands = append(commands, pollSoon())
+	}
+	return m, tea.Batch(commands...)
+}
+
+func (m *Model) handleFinished() {
+	switch m.runState {
+	case runner.StateBlocked:
+		if unit, reason, needs, ok := m.blockedInfo(); ok {
+			m.blockedUnit, m.blockedReason = unit, reason
+			if needs == "human" {
+				m.dialog = dialogHuman
+				m.dialogTitle = unit + " is blocked (needs human)"
+				m.dialogLines = []string{reason, "", "Continue runs the existing unblock command with your note."}
+				m.dialogInput, m.dialogNote = "", true
+				return
+			}
+			m.notice = fmt.Sprintf("%s is blocked (needs %s): %s — replan or return it to the CLI", unit, needs, reason)
+			return
+		}
+		m.notice = "the run stopped on a block"
+	case runner.StatePaused:
+		if m.checkpointed {
+			m.notice = "paused; Resume continues the interrupted unit from its checkpoint"
+		} else {
+			m.notice = "the run stopped without a resumable checkpoint"
+		}
+	case runner.StateFailed:
+		if m.runErr == "" {
+			m.runErr = "the run failed"
+		}
+		m.notice = "run failed: " + m.runErr
+	case runner.StateFinished:
+		if m.runErr != "" {
+			m.notice = "run finished: " + m.runErr
+		} else {
+			m.notice = "run finished"
+		}
+	}
+}
+
+func (m Model) blockedInfo() (unit, reason, needs string, ok bool) {
+	for _, plan := range append(append([]*PlanView{}, m.snapshot.Queue...), m.snapshot.Frozen...) {
+		for _, item := range plan.Doc.Units {
+			if item.Status != "!" {
+				continue
+			}
+			needs, reason := cycle.BlockedNeeds(item)
+			return item.ID, reason, needs, true
+		}
+	}
+	return "", "", "", false
+}
+
+func (m Model) handlePrompt(prompt Prompt) Model {
+	if m.pendingPrompt != nil {
+		prompt.Answer(false, "")
+		return m
+	}
+	p := prompt
+	m.pendingPrompt = &p
+	switch prompt.Kind {
+	case "confirm_start":
+		m.dialog = dialogStart
+		m.dialogTitle = "Start the current Queue run?"
+		m.dialogLines = startDialogLines(prompt)
+		m.dialogInput, m.dialogNote = "", false
+	default:
+		m.dialog = dialogStart
+		m.dialogTitle = prompt.Message
+		line := prompt.Message
+		if prompt.Unit != "" {
+			line = prompt.Unit + ": " + line
+		}
+		m.dialogLines = []string{line, "", "Enter/y confirms · Esc/n declines"}
+	}
+	return m
+}
+
+func startDialogLines(prompt Prompt) []string {
+	fields := prompt.Fields
+	if errText := strValue(fields["preview_error"]); errText != "" {
+		return []string{"Cannot read the current selection:", errText, "", "Enter/y tries anyway · Esc/n cancels"}
+	}
+	preview, ok := fields["preview"].(runner.StartReview)
+	if !ok {
+		return []string{prompt.Message, "", "Enter/y starts · Esc/n cancels"}
+	}
+	lines := []string{preview.Summary()}
+	if preview.Permissions != "" {
+		line := "permissions: " + preview.Permissions
+		if preview.Full {
+			line += " — the agent runs without a sandbox"
+		}
+		lines = append(lines, line)
+	}
+	if len(preview.Prerequisites) > 0 {
+		lines = append(lines, "", "prerequisites:")
+		for _, item := range preview.Prerequisites {
+			lines = append(lines, "  - "+item)
+		}
+	}
+	lines = append(lines, "", "Enter/y starts · Esc/n cancels; declining runs nothing")
+	return lines
+}
+
+func (m Model) answerPrompt(confirmed bool, note string) Model {
+	if m.pendingPrompt == nil {
+		return m
+	}
+	m.pendingPrompt.Answer(confirmed, note)
+	m.pendingPrompt = nil
+	return m
+}
+
+func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	key := msg.String()
+	switch m.dialog {
+	case dialogStart:
+		switch key {
+		case "enter", "y":
+			m = m.answerPrompt(true, "")
+			m.dialog = dialogNone
+			m.notice = "start confirmed"
+			return m, pollSoon()
+		case "esc", "n":
+			m = m.answerPrompt(false, "")
+			m.dialog = dialogNone
+			m.notice = "start declined; nothing ran"
+			return m, pollSoon()
+		}
+		return m, nil
+	case dialogExit:
+		switch key {
+		case "enter", "y":
+			m.dialog = dialogNone
+			return m.stopAndExit()
+		case "esc", "n":
+			m.dialog = dialogNone
+			m.notice = "staying with the live run"
+			return m, pollSoon()
+		}
+		return m, nil
+	case dialogHuman:
+		switch key {
+		case "enter":
+			unit := m.blockedUnit
+			m.dialog = dialogNone
+			note := strings.TrimSpace(m.dialogInput)
+			if unit == "" {
+				return m, nil
+			}
+			lifecycle := m.lifecycle
+			root := m.root
+			return m, func() tea.Msg {
+				result := lifecycle(root, "unblock", unit, "--note="+note)
+				return lifecycleDoneMsg{action: "unblock", planID: unit, result: result}
+			}
+		case "esc":
+			m.dialog = dialogNone
+			m.notice = "left " + m.blockedUnit + " blocked"
+			return m, nil
+		case "backspace":
+			runes := []rune(m.dialogInput)
+			if len(runes) > 0 {
+				m.dialogInput = string(runes[:len(runes)-1])
+			}
+			return m, nil
+		default:
+			if msg.Text != "" && msg.Mod == 0 {
+				m.dialogInput += msg.Text
+			}
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m Model) requestQuit() (Model, tea.Cmd) {
+	if m.runIsActive() || (m.controller != nil && !m.controllerDone) {
+		m.dialog = dialogExit
+		m.dialogTitle = "A run is still active"
+		m.dialogLines = []string{
+			"Enter/y stops the run at a stable boundary, writes its checkpoint and exits.",
+			"Esc/n stays with the live run.",
+		}
+		return m, nil
+	}
+	if m.controller != nil {
+		m.controller.Close()
+		m.controller = nil
+	}
+	return m, tea.Quit
+}
+
+func (m Model) stopAndExit() (Model, tea.Cmd) {
+	m.exitAfterRun = true
+	if m.controller == nil {
+		return m, tea.Quit
+	}
+	if m.pendingPrompt != nil {
+		m = m.answerPrompt(false, "")
+	}
+	switch m.controller.State() {
+	case runner.StateRunning:
+		if err := m.controller.Pause(); err != nil {
+			m.notice = err.Error()
+		} else {
+			m.runState = runner.StatePausing
+			m.notice = "pausing; the checkpoint is written before the exit"
+		}
+	case runner.StateStarting:
+		if m.pendingPrompt == nil {
+			_ = m.controller.StopNow()
+		}
+	case runner.StatePausing, runner.StateStopping:
+		m.notice = "stopping; waiting for the stable boundary"
+	}
+	if m.controller.Finished() {
+		m.controller.Close()
+		return m, tea.Quit
+	}
+	return m, pollSoon()
+}
+
+func (m Model) lifecycleKey(action string) (Model, tea.Cmd) {
+	if m.runIsActive() || (m.controller != nil && !m.controllerDone) {
+		m.notice = "stop the live run before changing the plan lifecycle"
+		return m, nil
+	}
+	if m.lockHeld {
+		m.notice = fmt.Sprintf("another runner is active (pid %d); lifecycle changes are refused", m.lockPID)
+		return m, nil
+	}
+	plan := m.selectedPlan()
+	if plan == nil {
+		m.notice = "select a plan first"
+		return m, nil
+	}
+	switch action {
+	case "activate":
+		if plan.Status != "draft" {
+			m.notice = fmt.Sprintf("%s is %s, not a draft", plan.ID, plan.Status)
+			return m, nil
+		}
+	case "freeze":
+		if plan.Status == "draft" || !m.inQueue(plan.ID) {
+			m.notice = fmt.Sprintf("%s must be a queued, non-draft plan to freeze", plan.ID)
+			return m, nil
+		}
+	case "thaw":
+		if !m.inFrozen(plan.ID) {
+			m.notice = fmt.Sprintf("%s is not in Frozen", plan.ID)
+			return m, nil
+		}
+	}
+	lifecycle := m.lifecycle
+	root, id := m.root, plan.ID
+	m.notice = action + " " + id + "..."
+	return m, func() tea.Msg {
+		return lifecycleDoneMsg{action: action, planID: id, result: lifecycle(root, action, id)}
+	}
+}
+
+func (m Model) inQueue(id string) bool {
+	for _, plan := range m.snapshot.Queue {
+		if plan.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) inFrozen(id string) bool {
+	for _, plan := range m.snapshot.Frozen {
+		if plan.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) applyLifecycle(msg lifecycleDoneMsg) (Model, tea.Cmd) {
+	if msg.result.Code != 0 {
+		text := strings.TrimSpace(msg.result.Stderr)
+		if text == "" {
+			text = strings.TrimSpace(msg.result.Stdout)
+		}
+		if text == "" {
+			text = fmt.Sprintf("exit %d", msg.result.Code)
+		}
+		m.notice = fmt.Sprintf("%s %s failed: %s", msg.action, msg.planID, firstLine(text))
+		return m, nil
+	}
+	switch msg.action {
+	case "close":
+		m.notice = m.closeNotice(msg.planID, msg.result)
+	case "unblock":
+		m.notice = fmt.Sprintf("%s unblocked; starting the run again", msg.planID)
+		m.blockedUnit, m.blockedReason = "", ""
+		reloaded, cmd := m.startRun(false)
+		reloaded.notice = m.notice
+		return reloaded, tea.Batch(cmd, loadCmd(m.load))
+	default:
+		m.notice = fmt.Sprintf("%s %s: %s", msg.action, msg.planID, firstLine(strings.TrimSpace(msg.result.Stdout)))
+	}
+	return m, loadCmd(m.load)
+}
+
+var htmlComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+
+// closeNotice reports the archive path and says plainly when the template's
+// Outcome still needs the person's text. A freshly created archive is not a
+// finished record just because the file exists.
+func (m Model) closeNotice(planID string, result cycle.Result) string {
+	rel := firstLine(strings.TrimSpace(result.Stdout))
+	if rel == "" {
+		return "closed " + planID
+	}
+	path := filepath.Join(m.root, filepath.FromSlash(rel))
+	data, err := os.ReadFile(path)
+	if err == nil && archiveSectionEmpty(string(data), "Outcome") {
+		return fmt.Sprintf("closed %s; the archive needs your Outcome text: %s", planID, rel)
+	}
+	return "closed " + planID + ": " + rel
+}
+
+func archiveSectionEmpty(text, name string) bool {
+	lines := strings.Split(text, "\n")
+	in := false
+	for _, raw := range lines {
+		line := htmlComment.ReplaceAllString(raw, "")
+		trimmed := strings.TrimSpace(line)
+		if !in {
+			if strings.HasPrefix(trimmed, "## "+name) {
+				in = true
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "## ") {
+			return true
+		}
+		if trimmed != "" {
+			return false
+		}
+	}
+	return in
+}

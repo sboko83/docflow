@@ -251,6 +251,27 @@ func stopFile(root string) (string, error) {
 	return filepath.Join(directory, "stop"), nil
 }
 
+// CheckoutLockOwner reports the live process that holds the checkout lock.
+// A stale file names no live owner and does not block a new run.
+func CheckoutLockOwner(root string) (int, bool, error) {
+	directory, err := runDir(root)
+	if err != nil {
+		return 0, false, err
+	}
+	data, err := os.ReadFile(filepath.Join(directory, "run.lock"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 || !pidAlive(pid) {
+		return 0, false, nil
+	}
+	return pid, true, nil
+}
+
 // runLock allows one runner for a repository and returns the release action.
 // The lock file belongs to its pid: a lock held by any live process, including
 // this one, refuses a second owner, and release removes only our own file.
@@ -491,17 +512,7 @@ func confirmRunStart(plan *format.Plan, yes bool, progress *Progress) int {
 }
 
 func confirmRunStartWithIO(plan *format.Plan, yes bool, progress *Progress, input runInput, stdout io.Writer) int {
-	mode := format.PlanPermissions(plan)
-	planStarted := format.PlanStarted(plan)
-	items := make([]string, 0)
-	for _, prerequisite := range format.PlanPrerequisites(plan) {
-		if prerequisite.Once && planStarted {
-			continue
-		}
-		if prerequisite.Command == nil {
-			items = append(items, prerequisite.Text)
-		}
-	}
+	mode, items := StartRequirements(plan)
 	if mode != "full" && len(items) == 0 {
 		return clierrors.EXIT_OK
 	}

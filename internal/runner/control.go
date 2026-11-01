@@ -41,7 +41,9 @@ type Request struct {
 	Kind    string
 	Unit    string
 	Message string
-	answer  chan Response
+	// Fields carries typed context for the dialog, such as a StartReview.
+	Fields map[string]any
+	answer chan Response
 }
 
 type Response struct {
@@ -215,7 +217,13 @@ func (c *Control) ResumeRun(parent context.Context, root string, args Args, skil
 func (c *Control) startRun(parent context.Context, root string, args Args, skillDirectory string, checkpoint *Checkpoint, confirm bool) error {
 	return c.StartCheckout(parent, root, func(ctx context.Context, host *Control) error {
 		if confirm {
-			answer, err := host.Ask(ctx, Request{Kind: "confirm_start", Message: "Start the current Queue run?"})
+			fields := map[string]any{}
+			if preview, err := StartPreview(root, args); err == nil {
+				fields["preview"] = preview
+			} else {
+				fields["preview_error"] = err.Error()
+			}
+			answer, err := host.Ask(ctx, Request{Kind: "confirm_start", Message: "Start the current Queue run?", Fields: fields})
 			if err != nil {
 				return err
 			}
@@ -315,6 +323,19 @@ func (c *Control) StopAfterUnit() error {
 		}
 	}
 	c.Publish(Event{Type: "stop_after_unit"})
+	return nil
+}
+
+// StopNow interrupts a running execution without writing a Pause checkpoint.
+// The host reports it as a finished run, not as a resumable pause.
+func (c *Control) StopNow() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.state != StateRunning {
+		return errors.New("runner: stop now requires a running run")
+	}
+	c.state = StateStopping
+	c.cancel()
 	return nil
 }
 

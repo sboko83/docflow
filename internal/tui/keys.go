@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bsv-docflow/internal/agentio"
+	"bsv-docflow/internal/runner"
 )
 
 // KeyMap is the keyboard contract shown by help and exercised by tests.
@@ -45,15 +46,18 @@ var Keys = KeyMap{
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
-	if key == "ctrl+c" {
-		return m, tea.Quit
-	}
 	if m.help {
 		switch key {
 		case "?", "esc", "q", "enter":
 			m.help = false
 		}
 		return m, nil
+	}
+	if m.dialog != dialogNone {
+		return m.handleDialogKey(msg)
+	}
+	if key == "ctrl+c" {
+		return m.requestQuit()
 	}
 	if m.searching {
 		return m.handleSearchKey(msg)
@@ -75,7 +79,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "q":
-		return m, tea.Quit
+		return m.requestQuit()
 	case "?":
 		m.help = true
 		return m, nil
@@ -88,6 +92,54 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.switchPanel(), nil
 	case "shift+tab":
 		return m.switchPanel(), nil
+	case "s":
+		return m.startRun(false)
+	case "R":
+		return m.startRun(true)
+	case "p":
+		if m.controller == nil || m.controllerDone || m.runState != runner.StateRunning {
+			m.notice = "Pause needs a running run"
+			return m, nil
+		}
+		if err := m.controller.Pause(); err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		m.runState = runner.StatePausing
+		m.notice = "pausing; the current agent call stops and the checkpoint is written"
+		return m, pollSoon()
+	case "S":
+		if m.controller == nil || m.controllerDone || m.runState != runner.StateRunning {
+			m.notice = "Stop after unit needs a running run"
+			return m, nil
+		}
+		if err := m.controller.StopAfterUnit(); err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		m.runState = runner.StateStopping
+		m.notice = "stopping after the current unit"
+		return m, pollSoon()
+	case "x":
+		if m.controller == nil || m.controllerDone || m.runState != runner.StateRunning {
+			m.notice = "Stop now needs a running run"
+			return m, nil
+		}
+		if err := m.controller.StopNow(); err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
+		m.runState = runner.StateStopping
+		m.notice = "stopping now"
+		return m, pollSoon()
+	case "a":
+		return m.lifecycleKey("activate")
+	case "F":
+		return m.lifecycleKey("freeze")
+	case "T":
+		return m.lifecycleKey("thaw")
+	case "C":
+		return m.lifecycleKey("close")
 	}
 	if m.focus == focusDetails {
 		return m.handleDetailsKey(key), nil

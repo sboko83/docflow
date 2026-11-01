@@ -96,6 +96,8 @@ func (m Model) render() string {
 	default:
 		if m.help {
 			body = m.helpLines(width, bodyHeight)
+		} else if m.dialog != dialogNone {
+			body = m.dialogLinesView(width, bodyHeight)
 		} else if m.singlePanel() {
 			if m.focus == focusDetails {
 				body = m.pane("Details", m.visibleDetailLines(width), 0, width, bodyHeight, true)
@@ -149,6 +151,33 @@ func (m Model) renderTooSmall(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) dialogLinesView(width, height int) []string {
+	styles := newStyles(m.noColor)
+	var out []string
+	add := func(text string) {
+		for _, line := range wrapLine(text, max(1, width-2)) {
+			out = append(out, padLine(" "+line, width))
+		}
+	}
+	add(styles.title.Render(m.dialogTitle))
+	add(strings.Repeat("─", max(1, width-2)))
+	for _, line := range m.dialogLines {
+		add(line)
+	}
+	if m.dialog == dialogHuman {
+		add("")
+		add("note: " + m.dialogInput + "▏")
+		add("Enter unblocks and continues · Esc leaves it blocked")
+	}
+	for len(out) < height {
+		out = append(out, strings.Repeat(" ", width))
+	}
+	if len(out) > height {
+		out = out[:height]
+	}
+	return out
+}
+
 func (m Model) messageLines(width, height int, lines ...string) []string {
 	out := []string{" "}
 	for _, line := range lines {
@@ -185,13 +214,18 @@ func (m Model) helpLines(width, height int) []string {
 		"f, End       follow the newest activity; G jumps to the last event",
 		"d            show the actual git diff of the working tree",
 		"v            show the last verify log of the selected unit",
-		"Esc          close search, overlay, help or return to the tree",
+		"s            start the current Queue run",
+		"R            resume the saved checkpoint",
+		"p, S, x      pause · stop after unit · stop now",
+		"a, F, T, C   activate · freeze · thaw · close the plan",
+		"Esc          close search, dialog, overlay, help or return to the tree",
 		"r            reload the workspace from disk",
 		"?            this help",
-		"q, Ctrl+C    quit",
+		"q, Ctrl+C    quit; a live run asks before it stops",
 		"",
-		"The workspace is read-only: it reads plans with the docflow parser",
-		"and never edits the plan, runs an agent or takes a lock.",
+		"The workspace reads plans with the docflow parser. Starting a run",
+		"uses the shared runner and its checkout lock; lifecycle actions run",
+		"the same checks as the CLI commands.",
 	}
 	var out []string
 	for _, line := range lines {
@@ -540,6 +574,15 @@ func (m Model) detailWidth() int {
 
 func (m Model) statusLine() string {
 	parts := []string{strings.ToUpper(m.state.String())}
+	if m.runState != "" {
+		parts = append(parts, "run:"+string(m.runState))
+	}
+	if m.lockHeld {
+		parts = append(parts, fmt.Sprintf("foreign-runner:pid %d", m.lockPID))
+	}
+	if m.dialog != dialogNone {
+		parts = append(parts, "dialog")
+	}
 	if m.state == StateReady {
 		parts = append(parts, fmt.Sprintf("queue:%d frozen:%d", len(m.snapshot.Queue), len(m.snapshot.Frozen)))
 		if selected, ok := m.selectedRow(); ok {
@@ -586,7 +629,7 @@ func (m Model) statusLine() string {
 }
 
 func keysLine() string {
-	return "↑↓ move · Enter expand · Tab panel · / search · d diff · v verify · f follow · ? help · q quit"
+	return "↑↓ move · Enter expand · Tab panel · / search · s start · R resume · p pause · S stop after · x stop now · a/F/T/C lifecycle · ? help · q quit"
 }
 
 func goalText(plan *format.Plan) string {

@@ -413,10 +413,11 @@ options:
 open the interactive terminal workspace for the queue and plans
 
 The workspace reads docs/docflow.md and the plans it names with the docflow
-parser. It shows the tree of phases and units, the selected unit card, and
-the workspace load state. It is read-only in this version: it never edits a
-plan, starts an agent or takes the runner lock. Without a terminal it refuses
-and points at the ordinary CLI commands.
+parser. It shows the tree of phases and units, the selected unit card and the
+live agent activity. s starts the current Queue run, R resumes its checkpoint,
+p pauses, S stops after the current unit and x stops now. a, F, T and C run
+the same activate, freeze, thaw and close checks as the CLI. Without a
+terminal it refuses and points at the ordinary CLI commands.
 
 options:
   -h, --help  show this help message and exit

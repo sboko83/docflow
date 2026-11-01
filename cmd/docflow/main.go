@@ -356,7 +356,9 @@ func handleTUI(_ *parsedArgs, stdout io.Writer) error {
 	if file, ok := stdout.(*os.File); ok {
 		term.EnableVTProcessing(file)
 	}
-	return tuiterm.Run(root, os.Stdin, stdout)
+	// A missing checkout only disables the advisory skill check.
+	source, _ := currentSkillDirectory()
+	return tuiterm.Run(root, os.Stdin, stdout, tuiterm.WithSkillDirectory(source))
 }
 
 func handleRoster(parsed *parsedArgs) error {
