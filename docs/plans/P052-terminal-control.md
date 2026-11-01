@@ -165,6 +165,9 @@ gate: go test -timeout 20m ./...
 - Второй блокер P052.1.4 уходит в новый юнит P052.1.9, ревью возвращается в [ ] с Depends на него — запись checkpoint и событие state должны решаться в одном месте: writePauseCheckpoint возвращает признак записи, pauseState срабатывает только при нём; отвергнуты проверка ctx.Err() в каждом из трёх эмиттеров (она не отличает сигнал и отмену родителя от паузы) и повторное открытие P052.1.8 с уже закрытой первой находкой.
 - Gated the state event on the write result at all five boundaries and removed the outer ctx.Err checks instead of adding pauseCancellation to each — a pre-filter duplicates the write decision and would leave the written flag untestable — rejected adding a second guard at the three emitters.
 - Mutation-checked the new tests by forcing pauseState to fire regardless of the write — all four canceled-parent scenarios then failed, confirming they exercise the new gate — rejected relying on the green run alone.
+- Находки P052.1.4 разведены в P052.1.10 (пауза в auto-replan, close и восстановлении pending commit: восстановить план, записать checkpoint и state, классифицировать событие) и P052.1.11 (stdout-ref активности несёт stream), ревью возвращено в [ ] с Depends на оба — правка ревью недопустима, а P052.1.8 и P052.1.9 уже закрыты.
+- Пауза во время auto-replan восстанавливает план до записи checkpoint и не оставляет полувалидированную правку: следующий прогон читает исходный план, а checkpoint называет прерванную операцию; ResumeRun либо продолжает с восстановленного плана, либо явно сообщает нерезумируемую остановку — отвергнуты checkpoint поверх правки агента и ответ «no resumable checkpoint».
+- События replan и close под управляемой паузой несут result: paused и exit_code 0, как run_end — журнал не показывает паузу как ошибку операции; отвергнут отдельный код паузы.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -364,6 +367,46 @@ Handoff:
 - Reusable test helpers added in pause_test.go: startControlledRunWith, awaitDone, pendingCommitFixture, assertNoPause, awaitRecord.
 - Unverified: The pause and parent-cancel fixtures use POSIX shell fakes and are skipped on Windows, so the new scenarios do not execute on that target; the changed code path is platform-neutral but untested there.
 
+### [ ] P052.1.10 Recover a Pause during replan and close
+Read:
+- internal/runner/replan.go:L254-420
+- internal/runner/replan.go:L500-610
+- internal/runner/close.go:L320-470
+- internal/runner/run.go:L795-845
+- internal/runner/run.go:L905-935
+- internal/runner/run.go:L1437-1462
+- internal/runner/checkpoint.go:L115-140
+- internal/runner/control.go:L190-230
+- internal/runner/pause_test.go:L740-940
+- internal/runner/replan_test.go:L259-420
+- docs/design/runner.md#поток-событий
+Do:
+- Классифицируй управляемую паузу вне unit loop через `pauseCancellation(ctx)`: отменённый вызов replan-агента (replan.go:459), ожидание executor-chain, квоты и refusal (replan.go:332, 535, 581); отменённый вызов close-агента, ожидание цепочки и refusal (close.go:333, 389, 446); failure-ветка восстановления pending commit (run.go:815-820). Сигнал и отмена родителя паузой не становятся.
+- Для replan восстанови план из снимка `before` существующим путём stop/restorePlan до записи checkpoint: полувалидированная правка не переживает паузу, следующий прогон читает исходный план. Close план ещё не менял — восстанавливать нечего.
+- Запиши checkpoint через `pauseCheckpoint` с этапом, называющим прерванную операцию (`replan` или `close`), сохранёнными route/session/attempt/логами; опубликуй `state: Paused`. `ResumeRun` на такой checkpoint либо продолжает с восстановленного плана, либо явно сообщает нерезумируемую остановку, а не «no resumable checkpoint». Второй вызов агента после Paused не запускай.
+- Классифицируй отложенные события `replan` и `close` так же, как `run_end`: под управляемой паузой `result: paused`, `exit_code: 0`, а не `error`/7.
+- Расширь `internal/runner/pause_test.go`: (а) auto-replan по фикстуре ревью — юнит отвечает `blocker: plan`, replan-агент правит Do и спит, Pause: план восстановлен и не грязный, checkpoint и `state: Paused` записаны, `replan` не error, второго старта нет; (б) Pause во время close-агента — checkpoint, state и paused `run_end`, close-коммита нет; (в) Pause в failure-ветке восстановления pending commit — checkpoint этапа `complete`, state и paused `run_end`, провал проверки не выдаётся за паузу.
+- Обнови `docs/design/runner.md`: события `replan` и `close` под управляемой паузой несут `result: paused` и `exit_code: 0`; checkpoint называет прерванную операцию.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: replan уже пишет ответ агента в план до проверки `check_replan` — восстановление идёт из снимка `before`, а не из `after`; не ослабляй существующие тесты отказа replan и close ради зелёного прогона. Overlay-тест ревью в репозиторий не попал — сценарий воспроизводится обычной фикстурой.
+Depends: P052.1.8, P052.1.9
+Commit: P052.1.10: recover pause during replan and close
+
+### [ ] P052.1.11 Name stdout in activity refs
+Read:
+- internal/agentio/process.go:L168-260
+- internal/agentio/activity.go:L40-60
+- internal/agentio/activity.go:L740-770
+- internal/agentio/activity_test.go:L272-330
+Do:
+- Задай stdout-писателю `eventWriter` имя потока `stdout` в `CallAgent`: сейчас `out := &eventWriter{}` оставляет `Stream` пустым, и каждый stdout-ref приходит с `Stream: ""`, хотя stderr помечен.
+- Не меняй формат call-лога, абсолютные offset'ы и sidecar stderr; `ReadActivityPage` по-прежнему выбирает файл по `ref.Stream`.
+- В `TestCallAgentActivitySubscription` проверь `Ref.Stream` каждой активности: stdout — `stdout`, stderr — `stderr`, и что `ReadActivityPage` читает тот же фрагмент. Существующие проверки количества и вида активностей не ослабляй.
+Verify: `go test -timeout 20m ./internal/agentio/ ./internal/runner/`
+Traps: `ActivityParser.Feed` сам подставляет `stdout` при пустом stream, поэтому тесты парсера дефект не видят — проверять надо ref, который отдаёт `CallAgent`. Поле `Stream` в `CallOptions` — имя декодера профиля, его не переиспользуй как имя потока.
+Depends: P052.1.3
+Commit: P052.1.11: name stdout in activity refs
+
 ### [ ] P052.1.4 Review runner control and recovery
 Read:
 - internal/runner/control.go
@@ -376,12 +419,13 @@ Do:
 - Убедись, что находки предыдущего ревью закрыты сценариями с проверкой побочных эффектов: (а) после Paused на отвергнутом resume второго старта нет, (б) `Activity.Input` на аргументе 1 МБ в пределах лимита при живом `Ref`, (в) `state: Paused` публикуется на ожидании executor-chain и в pending-commit recovery.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7, P052.1.8, P052.1.9
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7, P052.1.8, P052.1.9, P052.1.10, P052.1.11
 Role: review
 Commit: P052.1.4: review runner control
 Handoff:
 - Blocked (plan): Phase 1 records a controlled Pause as a runner error in the durable event stream and drops the state event at the completion boundary. Reproduced on the existing fixtures: (1) pause while the fake agent sleeps (TestPauseStopsAgentGroupAndWritesCheckpoint) - events contain state:Paused, but unit_end.status=error and run_end has reason "context canceled", exit_code=2; (2) pause while verify/commit completes the unit (TestPauseDuringVerifyFinishesCommitBoundary, TestPauseAtCommitBoundaryCompletesUnit) - checkpoint stage=complete and unit_end.status=done, but there is no state:Paused event at all and run_end still reports context canceled/exit 2. docs/design/runner.md defines unit_end.status=error as a runner-call failure and run_end.exit_code as the runner's final code; P052.1.6 requires pauseState right after every writePauseCheckpoint, but run.go:1413 writes the complete checkpoint without it. A TUI reading the journal (P052.3.2) cannot show the paused stage and presents the paused run as failed. Fix: classify a controlled Pause in the unit_end/run_end emission (a paused status/reason, not error/context canceled/2) and call pauseState after the checkpoint at run.go:1413; extend pause_test.go to assert the state event at the complete boundary and the paused unit_end/run_end records in both scenarios.
 - Blocked (plan): P052.1.8 expects pause classification only through pauseCancellation, but three state emitters are guarded by generic ctx cancellation: run.go:771-774 (executor-chain wait), 831-838 (recovered pending commit), and 1418-1423 (complete boundary). writePauseCheckpoint no-ops when the host is not StatePausing, yet pauseState still emits state:Paused. Reproduced with an overlay test (go test -overlay, repository untouched): start a controlled run with a cancelable parent, gate commit, cancel the parent, release; the journal contains state:Paused stage=complete while unit_end is done and run_end reports context canceled/exit_code 2. The same happens while waiting for the executor chain (stage=quota) and after a recovered pending commit. A normal run's Ctrl-C reaches the same branches with no host, so an ordinary v1 stream also gets a false state:Paused. Fix: guard every pauseState with pauseCancellation(ctx), or return a wrote flag from writePauseCheckpoint and emit only when it wrote; add a parent-cancellation/signal test asserting no state event. The previous blocker is closed: real Pause now journals unit_end.status=paused (done at the complete boundary) and run_end paused/reason paused/exit 0, and pauseState follows every writePauseCheckpoint.
+- Blocked (plan): Blocked (plan): a Pause during an auto-replan agent call stops the run as Paused with no checkpoint, no state event and a half-edited plan. Reproduced with an overlay test (go test -overlay, repository untouched) on the executor fixture: plan header `replan: pi | zai/glm-5.3 | max`, Args{Replans: 1}; the unit answers blocker: plan; the replan fake edits the unit's Do and then sleeps; Pause during that call. Result: control.State() = Paused; ReadCheckpoint = no such file; git status = `M docs/plans/P001-plan.md`; run events = run_start, config, unit_start, attempt, stream, unit_end, attempt, stream, replan, run_end, where replan is result:error exit_code:7 and run_end is paused:true exit_code:0 with no state event. The next run reads the edited, unvalidated plan, and ResumeRun answers 'no resumable checkpoint'. This violates P052.1.2's Do (checkpoint on every transition to Paused) and the decision that a Pause preserves continuation: runReplan returns 7, err on a canceled call (replan.go:459) without restorePlan or pauseCheckpoint, and its chain/quota/refusal waits (replan.go:332, 535, 581) do the same; runClose (close.go:389, 446) and the pending-commit recovery failure path share the pattern. Fix: classify a controlled Pause in runReplan and runClose, restore the plan through the existing stop/restorePlan path so no half-validated edit survives, and write a checkpoint plus state event that either resumes the replan or explicitly reports a non-resumable stop; extend pause_test.go with this scenario (plan restored or checkpoint written, no second agent, no dirty plan). Second finding: every stdout activity from CallAgent carries Ref.Stream: '' although the P052.1.3 handoff promises a stream name; ReadActivityPage silently treats '' as stdout and TestCallAgentActivitySubscription never asserts the field. Reproduced with an overlay probe: CallAgent with Stream: codex returns refs {Stream:'', Offset:96, Length:89}. Set the stdout writer's stream in internal/agentio/process.go and assert Ref.Stream in the subscription test. The rest of the review passed: the three previous findings are closed with side-effect checks (single --resume start after a paused rejected resume, 1 MB Input within the limit with a live Ref, state at the executor-chain wait and the recovered pending commit); all six Test changes are fixture/index updates with no weakened assertion; stdin, signals and Progress stay with the UI; the checkout lock is shared; docflow verify P052.1.4 (preflight + gate go test -timeout 20m ./...) passed on macOS.
 
 ## Phase 2: Terminal workspace and live inspection
 
