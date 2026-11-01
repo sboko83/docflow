@@ -172,6 +172,11 @@ gate: go test -timeout 20m ./...
 - ResumeRun reports replan/close checkpoints as a recovery conflict instead of silently starting a fresh run from the restored plan — an explicit stop is auditable and avoids surprising a new run from a Resume action — rejected auto-starting startRun on the restored plan.
 - Replan restores the plan only when the `before` snapshot exists; chain-wait pauses write the checkpoint without a restore — the plan is untouched before the first read — rejected a sentinel empty plan and rejecting the pause there.
 - Left ReadActivityPage resolving any non-"stderr" stream to the call log instead of rejecting an empty stream — older persisted refs and journal-free consumers keep resolving — rejected strict stream validation that would break replay of existing state.
+- Четвёртый блок P052.1.4 разведён на P052.1.12 (fingerprint закрытия и классификация паузы по записанному checkpoint), P052.1.13 (пауза в успешном окне replan/close до коммита) и P052.1.14 (единственный владелец checkout lock); ревью возвращено в `[ ]` с `Depends` на все три — правка ревью запрещена, а находки разные по проверяемому поведению.
+- Fingerprint плана для close снимается до вызова агента: агент сам архивирует и удаляет план, и поздний `planFingerprint` падает; `PlanHash` не делаем необязательным, иначе checkpoint теряет привязку к плану — отвергнуто ослабление формата checkpoint ради записи после закрытия.
+- Записанный checkpoint — единственный классификатор паузы: `unit_end`, `run_end`, отложенные `replan`/`close` и переход хоста в Paused смотрят на признак записи, а не на живое состояние Pausing; ошибка записи остаётся кодом 2/`error`/Failed — это распространяет правило P052.1.9 на хост и отложенные события — отвергнуто повторное вычисление `pauseCancellation` в каждом эмиттере.
+- Пауза после успешного вызова replan/close останавливает операцию до коммита с checkpoint; после начала коммита операция завершается и журнал/хост дают done/Finished, а не Paused без checkpoint — отвергнуто завершение валидации и коммит под паузой.
+- Checkout lock принадлежит `StartCheckout` на всё время `execute`; управляемый `runWithOptions` не берёт второй замок — отвергнуто повторное снятие внутреннего замка, которое открывает окно второму раннеру.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -423,6 +428,65 @@ Handoff:
 - Interactive activity events now carry Ref.Stream = "stdout" for stdout and "stderr" for stderr, so a consumer can page both streams by ref.Stream alone; before this a stdout ref had Stream "" and only worked because ReadActivityPage falls back to the call log.
 - Quota probing (internal/agentio/quota.go) also constructs an eventWriter with no stream, but it never sets activity/onActivity, so it emits no ActivityRef and needs no name.
 
+### [ ] P052.1.12 Classify a pause by its written checkpoint
+Read:
+- internal/runner/checkpoint.go:L115-175
+- internal/runner/close.go:L240-430
+- internal/runner/events.go:L130-170
+- internal/runner/run.go:L293-310
+- internal/runner/run.go:L1437-1490
+- internal/runner/pause_test.go:L1109-1150
+- internal/runner/close_test.go:L40-53
+Do:
+- Сними fingerprint плана до вызова close-агента: агент сам выполняет `<cli> close P001`, архивирует и удаляет план, поэтому `planFingerprint` после вызова падает и checkpoint не пишется. Передай снятое значение в писатель pause-checkpoint (пустое — вычислить на месте, как сейчас), не делай `PlanHash` необязательным для close.
+- Сделай записанный checkpoint единственным признаком паузы: `pauseCheckpoint` отмечает запись в totals, а `unit_end`, `run_end`, отложенные `replan`/`close` и переход хоста Pausing → Paused используют только этот признак. Ошибка записи остаётся ошибкой раннера: код 2, статус `error`, хост Failed, без события `state`; не переклассифицируй её в `paused`/0.
+- Проверь, что обычная пауза и пауза на complete boundary сохраняют `paused`/0, а отмена сигналом и родителя не получает признака.
+- Обнови docs/design/runner.md#поток-событий: checkpoint для close снимает fingerprint до вызова агента; пауза в журнале и у хоста видна только при записанном checkpoint, ошибка записи — ошибка раннера.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: `readyCloseFixture` сейчас не архивирует план до сна — новый сценарий должен выполнить `closeArchiveStep(f.binary)` до `sleep`, иначе дефект не воспроизводится. Для сценария отказа записи положи обычный файл на место каталога `.git/docflow/tui`; не ослабляй существующие проверки паузы ради зелёного.
+Depends: P052.1.10
+Commit: P052.1.12: classify pause by written checkpoint
+
+### [ ] P052.1.13 Stop replan and close before commit on a Pause
+Read:
+- internal/runner/replan.go:L290-330
+- internal/runner/replan.go:L440-721
+- internal/runner/close.go:L240-430
+- internal/runner/close.go:L460-540
+- internal/runner/control.go:L120-240
+- internal/runner/events.go:L130-170
+- internal/runner/run.go:L1437-1490
+- internal/runner/pause_test.go:L1039-1150
+- internal/runner/replan_test.go:L233-257
+Do:
+- Сразу после успешного ответа replan- или close-агента, до валидации и коммита, проверь `pauseCancellation(ctx)` и остановись существующим путём паузы: replan восстанавливает снимок `before`, close пишет checkpoint со снятым до вызова fingerprint; запиши checkpoint/`state: Paused` и верни паузу. Полувалидированный ответ не коммить.
+- Повтори проверку непосредственно перед `cycle.CommitReplan` и перед close-коммитом: пауза, пришедшая во время проверок, останавливает операцию так же, а не коммитит её.
+- Если коммит уже начался, операция завершается: журнал `replan`/`close` и `run_end` дают `done`, хост переходит в Finished, а не в Paused без checkpoint. Paused остаётся только для остановки с записанным checkpoint (P052.1.12).
+- Для детерминированного сценария успешного окна добавь тестовые швы на границах после вызова агента и после коммита (пакетные переменные-функции, no-op в проде): пауза между возвратом вызова и валидацией иначе не воспроизводится. Не ослабляй существующие тесты паузы на вызове агента.
+- Обнови docs/design/runner.md#поток-событий: пауза после успешного вызова replan/close до коммита останавливает операцию с checkpoint, после начала коммита операция завершена и журнал/хост дают done/Finished.
+- Расширь internal/runner/pause_test.go: (а) replan по фикстуре ревью — fake поднимает `### [!] P001.1.1` до `### [~]` и возвращает done, пауза на шве: план восстановлен, HEAD не сдвинут, коммита replan нет, checkpoint `stage: replan`, `state: Paused`, `replan`/`run_end` paused/0, второго вызова агента нет, ResumeRun даёт явный нерезумируемый стоп; (б) close — fake архивирует план и возвращает done, пауза на шве: checkpoint `stage: close` со снятым fingerprint, close-коммита нет, `close`/`run_end` paused/0, хост Paused; (в) пауза после завершённого коммита: журнал done и хост Finished, checkpoint не появляется.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: `newReplanFixture` и `closeArchiveStep` уже дают нужные фикстуры; fake replan должен именно вернуть `done` после правки, иначе сценарий уйдёт в error-ветку вызова. Шов не должен влиять на обычный прогон и не должен оставаться единственной проверкой: существующие тесты паузы на вызове агента остаются.
+Depends: P052.1.12
+Commit: P052.1.13: stop replan and close before commit on pause
+
+### [ ] P052.1.14 Give the checkout lock one owner
+Read:
+- internal/runner/control.go:L165-190
+- internal/runner/run.go:L165-240
+- internal/runner/helpers.go:L250-290
+- internal/runner/control_test.go:L90-130
+- internal/runner/run_test.go:L740-790
+- internal/runner/start_test.go:L1-40
+Do:
+- Оставь один владелец замка `<git-dir>/docflow/run/run.lock`: `StartCheckout` берёт его на всё время `execute` и освобождает после возврата; `runWithOptions` не должен повторно брать и снимать тот же замок, когда управляемый прогон уже под ним. Передай владение явно (флаг в runOptions или проверка `Control` по root), чтобы `RunControlled` без `StartCheckout` и обычный `Run` по-прежнему брали замок сами.
+- Освобождай только свой замок: внутреннее завершение не удаляет файл, пока внешний владелец работает, и не удаляет чужой lock; файл с pid живого раннера остаётся виден `run --stop` на весь прогон.
+- Расширь control_test.go: внутри `StartCheckout` после управляемого прогона замок ещё существует, второй `StartCheckout`/`run` получает отказ; после возврата `execute` замок снят и новый запуск проходит; два конкурирующих запуска не могут одновременно удерживать один checkout. Сохрани существующие проверки занятого замка и обычного run.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: `requestStop` читает `run.lock` и pid — не заменяй файл на in-memory замок. Обычный `Run` без хозяина должен сохранить прежний код 2 на занятом checkout.
+Depends: P052.1.1
+Commit: P052.1.14: give the checkout lock one owner
+
 ### [ ] P052.1.4 Review runner control and recovery
 Read:
 - internal/runner/control.go
@@ -435,13 +499,14 @@ Do:
 - Убедись, что находки предыдущего ревью закрыты сценариями с проверкой побочных эффектов: (а) после Paused на отвергнутом resume второго старта нет, (б) `Activity.Input` на аргументе 1 МБ в пределах лимита при живом `Ref`, (в) `state: Paused` публикуется на ожидании executor-chain и в pending-commit recovery.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7, P052.1.8, P052.1.9, P052.1.10, P052.1.11
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7, P052.1.8, P052.1.9, P052.1.10, P052.1.11, P052.1.12, P052.1.13, P052.1.14
 Role: review
 Commit: P052.1.4: review runner control
 Handoff:
 - Blocked (plan): Phase 1 records a controlled Pause as a runner error in the durable event stream and drops the state event at the completion boundary. Reproduced on the existing fixtures: (1) pause while the fake agent sleeps (TestPauseStopsAgentGroupAndWritesCheckpoint) - events contain state:Paused, but unit_end.status=error and run_end has reason "context canceled", exit_code=2; (2) pause while verify/commit completes the unit (TestPauseDuringVerifyFinishesCommitBoundary, TestPauseAtCommitBoundaryCompletesUnit) - checkpoint stage=complete and unit_end.status=done, but there is no state:Paused event at all and run_end still reports context canceled/exit 2. docs/design/runner.md defines unit_end.status=error as a runner-call failure and run_end.exit_code as the runner's final code; P052.1.6 requires pauseState right after every writePauseCheckpoint, but run.go:1413 writes the complete checkpoint without it. A TUI reading the journal (P052.3.2) cannot show the paused stage and presents the paused run as failed. Fix: classify a controlled Pause in the unit_end/run_end emission (a paused status/reason, not error/context canceled/2) and call pauseState after the checkpoint at run.go:1413; extend pause_test.go to assert the state event at the complete boundary and the paused unit_end/run_end records in both scenarios.
 - Blocked (plan): P052.1.8 expects pause classification only through pauseCancellation, but three state emitters are guarded by generic ctx cancellation: run.go:771-774 (executor-chain wait), 831-838 (recovered pending commit), and 1418-1423 (complete boundary). writePauseCheckpoint no-ops when the host is not StatePausing, yet pauseState still emits state:Paused. Reproduced with an overlay test (go test -overlay, repository untouched): start a controlled run with a cancelable parent, gate commit, cancel the parent, release; the journal contains state:Paused stage=complete while unit_end is done and run_end reports context canceled/exit_code 2. The same happens while waiting for the executor chain (stage=quota) and after a recovered pending commit. A normal run's Ctrl-C reaches the same branches with no host, so an ordinary v1 stream also gets a false state:Paused. Fix: guard every pauseState with pauseCancellation(ctx), or return a wrote flag from writePauseCheckpoint and emit only when it wrote; add a parent-cancellation/signal test asserting no state event. The previous blocker is closed: real Pause now journals unit_end.status=paused (done at the complete boundary) and run_end paused/reason paused/exit 0, and pauseState follows every writePauseCheckpoint.
 - Blocked (plan): Blocked (plan): a Pause during an auto-replan agent call stops the run as Paused with no checkpoint, no state event and a half-edited plan. Reproduced with an overlay test (go test -overlay, repository untouched) on the executor fixture: plan header `replan: pi | zai/glm-5.3 | max`, Args{Replans: 1}; the unit answers blocker: plan; the replan fake edits the unit's Do and then sleeps; Pause during that call. Result: control.State() = Paused; ReadCheckpoint = no such file; git status = `M docs/plans/P001-plan.md`; run events = run_start, config, unit_start, attempt, stream, unit_end, attempt, stream, replan, run_end, where replan is result:error exit_code:7 and run_end is paused:true exit_code:0 with no state event. The next run reads the edited, unvalidated plan, and ResumeRun answers 'no resumable checkpoint'. This violates P052.1.2's Do (checkpoint on every transition to Paused) and the decision that a Pause preserves continuation: runReplan returns 7, err on a canceled call (replan.go:459) without restorePlan or pauseCheckpoint, and its chain/quota/refusal waits (replan.go:332, 535, 581) do the same; runClose (close.go:389, 446) and the pending-commit recovery failure path share the pattern. Fix: classify a controlled Pause in runReplan and runClose, restore the plan through the existing stop/restorePlan path so no half-validated edit survives, and write a checkpoint plus state event that either resumes the replan or explicitly reports a non-resumable stop; extend pause_test.go with this scenario (plan restored or checkpoint written, no second agent, no dirty plan). Second finding: every stdout activity from CallAgent carries Ref.Stream: '' although the P052.1.3 handoff promises a stream name; ReadActivityPage silently treats '' as stdout and TestCallAgentActivitySubscription never asserts the field. Reproduced with an overlay probe: CallAgent with Stream: codex returns refs {Stream:'', Offset:96, Length:89}. Set the stdout writer's stream in internal/agentio/process.go and assert Ref.Stream in the subscription test. The rest of the review passed: the three previous findings are closed with side-effect checks (single --resume start after a paused rejected resume, 1 MB Input within the limit with a live Ref, state at the executor-chain wait and the recovered pending commit); all six Test changes are fixture/index updates with no weakened assertion; stdin, signals and Progress stay with the UI; the checkout lock is shared; docflow verify P052.1.4 (preflight + gate go test -timeout 20m ./...) passed on macOS.
+- Blocked (plan): Blocked (plan): two reproduced Pause gaps remain in the replan/close paths, plus a checkout-lock race found by reading. (1) A Pause during the closing agent after it archived the plan cannot write its checkpoint: closePrompt tells the agent to run '<cli> close P001' first, which deletes the plan, and writePauseCheckpoint then calls planFingerprint -> cycle.FindPlan fails. Reproduced with an overlay test on readyCloseFixture (repository untouched): the fake close agent runs closeArchiveStep and sleeps; Pause during the sleep gives control.State() = Failed, ReadCheckpoint = no such file, no state event, while the deferred close event is result: paused, exit_code: 0 and run_end is paused: true, reason: paused, exit_code: 0. This violates P052.1.10 Do (b) and the trap 'Paused is visible only after ... writing the state'. Fix: capture the plan fingerprint before the closing call (or make it optional for a non-resumable close checkpoint), and do not let pauseOutcome/run_end reclassify a failed checkpoint as paused/0. (2) A Pause after the replan/close agent returns successfully but before its validation/commit is ignored by the operation, which commits, yet the host reports Paused with no checkpoint. Reproduced on newReplanFixture: unit answers blocker: plan; the replan fake lifts ### [!] P001.1.1 to ### [~] and returns done; Pause after the replan stream event; the replan validates and commits (HEAD = 'P001: replan P001.1.1', plan has [~]), control.State() = Paused, ReadCheckpoint = no such file, no state event, replan = result: paused, exit_code: 0, run_end = paused: true, exit_code: 0. runClose has the same gap after a successful closing call (no pause check before closeChecks/commit), so a Pause there commits the close while the journal says paused. Fix: classify pauseCancellation immediately after a successful replan/close call and stop with the existing checkpoint (replan restores before), or complete the operation to its commit boundary and report it done/finished; never Paused without a checkpoint. Extend pause_test.go with both success-window scenarios and make the close fake archive before sleeping. (3) Checkout lock: StartCheckout takes run.lock and runWithOptions takes it again; the inner release removes the file while the outer holder is still finishing, so another runner can acquire the lock and then have it removed by the outer release, allowing two runners on one checkout. Code reading, not reproduced; fix by one lock owner. The rest passed: the three previous findings are closed with side-effect checks (single --resume start after a paused rejected resume; 1 MB Input within the limit with a live Ref; state at the executor-chain wait and the recovered pending commit); all six Test changes are fixture/index updates with no weakened assertion; stdin, signals and Progress stay with the UI; the ordinary run and signal paths keep their old statuses and codes; docflow verify P052.1.4 (preflight + gate go test -timeout 20m ./...) passed on macOS.
 
 ## Phase 2: Terminal workspace and live inspection
 
