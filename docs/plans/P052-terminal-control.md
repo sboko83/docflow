@@ -161,6 +161,7 @@ gate: go test -timeout 20m ./...
 - Классифицировать паузу в отложенных эмиттерах unit_end/run_end через pauseCancellation, а не через новые коды — внутренние 7/2 уже заняты «нет исполнителя» и ошибкой раннера, журнал должен отличать паузу от сбоя — отвергнуто переиспользование кодов 7/2 как маркера паузы.
 - pausedUnitStatus сохраняет done на complete boundary — юнит действительно выполнен, пауза видна в state и run_end — отвергнуто помечать paused любой юнит под паузой.
 - Поле paused добавляется в run_end только под паузой — читатели версии 1 не видят ложной паузы в обычных и сигнальных прогонах — отвергнуто постоянное поле paused:false.
+- Второй блокер P052.1.4 уходит в новый юнит P052.1.9, ревью возвращается в [ ] с Depends на него — запись checkpoint и событие state должны решаться в одном месте: writePauseCheckpoint возвращает признак записи, pauseState срабатывает только при нём; отвергнуты проверка ctx.Err() в каждом из трёх эмиттеров (она не отличает сигнал и отмену родителя от паузы) и повторное открытие P052.1.8 с уже закрытой первой находкой.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -335,6 +336,25 @@ Handoff:
 - Unverified: Пауза в окне между юнитами (в runLoop после unit_end, до unit_start следующего юнита): run_end получит paused:true, а unit_end паузы не будет — отдельного теста на это окно нет.
 - Unverified: Отмена родительского контекста при host.State()==StatePausing (совпадение паузы и отмены извне) классифицируется как пауза — сценарий не воспроизведён тестом.
 
+### [~] P052.1.9 Guard pause state by a written checkpoint
+Read:
+- internal/runner/run.go:L760-845
+- internal/runner/run.go:L1395-1430
+- internal/runner/run.go:L1448-1480
+- internal/runner/checkpoint.go:L115-135
+- internal/runner/pause_test.go:L680-760
+- internal/runner/pause_test.go:L799-876
+- internal/runner/events_test.go:L17-56
+Do:
+- Свяжи запись checkpoint и событие `state` в одно решение: `writePauseCheckpoint` возвращает признак записи, `pauseState` вызывается только при нём. Сейчас без хозяина или вне `StatePausing` запись молча no-op, а событие всё равно уходит. Не заменяй это проверкой `errors.Is(ctx.Err(), context.Canceled)`: она верна и для сигнала, и для отмены родителя.
+- Приведи к правилу все пять вызовов: ожидание executor-chain (`quota`, run.go:771-774), восстановленный pending commit (`complete`, 835-838), complete boundary (1420-1423), а также уже гварженные ветки `paused` (931-934) и отмены вызова (1031-1034) — переиспользуй их условие, не копируй тело ветки.
+- Сохрани прежние исходы: ошибка записи checkpoint остаётся возвратом `2`, ветка `paused` — `7, context.Canceled`, обычная отмена — как сейчас; `pauseState` остаётся единственным эмиттером события `state`.
+- Расширь internal/runner/pause_test.go: (а) управляемый прогон с отменяемым родителем при поднятом commit gate — отменить родителя, отпустить gate: ни одного `state: Paused`, `run_end` без `paused`, `unit_end` не `paused`; (б) то же для ожидания executor-chain и для восстановленного pending commit; (в) обычный прогон без хозяина с отменяемым `runOptions.ctx` в ожидании executor-chain — ни одного `state: Paused` и прежний exit code; (г) `TestPauseDuringExecutorChainWait` и `TestPauseAfterRecoveredPendingCommit` остаются зелёными и дают ровно одно событие `state` со своим stage.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: overlay-тест ревью в репозиторий не попал — сценарий отмены родителя воспроизводится обычной фикстурой; сигнал и отмена `runOptions.ctx` идут одной веткой через `ctx.Err()`, отдельный subprocess с Ctrl-C не нужен; отсутствие события проверяй через `eventFiles`/`readEvents` (у `pausedStateEvents` пустой срез и есть отсутствие); второй файл прогона появляется только с Resume, поэтому в этих сценариях `fixtureEvents` уместен; docs/design/runner.md менять не нужно — контракт «сигнал, Stop now и отмена родителя — не пауза» уже записан, юнит приводит код к нему.
+Depends: P052.1.8
+Commit: P052.1.9: guard pause state by checkpoint
+
 ### [ ] P052.1.4 Review runner control and recovery
 Read:
 - internal/runner/control.go
@@ -347,11 +367,12 @@ Do:
 - Убедись, что находки предыдущего ревью закрыты сценариями с проверкой побочных эффектов: (а) после Paused на отвергнутом resume второго старта нет, (б) `Activity.Input` на аргументе 1 МБ в пределах лимита при живом `Ref`, (в) `state: Paused` публикуется на ожидании executor-chain и в pending-commit recovery.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7, P052.1.8
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7, P052.1.8, P052.1.9
 Role: review
 Commit: P052.1.4: review runner control
 Handoff:
 - Blocked (plan): Phase 1 records a controlled Pause as a runner error in the durable event stream and drops the state event at the completion boundary. Reproduced on the existing fixtures: (1) pause while the fake agent sleeps (TestPauseStopsAgentGroupAndWritesCheckpoint) - events contain state:Paused, but unit_end.status=error and run_end has reason "context canceled", exit_code=2; (2) pause while verify/commit completes the unit (TestPauseDuringVerifyFinishesCommitBoundary, TestPauseAtCommitBoundaryCompletesUnit) - checkpoint stage=complete and unit_end.status=done, but there is no state:Paused event at all and run_end still reports context canceled/exit 2. docs/design/runner.md defines unit_end.status=error as a runner-call failure and run_end.exit_code as the runner's final code; P052.1.6 requires pauseState right after every writePauseCheckpoint, but run.go:1413 writes the complete checkpoint without it. A TUI reading the journal (P052.3.2) cannot show the paused stage and presents the paused run as failed. Fix: classify a controlled Pause in the unit_end/run_end emission (a paused status/reason, not error/context canceled/2) and call pauseState after the checkpoint at run.go:1413; extend pause_test.go to assert the state event at the complete boundary and the paused unit_end/run_end records in both scenarios.
+- Blocked (plan): P052.1.8 expects pause classification only through pauseCancellation, but three state emitters are guarded by generic ctx cancellation: run.go:771-774 (executor-chain wait), 831-838 (recovered pending commit), and 1418-1423 (complete boundary). writePauseCheckpoint no-ops when the host is not StatePausing, yet pauseState still emits state:Paused. Reproduced with an overlay test (go test -overlay, repository untouched): start a controlled run with a cancelable parent, gate commit, cancel the parent, release; the journal contains state:Paused stage=complete while unit_end is done and run_end reports context canceled/exit_code 2. The same happens while waiting for the executor chain (stage=quota) and after a recovered pending commit. A normal run's Ctrl-C reaches the same branches with no host, so an ordinary v1 stream also gets a false state:Paused. Fix: guard every pauseState with pauseCancellation(ctx), or return a wrote flag from writePauseCheckpoint and emit only when it wrote; add a parent-cancellation/signal test asserting no state event. The previous blocker is closed: real Pause now journals unit_end.status=paused (done at the complete boundary) and run_end paused/reason paused/exit 0, and pauseState follows every writePauseCheckpoint.
 
 ## Phase 2: Terminal workspace and live inspection
 
