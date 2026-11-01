@@ -25,6 +25,7 @@ Generated from `runs.jsonl`. Rows are newest first; deltas compare with the prev
 
 | Date | docflow | Arm | Oracle | Δ oracle | Cost | Δ cost | Minutes | Attempts | Replans | Task |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 2026-11-01 | 0.21.0 (5515616) / 5515616e | docflow | 100% | +0 pp | 0.03 | -0.00 | 7.3 | 1 | 0 | d4152bf2 |
 | 2026-11-01 | 0.21.0 (563bb89+dirty) / 563bb892 | single | 100% | +0 pp | 0.24 | — | 3.5 | 0 | 0 | d4152bf2 |
 | 2026-10-31 | 0.21.0 (92e4dbe) / 92e4dbe2 | single | 100% | +73 pp | — | — | 2.1 | 0 | 0 | d4152bf2 |
 | 2026-10-31 | 0.21.0 (c935999) / c9359994 | docflow-one | 100% | — | — | — | 2.0 | 1 | 0 | d4152bf2 |
