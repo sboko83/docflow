@@ -4,8 +4,8 @@ title: Interactive terminal control for plan execution
 type: feature
 status: active
 created: 2026-10-29
-executor: pi | strata/swift-1.5-iq3_s | medium
-fallback: pi | opencode-go/deepseek-v4.1-flash | low; codex | gpt-6-luna | medium
+executor: pi | opencode-go/deepseek-v4.1-flash | low
+fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | medium
 review: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | medium
 acceptance: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | high
 permissions: auto
@@ -25,7 +25,7 @@ gate: go test -timeout 20m ./...
 После повторного открытия он видит сохранённое состояние и может
 продолжить незавершённую работу без потери файлов и выполненных юнитов.
 Блокировки и ошибки объясняют, что делать дальше. Результат проверен
-автоматическими сценариями и живым прогоном Pi/strata и Codex на этом Mac.
+автоматическими сценариями и живым прогоном Pi и Codex на этом Mac.
 
 ## Context
 
@@ -52,11 +52,11 @@ gate: go test -timeout 20m ./...
   commit; собственного механизма проверки или коммита юнита нет.
   Пропуск проверки, ручное выставление [x] и обход lock запрещены.
 - Назначения пересоставлены по ростеру 2026-11-01: исполнитель —
-  локальный strata через Pi (без квоты), запас — opencode-go, затем
-  Codex; review и acceptance ведёт opencode-go с запасной ступенью
-  Codex. Zai из исполнителей плана исключён, Claude отсутствует.
-  Права auto, авто-replan выключен. Поддержка отображения и адаптера
-  Claude в самом продукте сохраняется.
+  opencode-go через Pi, запас — zai через Pi, затем Codex; review и
+  acceptance ведёт opencode-go с запасной ступенью Codex. Strata из
+  исполнителей плана исключён, Claude отсутствует. Права auto,
+  авто-replan выключен. Поддержка отображения и адаптера Claude в
+  самом продукте сохраняется.
 - Настройки моделей в TUI — явная конфигурация конкретного прогона,
   сохранённая вне рабочего дерева; план и личный ростер от неё не
   переписываются. Запуск показывает все эффективные назначения.
@@ -69,12 +69,12 @@ gate: go test -timeout 20m ./...
 
 - Для обязательной живой приёмки доступен текущий Mac с CLI Codex и Pi:
   `test "$(uname -s)" = Darwin && command -v codex >/dev/null && command -v pi >/dev/null`
-- Владелец обеспечивает действующую авторизацию Codex в настройках CLI
-  вне репозитория; strata — локальный маршрут Pi, авторизация и квота
-  ему не нужны. Разрешён расход квоты Codex на маленьком временном
-  проекте: до четырёх вызовов, не более 300 секунд на вызов, без
-  автоматического расширения лимита. Значения секретов в план и отчёты
-  не попадают.
+- Владелец обеспечивает действующую авторизацию Codex и подписку
+  opencode-go в настройках CLI вне репозитория; запасной маршрут zai
+  через Pi требует доступа к zai. Разрешён расход квоты Codex на
+  маленьком временном проекте: до четырёх вызовов, не более 300 секунд
+  на вызов, без автоматического расширения лимита; маршруты Pi
+  расходуют подписку. Значения секретов в план и отчёты не попадают.
 
 ## Traps
 
@@ -173,18 +173,22 @@ Read:
 - internal/agentio/process.go
 - internal/procgroup/procgroup.go
 - internal/runner/verify_guard_acceptance_test.go:L330-420
+- internal/roster/state_test.go:L100-145
 Do:
 - Реализуй Pause через общий контроллер: Pause отменяет текущий вызов агента, останавливает всю группу инструментов, ожидает завершения группы процессов, затем подтверждает Paused; ожидание квоты прерывается сразу, verify/gate и done/commit доходят до устойчивой границы.
 - После Paused новые агенты не запускаются; классифицируй эту отмену до обработки отсутствующего result JSON: не считай Pause отказом, не запускай fallback и не сбрасывай лимиты попыток.
 - При переходе в Paused сохраняй checkpoint через WriteCheckpoint: plan/unit, HEAD, fingerprint плана, этап, agent/model/effort, session id, счётчики и ссылки на логи; секреты не записывай.
+- Почини календарную фикстуру internal/roster TestStateSaveLoadRoundTrip: даты Off/Until/Expires должны быть относительны time.Now, а не фиксированы на 2026-11-01, иначе после наступления этой даты LoadState вычищает значения и gate падает независимо от кода юнита.
 - Создай internal/runner/pause_test.go: пауза на tool-call, quota wait, verify и commit boundary; полная остановка группы процессов без сирот; checkpoint отражает состояние прогона; отмена вызова провайдера паузой доходит до обработки отсутствующего result JSON как не-отказ — retry/fallback счётчики неизменны, fallback не запускается, лимиты попыток не сброшены.
-Verify: `go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/procgroup/`
+Verify: `go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/procgroup/ ./internal/roster/`
 Traps: internal/runner/checkpoint.go и checkpoint_test.go уже лежат в дереве без commit — используй и дополняй их, не переписывай с нуля; ReadCheckpoint отвергает чужую версию и пустые plan/HEAD/stage.
 Commit: P052.1.2: pause active work and checkpoint
 Handoff:
 - Blocked (plan): The unit requires safe Pause/Resume integrated with the runner, including quota waits, verify/commit boundaries, session recovery, and timeout accounting. Only the checkpoint storage primitive and its tests were implemented; these runner behaviors remain undone. `docflow verify P052.1.2` passed both the unit Verify and `go test ./...` gate. No commit was made because the unit is unfinished. An existing modification to the plan file was left untouched.
 - Replan (2026-11-01): юнит разбит — Resume, восстановление сессии и Stop after unit переехали в P052.1.5; здесь остаются Pause, устойчивые границы и checkpoint.
 - Blocked (plan): Ожидаемый полный verify с успешным gate не достигнут: воспроизводимо падает существующий тест roster, не относящийся к Pause. Кроме того, quota тест проверяет прерывание ожидания и checkpoint, но не полный путь отказа провайдера с проверкой неизменности retry/fallback счётчиков.
+- Blocked (plan): Plan ожидает, что P052.1.2 закрывается при зелёном gate `go test -timeout 20m ./...`. Реальность: Do выполнено и Verify юнита (`go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/procgroup/`) зелёный, но gate падает на internal/roster TestStateSaveLoadRoundTrip (state_test.go:134): фикстура берёт day = 2026-11-01T00:00:00Z как будущий день, а LoadState вычищает просроченные Off/Until — после наступления этого мига (сейчас 2026-11-01 06:52Z) тест падает детерминированно 3/3 при -count=3 и на чистом worktree HEAD 7d97ade без локальных изменений. Второй replan P052.1.2 списал это падение на нагрузку сессии — гипотеза не выдержала: корень-caused датой, воспроизводится. Runner не сможет пройти done/commit, пока gate красен; починить ростер-тест — шаг плана (сделать даты фикстур относительными к time.Now), а не объём P052.1.2, и правку плана я не делал.
+- Replan (2026-11-01, 3-й): починка календарной фикстуры roster добавлена в Do этого юнита как мелкая правка (отдельный юнит меньше получаса работы), Read и Verify расширены на internal/roster; некоммиченная работа Pause сохранена, статус возвращён в [~]. Маршруты плана пересоставлены без strata: opencode-go → zai через Pi → Codex.
 
 ### [ ] P052.1.5 Resume from checkpoint safely
 Read:
@@ -419,18 +423,18 @@ Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.4, P052.2.1, P052.2.2, P052.2.3, P
 Role: acceptance
 Commit: P052.4.1: accept terminal workflow
 
-### [ ] P052.4.2 Accept live Strata and Codex execution
+### [ ] P052.4.2 Accept live Pi and Codex execution
 Read:
 - tools/tui-live.sh
 - internal/tui/acceptance_test.go
 - docs/design/tui.md
 - docs/usage.md#автозапуск
 Do:
-- До длительной работы проверь предусловия: этот Mac, действующая авторизация Codex и оставшаяся квота; strata — локальный маршрут Pi, квоты не расходует. Если нужен вход или доступ человека, сразу верни blocked с blocker human; не заменяй живую проверку фиктивной.
-- Запусти bash tools/tui-live.sh --run для pi | strata/swift-1.5-iq3_s | medium и codex | gpt-6-luna | high: отдельные маленькие временные Go-проекты с двумя детерминированно проверяемыми юнитами, --attempts 1, авто-replan выключен, запасные исполнители для этого сценария выключены.
+- До длительной работы проверь предусловия: этот Mac, действующая авторизация Codex и подписка opencode-go; запасной маршрут zai через Pi требует доступа к zai. Если нужен вход или доступ человека, сразу верни blocked с blocker human; не заменяй живую проверку фиктивной.
+- Запусти bash tools/tui-live.sh --run для pi | opencode-go/deepseek-v4.1-flash | low и codex | gpt-6-luna | high: отдельные маленькие временные Go-проекты с двумя детерминированно проверяемыми юнитами, --attempts 1, авто-replan выключен, запасные исполнители для этого сценария выключены.
 - В каждом прогоне через настоящий терминальный драйвер раскрой задачу, проверь выбранную модель и фактический процесс, дождись сообщения и живого tool-call, нажми Pause во время активного вызова, дождись Paused и подтверди отсутствие работающего агента/инструмента.
 - Продолжи, проверь успешный Verify и commit первого юнита, Stop after unit до запуска следующего, выйди и открой TUI вновь, затем заверши второй юнит. Проверь результат независимым тестом, историю действий, фактические назначения и чистое дерево временного проекта.
-- Соблюдай общий лимит Prerequisites: до четырёх реальных вызовов Codex и до 300 секунд на вызов любого агента; strata — локальный маршрут, квоты не расходует. Не подменяй реальный отказ фикстурой и не расходуй подписку ради искусственного лимита; если бюджет исчерпан, верни blocked с blocker human и точным оставшимся сценарием.
+- Соблюдай общий лимит Prerequisites: до четырёх реальных вызовов Codex и до 300 секунд на вызов любого агента; маршруты Pi расходуют подписку opencode-go. Не подменяй реальный отказ фикстурой и не расходуй подписку ради искусственного лимита; если бюджет исчерпан, верни blocked с blocker human и точным оставшимся сценарием.
 - Проверь квитанцию --check на текущей сборке, перечисли проверенный macOS/архитектуру и реальные исходы в Handoff; при любом изменении сборки повторная живая проверка необходима и остаётся в пределах разрешённого бюджета.
 - Закрой оставшиеся Unverified/Test changes/Replan changed check по правилам приёмки. Малую ошибку исправь в этом юните с повторной проверкой; крупная требует blocked с blocker plan, без удаления живой приёмки.
 Verify: `bash tools/tui-live.sh --check && go test -timeout 20m ./...`
