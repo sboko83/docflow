@@ -9,6 +9,7 @@ fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | medium
 review: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | medium
 acceptance: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | high
 permissions: auto
+replan: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | medium
 timeout: 7200
 gate: go test -timeout 20m ./...
 ---
@@ -55,8 +56,8 @@ gate: go test -timeout 20m ./...
   opencode-go через Pi, запас — zai через Pi, затем Codex; review и
   acceptance ведёт opencode-go с запасной ступенью Codex. Strata из
   исполнителей плана исключён, Claude отсутствует. Права auto,
-  авто-replan выключен. Поддержка отображения и адаптера Claude в
-  самом продукте сохраняется.
+  авто-replan включён (см. Decisions: четвёртый блок подряд). Поддержка
+  отображения и адаптера Claude в самом продукте сохраняется.
 - Настройки моделей в TUI — явная конфигурация конкретного прогона,
   сохранённая вне рабочего дерева; план и личный ростер от неё не
   переписываются. Запуск показывает все эффективные назначения.
@@ -149,6 +150,8 @@ gate: go test -timeout 20m ./...
 - Do not persist one JSONL event per activity — an fsync per agent line and duplicated message bodies would slow ordinary runs and bloat the event stream; stream links plus the parser rebuild history — rejected per-line activity events.
 - Name verify logs verify.<uid>.<n>.out — the uid.*.out glob is the call-log namespace counted by tests and checkpoint recovery — rejected <uid>.verify.<n>.out.
 - Always write the stderr sidecar, even outside an interactive run, so every stream link resolves — rejected an interactive-only sidecar with dangling paths in normal runs.
+- Turn auto-replan on for the rest of P052 after four stops in ten hours — a plan with review and acceptance units without self-healing stops on the first defect it finds, and review findings are expected work rather than a planning error; `check_replan` already forbids weakening the review's own `Verify:`/`Do:`/`Role:`. Rejected lifting every block by hand, as in P052.1.2 three times.
+- Move the P052.1.4 findings into units P052.1.6 (Pause boundaries in the runner: return after the checkpoint on the rejected-resume path, publish `state: Paused` at the executor-chain wait and in pending-commit recovery) and P052.1.7 (clip `Activity.Input`), and return the review to `[ ]` with `Depends:` on them — rejected fixing the defects inside the review unit, which edits nothing.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -254,6 +257,34 @@ Handoff:
 - Unverified: Activity normalization is verified against the repository fixtures and fake agents, not against live Pi/Codex/opencode output; streaming event shapes such as Pi message_update/tool_execution_update and Codex mcp_tool_call payloads are implemented from documented shapes without a live check (live acceptance is P052.4.2).
 - Unverified: ReadActivityPage is tested on a completed log; reading a page while the log is still being appended by a running agent (partial JSON line at the tail) is not covered end-to-end.
 
+### [ ] P052.1.6 Fix pause boundaries in the runner
+Read:
+- internal/runner/run.go:L760-830
+- internal/runner/run.go:L960-1060
+- internal/runner/pause_test.go
+- internal/runner/control.go
+Do:
+- В ветке ошибки вызова агента (err от `agentio.CallAgent`) при `pauseCancellation(ctx)` после `writePauseCheckpoint` и события `state: Paused` немедленно верни `7, "", context.Canceled`: ветка `resumeRejected` ниже не должна начинать новую сессию с уже отменённым ctx.
+- Проверь тот же порядок в success-пути после ответа агента и в refusal-пути: классификация Pause стоит до `resumeRejected`, и ни один путь не запускает второй процесс агента после Paused.
+- В ожидании executor-chain (`waitForExecutorChain`) после `writePauseCheckpoint` публикуй событие `state` с `state: Paused`, `stage: quota`; в ветке восстановления pending commit после checkpoint `stage: complete` — то же событие. Форму бери у помощника `paused` в `runUnit`, не дублируй поля.
+- Расширь `internal/runner/pause_test.go`: (а) отвергнутый resume с паузой до обработки ошибки — в логе ровно один старт, с `--resume`, и ни одного старта без него; (б) пауза в ожидании executor-chain — checkpoint и событие `stage: quota`; (в) пауза после восстановленного pending commit — checkpoint и событие `stage: complete`.
+Verify: `go test -timeout 20m ./internal/runner/`
+Traps: сценарий (а) воспроизводится overlay-тестом из ревью: фиктивный CLI отвечает `session S not found`. Не ослабляй существующие тесты resume ради зелёного прогона.
+Commit: P052.1.6: fix pause boundaries in runner
+
+### [ ] P052.1.7 Clip large tool input in activity
+Read:
+- internal/agentio/activity.go:L235-290
+- internal/agentio/activity_test.go
+- internal/agentio/output.go:L205-374
+Do:
+- Ограничь `Activity.Input` лимитом `ActivityInlineLimit` по сериализованному JSON: сначала обрежь строковые значения, а если payload всё ещё больше лимита — замени Input маркером усечения с исходным размером; полный текст остаётся доступен через `Ref`.
+- Применяй ограничение и в `toolStart`, и в `toolEnd`; `Command` и `Result` не меняй. Не теряй сохранённый input между началом и завершением инструмента.
+- Добавь в `internal/agentio/activity_test.go`: аргумент 1 МБ — Input в пределах лимита, а `Ref` указывает на полный фрагмент; маленький Input не меняется; событие завершения инструмента повторяет усечённый Input.
+Verify: `go test -timeout 20m ./internal/agentio/`
+Traps: `toolEnd` копирует input из `toolStart` — усекай один раз, иначе повторное усечение съест маркер.
+Commit: P052.1.7: clip large tool input
+
 ### [ ] P052.1.4 Review runner control and recovery
 Read:
 - internal/runner/control.go
@@ -263,9 +294,10 @@ Read:
 Do:
 - Проверь Phase diff по Goal, Constraints, Decisions и Do юнитов фазы; особенно конкуренцию stdin, полноту остановки процессов, паузу в commit boundary, сохранение лимитов и совместимость обычного run.
 - Разбери каждый пункт Test changes: обоснованное изменение допускается, ослабленная ради зелёного Verify проверка — дефект.
+- Убедись, что находки предыдущего ревью закрыты сценариями с проверкой побочных эффектов: (а) после Paused на отвергнутом resume второго старта нет, (б) `Activity.Input` на аргументе 1 МБ в пределах лимита при живом `Ref`, (в) `state: Paused` публикуется на ожидании executor-chain и в pending-commit recovery.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.5, P052.1.6, P052.1.7
 Role: review
 Commit: P052.1.4: review runner control
 
