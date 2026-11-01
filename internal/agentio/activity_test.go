@@ -1,8 +1,11 @@
 package agentio
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -340,5 +343,94 @@ func TestCallAgentActivitySlowReader(t *testing.T) {
 	}
 	if run.Code != 0 || len(activities) != 1 || activities[0].Kind != ActivityKindUsage {
 		t.Fatalf("call = %#v, activities = %#v", run, activities)
+	}
+}
+
+func TestActivityToolInputClipped(t *testing.T) {
+	parser := NewActivityParser(profile(t, "pi"))
+	big := strings.Repeat("x", 1<<20)
+	line, err := json.Marshal(map[string]any{
+		"type": "tool_execution_start", "toolCallId": "big", "toolName": "bash",
+		"args": map[string]any{"command": big},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := string(line)
+	ref := ActivityRef{Stream: "stdout", Offset: 0, Length: len(start)}
+	activities := parser.Feed("stdout", start, ref)
+	tool := oneTool(t, activities)
+	input, err := json.Marshal(tool.Input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(input) > ActivityInlineLimit {
+		t.Fatalf("input is %d bytes, want <= %d", len(input), ActivityInlineLimit)
+	}
+	command, _ := tool.Input["command"].(string)
+	if len(command) >= len(big) || !strings.HasSuffix(command, "…") {
+		t.Fatalf("command was not clipped: %d bytes", len(command))
+	}
+	if _, ok := tool.Input["truncated"]; ok {
+		t.Fatalf("a single long string should be clipped, not marked: %#v", tool.Input)
+	}
+	// Ref still locates the complete fragment in the original log.
+	log := filepath.Join(t.TempDir(), "call.out")
+	if err := os.WriteFile(log, []byte(start), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	page, total, err := ReadActivityPage(log, tool.Ref, 0, tool.Ref.Length)
+	if err != nil || page != start || total != len(start) {
+		t.Fatalf("ref page = %d bytes, total %d, err %v; want %d", len(page), total, err, len(start))
+	}
+
+	end, err := json.Marshal(map[string]any{
+		"type": "tool_execution_end", "toolCallId": "big", "toolName": "bash",
+		"result": "ok", "isError": false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := oneTool(t, parser.Feed("stdout", string(end), ActivityRef{Stream: "stdout", Offset: int64(len(start)) + 1, Length: len(end)}))
+	if finished.State != ActivityStateSucceeded {
+		t.Fatalf("end = %#v", finished)
+	}
+	if !reflect.DeepEqual(finished.Input, tool.Input) {
+		t.Fatalf("end input = %#v; want the clipped start input %#v", finished.Input, tool.Input)
+	}
+}
+
+func TestActivityToolInputSmallUnchanged(t *testing.T) {
+	parser := NewActivityParser(profile(t, "pi"))
+	line := `{"type":"tool_execution_start","toolCallId":"c1","toolName":"bash","args":{"command":"go test","timeout":5}}`
+	activities := parser.Feed("stdout", line, ActivityRef{Stream: "stdout", Offset: 0, Length: len(line)})
+	tool := oneTool(t, activities)
+	want := map[string]any{"command": "go test", "timeout": float64(5)}
+	if !reflect.DeepEqual(tool.Input, want) {
+		t.Fatalf("input = %#v; want %#v", tool.Input, want)
+	}
+}
+
+func TestActivityToolInputMarker(t *testing.T) {
+	parser := NewActivityParser(profile(t, "pi"))
+	args := map[string]any{}
+	for i := 0; i < 1000; i++ {
+		args[fmt.Sprintf("k%04d", i)] = strings.Repeat("v", 20)
+	}
+	line, err := json.Marshal(map[string]any{
+		"type": "tool_execution_start", "toolCallId": "many", "toolName": "bash", "args": args,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activities := parser.Feed("stdout", string(line), ActivityRef{Stream: "stdout", Offset: 0, Length: len(line)})
+	tool := oneTool(t, activities)
+	raw, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"truncated": true, "bytes": len(raw)}
+	if !reflect.DeepEqual(tool.Input, want) {
+		t.Fatalf("input = %#v; want marker %#v", tool.Input, want)
 	}
 }

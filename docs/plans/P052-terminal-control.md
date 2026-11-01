@@ -154,6 +154,8 @@ gate: go test -timeout 20m ./...
 - Move the P052.1.4 findings into units P052.1.6 (Pause boundaries in the runner: return after the checkpoint on the rejected-resume path, publish `state: Paused` at the executor-chain wait and in pending-commit recovery) and P052.1.7 (clip `Activity.Input`), and return the review to `[ ]` with `Depends:` on them — rejected fixing the defects inside the review unit, which edits nothing.
 - Classify Pause before `resumeRejected` on the success path too, not only where the resume was actually rejected — a pause must never race into another session or attempt — rejected guarding only the rejected-resume branch.
 - The pre-loop executor wait reports `attempt: 0` through the shared `pauseState` helper — no attempt was spent there — rejected a separate event shape without the attempt field.
+- Clip strings with a margin of 256 bytes under the inline limit — leaves room for keys, quotes and braces so one long argument is clipped rather than replaced wholesale by the marker — rejected a fixed per-string rune cap that ignores the number of values and the JSON overhead.
+- Keep the marker as {"truncated": true, "bytes": original serialized size} — a machine-readable size, no duplicated payload text — rejected embedding the clipped text plus size in the marker.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -281,7 +283,7 @@ Handoff:
 - Executor mode refuses `--config`, so the executor-chain wait test runs on the built-in claude profile with a PATH shim answering `claude -p /usage`; it pauses after the `quota` event, since the loop's ctx check precedes the wait and an earlier Pause exits before any checkpoint.
 - Unverified: A Pause that lands while a call returns successfully has no deterministic test: reaching that state needs the pause between the reply and `CallAgent` returning. The new success-path check is exercised only by the rejected-resume scenario.
 
-### [ ] P052.1.7 Clip large tool input in activity
+### [x] P052.1.7 Clip large tool input in activity
 Read:
 - internal/agentio/activity.go:L235-290
 - internal/agentio/activity_test.go
@@ -293,6 +295,11 @@ Do:
 Verify: `go test -timeout 20m ./internal/agentio/`
 Traps: `toolEnd` копирует input из `toolStart` — усекай один раз, иначе повторное усечение съест маркер.
 Commit: P052.1.7: clip large tool input
+Handoff:
+- clipInput is idempotent: an already clipped map (or the size marker) is within ActivityInlineLimit, so toolEnd re-applying it to the copy from toolStart never clips twice.
+- Finalize emits tool.input taken from toolStart, so it is already clipped; a new emission path must call clipInput itself.
+- The string-clip budget is (ActivityInlineLimit-256)/countStrings; payloads with many keys/values that still exceed the limit become the {"truncated": true, "bytes": N} marker.
+- Unverified: Rendering of the new size marker and of clipped argument strings in the TUI activity detail is not covered: no UI test or live run in this unit.
 
 ### [ ] P052.1.4 Review runner control and recovery
 Read:

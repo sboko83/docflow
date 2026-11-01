@@ -1,6 +1,7 @@
 package agentio
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -242,6 +243,7 @@ func (p *ActivityParser) toolID(name, id string) string {
 
 func (p *ActivityParser) toolStart(name, id, command string, input map[string]any, ref ActivityRef) []Activity {
 	id = p.toolID(name, id)
+	input = clipInput(input)
 	if seen := p.tools[id]; seen != nil {
 		// The same call can appear in a message and in a tool event; report
 		// it once.
@@ -269,8 +271,86 @@ func (p *ActivityParser) toolEnd(name, id, result string, state ActivityState, f
 	}
 	return []Activity{{
 		Kind: ActivityKindTool, State: state, Tool: name, ToolID: id,
-		Command: clipActivity(command), Input: input, Result: clipActivity(result), Files: files, Ref: ref,
+		Command: clipActivity(command), Input: clipInput(input), Result: clipActivity(result), Files: files, Ref: ref,
 	}}
+}
+
+// clipInput keeps a tool's arguments within ActivityInlineLimit bytes once
+// serialized. Strings are cut first; a payload that still does not fit is
+// replaced by a size marker, the complete arguments stay in the call log at
+// Ref. A clipped map is already inside the limit, so applying this again to
+// the copy toolEnd takes from toolStart changes nothing.
+func clipInput(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return input
+	}
+	raw, err := json.Marshal(input)
+	if err != nil || len(raw) <= ActivityInlineLimit {
+		return input
+	}
+	size := len(raw)
+	if count := countStrings(input); count > 0 {
+		// Leave a margin for keys, braces and quotes; with more values than
+		// the limit allows, per is zero and the marker below takes over.
+		per := (ActivityInlineLimit - 256) / count
+		if per > 0 {
+			if clipped, ok := clipStrings(input, per).(map[string]any); ok {
+				if raw, err := json.Marshal(clipped); err == nil && len(raw) <= ActivityInlineLimit {
+					return clipped
+				}
+			}
+		}
+	}
+	return map[string]any{"truncated": true, "bytes": size}
+}
+
+// countStrings counts the string values of a decoded JSON tree.
+func countStrings(value any) int {
+	switch v := value.(type) {
+	case string:
+		return 1
+	case map[string]any:
+		n := 0
+		for _, item := range v {
+			n += countStrings(item)
+		}
+		return n
+	case []any:
+		n := 0
+		for _, item := range v {
+			n += countStrings(item)
+		}
+		return n
+	}
+	return 0
+}
+
+// clipStrings returns a copy of value with every string cut to limit runes.
+func clipStrings(value any, limit int) any {
+	switch v := value.(type) {
+	case string:
+		runes := []rune(v)
+		if len(runes) <= limit {
+			return v
+		}
+		if limit <= 1 {
+			return "…"
+		}
+		return string(runes[:limit-1]) + "…"
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = clipStrings(item, limit)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = clipStrings(item, limit)
+		}
+		return out
+	}
+	return value
 }
 
 // clipActivity keeps the head of a payload and marks it as cut. The complete
