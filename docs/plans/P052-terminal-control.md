@@ -178,6 +178,8 @@ gate: go test -timeout 20m ./...
 - Пауза после успешного вызова replan/close останавливает операцию до коммита с checkpoint; после начала коммита операция завершается и журнал/хост дают done/Finished, а не Paused без checkpoint — отвергнуто завершение валидации и коммит под паузой.
 - Checkout lock принадлежит `StartCheckout` на всё время `execute`; управляемый `runWithOptions` не берёт второй замок — отвергнуто повторное снятие внутреннего замка, которое открывает окно второму раннеру.
 - Тест TestControlCommandsAreExclusive теперь пишет checkpoint в своём execute, чтобы по-прежнему проверять переход в Paused — иначе он проверял бы старое поведение «пауза по состоянию» — отвергнуто ослабление проверки до Finished.
+- closeChecks использует runnerSelf вместо cycle.Self — иначе контролируемый тест не может довести close до коммита: cycle.Self запускает тестовый бинарник и lint падает вне fixture — отвергнут обход lint в тесте и отдельный seam для lint
+- Пауза без checkpoint на границе цикла завершает прогон как done/Finished, а не Failed — требование Do для паузы, пришедшей в начавшийся коммит replan; закрыто общей проверкой в runLoop, а не отдельной веткой после replan — отвергнуто возвращение 0 только из ветки replan, оставляющее гонку до верхней проверки цикла
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -454,7 +456,7 @@ Handoff:
 - Control.checkpointed сбрасывается в Start и выставляется только после успешной записи WriteCheckpoint; переход Pausing -> Paused и возврат nil в startRun используют Checkpointed(), а не живой State().
 - Unverified: Ошибка записи checkpoint в отложенных операциях replan/close не покрыта тестом: сценарий отказа записи проверен только на пути агента юнита, классификация deferred-событий при этой ошибке держится на общем pauseOutcome.
 
-### [ ] P052.1.13 Stop replan and close before commit on a Pause
+### [x] P052.1.13 Stop replan and close before commit on a Pause
 Read:
 - internal/runner/replan.go:L290-330
 - internal/runner/replan.go:L440-721
@@ -476,6 +478,12 @@ Verify: `go test -timeout 20m ./internal/runner/`
 Traps: `newReplanFixture` и `closeArchiveStep` уже дают нужные фикстуры; fake replan должен именно вернуть `done` после правки, иначе сценарий уйдёт в error-ветку вызова. Шов не должен влиять на обычный прогон и не должен оставаться единственной проверкой: существующие тесты паузы на вызове агента остаются.
 Depends: P052.1.12
 Commit: P052.1.13: stop replan and close before commit on pause
+Handoff:
+- Тестовые швы replanSeam/closeSeam живут в internal/runner/seams.go и вызываются с именами границ after-agent, before-commit, after-commit; в проде это no-op, тесты подменяют их пакетные переменные и обязаны восстанавливать в t.Cleanup.
+- closeChecks теперь зовёт runnerSelf(root, "lint") вместо cycle.Self: в проде поведение то же, но контролируемый тест может подменить self-вызов через controlRunSelf и довести close до коммита.
+- Пауза без записанного checkpoint, обнаруженная на верхней проверке ctx.Err() в runLoop, завершает прогон кодом 0 без ошибки: это случай паузы, пришедшей в уже начавшийся коммит replan; run_end получает exit_code 0 и не получает поле paused.
+- Для checkpoint паузы вне вызова агента сохранён lastLog — путь лога последнего вызова (replan/close), иначе lastLog пуст и checkpointLogs не находит лог.
+- Unverified: Пауза, пришедшая непосредственно внутрь git-команды коммита (а не на шов сразу после неё), проверена только косвенно: тесты ставят паузу на seam после коммита, сама гонка внутри CommitReplan/close-коммита не воспроизводится.
 
 ### [ ] P052.1.14 Give the checkout lock one owner
 Read:

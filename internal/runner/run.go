@@ -375,6 +375,12 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 	}
 	for {
 		if err := ctx.Err(); err != nil {
+			if pauseCancellation(ctx) && !totals.isPaused() {
+				// A Pause that arrived after an operation's commit never wrote a
+				// checkpoint: the completed operation ends the run as done, not as
+				// a runner failure.
+				return 0, nil
+			}
 			return 0, err
 		}
 		selectionArgs := args

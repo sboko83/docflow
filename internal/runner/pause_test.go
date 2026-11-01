@@ -1270,3 +1270,209 @@ func TestPauseDuringPendingCommitRecoveryFailureIsPause(t *testing.T) {
 	}
 	assertPausedJournals(t, f, "paused")
 }
+
+// seamPause installs a Pause on one boundary seam: the test waits for the
+// marker and asks the host to pause, and the seam returns only once the run
+// context is canceled, so the check after the seam sees a Pause.
+func seamPause(t *testing.T, seam *func(context.Context, string), boundary, marker string) {
+	t.Helper()
+	previous := *seam
+	*seam = func(ctx context.Context, at string) {
+		if at != boundary {
+			return
+		}
+		if err := os.WriteFile(marker, nil, 0o644); err != nil {
+			return
+		}
+		<-ctx.Done()
+	}
+	t.Cleanup(func() { *seam = previous })
+}
+
+// A Pause that arrives after a successful replan call, or during the checks
+// before its commit, stops the operation: the plan is restored, nothing is
+// committed, and no second agent starts.
+func TestPauseAfterSuccessfulReplanCallStopsBeforeCommit(t *testing.T) {
+	for _, boundary := range []string{"after-agent", "before-commit"} {
+		t.Run(boundary, func(t *testing.T) {
+			f := newReplanFixture(t)
+			controlRunSelf(t, f, nil)
+			head := f.git("rev-parse", "HEAD")
+			marker := filepath.Join(f.tmp, "replan-seam")
+			seamPause(t, &replanSeam, boundary, marker)
+			f.steps(blockReply(), "cp "+planFile+" .git/replan-before\n"+liftReply("P001.1.1"))
+			args := Args{Replans: 3, Attempts: 1, MaxUnits: intPointer(1)}
+			control := NewControl(64, 2)
+			startControlledRun(t, f, control, args)
+			awaitMarker(t, f, marker, control)
+			if err := control.Pause(); err != nil {
+				t.Fatal(err)
+			}
+			awaitPaused(t, control)
+			if got, want := f.read(planFile), f.read(".git/replan-before"); got != want {
+				t.Fatalf("the paused replan kept its edit:\n%s\nwant:\n%s", got, want)
+			}
+			if strings.Contains(f.read(planFile), "### [~] P001.1.1") {
+				t.Fatal("the replan edit survived the pause")
+			}
+			if got := f.git("rev-parse", "HEAD"); got != head {
+				t.Fatalf("HEAD moved to %s, want %s", got, head)
+			}
+			cp, err := ReadCheckpoint(f.root)
+			if err != nil || cp.Stage != "replan" || cp.Unit != "P001.1.1" || cp.PlanHash == "" || len(cp.Logs) == 0 {
+				t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+			}
+			if states := pausedStateEvents(t, f, "replan"); len(states) != 1 || states[0]["unit"] != "P001.1.1" {
+				t.Fatalf("pause state events = %v", states)
+			}
+			found := false
+			for _, record := range fixtureEvents(t, f) {
+				if record["event"] == "replan" {
+					found = true
+					if record["result"] != "paused" || record["exit_code"] != float64(0) {
+						t.Fatalf("replan event = %v, want result paused and exit_code 0", record)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("the paused replan emitted no replan event")
+			}
+			if calls := f.calls(); len(calls) != 2 {
+				t.Fatalf("agent calls = %d, want the unit and its replan only", len(calls))
+			}
+			assertPausedJournals(t, f, "blocked")
+			if err := control.ResumeRun(context.Background(), f.root, args, ""); err == nil || !strings.Contains(err.Error(), "paused during replan") {
+				t.Fatalf("resuming a replan checkpoint = %v, want an explicit non-resumable stop", err)
+			}
+		})
+	}
+}
+
+// A Pause after a successful closing call and before the closing commit keeps
+// the fingerprint taken before the call and commits nothing.
+func TestPauseAfterSuccessfulCloseCallStopsBeforeCommit(t *testing.T) {
+	f := readyCloseFixture(t)
+	marker := filepath.Join(f.tmp, "close-seam")
+	seamPause(t, &closeSeam, "after-agent", marker)
+	f.steps(closeArchiveStep(f.binary) + doneReply())
+	args := Args{Replans: 3, Attempts: 1, Close: true, RunArgs: agents.RunArgs{Config: f.config}}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "close" || cp.Plan != "P001" || cp.PlanHash == "" || len(cp.Logs) == 0 {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	if subject := f.git("log", "-1", "--format=%s"); subject == "P001: close plan" {
+		t.Fatal("the paused closing still committed the plan")
+	}
+	if states := pausedStateEvents(t, f, "close"); len(states) != 1 {
+		t.Fatalf("pause state events = %v", states)
+	}
+	for _, record := range fixtureEvents(t, f) {
+		switch record["event"] {
+		case "close":
+			if record["result"] != "paused" || record["exit_code"] != float64(0) {
+				t.Fatalf("close event = %v, want result paused and exit_code 0", record)
+			}
+		case "run_end":
+			if record["paused"] != true || record["reason"] != "paused" || record["exit_code"] != float64(0) {
+				t.Fatalf("paused run_end = %v", record)
+			}
+		}
+	}
+}
+
+// A Pause that arrives after the closing commit has begun is not a pause of
+// the run: the operation is done, the journal says done, the host is Finished
+// and no checkpoint appears.
+func TestPauseAfterCloseCommitIsFinished(t *testing.T) {
+	f := readyCloseFixture(t)
+	controlRunSelf(t, f, nil)
+	control := NewControl(64, 2)
+	previous := closeSeam
+	closeSeam = func(ctx context.Context, at string) {
+		if at != "after-commit" {
+			return
+		}
+		_ = control.Pause()
+	}
+	t.Cleanup(func() { closeSeam = previous })
+	f.steps(closeArchiveStep(f.binary) + doneReply())
+	args := Args{Replans: 3, Attempts: 1, Close: true, RunArgs: agents.RunArgs{Config: f.config}}
+	startControlledRun(t, f, control, args)
+	awaitDone(t, control)
+	if got := control.State(); got != StateFinished {
+		t.Fatalf("state = %s, want Finished", got)
+	}
+	if _, err := ReadCheckpoint(f.root); err == nil {
+		t.Fatal("a pause after the commit wrote a checkpoint")
+	}
+	if subject := f.git("log", "-1", "--format=%s"); subject != "P001: close plan" {
+		t.Fatalf("closing commit = %q", subject)
+	}
+	for _, record := range fixtureEvents(t, f) {
+		switch record["event"] {
+		case "close":
+			if record["result"] != "done" || record["exit_code"] != float64(0) {
+				t.Fatalf("close event = %v, want result done and exit_code 0", record)
+			}
+		case "run_end":
+			if _, ok := record["paused"]; ok {
+				t.Fatalf("run_end = %v, want no paused field", record)
+			}
+			if record["exit_code"] != float64(0) || record["reason"] == "paused" {
+				t.Fatalf("run_end = %v, want the closing notification and exit_code 0", record)
+			}
+		}
+	}
+}
+
+// A Pause that arrives after the replan commit has begun is not a pause of the
+// run either: the replan is done, the journal says done, the host is Finished
+// and no checkpoint appears.
+func TestPauseAfterReplanCommitIsFinished(t *testing.T) {
+	f := newReplanFixture(t)
+	controlRunSelf(t, f, nil)
+	control := NewControl(64, 2)
+	previous := replanSeam
+	replanSeam = func(ctx context.Context, at string) {
+		if at != "after-commit" {
+			return
+		}
+		_ = control.Pause()
+	}
+	t.Cleanup(func() { replanSeam = previous })
+	f.steps(blockReply(), liftReply("P001.1.1"))
+	args := Args{Replans: 3, Attempts: 1, MaxUnits: intPointer(1)}
+	startControlledRun(t, f, control, args)
+	awaitDone(t, control)
+	if got := control.State(); got != StateFinished {
+		t.Fatalf("state = %s, want Finished", got)
+	}
+	if _, err := ReadCheckpoint(f.root); err == nil {
+		t.Fatal("a pause after the commit wrote a checkpoint")
+	}
+	if subject := f.git("log", "-1", "--format=%s"); !strings.Contains(subject, "replan P001.1.1") {
+		t.Fatalf("replan commit = %q", subject)
+	}
+	for _, record := range fixtureEvents(t, f) {
+		switch record["event"] {
+		case "replan":
+			if record["result"] != "done" || record["exit_code"] != float64(0) {
+				t.Fatalf("replan event = %v, want result done and exit_code 0", record)
+			}
+		case "run_end":
+			if _, ok := record["paused"]; ok {
+				t.Fatalf("run_end = %v, want no paused field", record)
+			}
+			if record["exit_code"] != float64(0) || record["reason"] == "paused" {
+				t.Fatalf("run_end = %v, want exit_code 0", record)
+			}
+		}
+	}
+}

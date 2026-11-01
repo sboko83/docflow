@@ -430,6 +430,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		return code, restorePlan(planPath, string(before))
 	}
 	session, problem := "", ""
+	lastLog := ""
 	stalled := false
 	timeout := agentCallTimeout(plan, agent)
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
@@ -460,6 +461,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			}
 			rel, _ := filepath.Rel(root, log)
 			rel = filepath.ToSlash(rel)
+			lastLog = rel
 			p.detail(fmt.Sprintf("replan attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel, "replan": true})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))
@@ -655,6 +657,13 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			}
 			continue
 		}
+		// A Pause requested while the successful call was returning stops the
+		// operation before validation: the half-checked edit is restored and the
+		// checkpoint names the interrupted replan.
+		replanSeam(ctx, "after-agent")
+		if pauseCancellation(ctx) {
+			return paused(attempt, lastLog, session)
+		}
 		if result["status"] == "blocked" {
 			line := uid + ": replan blocked (needs human): " + stringValue(result["reason"])
 			return stop(3, line, line, "red")
@@ -700,6 +709,11 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			}
 			totals.checkChanges += len(changes)
 		}
+		// A Pause that arrives during the checks also stops before the commit.
+		replanSeam(ctx, "before-commit")
+		if pauseCancellation(ctx) {
+			return paused(attempt, lastLog, session)
+		}
 		sha, err := cycle.CommitReplan(root, plan.Path, uid)
 		if err != nil {
 			p.line(fmt.Sprintf("%s: replan commit failed: %s", uid, err), true, "")
@@ -713,6 +727,9 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		new, _ := format.ParsePlan(string(after), plan.Path)
 		totals.events.emit("commit", uid, map[string]any{"sha": sha, "replan": true})
 		p.result(uid, "replanned", fmt.Sprintf("%s (+%d units)", sha, len(new.Units)-beforeUnits))
+		// The commit has begun, so the operation is finished: a Pause here no
+		// longer writes a checkpoint.
+		replanSeam(ctx, "after-commit")
 		totals.replans++
 		return 0, nil
 	}

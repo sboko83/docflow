@@ -217,7 +217,9 @@ func closeChecks(root string, plan *format.Plan, head string) ([]string, []strin
 	if !archiveExists {
 		problems = append(problems, "archive entry missing: docs/archive/"+plan.Meta["id"]+"-*.md")
 	}
-	res := cycle.Self(root, "lint")
+	// runnerSelf is cycle.Self in production; tests route it to the built CLI,
+	// as the unit loop already does for verify, done and commit.
+	res := runnerSelf(root, "lint")
 	if res.Code != 0 {
 		problems = append(problems, "docflow lint failed:\n"+res.Stdout+res.Stderr)
 	}
@@ -295,6 +297,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 		executable = ""
 	}
 	prompt, problem, session := closePrompt(plan, executable), "", ""
+	lastLog := ""
 	stalled, opened := false, false
 	beforeQuota := make(map[string]agentio.Quota)
 	for _, name := range chain.routeAgents() {
@@ -371,6 +374,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			}
 			rel, _ := filepath.Rel(root, log)
 			rel = filepath.ToSlash(rel)
+			lastLog = rel
 			// One block per closing: a retry or a route switch continues it.
 			if opened {
 				p.executor(route)
@@ -510,6 +514,13 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			}
 			continue
 		}
+		// A Pause requested while the successful closing call was returning
+		// stops the operation before its checks and writes the checkpoint with
+		// the fingerprint taken before the call.
+		closeSeam(ctx, "after-agent")
+		if pauseCancellation(ctx) {
+			return paused(attempt, lastLog, session)
+		}
 		if result["status"] == "blocked" {
 			totals.stop = id + ": close blocked: " + stringValue(result["reason"])
 			p.line(totals.stop, true, "")
@@ -523,6 +534,11 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 			totals.stop = id + ": close checks failed:\n- " + strings.Join(problems, "\n- ")
 			p.line(totals.stop, true, "")
 			return 2, nil
+		}
+		// A Pause that arrives during the checks also stops before the commit.
+		closeSeam(ctx, "before-commit")
+		if pauseCancellation(ctx) {
+			return paused(attempt, lastLog, session)
 		}
 		if _, err := gitx.Git(root, append([]string{"--literal-pathspecs", "add", "-A", "--"}, paths...)...); err != nil {
 			return 2, err
@@ -538,6 +554,9 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 		totals.unverified += len(resultStrings(result["unverified"]))
 		totals.notification = id + ": closed"
 		p.line(totals.notification, false, "")
+		// The commit has begun, so the closing is finished: a Pause here no
+		// longer writes a checkpoint.
+		closeSeam(ctx, "after-commit")
 		return 0, nil
 	}
 	totals.stop = id + ": close attempts exhausted: " + problem
