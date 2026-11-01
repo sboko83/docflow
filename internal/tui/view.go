@@ -179,8 +179,13 @@ func (m Model) helpLines(width, height int) []string {
 		"Enter        expand or collapse; open details of a unit",
 		"←/h, →/l     collapse or expand the selected plan, phase or unit",
 		"Tab          switch focus; on a narrow terminal switch panel",
-		"/            search plans, phases and units",
-		"Esc          close search, help or return to the tree",
+		"/            search plans, phases and units; in details search activity",
+		"Enter        expand an activity entry in details",
+		"[ ]          page a large result or message from its call log",
+		"f, End       follow the newest activity; G jumps to the last event",
+		"d            show the actual git diff of the working tree",
+		"v            show the last verify log of the selected unit",
+		"Esc          close search, overlay, help or return to the tree",
 		"r            reload the workspace from disk",
 		"?            this help",
 		"q, Ctrl+C    quit",
@@ -274,6 +279,9 @@ func (m Model) treeLines(width int) []string {
 }
 
 func (m Model) detailLines(width int) []string {
+	if m.overlay != overlayNone {
+		return m.overlayLines(width)
+	}
 	selected, ok := m.selectedRow()
 	if !ok {
 		return []string{"Nothing selected."}
@@ -321,28 +329,99 @@ func (m Model) detailLines(width int) []string {
 			add("[%s] %-12s %s (%s)", unit.Status, unit.ID, unit.Title, statusWord(unit.Status))
 		}
 	case rowUnit:
-		unit := selected.unit
-		addHeading(fmt.Sprintf("%s %s", unit.ID, unit.Title))
-		add("Status: %s (%s)", statusWord(unit.Status), unit.Status)
-		add("Plan: %s %s", selected.plan.ID, selected.plan.Title)
+		lines = m.unitCardLines(selected, width)
+		section := m.activitySection(width)
+		if len(section.lines) == 0 {
+			break
+		}
 		addBlank()
-		addHeading("Goal")
-		add("%s", goalText(selected.plan.Doc))
-		addBlank()
-		addHeading("Do")
-		addField(&lines, unit, "Do", width)
-		addBlank()
-		addHeading("Verify")
-		addField(&lines, unit, "Verify", width)
-		addBlank()
-		addHeading("Depends")
-		addField(&lines, unit, "Depends", width)
-		addBlank()
-		addHeading("Handoff")
-		addField(&lines, unit, "Handoff", width)
+		follow := "paused: new events do not move the view"
+		if m.followActivity {
+			follow = "following the newest event"
+		}
+		addHeading(fmt.Sprintf("Activity (%d) · %s", len(m.activityEntries(selected.unit.ID)), follow))
+		add("Enter expands an entry · [ ] page a large result · / search · G newest · d diff · v verify")
+		lines = append(lines, section.lines...)
 	}
 	if len(lines) == 0 {
 		return []string{"Nothing selected."}
+	}
+	return lines
+}
+
+// unitCardLines renders the plan, Goal and contract of the selected unit.
+func (m Model) unitCardLines(selected row, width int) []string {
+	styles := newStyles(m.noColor)
+	var lines []string
+	add := func(format string, args ...any) {
+		for _, line := range wrapLine(fmt.Sprintf(format, args...), max(1, width)) {
+			lines = append(lines, line)
+		}
+	}
+	addHeading := func(text string) {
+		lines = append(lines, styles.title.Render(text))
+	}
+	addBlank := func() {
+		if len(lines) > 0 && lines[len(lines)-1] != "" {
+			lines = append(lines, "")
+		}
+	}
+	unit := selected.unit
+	addHeading(fmt.Sprintf("%s %s", unit.ID, unit.Title))
+	add("Status: %s (%s)", statusWord(unit.Status), unit.Status)
+	add("Plan: %s %s", selected.plan.ID, selected.plan.Title)
+	addBlank()
+	addHeading("Goal")
+	add("%s", goalText(selected.plan.Doc))
+	addBlank()
+	addHeading("Do")
+	addField(&lines, unit, "Do", width)
+	addBlank()
+	addHeading("Verify")
+	addField(&lines, unit, "Verify", width)
+	addBlank()
+	addHeading("Depends")
+	addField(&lines, unit, "Depends", width)
+	addBlank()
+	addHeading("Handoff")
+	addField(&lines, unit, "Handoff", width)
+	return lines
+}
+
+func (m Model) overlayLines(width int) []string {
+	styles := newStyles(m.noColor)
+	var lines []string
+	title := "Diff"
+	if m.overlay == overlayVerify {
+		title = "Verify"
+	}
+	hint := " · Esc closes · PgUp/PgDn scroll"
+	if m.overlay == overlayVerify {
+		hint += " · [ ] page the log"
+	}
+	lines = append(lines, styles.title.Render(title+hint))
+	lines = append(lines, strings.Repeat("─", max(1, width)))
+	switch m.overlay {
+	case overlayDiff:
+		if m.diffErr != "" {
+			lines = append(lines, styles.blocked.Render("cannot read git diff: "+m.diffErr))
+			break
+		}
+		if m.diffText == "" {
+			lines = append(lines, "Working tree matches HEAD; no tracked change.")
+			break
+		}
+		lines = append(lines, strings.Split(m.diffText, "\n")...)
+	case overlayVerify:
+		if m.verifyErr != "" {
+			lines = append(lines, styles.blocked.Render("cannot read verify log: "+m.verifyErr))
+			break
+		}
+		if m.verifyText == "" {
+			lines = append(lines, "No verify output recorded for this unit.")
+			break
+		}
+		lines = append(lines, strings.Split(m.verifyText, "\n")...)
 	}
 	return lines
 }
@@ -480,6 +559,25 @@ func (m Model) statusLine() string {
 			focusName = "details"
 		}
 		parts = append(parts, "focus:"+focusName)
+		if strings.TrimSpace(m.activityQuery) != "" {
+			parts = append(parts, fmt.Sprintf("activity-search:%q matches:%d", strings.TrimSpace(m.activityQuery), m.activityMatches))
+		}
+		if unit := m.selectedUnit(); unit != "" {
+			if entries := m.activityEntries(unit); len(entries) > 0 {
+				follow := "follow"
+				if !m.followActivity {
+					follow = "paused"
+				}
+				parts = append(parts, fmt.Sprintf("activity:%d/%d %s", m.activityCursor+1, len(entries), follow))
+			}
+		}
+	}
+	if m.overlay != overlayNone {
+		name := "diff"
+		if m.overlay == overlayVerify {
+			name = "verify"
+		}
+		parts = append(parts, "overlay:"+name)
 	}
 	if m.notice != "" {
 		parts = append(parts, m.notice)
@@ -488,7 +586,7 @@ func (m Model) statusLine() string {
 }
 
 func keysLine() string {
-	return "↑↓ move · Enter expand · Tab panel · / search · ? help · r refresh · q quit"
+	return "↑↓ move · Enter expand · Tab panel · / search · d diff · v verify · f follow · ? help · q quit"
 }
 
 func goalText(plan *format.Plan) string {

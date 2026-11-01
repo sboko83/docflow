@@ -10,7 +10,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"bsv-docflow/internal/agentio"
 	"bsv-docflow/internal/format"
+	"bsv-docflow/internal/runner"
 )
 
 // State is the load state of the workspace.
@@ -86,6 +88,21 @@ const (
 	focusDetails
 )
 
+type searchTarget int
+
+const (
+	searchTree searchTarget = iota
+	searchActivity
+)
+
+type overlayKind int
+
+const (
+	overlayNone overlayKind = iota
+	overlayDiff
+	overlayVerify
+)
+
 // Model is the Bubble Tea model of the plan workspace.
 type Model struct {
 	root string
@@ -106,14 +123,34 @@ type Model struct {
 	treeScroll int
 	detailTop  int
 
-	searching bool
-	query     string
-	matches   int
+	searching    bool
+	searchTarget searchTarget
+	query        string
+	matches      int
 
 	help   bool
 	notice string
 
 	noColor bool
+
+	history          *ActivityHistory
+	activityCursor   int
+	followActivity   bool
+	activityQuery    string
+	activityMatches  int
+	expandedActivity map[string]bool
+	pages            map[string]*activityPage
+	pageOrder        []string
+
+	overlay     overlayKind
+	diffText    string
+	diffErr     string
+	verifyText  string
+	verifyErr   string
+	verifyLog   string
+	verifyRef   agentio.ActivityRef
+	verifySkip  int
+	verifyTotal int
 }
 
 // New builds the workspace model for the project at root.
@@ -130,11 +167,15 @@ func colorDisabled() bool {
 
 func newModel(root string, load Loader, noColor bool) Model {
 	return Model{
-		root:     root,
-		load:     load,
-		state:    StateLoading,
-		expanded: map[string]bool{},
-		noColor:  noColor,
+		root:             root,
+		load:             load,
+		state:            StateLoading,
+		expanded:         map[string]bool{},
+		noColor:          noColor,
+		history:          NewActivityHistory(activityHistoryLimit),
+		followActivity:   true,
+		expandedActivity: map[string]bool{},
+		pages:            map[string]*activityPage{},
 	}
 }
 
@@ -161,13 +202,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 		m.syncCursor()
+		if m.focus == focusDetails {
+			return m.syncActivityScroll(), nil
+		}
 		return m, nil
 	case snapshotMsg:
 		return m.applySnapshot(msg), nil
+	case ActivityMsg:
+		return m.applyEvent(msg.Event), nil
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+// ApplyEvent records one runner observation and follows it when the reader is
+// at the end of the history. It is the seam the interactive host uses.
+func (m Model) ApplyEvent(event runner.Event) Model {
+	return m.applyEvent(event)
+}
+
+func (m Model) applyEvent(event runner.Event) Model {
+	if m.history == nil {
+		m.history = NewActivityHistory(activityHistoryLimit)
+	}
+	if _, ok := m.history.Add(event); !ok {
+		return m
+	}
+	if event.Unit == m.selectedUnit() && m.followActivity {
+		m.syncActivityCursor()
+		if m.focus == focusDetails {
+			return m.syncActivityScroll()
+		}
+	}
+	return m
+}
+
+// selectedUnit returns the id of the selected unit row, or an empty string.
+func (m Model) selectedUnit() string {
+	selected, ok := m.selectedRow()
+	if !ok || selected.kind != rowUnit {
+		return ""
+	}
+	return selected.unit.ID
 }
 
 func (m Model) applySnapshot(msg snapshotMsg) Model {
@@ -459,6 +536,16 @@ func (m Model) setCursor(index int) Model {
 	}
 	if rows[index].key != m.selected {
 		m.detailTop = 0
+		m.activityCursor = 0
+		m.expandedActivity = map[string]bool{}
+		m.pages = map[string]*activityPage{}
+		m.pageOrder = nil
+		m.activityMatches = 0
+		m.overlay = overlayNone
+		m.diffText, m.diffErr, m.verifyText, m.verifyErr = "", "", "", ""
+		if m.followActivity {
+			m.syncActivityCursor()
+		}
 	}
 	m.cursor = index
 	m.selected = rows[index].key

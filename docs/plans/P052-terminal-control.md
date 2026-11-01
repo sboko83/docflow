@@ -187,6 +187,10 @@ gate: go test -timeout 20m ./...
 - A malformed or missing queued plan puts the whole workspace in the error state with r retry — one actionable error instead of a partially rendered tree — rejected showing stale or partial plan content
 - Kept Backlog out of the tree and exposed only its count implicitly through the docflow file load — the unit asks for Queue, plans, phases and units — rejected adding a third tree section before the Backlog UI is designed
 - Raised the Go guard in tools/install-dev.sh, tools/release.sh and tools/parity/README.md to 1.26 in addition to the four files named in Do — go.mod now requires 1.26 and the old guards/messages would be wrong — rejected leaving the tooling text inconsistent
+- History is keyed by runner.Event rather than separate message/tool queues — verify, route, quota and activities keep one order and one timestamp — rejected parallel histories per event class
+- Render only a 200-entry window around the cursor/follow point and keep at most 8 paged log windows — a long run stays responsive and memory-bounded — rejected rendering the full 1000-entry bounded history every frame
+- Verify overlay pages the same 4 KiB windows and reads the full verify log from its start, while git diff is capped at 512 KiB with a truncation note — rejected unbounded reads or a stdout-only verify view
+- Manual movement pauses follow; G/f resume it — new events never move a reader who is inspecting older history — rejected unconditional autoscroll
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -570,7 +574,7 @@ Handoff:
 - PTY smoke builds ./cmd/docflow into a temp dir and drives a real terminal; it asserts queue rendering, Enter collapse, resize to too-small and back, q exit, alternate-screen exit, cursor show and echo restore.
 - Unverified: Terminal behavior on Windows consoles and Linux terminals is not exercised locally: Verify ran the darwin PTY smoke and cross-compiled builds/tests for windows/amd64 and linux/amd64, but did not run them.
 
-### [ ] P052.2.2 Inspect live messages tools and changes
+### [x] P052.2.2 Inspect live messages tools and changes
 Read:
 - internal/tui/model.go
 - internal/tui/view.go
@@ -585,6 +589,14 @@ Do:
 - Добавь просмотр фактического git diff по запросу и результатов проверок, с явной ошибкой чтения; не выдумывай изменения из сообщения агента. Покрой смешанный поток всех трёх CLI, stderr, невалидный JSON, большой вывод и терминальные escape.
 Verify: `go test -timeout 20m ./internal/tui/ ./internal/agentio/`
 Commit: P052.2.2: inspect live agent actions
+Handoff:
+- Activity API for P052.2.3: feed runner.Event into Model.Update via ActivityMsg{Event} or call Model.ApplyEvent(Event); activity.go owns the history, rendering, follow, search and paging state.
+- Keep publishing the runner's `stream` event with attempt and log path before activities of the same call: the UI resolves Activity.Ref to that log by attempt and reports `call log unknown` without it.
+- Keys in details: arrows/page move the activity cursor, Enter expands, [ ] page results and the verify overlay, / searches activity, f/G follow the newest, d opens git diff, v opens the verify log; tree navigation stays local.
+- Git diff is `git -C root diff HEAD` with untracked paths listed separately as not part of the diff; verify overlay pages the whole verify log including its stderr section.
+- The plan file docs/plans/P052-terminal-control.md was already modified before this unit; this unit did not edit or commit it.
+- Unverified: No live Control publish loop is wired in this unit, so follow, bounded queue drops and paging under a real Pi/Codex/opencode stream are exercised only by synthetic events; the live path is P052.2.3 and final acceptance.
+- Unverified: Paging across a 4 KiB boundary inside a multibyte UTF-8 rune is repaired to a replacement character by Sanitize but is not asserted by a dedicated test.
 
 ### [ ] P052.2.3 Connect execution and lifecycle controls
 Read:
