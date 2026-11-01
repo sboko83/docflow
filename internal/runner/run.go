@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -137,12 +138,22 @@ type runOptions struct {
 	control *Control
 }
 
+var runnerSelf = cycle.Self
+
 // RunControlled drives the same runner loop without owning terminal input or
 // output. Events are forwarded to the interactive host from the existing
 // runner event points.
 func RunControlled(ctx context.Context, root string, args Args, skillDirectory string, host *Control) (int, error) {
 	args.Yes = true
+	ctx = context.WithValue(ctx, controlContextKey{}, host)
 	return runWithOptions(root, args, io.Discard, io.Discard, skillDirectory, runOptions{ctx: ctx, control: host})
+}
+
+type controlContextKey struct{}
+
+func controlledHost(ctx context.Context) *Control {
+	host, _ := ctx.Value(controlContextKey{}).(*Control)
+	return host
 }
 
 func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirectory string, options runOptions) (code int, runErr error) {
@@ -728,6 +739,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	}()
 	route, ok := chain.pick(time.Now())
 	for !ok {
+		waitingRoute, _ := chain.firstRoute()
 		until, found := chain.earliest()
 		if !found {
 			return 2, "", fmt.Errorf("%s: executor chain has no available route or reset time", uid)
@@ -739,6 +751,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			return 7, "", nil
 		}
 		if err := waitForExecutorChain(ctx, p, line, until); err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				if checkpointErr := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "quota", waitingRoute, "", 0, 0, nil); checkpointErr != nil {
+					return 2, "", checkpointErr
+				}
+			}
 			return 7, "", err
 		}
 		route, ok = chain.pick(time.Now())
@@ -761,7 +778,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		var result cycle.Result
 		var changes []string
 		for _, step := range []string{"verify", "commit"} {
-			result = cycle.Self(root, step, uid)
+			result = runnerSelf(root, step, uid)
 			if step == "verify" {
 				totals.events.emit("verify", uid, map[string]any{"exit_code": result.Code})
 			} else if result.Code == 0 {
@@ -787,10 +804,15 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			p.testChanges(changes)
 			totals.testChanges += len(changes)
 			totals.rows = append(totals.rows, unitRow{id: uid})
+			if ctx.Err() != nil {
+				if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, "", 0, 0, nil); err != nil {
+					return 2, "", err
+				}
+			}
 			return 0, "", nil
 		}
 	} else {
-		result := cycle.Self(root, "prompt", uid)
+		result := runnerSelf(root, "prompt", uid)
 		if result.Code != 0 {
 			p.output(result.Stderr)
 			trigger := ""
@@ -857,11 +879,37 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			totals.mu.Unlock()
 		}
 	}
-	session, last := "", "agent"
+	session, last, callLog := "", "agent", ""
 	stalled := false
 	var unitIn, unitOut *int
 	timeout := agentCallTimeout(plan, agent)
+	var run agentio.AgentRun
+	// live tracks the call in flight: the spinner reads it every frame, the
+	// report reads it after the call ends.
+	var live *agentio.Liveness
+	// paused ends the unit at a stable boundary when the interactive host asked
+	// for Pause: it records the checkpoint and returns what stops the run
+	// without a retry, a quota spent, a fallback route started or an attempt
+	// consumed. The last result says whether the caller has to return.
+	paused := func(stage string, attempt int, logs []string) (int, string, error, bool) {
+		if !pauseCancellation(ctx) {
+			return 0, "", nil, false
+		}
+		if session == "" {
+			// The id of a call that never wrote its result line: the next run
+			// resumes that session.
+			session = agentio.CallSession(agent, run.Stdout)
+		}
+		if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, stage, route, session, attempt, valueOrZero(unitIn), logs); err != nil {
+			return 2, "", err, true
+		}
+		return 7, "", context.Canceled, true
+	}
 	for attempt := 1; attempt <= args.Attempts; attempt++ {
+		// After Paused no new agent starts; the calls already made stand.
+		if code, trigger, rerr, ok := paused("agent", attempt-1, callLogs(callLog)); ok {
+			return code, trigger, rerr
+		}
 		text, resume := prompt, ""
 		if problem != "" {
 			note := problem
@@ -874,10 +922,6 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				text = prompt + "\n## Previous attempt\n\n" + feedback(note)
 			}
 		}
-		var run agentio.AgentRun
-		// live tracks the call in flight: the spinner reads it every frame, the
-		// report reads it after the call ends.
-		var live *agentio.Liveness
 		for limits, throttles := 0, 0; ; {
 			argv, stdin, err := agents.BuildCommand(agent, text, route.Model, schema, resume, route.Effort, mode)
 			if err != nil {
@@ -889,6 +933,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			}
 			rel, _ := filepath.Rel(root, log)
 			rel = filepath.ToSlash(rel)
+			callLog = rel
 			p.detail(fmt.Sprintf("attempt %d, log %s", attempt, rel))
 			totals.events.emit("attempt", uid, map[string]any{"n": attempt, "route": eventRoute(route), "log": rel})
 			live = agentio.NewLiveness(stringValue(agent["stream"]))
@@ -896,6 +941,24 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			run, err = agentio.CallAgent(root, argv, stdin, log, agentio.CallOptions{Timeout: timeout, OnStreamEvent: onEvent, Context: ctx, Env: append(os.Environ(), agentio.RunnerEnv+"="+uid), Idle: agentIdleTimeout(agent), Liveness: live})
 			p.stop()
 			if err != nil {
+				if pauseCancellation(ctx) {
+					output := agentio.AgentOutput(agent, run.Stdout)
+					found, _ := agentio.JSONPath(output, stringValue(agent["session"])).(string)
+					if found == "" {
+						found = agentio.CallSession(agent, run.Stdout)
+					}
+					if found != "" {
+						session = found
+					}
+					spent, tokens := agentio.RunCost(agent, run), agentio.RunTokens(agent, run)
+					if err := agentio.RecordCall(root, uid, found, tokens, spent); err != nil {
+						return 2, "", err
+					}
+					cost, totals.cost = agentio.Add(cost, spent), agentio.Add(totals.cost, spent)
+					if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "agent", route, session, attempt, valueOrZero(tokens), []string{rel}); err != nil {
+						return 2, "", err
+					}
+				}
 				return 7, "", err
 			}
 			output := agentio.AgentOutput(agent, run.Stdout)
@@ -963,6 +1026,12 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			if refusal == nil {
 				break
 			}
+			// The truncated stream of a call Pause ended reads like a provider
+			// refusal: no route is marked unavailable, no fallback starts and
+			// the refusal counters of the call stay as they were.
+			if code, trigger, rerr, ok := paused("agent", attempt, callLogs(callLog)); ok {
+				return code, trigger, rerr
+			}
 			if refusal.Kind == agentio.RefusalLimit && refusal.Reset == nil {
 				refusal.Reset = quotaRefusalReset(route, agent)
 			}
@@ -1012,6 +1081,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 						}
 						limits++
 						if err := waitForExecutorChain(ctx, p, line, earliest); err != nil {
+							// Pause interrupts the quota wait at once: the wait
+							// spends no route and consumes no attempt.
+							if code, trigger, rerr, ok := paused("quota", attempt, callLogs(callLog)); ok {
+								return code, trigger, rerr
+							}
 							return 7, "", err
 						}
 						next, available = chain.pick(time.Now())
@@ -1054,6 +1128,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 				return 7, "", nil
 			}
 			if err := waitRefusal(ctx, agent, refusal, limitProgress{p}); err != nil {
+				// Pause interrupts the refusal wait at once, on the same terms
+				// as the quota wait above.
+				if code, trigger, rerr, ok := paused("quota", attempt, callLogs(callLog)); ok {
+					return code, trigger, rerr
+				}
 				return 7, "", err
 			}
 			if session != "" {
@@ -1084,6 +1163,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			problem = agentio.ResultProblem(result)
 		}
 		if problem != "" {
+			// The absent result JSON of a call Pause canceled is the
+			// cancellation, not the agent's failure: no retry follows it.
+			if code, trigger, rerr, ok := paused("agent", attempt, callLogs(callLog)); ok {
+				return code, trigger, rerr
+			}
 			last = "agent"
 			if result == nil {
 				if reason := agentio.FailureReason(agent, run); reason != "" {
@@ -1111,7 +1195,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			if value, ok := result["blocker"].(string); ok {
 				needs = value
 			}
-			res := cycle.Self(root, "block", uid, "--needs="+needs, "--reason="+reason)
+			res := runnerSelf(root, "block", uid, "--needs="+needs, "--reason="+reason)
 			if res.Code != 0 {
 				writeFailure(p, res)
 				return res.Code, "", nil
@@ -1137,9 +1221,16 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			p.line(uid+": verify reused (tree unchanged since the agent's verify)", false, "")
 		} else {
 			p.spin(uid+" verify", nil)
-			res = cycle.Self(root, "verify", uid)
+			res = runnerSelf(root, "verify", uid)
 			p.stop()
 			totals.events.emit("verify", uid, map[string]any{"exit_code": res.Code})
+			if res.Code != 0 {
+				// Pause arrived while the check ran: the check ran to its end and
+				// its result is the stable boundary, the unit stays [~].
+				if code, trigger, rerr, ok := paused("verify", attempt, callLogs(callLog)); ok {
+					return code, trigger, rerr
+				}
+			}
 			if res.Code == 4 {
 				last, problem = "verify", "docflow verify failed:\n"+strings.TrimSpace(res.Stdout)
 				kind := "verify"
@@ -1172,14 +1263,25 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			step = append(step, "--decision="+d)
 		}
 		if !committing {
-			res = cycle.Self(root, step...)
+			res = runnerSelf(root, step...)
 			if res.Code != 0 {
+				if code, trigger, rerr, ok := paused("commit", attempt, callLogs(callLog)); ok {
+					return code, trigger, rerr
+				}
 				writeFailure(p, res)
 				return res.Code, "", nil
 			}
 			committing = true
 		}
-		res = cycle.Self(root, "commit", uid)
+		res = runnerSelf(root, "commit", uid)
+		if res.Code != 0 {
+			// Pause arrived while the commit ran: the transaction ran to its
+			// end, and the pending-commit journal of an interrupted commit is
+			// the boundary the next run recovers.
+			if code, trigger, rerr, ok := paused("commit", attempt, callLogs(callLog)); ok {
+				return code, trigger, rerr
+			}
+		}
 		if res.Code == 4 {
 			heads, err = cycle.Heads(root, lint.ProjectRepos)
 			if err != nil {
@@ -1214,6 +1316,11 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		totals.unverified += len(unverified)
 		totals.testChanges += len(changes)
 		totals.rows = append(totals.rows, unitRow{uid, seconds, cost, unitIn, unitOut, attempt})
+		if ctx.Err() != nil {
+			if err := writePauseCheckpoint(ctx, root, plan.Meta["id"], uid, "complete", route, session, attempt, valueOrZero(unitIn), nil); err != nil {
+				return 2, "", err
+			}
+		}
 		if args.Verbose {
 			if err := unitDetail(root, p, totals); err != nil {
 				return 2, "", err
@@ -1231,6 +1338,31 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		return 4, "", nil
 	}
 	return 7, "", nil
+}
+
+func valueOrZero(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+// pauseCancellation reports the cancellation an interactive Pause requested:
+// the host is Pausing and the run context is done. Pause is its own reason for
+// stopping, not a provider failure, so the runner classifies it before the
+// missing-result-JSON handling.
+func pauseCancellation(ctx context.Context) bool {
+	host := controlledHost(ctx)
+	return host != nil && host.State() == StatePausing && errors.Is(ctx.Err(), context.Canceled)
+}
+
+// callLogs names the log of the call in flight, and nothing before the first
+// call started.
+func callLogs(log string) []string {
+	if log == "" {
+		return nil
+	}
+	return []string{log}
 }
 
 func unitQuotas(p *Progress, totals *runTotals, names []string, before map[string]agentio.Quota) {

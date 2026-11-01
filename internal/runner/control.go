@@ -139,8 +139,10 @@ func (c *Control) Start(parent context.Context, execute func(context.Context, *C
 		cancel()
 		c.mu.Lock()
 		switch {
-		case paused:
+		case paused && err == nil:
 			c.state = StatePaused
+		case paused:
+			c.state = StateFailed
 		case blocked:
 			c.state = StateBlocked
 		case stopping:
@@ -195,6 +197,9 @@ func (c *Control) StartRun(parent context.Context, root string, args Args, skill
 			return nil
 		}
 		if runErr != nil {
+			if host.State() == StatePausing && errors.Is(runErr, context.Canceled) {
+				return nil
+			}
 			return runErr
 		}
 		if code != 0 && code != 1 {
@@ -225,6 +230,12 @@ func (c *Control) Pause() error {
 	c.state = StatePausing
 	c.cancel()
 	return nil
+}
+
+// checkpoint persists the last observed execution boundary before a canceled
+// agent call is reported as Paused.
+func (c *Control) checkpoint(root string, cp Checkpoint) error {
+	return WriteCheckpoint(root, cp)
 }
 
 // CancelStart cancels a pending interactive confirmation without starting work.

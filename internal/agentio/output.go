@@ -225,6 +225,36 @@ func AgentOutput(agent map[string]any, stdout string) any {
 	return out
 }
 
+// CallSession recovers the session id of a call that never wrote the line the
+// decoders read it from: every stream states the id early -- claude in the
+// system init, codex in thread.started, pi in its session line, opencode in the
+// sessionID of its first event. The runner needs it to checkpoint a call Pause
+// canceled, so the next run resumes the same session.
+func CallSession(agent map[string]any, stdout string) string {
+	spec := str(agent["session"])
+	for _, line := range strings.Split(stdout, "\n") {
+		obj := ParseLine(line)
+		if obj == nil {
+			continue
+		}
+		var value string
+		switch str(agent["stream"]) {
+		case "pi":
+			if obj["type"] == "session" {
+				value = str(obj["id"])
+			}
+		case "opencode":
+			value = str(obj["sessionID"])
+		default:
+			value = str(JSONPath(obj, spec))
+		}
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func Clip(text string, limit int) string {
 	text = strings.SplitN(strings.TrimSpace(text), "\n", 2)[0]
 	runes := []rune(text)

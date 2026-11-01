@@ -141,6 +141,7 @@ gate: go test -timeout 20m ./...
 - Интерактивный запуск использует общий checkout lock и отключает terminal input и Progress output — обычный Run сохраняет прежний терминальный режим.
 - Replan P052.1.2: юнит не влез в одну сессию — первый прогон успел только checkpoint-примитив; разбил на P052.1.2 (Pause, устойчивые границы, checkpoint) и P052.1.5 (Resume, восстановление сессии, Stop after unit, учёт таймаута) — отвергнут один большой юнит.
 - Replan P052.1.2 (2-й): блокер «roster-тест падает в gate» не воспроизведён — 2026-11-01 полный `go test ./...` зелёный, падение списано на нагрузку той сессии, сценарий не менялся; блокер «quota-тест не проверяет классификацию отмены провайдера» закрыт выписыванием сценария явно в тест-список Do — отвергнут вариант оставлять требование неявным в тексте классификации.
+- A fixed calendar fixture in roster tests is replaced by a now-relative day — the old fixture expired on 2026-11-01 and broke the gate independently of runner code — rejected keeping a fixed date and changing LoadState's expiry rules.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -164,7 +165,7 @@ Handoff:
 - Пауза во время verify/gate и устойчивой границы done/commit не покрыта отдельным тестовым сценарием.
 - Unverified: Не проверен отдельным тестом интерактивный Pause во время verify/gate и завершения транзакции done/commit.
 
-### [~] P052.1.2 Pause active work and write checkpoint
+### [x] P052.1.2 Pause active work and write checkpoint
 Read:
 - internal/runner/control.go
 - internal/runner/run.go:L299-435
@@ -189,6 +190,12 @@ Handoff:
 - Blocked (plan): Ожидаемый полный verify с успешным gate не достигнут: воспроизводимо падает существующий тест roster, не относящийся к Pause. Кроме того, quota тест проверяет прерывание ожидания и checkpoint, но не полный путь отказа провайдера с проверкой неизменности retry/fallback счётчиков.
 - Blocked (plan): Plan ожидает, что P052.1.2 закрывается при зелёном gate `go test -timeout 20m ./...`. Реальность: Do выполнено и Verify юнита (`go test -timeout 20m ./internal/runner/ ./internal/agentio/ ./internal/procgroup/`) зелёный, но gate падает на internal/roster TestStateSaveLoadRoundTrip (state_test.go:134): фикстура берёт day = 2026-11-01T00:00:00Z как будущий день, а LoadState вычищает просроченные Off/Until — после наступления этого мига (сейчас 2026-11-01 06:52Z) тест падает детерминированно 3/3 при -count=3 и на чистом worktree HEAD 7d97ade без локальных изменений. Второй replan P052.1.2 списал это падение на нагрузку сессии — гипотеза не выдержала: корень-caused датой, воспроизводится. Runner не сможет пройти done/commit, пока gate красен; починить ростер-тест — шаг плана (сделать даты фикстур относительными к time.Now), а не объём P052.1.2, и правку плана я не делал.
 - Replan (2026-11-01, 3-й): починка календарной фикстуры roster добавлена в Do этого юнита как мелкая правка (отдельный юнит меньше получаса работы), Read и Verify расширены на internal/roster; некоммиченная работа Pause сохранена, статус возвращён в [~]. Маршруты плана пересоставлены без strata: opencode-go → zai через Pi → Codex.
+- Pause is classified via pauseCancellation(ctx) (host Pausing + ctx canceled), checked at every agent/refusal/quota/commit boundary before missing-result handling; the checkpoint writer no-ops unless the host is Pausing.
+- The paused call is recorded through agentio.CallSession so the session id survives even when the call wrote no result line; P052.1.5 must resume that session/route/effort.
+- callLog carries the current call log into the checkpoint; only that one log is linked, not the whole run.
+- The roster test fixture now builds its date from time.Now().UTC() truncated to a day; other tests using a fixed 2026-11-01 day do not pass through LoadState.
+- Unverified: Pause during the provider refusal/reset wait (waitRefusal) has a classification branch but no dedicated test; only the executor-chain quota wait is exercised.
+- Unverified: Windows process-group termination on Pause is untested: the runner pause tests use POSIX shell fixtures and skip on Windows.
 
 ### [ ] P052.1.5 Resume from checkpoint safely
 Read:

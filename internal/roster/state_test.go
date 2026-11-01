@@ -99,7 +99,11 @@ func TestStateAllowDenyDedup(t *testing.T) {
 }
 
 func TestStateSaveLoadRoundTrip(t *testing.T) {
-	day := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	// A fixed future day turns into a past one as the calendar advances and
+	// LoadState then drops the expired conditions. Keep the fixture relative
+	// to now and cut it to a date so it round-trips through the day format.
+	now := time.Now().UTC()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, 7)
 	state := NewState(filepath.Join(t.TempDir(), "roster.state.toml"))
 	state.Preset = "low"
 	state.SetOff("claude", day)
