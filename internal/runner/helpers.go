@@ -252,6 +252,8 @@ func stopFile(root string) (string, error) {
 }
 
 // runLock allows one runner for a repository and returns the release action.
+// The lock file belongs to its pid: a lock held by any live process, including
+// this one, refuses a second owner, and release removes only our own file.
 func runLock(root string) (func(), error) {
 	directory, err := runDir(root)
 	if err != nil {
@@ -263,7 +265,7 @@ func runLock(root string) (func(), error) {
 	}
 	if text, err := os.ReadFile(path); err == nil {
 		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(text)))
-		if parseErr == nil && pid != 0 && pid != os.Getpid() && pidAlive(pid) {
+		if parseErr == nil && pid > 0 && pidAlive(pid) {
 			return nil, clierrors.DocflowError{
 				Message: fmt.Sprintf("run: another runner is active (pid %d, %s)", pid, path),
 				Code:    clierrors.EXIT_FORMAT,
@@ -273,7 +275,17 @@ func runLock(root string) (func(), error) {
 	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0o666); err != nil {
 		return nil, err
 	}
-	return func() { _ = os.Remove(path) }, nil
+	return func() {
+		text, err := os.ReadFile(path)
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(text)))
+		if err != nil || pid != os.Getpid() {
+			return
+		}
+		_ = os.Remove(path)
+	}, nil
 }
 
 func requestStop(root string, stdout, stderr io.Writer) (int, error) {

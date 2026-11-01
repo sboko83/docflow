@@ -156,6 +156,10 @@ type runOptions struct {
 	ctx     context.Context
 	control *Control
 	resume  *Checkpoint
+	// locked reports that the caller already owns the checkout lock. The
+	// controlled writer (StartCheckout) holds it for the whole execution; a
+	// plain Run or a RunControlled without StartCheckout takes it here.
+	locked bool
 }
 
 var runnerSelf = cycle.Self
@@ -164,13 +168,13 @@ var runnerSelf = cycle.Self
 // output. Events are forwarded to the interactive host from the existing
 // runner event points.
 func RunControlled(ctx context.Context, root string, args Args, skillDirectory string, host *Control) (int, error) {
-	return runControlled(ctx, root, args, skillDirectory, host, nil)
+	return runControlled(ctx, root, args, skillDirectory, host, nil, false)
 }
 
-func runControlled(ctx context.Context, root string, args Args, skillDirectory string, host *Control, resume *Checkpoint) (int, error) {
+func runControlled(ctx context.Context, root string, args Args, skillDirectory string, host *Control, resume *Checkpoint, locked bool) (int, error) {
 	args.Yes = true
 	ctx = context.WithValue(ctx, controlContextKey{}, host)
-	return runWithOptions(root, args, io.Discard, io.Discard, skillDirectory, runOptions{ctx: ctx, control: host, resume: resume})
+	return runWithOptions(root, args, io.Discard, io.Discard, skillDirectory, runOptions{ctx: ctx, control: host, resume: resume, locked: locked})
 }
 
 type controlContextKey struct{}
@@ -246,11 +250,13 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 			}
 		}()
 	}
-	release, err := runLock(root)
-	if err != nil {
-		return 2, err
+	if !options.locked {
+		release, err := runLock(root)
+		if err != nil {
+			return 2, err
+		}
+		defer release()
 	}
-	defer release()
 	stop, err := stopFile(root)
 	if err != nil {
 		return 2, err

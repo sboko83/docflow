@@ -180,6 +180,9 @@ gate: go test -timeout 20m ./...
 - Тест TestControlCommandsAreExclusive теперь пишет checkpoint в своём execute, чтобы по-прежнему проверять переход в Paused — иначе он проверял бы старое поведение «пауза по состоянию» — отвергнуто ослабление проверки до Finished.
 - closeChecks использует runnerSelf вместо cycle.Self — иначе контролируемый тест не может довести close до коммита: cycle.Self запускает тестовый бинарник и lint падает вне fixture — отвергнут обход lint в тесте и отдельный seam для lint
 - Пауза без checkpoint на границе цикла завершает прогон как done/Finished, а не Failed — требование Do для паузы, пришедшей в начавшийся коммит replan; закрыто общей проверкой в runLoop, а не отдельной веткой после replan — отвергнуто возвращение 0 только из ветки replan, оставляющее гонку до верхней проверки цикла
+- Explicit runOptions.locked flag marks that the caller owns the checkout lock — the ownership is visible at the call site instead of inferred from a Control root — rejected inferring via host root
+- A lock file naming any live pid now refuses a second owner, even the same pid — nested acquisition is gone and same-pid allowance would let two StartCheckout calls share a checkout — rejected keeping the pid==Getpid escape
+- Release re-reads the lock and removes it only when it still names our pid — protects a lock another process took (e.g. a replacement after a stale file) from being deleted — rejected unconditional os.Remove
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -485,7 +488,7 @@ Handoff:
 - Для checkpoint паузы вне вызова агента сохранён lastLog — путь лога последнего вызова (replan/close), иначе lastLog пуст и checkpointLogs не находит лог.
 - Unverified: Пауза, пришедшая непосредственно внутрь git-команды коммита (а не на шов сразу после неё), проверена только косвенно: тесты ставят паузу на seam после коммита, сама гонка внутри CommitReplan/close-коммита не воспроизводится.
 
-### [ ] P052.1.14 Give the checkout lock one owner
+### [x] P052.1.14 Give the checkout lock one owner
 Read:
 - internal/runner/control.go:L165-190
 - internal/runner/run.go:L165-240
@@ -501,6 +504,12 @@ Verify: `go test -timeout 20m ./internal/runner/`
 Traps: `requestStop` читает `run.lock` и pid — не заменяй файл на in-memory замок. Обычный `Run` без хозяина должен сохранить прежний код 2 на занятом checkout.
 Depends: P052.1.1
 Commit: P052.1.14: give the checkout lock one owner
+Handoff:
+- runOptions gained locked: true; startRun passes it because StartCheckout already holds the lock, while the public RunControlled and ordinary Run still acquire it themselves
+- runLock now refuses a lock held by any live pid, including the current process: same-process nesting is no longer needed after the single-owner change
+- startControlledRun/StartRun tests keep working unchanged; TestControlledRunKeepsTheOuterCheckoutLock is the reference for asserting lock presence at an inner runWithOptions return
+- Unverified: Windows lock refusal/release paths are not exercised in this run; the suite ran on macOS
+- Unverified: run --stop was not pointed at a live controlled run's lock; the tests inspect the lock file directly rather than the stop-request path
 
 ### [ ] P052.1.4 Review runner control and recovery
 Read:

@@ -3,12 +3,17 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"bsv-docflow/internal/agents"
 )
 
 func TestControlCommandsAreExclusive(t *testing.T) {
@@ -137,5 +142,130 @@ func TestControlDropsEventsForSlowObserver(t *testing.T) {
 		}
 	default:
 		t.Fatal("event queue unexpectedly empty")
+	}
+}
+
+// The checkout lock belongs to StartCheckout for the whole execution: a second
+// owner is refused while it runs, and the file survives until execute returns.
+func TestControlCheckoutLockOwnedForExecution(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	dir, err := runDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(dir, "run.lock")
+	c := NewControl(2, 1)
+	started, proceed := make(chan struct{}), make(chan struct{})
+	inside := make(chan error, 1)
+	if err := c.StartCheckout(context.Background(), root, func(context.Context, *Control) error {
+		close(started)
+		<-proceed
+		data, err := os.ReadFile(lockPath)
+		if err != nil {
+			inside <- err
+			return nil
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || pid != os.Getpid() {
+			inside <- fmt.Errorf("lock pid = %q, err=%v", data, err)
+			return nil
+		}
+		if _, err := runLock(root); err == nil {
+			inside <- errors.New("a second owner acquired the checkout lock")
+		} else {
+			inside <- nil
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := NewControl(1, 1).StartCheckout(context.Background(), root, func(context.Context, *Control) error { return nil }); err == nil {
+		t.Fatal("a second StartCheckout shared the checkout lock")
+	}
+	close(proceed)
+	<-c.Done()
+	if err := <-inside; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("lock left after execute returned: %v", err)
+	}
+	release, err := runLock(root)
+	if err != nil {
+		t.Fatalf("a new owner was refused after release: %v", err)
+	}
+	release()
+}
+
+// Release removes only the file this acquisition wrote: a lock another live
+// process now owns stays in place for run --stop and the next runner.
+func TestRunLockReleasesOnlyItsOwnFile(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	dir, err := runDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(dir, "run.lock")
+	release, err := runLock(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := os.Getppid()
+	if foreign == os.Getpid() || !pidAlive(foreign) {
+		t.Skip("no live foreign pid available")
+	}
+	if err := os.WriteFile(lockPath, []byte(strconv.Itoa(foreign)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("release removed a lock owned by pid %d: %v", foreign, err)
+	}
+}
+
+// A controlled run delegating to runWithOptions must not drop the lock the
+// outer owner holds, and the owner releases it when execute returns.
+func TestControlledRunKeepsTheOuterCheckoutLock(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	f.steps(writeReply("a.txt"))
+	dir, err := runDir(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(dir, "run.lock")
+	c := NewControl(16, 2)
+	held := make(chan bool, 1)
+	err = c.StartCheckout(context.Background(), f.root, func(ctx context.Context, host *Control) error {
+		code, runErr := runWithOptions(f.root, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1), Yes: true}, io.Discard, io.Discard, "", runOptions{ctx: ctx, control: host, locked: true})
+		if runErr != nil {
+			return runErr
+		}
+		if code != 0 {
+			return fmt.Errorf("run exited with code %d", code)
+		}
+		_, statErr := os.Stat(lockPath)
+		held <- statErr == nil
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-c.Done()
+	if got := c.State(); got != StateFinished {
+		t.Fatalf("state = %s, want %s", got, StateFinished)
+	}
+	if !<-held {
+		t.Fatal("the inner run removed the outer checkout lock")
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("lock left after the owner returned: %v", err)
 	}
 }

@@ -226,7 +226,7 @@ func (c *Control) startRun(parent context.Context, root string, args Args, skill
 		if !host.MarkRunning() {
 			return errors.New("runner: invalid start transition")
 		}
-		code, runErr := runControlled(ctx, root, args, skillDirectory, host, checkpoint)
+		code, runErr := runControlled(ctx, root, args, skillDirectory, host, checkpoint, true)
 		if code == 3 {
 			host.MarkBlocked()
 			return nil
