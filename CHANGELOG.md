@@ -60,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allowance.
 
 ### Changed
+- `bsv-docflow-plan`: the "make a plan or do it now?" question now carries
+  routing grounded in the reference benchmark — one-session tasks lean
+  one-shot, routine flow leans docflow on a cheap stack, and no quality
+  claims for the cycle on easy tasks.
 - Benchmark executor route switched to `pi | glm-5.3-flash | high`: a cheap
   executor with a known price. The `zai` access is declared first, so
   review, acceptance and replan resolve to `pi | glm-5.3 | max` with

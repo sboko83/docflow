@@ -27,6 +27,16 @@ close`, ask the user one question — "make a plan or do it now?" —
 whatever the task's size; never decide it for the user. "Do it now" →
 work without a plan, create no plan files.
 
+Ground the question in the reference benchmark routing (bsv-docflow
+bench, 2026-10-31/11-01, single sample): a task that fits one session is
+measured faster and cheaper as one strong session without a plan, and
+the cycle added no quality there; a routine flow of well-scoped tasks is
+measured cheaper through docflow on a cheap executor stack than through
+a cheap one-shot; never claim the cycle raises quality on easy tasks —
+every benchmark task passed even a cheap one-shot. Name the lean in the
+question ("this fits one session — I would do it without a plan; a plan
+pays off for multi-unit work"), the choice stays with the user.
+
 ## Procedure
 
 1. Read `docs/docflow.md`, the project's architecture (the directory is an
