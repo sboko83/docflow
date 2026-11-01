@@ -212,6 +212,10 @@ type snapshotMsg struct {
 	err      error
 }
 
+// reloadingText is the placeholder the r key puts in the status line until the
+// load it started completes.
+const reloadingText = "reloading"
+
 // Init starts the first load.
 func (m Model) Init() tea.Cmd { return loadCmd(m.load) }
 
@@ -301,12 +305,19 @@ func (m Model) applySnapshot(msg snapshotMsg) Model {
 		m.snapshot.Root = m.root
 	}
 	m.errText = ""
+	// A reload keeps the outcome the status line was showing, such as the
+	// archive path of a close or why a run stopped: the tree changing does not
+	// undo that. Only the load's own placeholder is cleared, and only while
+	// that load is still the current action (StateLoading). A new action
+	// replaces the notice itself.
+	if m.state == StateLoading && m.notice == reloadingText {
+		m.notice = ""
+	}
 	if len(m.snapshot.Queue) == 0 && len(m.snapshot.Frozen) == 0 {
 		m.state = StateEmpty
 	} else {
 		m.state = StateReady
 	}
-	m.notice = ""
 	m.refreshLock()
 	m.recountMatches()
 	m.syncCursor()

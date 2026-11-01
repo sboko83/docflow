@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -787,10 +788,172 @@ func TestCloseNoticeNamesUnwrittenArchiveText(t *testing.T) {
 	model = selectRow(t, model, "plan:P001")
 	updated, cmd := model.Update(keyMsg("C"))
 	model = updated.(Model)
-	updated, _ = model.Update(cmd())
+	if cmd == nil {
+		t.Fatal("close returned no command")
+	}
+	updated, cmd = model.Update(cmd())
 	model = updated.(Model)
-	if !strings.Contains(model.notice, "needs your Outcome text") || !strings.Contains(model.notice, "docs/archive/P001-cache.md") {
+	want := "needs your Outcome text"
+	if !strings.Contains(model.notice, want) || !strings.Contains(model.notice, "docs/archive/P001-cache.md") {
 		t.Fatalf("close notice = %q", model.notice)
+	}
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, want) || !strings.Contains(model.notice, "docs/archive/P001-cache.md") {
+		t.Fatalf("reload replaced the close notice with %q", model.notice)
+	}
+	if !strings.Contains(model.statusLine(), "docs/archive/P001-cache.md") {
+		t.Fatalf("status line lost the close notice: %q", model.statusLine())
+	}
+}
+
+// applyLoad runs one command, applies every snapshotMsg it carries, and
+// insists the command really scheduled a plan reload: a test that silently
+// lost the loadCmd would pass without exercising the reload at all.
+func applyLoad(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("no command returned; the plan reload would never run")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		batch = tea.BatchMsg{func() tea.Msg { return msg }}
+	}
+	applied := false
+	for _, sub := range batch {
+		if sub == nil {
+			continue
+		}
+		snapshot, ok := sub().(snapshotMsg)
+		if !ok {
+			continue
+		}
+		updated, _ := model.Update(snapshot)
+		model = updated.(Model)
+		applied = true
+	}
+	if !applied {
+		t.Fatalf("command carried no snapshotMsg, got %T", msg)
+	}
+	return model
+}
+
+func TestReloadPlaceholderIsCleared(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	updated, cmd := model.Update(keyMsg("r"))
+	model = updated.(Model)
+	model = applyLoad(t, model, cmd)
+	if model.notice != "" {
+		t.Fatalf("completed reload kept the placeholder: %q", model.notice)
+	}
+	if strings.Contains(model.statusLine(), reloadingText) {
+		t.Fatalf("status line still says reloading: %q", model.statusLine())
+	}
+	// A new action replaces the previous outcome instead of stacking on it.
+	updated, _ = model.Update(keyMsg("p"))
+	model = updated.(Model)
+	if model.notice != "Pause needs a running run" {
+		t.Fatalf("new action did not replace the notice: %q", model.notice)
+	}
+}
+
+func TestActivateNoticeSurvivesReload(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model.lifecycle = func(string, ...string) cycle.Result {
+		return cycle.Result{Code: 0, Stdout: "activated P002\n"}
+	}
+	model = selectRow(t, model, "plan:P002")
+	updated, cmd := model.Update(keyMsg("a"))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("activate returned no command")
+	}
+	updated, cmd = model.Update(cmd())
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "activate P002: activated P002") {
+		t.Fatalf("activate notice = %q", model.notice)
+	}
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, "activate P002: activated P002") {
+		t.Fatalf("reload replaced the activate notice with %q", model.notice)
+	}
+	if !strings.Contains(model.statusLine(), "activate P002: activated P002") {
+		t.Fatalf("status line lost the activate notice: %q", model.statusLine())
+	}
+}
+
+func TestRunFailureNoticeSurvivesReload(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	controller.err = errors.New("agent exited 3")
+	controller.finish(runner.StateFailed)
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	want := "run failed: agent exited 3"
+	if !strings.Contains(model.notice, want) {
+		t.Fatalf("failure notice = %q", model.notice)
+	}
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, want) {
+		t.Fatalf("reload replaced the failure notice with %q", model.notice)
+	}
+	if !strings.Contains(model.statusLine(), want) {
+		t.Fatalf("status line lost the failure notice: %q", model.statusLine())
+	}
+}
+
+func TestPausedNoticeSurvivesReload(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	updated, _ = model.Update(keyMsg("p"))
+	model = updated.(Model)
+	controller.finish(runner.StatePaused)
+	updated, cmd := model.Update(hostPollMsg{})
+	model = updated.(Model)
+	want := "paused; Resume continues"
+	if !strings.Contains(model.notice, want) {
+		t.Fatalf("pause notice = %q", model.notice)
+	}
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, want) {
+		t.Fatalf("reload replaced the pause notice with %q", model.notice)
+	}
+	if !strings.Contains(model.statusLine(), want) {
+		t.Fatalf("status line lost the pause notice: %q", model.statusLine())
+	}
+}
+
+func TestPausingNoticeSurvivesUnitEndReload(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	updated, _ = model.Update(keyMsg("p"))
+	model = updated.(Model)
+	want := "pausing; the current agent call stops"
+	if !strings.Contains(model.notice, want) {
+		t.Fatalf("pause notice = %q", model.notice)
+	}
+	updated, cmd := model.Update(ActivityMsg{Event: runner.Event{Type: "unit_end", Unit: "P001.1.1", Fields: map[string]any{"status": "done"}}})
+	model = updated.(Model)
+	model = applyLoad(t, model, cmd)
+	if !strings.Contains(model.notice, want) {
+		t.Fatalf("unit_end reload replaced the pause notice with %q", model.notice)
+	}
+	if !strings.Contains(model.statusLine(), want) {
+		t.Fatalf("status line lost the pause notice: %q", model.statusLine())
 	}
 }
 

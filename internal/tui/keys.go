@@ -86,7 +86,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.state = StateLoading
 		m.errText = ""
-		m.notice = "reloading"
+		m.notice = reloadingText
 		return m, loadCmd(m.load)
 	case "tab":
 		return m.switchPanel(), nil

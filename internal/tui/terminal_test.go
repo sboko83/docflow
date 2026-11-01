@@ -292,9 +292,10 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	if !strings.Contains(string(planText), "[x] P001.1.1") {
 		t.Fatalf("resumed run did not complete the unit:\n%s", planText)
 	}
-	// The final notice can be replaced by the tree reload before the test
-	// reads it, so ask to quit and confirm the exit dialog if the workspace
-	// still believes the run is live.
+	// The status line keeps the run outcome after the tree reload, but a PTY
+	// snapshot carries only the changed tail of each line, so the full notice
+	// text is asserted in the model tests instead. Ask to quit and confirm the
+	// exit dialog if the workspace still believes the run is live.
 	sendKey("q")
 	time.Sleep(200 * time.Millisecond)
 	_, _ = master.WriteString("\r")

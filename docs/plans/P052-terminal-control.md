@@ -216,6 +216,7 @@ gate: go test -timeout 20m ./...
 - Stubbed lockCheck in the app-test loadedModel instead of giving every fixture a git repository — the fixtures are synthetic trees and the real checker would refuse all control actions — rejected adding git init to writeTestProject, which would change the diff/verify fixture behaviour
 - Перезагрузка плана сохраняет notice исхода, а стирает только текст самой загрузки — «reloading» клавиши `r` при StateLoading: snapshot сейчас единственное место, которое затирает путь архива из close и причину паузы или ошибки прогона, и одно правило чинит все источники reload сразу — отвергнуты второе поле для исхода рядом с `notice` (два конкурирующих текста в статус-строке) и полный отказ от очистки (тогда «reloading» не исчезает).
 - Human-block Continue проверяет lock в момент действия, как остальные lifecycle-клавиши, и не перекрывает отказ старта сообщением об unblock: диалог зовёт `cycle.Self` напрямую, поэтому guard из `lifecycleKey` его не покрывает — отвергнуты проверка внутри `cycle.Self` (он lock не берёт) и сохранение «starting the run again» после отказа.
+- Test-side applyLoad fails loudly when a command carries no snapshotMsg — a lost loadCmd then breaks the test instead of passing without exercising the reload — rejected asserting only pollController/applyLifecycle cmd != nil with a separate manual snapshotMsg.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -757,7 +758,7 @@ Handoff:
 - TestTerminalLockAtAction runs at 240 columns: the notice sits at the end of the redrawn status line and is truncated below ~200 columns, so a narrower PTY cannot assert the pid text; selection is done via the / filter plus one down, because the Queue section row is always kept as a match header.
 - Unverified: The unreadable-lock path is driven through the lockCheck seam in app_test only; a real CheckoutLockOwner error on the target (e.g. an unreadable run.lock or a non-git root) is not exercised end-to-end by any test.
 
-### [ ] P052.2.9 Keep outcome notices across a plan reload
+### [x] P052.2.9 Keep outcome notices across a plan reload
 Read:
 - internal/tui/model.go:L210-313
 - internal/tui/execute.go:L157-250
@@ -778,6 +779,13 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: путь завершения прогона отдаёт loadCmd внутри tea.Batch — проверяй поведение через snapshotMsg и отдельно утверждай, что pollController и applyLifecycle возвращают непустую команду, иначе тест перестанет замечать отсутствие reload. TestRefreshKeyReloads ожидает «reloading» до загрузки и StateReady после неё — его ожидания не переписывай под новое правило. Не делай notice вечным: иначе статус-строка врёт про результат после следующего действия. Не выводи notice в тело панели и не дублируй его в дереве. Bubble Tea PTY-снимок содержит только изменённые хвосты строк — полный текст notice в терминальном тесте не проверяй (Handoff P052.2.3), оракул — модельный тест.
 Depends: P052.2.8
 Commit: P052.2.9: keep outcome notices across reload
+Handoff:
+- applySnapshot now clears m.notice only when m.state == StateLoading && m.notice == reloadingText (the constant moved to model.go); the error branch still clears it, and any new action overwrites the text.
+- Test helper applyLoad(t, model, cmd) flattens a tea.BatchMsg, applies every snapshotMsg it yields and fails when the command carries none — use it for any reload-path assertion.
+- The close test now applies the lifecycle loadCmd; the terminal test's comment about 'notice replaced by the tree reload' was corrected, its assertions untouched.
+- New tests (activate, Failed, Paused, unit_end under Pausing, reload placeholder cleared) were mutation-checked: reverting to the unconditional m.notice = "" made all five fail.
+- Unverified: The live terminal no longer asserts the notice text after reload anywhere: the PTY test only checks exit code and the plan unit, so the full status-line text survives only as a model-level claim (terminal_test.go:295 comment).
+- Unverified: applyLoad handles a one-level tea.BatchMsg only; a future wrapper such as SequenceMsg would make such tests fatal rather than silently wrong, so a real regression in that wrapper shape is not covered until a test adapts applyLoad.
 
 ### [ ] P052.2.10 Refuse unblock under a foreign runner
 Read:
