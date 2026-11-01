@@ -237,10 +237,16 @@ gate: go test -timeout 20m ./...
 - Normalize code and runErr inside the run_end defer rather than adding branches in runLoop/runUnit — one place covers the agent call, the early loop cancellation check and deferred operations, and keeps the host from receiving context.Canceled — rejected returning 0,nil from every stop point
 - Седьмой блок P052.2.4 разведён на P052.2.15 (потерянный результат клампа прокрутки Details) и P052.2.16 (высота панели от отрисованного тела с notice-строками); ревью возвращено в `[ ]` с `Depends` на оба — правка ревью запрещена, а находки разные по проверяемому поведению: пустая панель после прокрутки и неверная видимая высота.
 - Видимая высота считается от фактически отрисованного тела, а не от константы `height-5`: заголовок панели и notice-строки уже заняли строки, и повторённый в `treeLines`/`syncActivityScroll` расчёт отрезал последнюю выбранную строку — отвергнуто увеличение `bodyHeight()` на единицу (не покрывает notice) и отказ от двухстрочного notice (теряет текст исхода).
-- Added a shared maxDetailTop(lines) helper instead of repeating the len-bodyHeight formula in clampDetailTop and visibleDetailLines — one definition keeps the stored offset and the rendered window in sync — rejected duplicating the arithmetic at the render site
 - Moved notice trimming into fitNotice and body-height arithmetic into bodyHeightFor shared by render and bodyHeight() — one source of geometry that cannot drift from the rendered screen — rejected recomputing the trim loop inside bodyHeight only
 - paneContentHeight() clamps at 0, not 1 — a body of one line is only the title, so no phantom content line is reported to scroll math; supported heights always yield at least two content lines — rejected max(1, ...) which could show a clipped selection position
 - The tall-tree test selects the last unit by key instead of End — the tree ends with the empty Frozen section row, so End would assert on a section rather than a unit — rejected removing Frozen from the fixture or accepting a section assertion
+- Восьмой блок P052.2.4 разведён на P052.2.17 (исход блокировки по перечитанному плану), P052.2.18 (причина отказа до первого события), P052.2.19 (отменённый старт — не завершённый прогон), P052.2.20 (поздний prompt не забирает клавиши открытого диалога), P052.2.21 (shift-символы в поиске и заметке unblock), P052.2.22 (follow и курсор истории при смене юнита); ревью возвращено в `[ ]` с `Depends` на все шесть — правка ревью запрещена, а находки разные по проверяемому поведению.
+- Исход блокировки решается по снимку, прочитанному после остановки прогона: `docflow block` пишет `[!]` во время прогона, поэтому снимок, актуальный до `unit_end`, не содержит причины; отложенное решение через уже запрошенную перезагрузку P052.2.9 — отвергнуто синхронное чтение плана в `handleFinished` (второй загрузчик в UI-потоке).
+- Причина отказа до `run_start` доходит до хоста, не меняя журнал: предусловия выполняются раньше `totals.events`, поэтому `run_end` для них невозможен, а перенос `run_start` вперёд ломает порядок журнала и parity — отвергнуты событие в журнале до `run_start` и включение Progress в интерактивном режиме (хост не владеет stdout).
+- Отменённый старт отличается от завершённого прогона состоянием хоста, а не кодом выхода: checkpoint не пишется, Paused не показывается, notice отказа сохраняется — отвергнуты `StateFinished` с текстом «run finished» и подделка отмены под Pause.
+- Поздний prompt запоминается и показывается после закрытия текущего диалога, а выход отвечает на него отказом и зовёт `CancelStart` — отвергнуты замена открытого диалога стартовым (Enter в диалоге выхода подтверждал старт) и молчаливое игнорирование prompt (горутина `Ask` висит до отмены ctx).
+- Текстовый ввод принимает `msg.Text` при shift и caps lock, а ctrl/alt/meta остаются командами: Shift+A приходит как `Text: "A"` с модификатором, а `keyMsg` с `Mod: 0` не воспроизводил верхний регистр — отвергнуты проверка `msg.Mod == 0` и разбор `Keystroke()`.
+- Смена выбранного юнита включает follow и ставит курсор на новейшую запись: пауза чтения принадлежит истории одного юнита, а общий флаг делал новый юнит «замороженным» на первой записи — отвергнуто хранение позиции по юнитам (лишняя карта без требования).
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -989,6 +995,115 @@ Handoff:
 - TestTreeAndDetailsFitTheRenderedBody is the screen oracle for this geometry; TestDetailScrollStopsAtTheLastPage still derives its maxTop dynamically and passes with the new -1 height.
 - Unverified: Real alt-screen Bubble Tea rendering was not exercised: the oracle is Model.String() at fixed sizes, so a live terminal's own wrapping/resize behaviour at these geometries is not checked.
 
+### [ ] P052.2.17 Decide a finished block from the reloaded plan
+Read:
+- internal/tui/execute.go:L160-259
+- internal/tui/model.go:L211-330
+- internal/tui/app_test.go:L865-1001
+- internal/tui/terminal_test.go:L466-540
+- internal/runner/run.go:L1320-1350
+Do:
+- Воспроизведи модельным тестом с заданным порядком: прогон стартует, `[!]` с `Handoff: - Blocked (human): …` появляется в файле плана во время прогона (как его пишет `docflow block` из `run.go`), затем контроллер завершается `StateBlocked`. Сейчас `handleFinished` читает `m.snapshot`, загруженный до блокировки: `blockedInfo()` не находит `!`, `dialogHuman` не открывается, notice — «the run stopped on a block». В живой PTY это воспроизводилось не в каждом прогоне, поэтому тест сам задаёт порядок «блок записан → Finished → перезагрузка».
+- Решай исход блокировки по снимку, прочитанному после остановки прогона: снимок, актуальный до `unit_end`/`run_end`, для этого решения не годится. Перезагрузка уже запрошена тем же `pollController` — используй её результат (отложенное решение в `applySnapshot`/`snapshotMsg`), а не второй загрузчик и не синхронное чтение плана в `handleFinished`.
+- Сохрани P052.2.9: перезагрузка не затирает notice исхода. После неё для `needs: human` открывается `dialogHuman` с unit и reason из Handoff, для `needs: plan` — notice с причиной, для блока без Handoff — прежнее сообщение; диалог открывается один раз.
+- Если перезагрузка после блокировки упала, notice объясняет ошибку и что план остался заблокирован, вместо пустого экрана или повторного «stopped on a block».
+- Добавь терминальный сценарий на `writeRunnableProject`: фиктивный агент отдаёт результат `status: blocked` с `blocker: human`; дождись текста диалога Continue и проверь `[!]` в файле плана. Клавиши unblock не нажимай — это путь P052.2.10, оракул диалога остаётся модельным.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: не открывай диалог из `blockedInfo()` и не отвечай на prompt human автоматически. PTY-снимок содержит только изменённые хвосты строк: в терминальном тесте жди текст диалога через `waitFor`, а не строку статуса. Загрузку после блока не отменяй ради порядка событий: `unit_end` и так требует перезагрузки.
+Depends: P052.2.3, P052.2.9
+Commit: P052.2.17: decide a finished block from the reloaded plan
+
+### [ ] P052.2.18 Report the reason of a pre-start failure
+Read:
+- internal/runner/run.go:L288-300
+- internal/runner/run.go:L326-345
+- internal/runner/helpers.go:L409-455
+- internal/runner/control.go:L217-260
+- internal/tui/control.go:L96-148
+- internal/tui/execute.go:L160-259
+- internal/runner/run_test.go:L599-645
+Do:
+- Воспроизведи: план с падающим предусловием — `token` с командой `echo no-token >&2; exit 3` — затем `s` и подтверждение старта. Сейчас причина уходит в `Progress`, который контролируемый прогон направляет в `io.Discard`; `runPrerequisitesWithTimeout` возвращает `EXIT_FORMAT`, `Control.startRun` превращает это в «runner: run exited with code 2», `Host.Err()` пуст, и TUI пишет «run failed: the run failed».
+- Доведи причину отказа, случившегося до первого события прогона, до интерактивного хоста: ошибка/поле хоста или событие только для хоста (`Publish`), но `handleFinished` обязан получить текст. Несколько упавших предусловий — все строки, а не первая.
+- Не меняй журнал и обычный прогон: `run_start` остаётся первым событием, вывод `docflow run`, коды выхода и parity-сценарии прежние. Отказ подтверждения старта остаётся случаем P052.2.19.
+- Покрой на уровне раннера: контролируемый прогон с падающим предусловием отдаёт хосту текст причины; в TUI фейковый контроллер с этой причиной даёт notice с ней и без «the run failed». Существующие `TestRunStartPrerequisitesAndPermissions` и `TestRunFailureNoticeSurvivesReload` продолжают проходить.
+Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
+Traps: `runWithOptions` создаёт `totals.events` только после предусловий, поэтому `run_end` для этого отказа невозможен без перестановки порядка — порядок журнала ради сообщения не меняй. Progress в интерактивном режиме не включай: хост не владеет stdout. Новый код выхода не заводи.
+Depends: P052.2.3
+Commit: P052.2.18: report a pre-start failure reason
+
+### [ ] P052.2.19 Report a declined start as a cancelled run
+Read:
+- internal/runner/control.go:L120-165
+- internal/runner/control.go:L217-260
+- internal/tui/execute.go:L160-259
+- internal/tui/execute.go:L274-297
+- internal/tui/execute.go:L480-526
+- internal/tui/app_test.go:L768-826
+Do:
+- Воспроизведи: стартовый диалог, `esc`/`n` → `answerPrompt(false)`; `Control.startRun` возвращает nil без `MarkRunning`, `Start` переводит состояние в `StateFinished`, и `handleFinished` заменяет notice «start declined; nothing ran» на «run finished». То же происходит после `CancelStart` из q-пути P052.2.12: «cancelling the start; nothing runs» тоже затирается.
+- Отличай отменённый старт от завершённого прогона: хост сообщает, что работа не начиналась (отдельное состояние или признак отмены), а TUI сохраняет notice отказа и не пишет «run finished». Отмена не становится Paused: checkpoint не пишется, Resume не предлагается.
+- Сохрани исходы: после отказа `s` снова запускает (существующий сценарий), lock не взят, unit и план не меняются, повторный запуск создаёт новый контроллер; принятый старт по-прежнему даёт Running и Finished.
+- Покрой модельным тестом обе отмены — отказ в диалоге и `CancelStart`; проверь notice, состояние хоста и отсутствие checkpoint. Терминальные тесты P052.2.12 не переписывай: их оракул — код выхода и файлы.
+Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
+Traps: не переиспользуй `StatePaused` и не добавляй внутренний код выхода — отмена старта отличается состоянием хоста. `TestStartDialogShowsPreconditionsAndDeclineRunsNothing` ожидает `StateFinished` после отказа: обнови ожидание вместе с новым состоянием, но не удаляй проверку «повторный s работает».
+Depends: P052.2.3, P052.2.12
+Commit: P052.2.19: report a declined start as cancelled
+
+### [ ] P052.2.20 Keep the open dialog's keys on a late prompt
+Read:
+- internal/tui/execute.go:L274-297
+- internal/tui/execute.go:L335-405
+- internal/tui/execute.go:L407-431
+- internal/tui/execute.go:L480-526
+- internal/tui/keys.go:L47-60
+- internal/tui/app_test.go:L1414-1580
+Do:
+- Воспроизведи модельным тестом: `q` при `StateStarting` открывает `dialogExit`, затем приходит `confirm_start`; сейчас `handlePrompt` перезаписывает `m.dialog = dialogStart`, и Enter в диалоге выхода подтверждает старт вместо остановки и выхода. `TestQuitFromStartDeclinesTheArrivedPrompt` этот порядок обходит, вызывая `requestQuit` после prompt, — сценарий с поздним prompt не покрыт.
+- Приходящий prompt не меняет открытый диалог: пока `m.dialog != dialogNone`, prompt только запоминается в `pendingPrompt`, а его диалог показывается после закрытия текущего. Enter в диалоге выхода по-прежнему значит «остановить и выйти», `esc` — «остаться».
+- При выходе ожидающий prompt получает отказ, затем вызывается `CancelStart`, как в P052.2.12. При отказе от выхода стартовый диалог появляется и его можно подтвердить или отклонить: prompt не остаётся без ответа, прогон не зависает до отмены ctx.
+- Покрой оба порядка — prompt до `q` (существующий тест) и prompt после `q` (новый): Enter не подтверждает старт, `esc` показывает стартовый диалог, ответ на prompt уходит ровно один раз.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: prompt без ответа держит горутину `Ask` до отмены ctx — «просто проигнорировать» нельзя. Не отвечай на prompt в обход `handlePrompt`. Порядок диалогов проверяй моделью: PTY-снимок не годится как оракул.
+Depends: P052.2.3, P052.2.12
+Commit: P052.2.20: keep an open dialog on a late prompt
+
+### [ ] P052.2.21 Accept shifted characters in text input
+Read:
+- internal/tui/keys.go:L449-502
+- internal/tui/execute.go:L335-405
+- internal/tui/app_test.go:L157-195
+- internal/tui/app_test.go:L332-363
+- internal/tui/app_test.go:L865-1001
+Do:
+- Воспроизведи: `tea.KeyPressMsg` с `Text: "A"` и `Mod: tea.ModShift` — так Bubble Tea v2 отдаёт Shift+A. В поиске (`handleSearchKey`) и в заметке unblock (`handleDialogKey`) текст принимается только при `msg.Mod == 0`, поэтому верхний регистр теряется; тестовый `keyMsg` собирает `Mod: 0` и дефект не видит.
+- Принимай печатаемый текст с shift и caps lock, но не с ctrl/alt/meta: `ctrl+u` остаётся очисткой строки, alt/meta не попадают в запрос и заметку. Раскладку и escape-последовательности не переписывай.
+- Расширь тестовый помощник так, чтобы он собирал shift-нажатие (отдельный `shiftKeyMsg` или параметр), не ломая существующие вызовы; добавь проверки: запрос `TUI` фильтрует дерево и историю (поиск регистронезависимый), заметка `Continue P001.` уходит в unblock целиком.
+- Проверь, что управляющие клавиши не изменились: `/`, esc, enter, backspace, `ctrl+u`, `?`, `f`, `G`, `shift+tab`.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: `msg.String()` для Shift+A возвращает сам символ, а не «shift+a», поэтому не переводи обработку на `Keystroke()` и не ломай клавиши с настоящим shift. Проверяй принятый текст и отфильтрованные строки, а не только notice.
+Depends: P052.2.2, P052.2.3
+Commit: P052.2.21: accept shifted characters in text input
+
+### [ ] P052.2.22 Keep follow and the cursor per selected unit
+Read:
+- internal/tui/model.go:L140-170
+- internal/tui/model.go:L577-608
+- internal/tui/keys.go:L239-295
+- internal/tui/activity.go:L1210-1253
+- internal/tui/view.go:L360-380
+- internal/tui/activity_test.go:L322-360
+- internal/tui/app_test.go:L207-217
+Do:
+- Воспроизведи модельным тестом на `Model.String()`: у юнита A длинная история, читатель нажал `up` (follow выключен), затем выбирает юнита B. Сейчас `setCursor` сбрасывает `activityCursor` в 0, `followActivity` оставляет выключенным и не вызывает `syncActivityScroll`: история B показывает первую запись и статус «paused», хотя читатель её ещё не читал.
+- Считай паузу чтения принадлежащей истории выбранного юнита: при переходе на другой юнит follow включается, курсор и прокрутка встают на новейшую запись; возврат к прежнему юниту не показывает чужую позицию. Ручная прокрутка дерева и поиск по истории не меняются.
+- Вызови существующий `syncActivityScroll` из пути смены выбора, а не дублируй расчёт смещения; `activityMatches` пересчитай для нового юнита.
+- Покрой: pause на A → выбор B через дерево → новейшая запись B и `following` на экране; затем `up` на B снова выключает follow и новые события B не двигают вид; смена выделения на юнит без истории не паникует и не показывает историю A.
+Verify: `go test -timeout 20m ./internal/tui/`
+Traps: `followActivity` — общий флаг модели; карту позиций по юнитам не заводи (это отдельное решение, здесь его нет). `detailTop` уже сбрасывается при смене строки — не дублируй сброс. Оракул — `Model.String()`, не `syncActivityCursor` в отрыве от отрисовки.
+Depends: P052.2.2, P052.2.16
+Commit: P052.2.22: keep follow per selected unit
+
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:
 - internal/tui/app.go
@@ -1000,7 +1115,7 @@ Do:
 - Разбери Test changes; проверь, что тесты нажимают клавиши и проверяют результат процесса, а не только строку View.
 - Ничего не редактируй; дефект оформляй blocked с blocker plan и воспроизводимым сценарием.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8, P052.2.9, P052.2.10, P052.2.11, P052.2.12, P052.2.13, P052.2.14, P052.2.15, P052.2.16
+Depends: P052.2.1, P052.2.2, P052.2.3, P052.2.5, P052.2.6, P052.2.7, P052.2.8, P052.2.9, P052.2.10, P052.2.11, P052.2.12, P052.2.13, P052.2.14, P052.2.15, P052.2.16, P052.2.17, P052.2.18, P052.2.19, P052.2.20, P052.2.21, P052.2.22
 Role: review
 Commit: P052.2.4: review terminal controls
 Handoff:
@@ -1008,6 +1123,7 @@ Handoff:
 - Blocked (plan): The phase Do expects accurate statuses, confirmations and no state change under a foreign runner. Real: the plan reload erases every success/failure notice, so the P052.2.3 close message with the archive path (and the run failure/pause reason) is never readable; and the human-block Continue runs 'unblock' through cycle.Self without refreshLock, modifying the plan under a live foreign runner, then overwrites the refused start with 'starting the run again'. Both reproduced deterministically with overlay tests; the plan needs two units with those scenarios.
 - Blocked (plan): Three product defects and one status question remain after the Phase 2 diff; all were reproduced on this Mac with the built CLI and a fake codex stream in a real PTY, not only with model tests. 1. The live activity page cannot resolve the current call log. internal/runner/run.go:1028 emits the attempt event with the log path before CallAgent, but run.go:1042 emits the stream link only after CallAgent returns; internal/tui/activity.go records log links only from stream, and ActivityHistory.Log falls back to lastLog. In a real run (fake agent: codex item.started, sleep, item.completed; 120x40 PTY) expanding the running tool shows 'result: call log unknown: the stream link has not arrived'; on a resumed or fallback attempt the same lookup returns the previous attempt's log. P052.2.6 tests feed streamEvent before the activity, an order the runner never produces. Fix: record the attempt event's log (or publish the link before the call), reject the lastLog fallback when attempt > 0, and test the real event order. 2. q + Enter while the run is StateStarting does nothing. internal/tui/execute.go:487 calls Control.StopNow for Starting, but StopNow requires Running and the error is ignored; the start prompt arrives after the exit confirmation. Repro: write s, q, Enter in one PTY write; the process stays alive, opens the start dialog, keeps run.lock and writes no checkpoint. The signal path already uses CancelStart in stopAfterSignal; the q path must do the same and wait for Finished without a checkpoint, with a state-enforcing test. 3. Outcome notices are clipped off the only status line. statusLine appends the notice after state/run/lock/queue/selected/focus/activity, and view.padLine(truncate(...)) cuts it. At 120x40, closing P001 while P002 remains in Queue renders '...the archive needs your Outcome text:...' without the archive path required by P052.2.3's Do; Stop now renders the final status ending 'run fi...', hiding 'run finished: context canceled'; at 80 columns the notice is off the line. Model tests assert statusLine() and PTY tests avoid the notice text. Fix: prioritize, wrap or overlay the notice and assert the rendered screen at 80/120 columns. 4. Stop now is journaled as a runner failure: the same run writes unit_end status 'error' and run_end exit_code 2 with reason 'context canceled' while the host reports Finished and the UI says 'run finished: context canceled'. A controlled Stop now is an action, not a failure; the plan needs a classification like P052.1.8 did for Pause, or an explicit decision that this journal is intended. Test gap from the Test changes review: TestTerminalRunPauseResumeQuit only checks that checkpoint.json exists; it passes when Pause lands at the complete boundary after the fake agent's 5s sleep. Assert the checkpoint stage is the agent stage and a.txt is absent before R, otherwise the terminal test does not prove the current call was interrupted.
 - Blocked (plan): Phase 2's navigation does not survive a full pane: the details clamp result is discarded (keys.go:233), so scrolling past the end blanks Details, and the pane content height is one line smaller than bodyHeight() (plus notice lines), so End hides the selected tree row and follow hides the newest activity body. Both are reproduced with overlay key-driven tests against Model.String(); existing tests never fill a pane past its height. The plan needs units for these two navigation defects with the scenarios above; no file was edited.
+- Blocked (plan): The plan expects accurate start/block/failure outcomes and working confirmations. Real: the human-block Continue dialog is skipped when the block is written during the run because handleFinished reads the pre-block snapshot (reproduced in a real PTY, 2 of 4 runs); a pre-event failure shows only 'run failed: the run failed' and loses the prerequisite reason (real PTY); shifted characters are dropped in search and the unblock note (Bubble Tea decoder shape); a declined start ends as 'run finished'; a late start prompt turns Enter in the exit dialog into a start confirmation; paused follow/cursor leaks to the next selected unit. The plan needs units for these behaviors with the scenarios above.
 
 ## Phase 3: Model setup recovery and delivery
 
