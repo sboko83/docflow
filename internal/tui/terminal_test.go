@@ -800,3 +800,254 @@ func testTerminalSignalStopsRun(t *testing.T, sig syscall.Signal) {
 	_ = master.Close()
 	<-readDone
 }
+
+// TestTerminalLockAtAction opens the workspace on a free checkout, then gives
+// the checkout to a live foreign runner: activate refuses and names the pid
+// without changing the plan on disk. Removing the lock lets the same key act.
+func TestTerminalLockAtAction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("terminal test builds the CLI")
+	}
+	root := repoRoot(t)
+	bin := filepath.Join(t.TempDir(), "docflow")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/docflow")
+	build.Dir = root
+	build.Env = os.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v\n%s", err, out)
+	}
+
+	project := t.TempDir()
+	write := func(path, text string) {
+		t.Helper()
+		full := filepath.Join(project, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("docs/docflow.md", "---\ndocflow: 3\n---\n## Queue\n- P001\n- P002\n\n## Frozen\n\n## Backlog\n- later work\n")
+	write("docs/plans/P001-a.md", `---
+id: P001
+title: Active plan
+type: feature
+status: active
+created: 2026-11-01
+---
+## Goal
+
+Active.
+
+## Context
+
+c
+
+## Constraints
+
+- none
+
+## Traps
+
+- none
+
+## Decisions
+
+- none
+
+## Phase 1: Work
+
+### [ ] P001.1.1 Unit
+Read:
+- docs/docflow.md
+Do:
+- work
+Verify: `+"`true`"+`
+Commit: P001.1.1: unit
+`)
+	planPath := filepath.Join(project, "docs", "plans", "P002-draft.md")
+	write("docs/plans/P002-draft.md", `---
+id: P002
+title: Draft plan
+type: feature
+status: draft
+created: 2026-11-01
+---
+## Goal
+
+Draft goal.
+
+## Context
+
+c
+
+## Constraints
+
+- none
+
+## Traps
+
+- none
+
+## Decisions
+
+- none
+
+## Phase 1: Draft
+
+### [ ] P002.1.1 Draft unit
+Read:
+- docs/docflow.md
+Do:
+- draft
+Verify: `+"`true`"+`
+Commit: P002.1.1: draft
+`)
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@example.invalid"},
+		{"config", "commit.gpgsign", "false"}, {"add", "-A"}, {"commit", "-qm", "init"},
+	} {
+		command := exec.Command("git", args...)
+		command.Dir = project
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	master, slave := openTestPTY(t)
+	if err := setTestWinsize(slave, 240, 40); err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command(bin, "tui")
+	child.Dir = project
+	child.Env = append(os.Environ(),
+		"TERM=xterm-256color", "NO_COLOR=1",
+		"DOCFLOW_NOTIFY=0", "DOCFLOW_SKILLS_CHECK=0",
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+	)
+	child.Stdin, child.Stdout, child.Stderr = slave, slave, slave
+	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var screen bytes.Buffer
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				screen.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	output := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return screen.String()
+	}
+	waitFor := func(text string) bool {
+		t.Helper()
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if strings.Contains(output(), text) {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+	sendKey := func(key string) {
+		writeAll(t, master, key)
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !waitFor("Queue") {
+		t.Fatalf("workspace did not load\n%s", output())
+	}
+
+	// Select the draft plan by filtering the tree: the Queue section row is
+	// kept as a match header, so move onto the plan row itself.
+	sendKey("/")
+	sendKey("p002")
+	sendKey("\r")
+	sendKey("\x1b[B")
+	time.Sleep(200 * time.Millisecond)
+
+	// A live foreign runner takes the checkout after the load.
+	runDir := filepath.Join(project, ".git", "docflow", "run")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sleeper := exec.Command("sleep", "60")
+	if err := sleeper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(runDir, "run.lock")
+	pid := sleeper.Process.Pid
+	t.Cleanup(func() {
+		_ = sleeper.Process.Kill()
+		_, _ = sleeper.Process.Wait()
+		_ = os.Remove(lock)
+	})
+	if err := os.WriteFile(lock, []byte(strconv.Itoa(pid)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sendKey("a")
+	if !waitFor("another runner is active (pid " + strconv.Itoa(pid)) {
+		t.Fatalf("activate under a live foreign runner did not name pid %d\n%s", pid, output())
+	}
+	planText, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(planText), "status: draft") {
+		t.Fatalf("activate under a live foreign runner changed the plan:\n%s", planText)
+	}
+	if strings.Contains(string(planText), "status: active") {
+		t.Fatalf("activate under a live foreign runner activated the plan:\n%s", planText)
+	}
+
+	// Removing the lock lets the same action go through.
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	sendKey("a")
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		planText, err = os.ReadFile(planPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(planText), "status: active") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(string(planText), "status: active") {
+		t.Fatalf("activate after the lock was removed did not change the plan:\n%s\n%s", planText, output())
+	}
+	sendKey("q")
+
+	exited := make(chan error, 1)
+	go func() { exited <- child.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("tui exited with %v\n%s", err, output())
+		}
+	case <-time.After(20 * time.Second):
+		_ = child.Process.Kill()
+		t.Fatalf("tui did not exit\n%s", output())
+	}
+	_ = master.Close()
+	<-readDone
+}

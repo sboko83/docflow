@@ -580,6 +580,9 @@ func (m Model) statusLine() string {
 	if m.lockHeld {
 		parts = append(parts, fmt.Sprintf("foreign-runner:pid %d", m.lockPID))
 	}
+	if m.lockErr != nil {
+		parts = append(parts, "lock:unknown")
+	}
 	if m.dialog != dialogNone {
 		parts = append(parts, "dialog")
 	}

@@ -46,17 +46,36 @@ func eventReloadsPlan(kind string) bool {
 }
 
 // refreshLock records a live foreign runner. The workspace keeps reading the
-// plans, but refuses to start or change their lifecycle until it is gone.
+// plans, but refuses to start or change their lifecycle until it is gone. An
+// unreadable lock is unknown, never a free checkout: control stays refused
+// while viewing remains available.
 func (m *Model) refreshLock() {
 	if m.lockCheck == nil {
 		m.lockCheck = runner.CheckoutLockOwner
 	}
 	pid, held, err := m.lockCheck(m.root)
-	if err != nil || !held || pid == os.Getpid() {
+	m.lockErr = nil
+	if err != nil {
+		m.lockPID, m.lockHeld, m.lockErr = 0, false, err
+		return
+	}
+	if !held || pid == os.Getpid() {
 		m.lockPID, m.lockHeld = 0, false
 		return
 	}
 	m.lockPID, m.lockHeld = pid, true
+}
+
+// lockRefusal names why control is refused, or reports that it is allowed.
+// Viewing plans and history never consults the lock.
+func (m Model) lockRefusal(purpose string) (string, bool) {
+	if m.lockHeld {
+		return fmt.Sprintf("another runner is active (pid %d); viewing is allowed, %s", m.lockPID, purpose), true
+	}
+	if m.lockErr != nil {
+		return fmt.Sprintf("cannot read the checkout lock: %s; viewing is allowed, %s", m.lockErr, purpose), true
+	}
+	return "", false
 }
 
 func (m Model) runIsActive() bool {
@@ -87,8 +106,11 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd) {
 		m.controller.Close()
 		m.controller = nil
 	}
-	if m.lockHeld {
-		m.notice = fmt.Sprintf("another runner is active (pid %d); viewing is allowed, starting is not", m.lockPID)
+	// The lock is re-read at the action, not only at load: another runner can
+	// appear while the workspace is open.
+	m.refreshLock()
+	if notice, refused := m.lockRefusal("starting is not"); refused {
+		m.notice = notice
 		return m, nil
 	}
 	if resume {
@@ -187,6 +209,9 @@ func (m Model) pollController() (Model, tea.Cmd) {
 }
 
 func (m *Model) handleFinished() {
+	// Our own run released the lock when it stopped; re-read it so the status
+	// line and the control guard never disagree.
+	m.refreshLock()
 	switch m.runState {
 	case runner.StateBlocked:
 		if unit, reason, needs, ok := m.blockedInfo(); ok {
@@ -467,8 +492,11 @@ func (m Model) lifecycleKey(action string) (Model, tea.Cmd) {
 		m.notice = "stop the live run before changing the plan lifecycle"
 		return m, nil
 	}
-	if m.lockHeld {
-		m.notice = fmt.Sprintf("another runner is active (pid %d); lifecycle changes are refused", m.lockPID)
+	// lifecycle runs through cycle.Self, which takes no lock itself: this
+	// guard is the only check, so it must read the lock at the action.
+	m.refreshLock()
+	if notice, refused := m.lockRefusal("lifecycle changes are refused"); refused {
+		m.notice = notice
 		return m, nil
 	}
 	plan := m.selectedPlan()

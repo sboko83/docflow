@@ -211,6 +211,9 @@ gate: go test -timeout 20m ./...
 - Live refresh reloads only the open, expanded first page of a running entry — one bounded 4 KiB read per event, no work for other pages — rejected refreshing every page of the unit on each event
 - Resolve paths at read time with one helper used by both the activity page and the verify overlay — keeps the event format at version 1 and the runner unaware of the TUI cwd — rejected making event paths absolute or changing the process cwd
 - Keep the original relative path in history and store the resolved path only on the rendered page — replay and journal consumers still see the persisted stream link — rejected rewriting history entries during load
+- Treated a failing CheckoutLockOwner as an unknown lock that refuses control instead of a free checkout — an unreadable lock must not be silently read as "no runner" — rejected keeping the old err==nil-to-free branch
+- Re-read the lock at every control action and after run completion rather than once at load — lifecycle goes through cycle.Self which takes no lock, so the UI guard is the only check and must see a runner that appeared while the workspace was open — rejected a background watcher (no background service) and a load-time-only check
+- Stubbed lockCheck in the app-test loadedModel instead of giving every fixture a git repository — the fixtures are synthetic trees and the real checker would refuse all control actions — rejected adding git init to writeTestProject, which would change the diff/verify fixture behaviour
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -727,7 +730,7 @@ Handoff:
 - Tests added: TestResolveLogPath, TestLogPathsResolveFromCheckoutRoot (t.Chdir into project/sub), TestTerminalVerifyFromSubdirectory; writeRunnableProject now delegates to writeRunnableProjectVerify(t, verify).
 - Unverified: Windows path resolution (drive letters, backslash separators) is not exercised: tests run on the current macOS target and the terminal PTY tests are POSIX-only.
 
-### [ ] P052.2.8 Refuse control under a live foreign runner
+### [x] P052.2.8 Refuse control under a live foreign runner
 Read:
 - internal/tui/execute.go:L48-60
 - internal/tui/execute.go:L80-135
@@ -745,6 +748,12 @@ Verify: `go test -timeout 20m ./internal/tui/`
 Traps: свой живой прогон держит тот же lock с нашим pid — не считай его чужим (`refreshLock` уже сравнивает с `os.Getpid`). Не удаляй и не перезаписывай `run.lock` чужого процесса, lifecycle идёт через `cycle.Self`, который сам lock не проверяет. Не вызывай `refreshLock` на каждое нажатие стрелки: только перед действиями и после прогона. В терминальном тесте убей процесс и сними lock в `t.Cleanup`, иначе lock переживёт тест.
 Depends: P052.2.7
 Commit: P052.2.8: refuse control under a foreign runner
+Handoff:
+- lockCheck in app_test's loadedModel is now stubbed to report a free checkout: test fixtures are plain directories without a git dir, so the real runner.CheckoutLockOwner would return an error and (under the new rules) refuse every action. Tests that exercise the lock set the seam explicitly.
+- Model.lockErr carries a failed lock check; refreshLock is now called at the start of startRun (Start and Resume), at the start of lifecycleKey, and in handleFinished so the status line and the guard agree after the workspace's own run released its lock.
+- The refusal text comes from one helper m.lockRefusal(purpose): held lock names the pid, an unreadable lock names the error; both keep viewing/reading allowed. The status line shows lock:unknown for an unreadable lock.
+- TestTerminalLockAtAction runs at 240 columns: the notice sits at the end of the redrawn status line and is truncated below ~200 columns, so a narrower PTY cannot assert the pid text; selection is done via the / filter plus one down, because the Queue section row is always kept as a match header.
+- Unverified: The unreadable-lock path is driven through the lockCheck seam in app_test only; a real CheckoutLockOwner error on the target (e.g. an unreadable run.lock or a non-git root) is not exercised end-to-end by any test.
 
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:

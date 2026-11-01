@@ -113,6 +113,10 @@ func writeTestProject(t *testing.T) string {
 func loadedModel(t *testing.T, root string) Model {
 	t.Helper()
 	model := New(root)
+	// Test fixtures are directory trees, not git checkouts: the real lock
+	// checker would report an unreadable lock and refuse every action. Tests
+	// that exercise the lock replace this seam explicitly.
+	model.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
 	cmd := model.Init()
 	if cmd == nil {
 		t.Fatal("Init returned no load command")
@@ -911,5 +915,132 @@ func TestForeignRunnerLockAllowsViewingButRefusesControl(t *testing.T) {
 	model = updated.(Model)
 	if cmd != nil || !strings.Contains(model.notice, "lifecycle changes are refused") {
 		t.Fatalf("activate under a foreign lock: cmd=%v notice=%q", cmd, model.notice)
+	}
+}
+
+// TestControlChecksTheLockAtActionTime changes the lock owner after the load:
+// start and lifecycle refuse without touching their seams, and the same keys
+// pass once the lock is gone.
+func TestControlChecksTheLockAtActionTime(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model.lockCheck = func(string) (int, bool, error) { return 4242, true, nil }
+	created := 0
+	model.newController = func(string, string) Controller {
+		created++
+		return newFakeController(runner.StateIdle)
+	}
+	activated := ""
+	model.lifecycle = func(_ string, args ...string) cycle.Result {
+		if len(args) > 0 {
+			activated = args[0]
+		}
+		return cycle.Result{Code: 0, Stdout: "activated"}
+	}
+
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "another runner is active") || !strings.Contains(model.notice, "4242") {
+		t.Fatalf("start under a lock that appeared after load: notice = %q", model.notice)
+	}
+	model = selectRow(t, model, "plan:P002")
+	updated, cmd := model.Update(keyMsg("a"))
+	model = updated.(Model)
+	if cmd != nil || !strings.Contains(model.notice, "lifecycle changes are refused") {
+		t.Fatalf("activate under a late lock: cmd=%v notice=%q", cmd, model.notice)
+	}
+	if created != 0 || activated != "" {
+		t.Fatalf("a late lock called a seam: created=%d activated=%q", created, activated)
+	}
+	if !strings.Contains(model.String(), "P002") {
+		t.Fatal("a late lock hid the plans from the tree")
+	}
+
+	model.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
+	model = selectRow(t, model, "plan:P002")
+	updated, cmd = model.Update(keyMsg("a"))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatalf("activate after the lock was removed: notice = %q", model.notice)
+	}
+	if msg, ok := cmd().(lifecycleDoneMsg); !ok || msg.action != "activate" {
+		t.Fatalf("activate after the lock was removed produced %#v", cmd())
+	}
+	if activated != "activate" {
+		t.Fatalf("lifecycle seam saw %q, want activate", activated)
+	}
+
+	updated, _ = model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if created != 1 {
+		t.Fatalf("start after the lock was removed created %d controllers, want 1 (notice %q)", created, model.notice)
+	}
+}
+
+// TestUnreadableLockRefusesControl treats a failing lock check as unknown:
+// the workspace never calls the checkout free, but keeps the plans readable.
+func TestUnreadableLockRefusesControl(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model.lockCheck = func(string) (int, bool, error) { return 0, false, os.ErrPermission }
+	model.newController = func(string, string) Controller {
+		t.Fatal("an unreadable lock allowed a new controller")
+		return nil
+	}
+	model.lifecycle = func(string, ...string) cycle.Result {
+		t.Fatal("an unreadable lock allowed a lifecycle command")
+		return cycle.Result{}
+	}
+
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "cannot read the checkout lock") || !strings.Contains(model.notice, "permission denied") {
+		t.Fatalf("start under an unreadable lock: notice = %q", model.notice)
+	}
+	model = selectRow(t, model, "plan:P002")
+	updated, cmd := model.Update(keyMsg("a"))
+	model = updated.(Model)
+	if cmd != nil || !strings.Contains(model.notice, "cannot read the checkout lock") {
+		t.Fatalf("activate under an unreadable lock: cmd=%v notice=%q", cmd, model.notice)
+	}
+	if !strings.Contains(model.String(), "lock:unknown") {
+		t.Fatalf("status line does not report the unknown lock:\n%s", model.String())
+	}
+	if !strings.Contains(model.String(), "P002") {
+		t.Fatal("an unreadable lock hid the plans from the tree")
+	}
+}
+
+// TestFinishedRunRefreshesTheLock keeps the status line and the guard in step
+// after the workspace's own run stopped and released its lock.
+func TestFinishedRunRefreshesTheLock(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	held := false
+	model.lockCheck = func(string) (int, bool, error) {
+		if held {
+			return 4242, true, nil
+		}
+		return 0, false, nil
+	}
+	controller := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, controller)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if model.lockHeld {
+		t.Fatal("the workspace's own start reported a foreign lock")
+	}
+	held = true
+	controller.finish(runner.StateFinished)
+	updated, _ = model.Update(hostPollMsg{})
+	model = updated.(Model)
+	if !model.lockHeld || model.lockPID != 4242 {
+		t.Fatalf("after the run finished: held=%v pid=%d", model.lockHeld, model.lockPID)
+	}
+	model = selectRow(t, model, "plan:P002")
+	updated, cmd := model.Update(keyMsg("a"))
+	model = updated.(Model)
+	if cmd != nil || !strings.Contains(model.notice, "lifecycle changes are refused") {
+		t.Fatalf("activate after a run exposed a foreign lock: cmd=%v notice=%q", cmd, model.notice)
 	}
 }

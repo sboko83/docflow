@@ -156,6 +156,7 @@ type Model struct {
 	lockCheck func(root string) (int, bool, error)
 	lockPID   int
 	lockHeld  bool
+	lockErr   error
 
 	history          *ActivityHistory
 	activityCursor   int
