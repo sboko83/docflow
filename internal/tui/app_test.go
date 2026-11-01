@@ -691,7 +691,7 @@ func (f *fakeController) CancelStart() error {
 	}
 	f.state = runner.StateStopping
 	if !f.cancelNoFinish {
-		f.finish(runner.StateFinished)
+		f.finish(runner.StateCancelled)
 	}
 	return nil
 }
@@ -813,10 +813,16 @@ func TestStartDialogShowsPreconditionsAndDeclineRunsNothing(t *testing.T) {
 	if model.dialog != dialogNone || !strings.Contains(model.notice, "nothing ran") {
 		t.Fatalf("decline dialog=%v notice=%q", model.dialog, model.notice)
 	}
-	first.finish(runner.StateFinished)
+	first.finish(runner.StateCancelled)
 	model = poll(t, model)
-	if model.runState != runner.StateFinished {
+	if model.runState != runner.StateCancelled {
 		t.Fatalf("declined run state = %s", model.runState)
+	}
+	if strings.Contains(model.notice, "run finished") || !strings.Contains(model.notice, "nothing ran") {
+		t.Fatalf("a cancelled start was reported as a finished run: notice=%q", model.notice)
+	}
+	if first.checkpointed {
+		t.Fatal("a declined start wrote a pause checkpoint")
 	}
 
 	// A second Start is refused while the host still owns an unfinished run,
@@ -1625,9 +1631,15 @@ func TestQuitFromStartCancelsThePendingStart(t *testing.T) {
 	if _, ok := cmd().(tea.QuitMsg); ok {
 		t.Fatal("the workspace quit before the run reached Finished")
 	}
-	controller.finish(runner.StateFinished)
+	controller.finish(runner.StateCancelled)
 	updated, cmd = model.Update(hostPollMsg{})
 	model = updated.(Model)
+	if !strings.Contains(model.notice, "nothing runs") || strings.Contains(model.notice, "run finished") {
+		t.Fatalf("cancelled start notice = %q", model.notice)
+	}
+	if model.runState != runner.StateCancelled || controller.checkpointed {
+		t.Fatalf("cancelled start state=%s checkpoint=%v", model.runState, controller.checkpointed)
+	}
 	if cmd == nil {
 		t.Fatal("Finished did not return the quit command")
 	}
@@ -1672,9 +1684,15 @@ func TestQuitFromStartDeclinesTheArrivedPrompt(t *testing.T) {
 	if controller.closed != 0 {
 		t.Fatalf("controller closed %d times before Finished", controller.closed)
 	}
-	controller.finish(runner.StateFinished)
+	controller.finish(runner.StateCancelled)
 	updated, cmd := model.Update(hostPollMsg{})
 	model = updated.(Model)
+	if !strings.Contains(model.notice, "nothing runs") {
+		t.Fatalf("cancelled start notice = %q", model.notice)
+	}
+	if model.runState != runner.StateCancelled || controller.checkpointed {
+		t.Fatalf("cancelled start state=%s checkpoint=%v", model.runState, controller.checkpointed)
+	}
 	if cmd == nil {
 		t.Fatal("Finished did not return the quit command")
 	}

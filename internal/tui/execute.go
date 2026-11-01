@@ -247,6 +247,12 @@ func (m *Model) handleFinished() {
 			m.runErr = "the run failed"
 		}
 		m.notice = "run failed: " + m.runErr
+	case runner.StateCancelled:
+		// No work started, so the decline or cancel notice already set by the
+		// dialog or the exit path is the outcome; "run finished" is wrong.
+		if m.notice == "" {
+			m.notice = "the start was cancelled; nothing ran"
+		}
 	case runner.StateFinished:
 		if m.runStopped {
 			m.notice = "run stopped"

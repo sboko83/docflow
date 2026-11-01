@@ -84,8 +84,18 @@ func TestControlCancelStartStopsBeforeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-c.Done()
+	if got := c.State(); got != StateCancelled {
+		t.Fatalf("state = %s, want %s", got, StateCancelled)
+	}
+	if c.Checkpointed() {
+		t.Fatal("a cancelled start wrote a pause checkpoint")
+	}
+	if err := c.Start(context.Background(), func(context.Context, *Control) error { return nil }); err != nil {
+		t.Fatalf("start after a cancelled start: %v", err)
+	}
+	<-c.Done()
 	if got := c.State(); got != StateFinished {
-		t.Fatalf("state = %s, want %s", got, StateFinished)
+		t.Fatalf("state after the new run = %s, want %s", got, StateFinished)
 	}
 }
 
@@ -267,5 +277,33 @@ func TestControlledRunKeepsTheOuterCheckoutLock(t *testing.T) {
 	}
 	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
 		t.Fatalf("lock left after the owner returned: %v", err)
+	}
+}
+
+// TestControlDeclinedStartIsCancelled keeps a declined confirmation distinct
+// from a finished run: no work began, so nothing may read as a completed run
+// or as a resumable pause.
+func TestControlDeclinedStartIsCancelled(t *testing.T) {
+	f := newRunFixture(t)
+	c := NewControl(16, 2)
+	if err := c.StartRun(context.Background(), f.root, Args{Attempts: 1, Replans: 1, NoNotify: true}, ""); err != nil {
+		t.Fatal(err)
+	}
+	request := <-c.Requests()
+	if request.Kind != "confirm_start" {
+		t.Fatalf("request = %q, want confirm_start", request.Kind)
+	}
+	if err := request.Answer(Response{Confirmed: false}); err != nil {
+		t.Fatal(err)
+	}
+	awaitDone(t, c)
+	if got := c.State(); got != StateCancelled {
+		t.Fatalf("state = %s, want %s", got, StateCancelled)
+	}
+	if c.Checkpointed() {
+		t.Fatal("a declined start wrote a pause checkpoint")
+	}
+	if _, err := ReadCheckpoint(f.root); err == nil {
+		t.Fatal("a declined start persisted a checkpoint")
 	}
 }

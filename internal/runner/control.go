@@ -13,15 +13,16 @@ import (
 type State string
 
 const (
-	StateIdle     State = "Idle"
-	StateStarting State = "Starting"
-	StateRunning  State = "Running"
-	StatePausing  State = "Pausing"
-	StatePaused   State = "Paused"
-	StateStopping State = "Stopping"
-	StateBlocked  State = "Blocked"
-	StateFinished State = "Finished"
-	StateFailed   State = "Failed"
+	StateIdle      State = "Idle"
+	StateStarting  State = "Starting"
+	StateRunning   State = "Running"
+	StatePausing   State = "Pausing"
+	StatePaused    State = "Paused"
+	StateStopping  State = "Stopping"
+	StateBlocked   State = "Blocked"
+	StateCancelled State = "Cancelled"
+	StateFinished  State = "Finished"
+	StateFailed    State = "Failed"
 )
 
 // Event is a sanitized, typed observation emitted by a runner.
@@ -65,6 +66,9 @@ type Control struct {
 	// checkpointed records that this execution wrote a Pause checkpoint. A
 	// Pausing state alone is a request, not a saved pause.
 	checkpointed bool
+	// startCancelled records that the interactive owner declined or cancelled
+	// the pending confirmation before any work began.
+	startCancelled bool
 }
 
 func NewControl(eventBuffer, requestBuffer int) *Control {
@@ -132,7 +136,7 @@ func (r Request) Answer(answer Response) error {
 // must stop child processes and return before the host reports Paused.
 func (c *Control) Start(parent context.Context, execute func(context.Context, *Control) error) error {
 	c.mu.Lock()
-	if c.state != StateIdle && c.state != StatePaused && c.state != StateFinished && c.state != StateFailed && c.state != StateBlocked {
+	if c.state != StateIdle && c.state != StatePaused && c.state != StateCancelled && c.state != StateFinished && c.state != StateFailed && c.state != StateBlocked {
 		c.mu.Unlock()
 		return errors.New("runner: a command is already active")
 	}
@@ -140,6 +144,7 @@ func (c *Control) Start(parent context.Context, execute func(context.Context, *C
 	c.cancel = cancel
 	c.state = StateStarting
 	c.checkpointed = false
+	c.startCancelled = false
 	c.done = make(chan struct{})
 	c.mu.Unlock()
 	go func() {
@@ -149,6 +154,7 @@ func (c *Control) Start(parent context.Context, execute func(context.Context, *C
 		stopping := c.State() == StateStopping
 		cancel()
 		c.mu.Lock()
+		cancelled := c.startCancelled
 		switch {
 		case paused && err == nil:
 			c.state = StatePaused
@@ -156,6 +162,8 @@ func (c *Control) Start(parent context.Context, execute func(context.Context, *C
 			c.state = StateFailed
 		case blocked:
 			c.state = StateBlocked
+		case cancelled:
+			c.state = StateCancelled
 		case stopping:
 			c.state = StateFinished
 		case err != nil:
@@ -228,6 +236,7 @@ func (c *Control) startRun(parent context.Context, root string, args Args, skill
 				return err
 			}
 			if !answer.Confirmed {
+				host.MarkStartCancelled()
 				return nil
 			}
 		}
@@ -252,7 +261,21 @@ func (c *Control) startRun(parent context.Context, root string, args Args, skill
 	})
 }
 
+// MarkRunning marks the accepted confirmation and the beginning of work.
 func (c *Control) MarkRunning() bool { return c.setState(StateStarting, StateRunning) }
+
+// MarkStartCancelled records that the owner declined the pending confirmation.
+// Such a start finishes as Cancelled, not as a completed run.
+func (c *Control) MarkStartCancelled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.state != StateStarting {
+		return false
+	}
+	c.startCancelled = true
+	return true
+}
+
 func (c *Control) MarkBlocked() bool { return c.setState(StateRunning, StateBlocked) }
 func (c *Control) setState(from, to State) bool {
 	c.mu.Lock()
@@ -294,6 +317,7 @@ func (c *Control) CancelStart() error {
 	if c.state != StateStarting {
 		return errors.New("runner: no start confirmation is pending")
 	}
+	c.startCancelled = true
 	c.state = StateStopping
 	c.cancel()
 	return nil

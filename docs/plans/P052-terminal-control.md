@@ -250,6 +250,8 @@ gate: go test -timeout 20m ./...
 - Kept blockedPending set when the post-block reload fails and worded the notice 'press r to try again' — a retry then still resolves the outcome from a valid snapshot — rejected dropping the decision and leaving only the old 'stopped on a block' text
 - Treat a unit with status [!] but no Blocked Handoff item as the previous 'the run stopped on a block' outcome instead of formatting an empty needs/reason — matches how blockNeeds reports a hand-blocked unit
 - Carry the pre-start reason as a host-only start_failure event plus the execute error — runWithOptions builds the journal only after prerequisites, so a journal event there would reorder run_start — rejected a journal event before run_start and enabling Progress output for the interactive host.
+- Added an explicit MarkStartCancelled called by startRun on a declined confirmation instead of inferring cancellation from 'execute returned while still Starting' — the decline must be a recorded host decision that CancelStart and the dialog share, not a guess from the leftover state — rejected inferring from StateStarting, which leaves the classification implicit and untestable.
+- Classified the startCancelled flag ahead of the Stopping branch in the Start goroutine — a cancel of a pending start also moves the host to Stopping, and the flag must win over the generic ControlledStop-to-Finished mapping — rejected a separate internal exit code or reusing StatePaused.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1045,7 +1047,7 @@ Handoff:
 - Unverified: The multi-line prerequisite reason is capped at two footer lines by fitNotice; the runner test asserts the full message and the TUI test a single line, so truncation of several failed prerequisites is not checked on a rendered screen.
 - Unverified: No PTY/terminal test runs a failing prerequisite through the real host; the reason path is covered only with the fake controller and the runner-level Control test.
 
-### [ ] P052.2.19 Report a declined start as a cancelled run
+### [x] P052.2.19 Report a declined start as a cancelled run
 Read:
 - internal/runner/control.go:L120-165
 - internal/runner/control.go:L217-260
@@ -1062,6 +1064,11 @@ Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
 Traps: не переиспользуй `StatePaused` и не добавляй внутренний код выхода — отмена старта отличается состоянием хоста. `TestStartDialogShowsPreconditionsAndDeclineRunsNothing` ожидает `StateFinished` после отказа: обнови ожидание вместе с новым состоянием, но не удаляй проверку «повторный s работает».
 Depends: P052.2.3, P052.2.12
 Commit: P052.2.19: report a declined start as cancelled
+Handoff:
+- runner.StateCancelled is a new terminal host state: Start accepts it for a fresh run, runIsActive does not treat it as live, and TUI handleFinished keeps the pre-set notice instead of writing 'run finished'.
+- Control startCancelled is set in two places — startRun calls MarkStartCancelled when the confirmation is declined, and CancelStart sets it directly; the Start goroutine classifies the flag ahead of the Stopping branch, so a cancelled start cannot read as Finished even when execute returns context.Canceled.
+- A cancelled start writes no checkpoint and does not become Paused; runner tests check both via Checkpointed and ReadCheckpoint.
+- Unverified: No terminal (PTY) scenario declines the start dialog against the real runner: the model test fakes the cancelled state and the runner test covers StartRun's decline, but the joined TUI dialogs → real Control path for a decline is not exercised end to end.
 
 ### [ ] P052.2.20 Keep the open dialog's keys on a late prompt
 Read:
