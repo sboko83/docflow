@@ -21,6 +21,7 @@ const (
 	dialogStart
 	dialogExit
 	dialogHuman
+	dialogRecover
 )
 
 type hostPollMsg struct{}
@@ -118,8 +119,13 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	if resume {
-		// ResumeRun validates the checkpoint and reports recovery conflicts;
-		// a second check here would duplicate its decision.
+		// The recovery dialog classifies the checkpoint before the run is
+		// created: a conflict or a finished unit is refused with its reason,
+		// and ResumeRun validates the same state again for other callers.
+		if notice := m.recoveryRefusal(); notice != "" {
+			m.notice = notice
+			return m, nil, false
+		}
 	} else if len(m.snapshot.Queue) == 0 {
 		m.notice = "nothing to start: Queue is empty"
 		return m, nil, false
@@ -147,6 +153,8 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd, bool) {
 	m.controller = controller
 	m.controllerDone = false
 	m.runState = controller.State()
+	m.recovery = nil
+	m.recoveryPrompted = true
 	m.runErr = ""
 	m.runStopped = false
 	m.checkpointed = false
@@ -437,6 +445,22 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.notice = "staying with the live run"
 			m = m.showPendingPrompt()
 			return m, pollSoon()
+		}
+		return m, nil
+	case dialogRecover:
+		switch key {
+		case "enter", "R":
+			m.dialog = dialogNone
+			model, cmd, _ := m.startRun(true)
+			return model, cmd
+		case "s":
+			m.dialog = dialogNone
+			model, cmd, _ := m.startRun(false)
+			return model, cmd
+		case "esc", "q":
+			m.dialog = dialogNone
+			m.notice = m.recoveryNotice()
+			return m, nil
 		}
 		return m, nil
 	case dialogHuman:

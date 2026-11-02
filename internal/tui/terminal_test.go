@@ -299,6 +299,67 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	}
 	waitFile(lock, false, 20*time.Second)
 	time.Sleep(200 * time.Millisecond)
+
+	// Leave the workspace while the interrupted call is the only saved state,
+	// then open it again. Reopening is the normal path after a session ends:
+	// the checkpoint and the journal must bring the paused unit back without
+	// losing the work already written.
+	waitExit := func(c *exec.Cmd, message string) {
+		t.Helper()
+		exited := make(chan error, 1)
+		go func() { exited <- c.Wait() }()
+		select {
+		case err := <-exited:
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", message, err, output())
+			}
+		case <-time.After(20 * time.Second):
+			_ = c.Process.Kill()
+			t.Fatalf("%s\n%s", message, output())
+		}
+	}
+	sendKey("q")
+	waitExit(child, "tui did not exit after the pause")
+	_ = master.Close()
+	<-readDone
+
+	screen.Reset()
+	master, slave = openTestPTY(t)
+	if err := setTestWinsize(slave, 120, 40); err != nil {
+		t.Fatal(err)
+	}
+	child = exec.Command(bin, "tui")
+	child.Dir = project
+	child.Env = append(os.Environ(),
+		"TERM=xterm-256color", "NO_COLOR=1",
+		"DOCFLOW_AGENTS="+config,
+		"FAKE_AGENT_SCENARIO="+scenario,
+		"DOCFLOW_NOTIFY=0", "DOCFLOW_SKILLS_CHECK=0",
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+	)
+	child.Stdin, child.Stdout, child.Stderr = slave, slave, slave
+	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	readDone = make(chan struct{})
+	go func() {
+		defer close(readDone)
+		buf := make([]byte, 4096)
+		for {
+			n, err := master.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				screen.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	waitFor("Recover the saved run")
+	waitFor("R continues the interrupted unit")
 	sendKey("R")
 	waitFile(lock, true, 20*time.Second)
 
@@ -319,17 +380,7 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	_, _ = master.WriteString("\r")
 
-	exited := make(chan error, 1)
-	go func() { exited <- child.Wait() }()
-	select {
-	case err := <-exited:
-		if err != nil {
-			t.Fatalf("tui exited with %v\n%s", err, output())
-		}
-	case <-time.After(20 * time.Second):
-		_ = child.Process.Kill()
-		t.Fatalf("tui did not exit after the run finished\n%s", output())
-	}
+	waitExit(child, "tui did not exit after the run finished")
 	_ = master.Close()
 	<-readDone
 	if _, err := os.Stat(filepath.Join(project, ".git", "docflow", "run", "run.lock")); !os.IsNotExist(err) {

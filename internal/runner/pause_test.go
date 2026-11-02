@@ -1595,3 +1595,219 @@ func TestPauseAfterReplanCommitIsFinished(t *testing.T) {
 		}
 	}
 }
+
+// LoadRecovery is what the terminal workspace shows after a reopen: the saved
+// stage and unit, the last journal outcome, and a refusal once the checkout no
+// longer matches the checkpoint.
+func TestLoadRecoveryDescribesPausedRun(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" +
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "recovery-session"}) +
+		"sleep 60 &\nwait\n")
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+
+	recovery, err := LoadRecovery(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovery.Checkpoint == nil || !recovery.Resumable() {
+		t.Fatalf("recovery = %#v, want a resumable checkpoint", recovery)
+	}
+	if recovery.Checkpoint.Unit != "P001.1.1" || recovery.Checkpoint.Stage != "agent" {
+		t.Fatalf("checkpoint = %#v, want P001.1.1 during an agent call", recovery.Checkpoint)
+	}
+	if recovery.LastRun == nil || recovery.LastRun.Reason != "paused" || !recovery.LastRun.Paused || recovery.LastRun.ExitCode != 0 {
+		t.Fatalf("last run = %#v, want the paused outcome", recovery.LastRun)
+	}
+	if recovery.LastRun.Unit != "P001.1.1" || recovery.LastRun.UnitStatus != "paused" {
+		t.Fatalf("last run unit = %#v, want the paused unit", recovery.LastRun)
+	}
+
+	// An edited plan is a conflict even though the checkpoint is still
+	// readable: Continue must not silently resume the wrong work.
+	f.write(planFile, strings.ReplaceAll(f.read(planFile), "title: Plan", "title: Renamed"))
+	recovery, err = LoadRecovery(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovery.Resumable() || !strings.Contains(recovery.Problem, "changed since the pause") {
+		t.Fatalf("recovery after the plan edit = %#v, want a plan conflict", recovery)
+	}
+}
+
+// A checkpoint written at the complete boundary belongs to a finished unit:
+// reopening must not offer to continue it as interrupted work.
+func TestLoadRecoveryAfterCompletedUnitHasNothingToContinue(t *testing.T) {
+	f := newRunFixture(t)
+	f.steps(writeReply("a.txt"))
+	reached, release, before := gateOn(t, "commit")
+	controlRunSelf(t, f, before)
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	select {
+	case <-reached:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the runner did not reach the commit of the unit")
+	}
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	awaitPaused(t, control)
+
+	recovery, err := LoadRecovery(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovery.Checkpoint == nil || recovery.Checkpoint.Stage != "complete" {
+		t.Fatalf("checkpoint = %#v, want the complete boundary", recovery.Checkpoint)
+	}
+	if !recovery.Completed || recovery.Resumable() || recovery.PendingCommit {
+		t.Fatalf("recovery = %#v, want a completed unit with no pending commit", recovery)
+	}
+	if recovery.LastRun == nil || recovery.LastRun.UnitStatus != "done" {
+		t.Fatalf("last run = %#v, want the done unit", recovery.LastRun)
+	}
+}
+
+// A done unit whose commit was interrupted is not "work to continue", but its
+// pending commit is still recovered by the existing cycle: LoadRecovery names
+// it, and ResumeRun finishes the commit without calling the agent again.
+func TestLoadRecoveryRestoresPendingCommit(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	f.check(f.cli("prompt", "P001.1.1"), 0)
+	f.write("a.txt", "a\n")
+	f.check(f.cli("verify", "P001.1.1"), 0)
+	f.check(f.cli("done", "P001.1.1", "--handoff=done"), 0)
+	head := f.git("rev-parse", "HEAD")
+	data, err := os.ReadFile(filepath.Join(f.root, planFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteCheckpoint(f.root, Checkpoint{
+		Plan: "P001", Unit: "P001.1.1", Head: head, PlanHash: PlanFingerprint(data), Stage: "commit",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := LoadRecovery(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovery.Checkpoint == nil || !recovery.PendingCommit || recovery.Completed || !recovery.Resumable() {
+		t.Fatalf("recovery = %#v, want a resumable pending commit", recovery)
+	}
+
+	control := NewControl(64, 2)
+	if err := control.ResumeRun(context.Background(), f.root, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	if subject := f.git("log", "-1", "--format=%s"); !strings.Contains(subject, "P001.1.1") {
+		t.Fatalf("HEAD commit = %q, want the recovered unit commit", subject)
+	}
+	if calls := f.calls(); len(calls) != 0 {
+		t.Fatalf("agent calls after recovering the pending commit = %d, want none", len(calls))
+	}
+}
+
+// A checkpoint pinned to another assignment starts one new session with the
+// full prompt instead of pairing the saved session with a different route.
+func TestResumeWithChangedAssignmentStartsOneNewSession(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" +
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "old-route-session"}) +
+		"sleep 60 &\nwait\n")
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, args)
+	awaitMarker(t, f, marker, control)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	checkpoint, err := ReadCheckpoint(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint.Effort = "max"
+	if err := WriteCheckpoint(f.root, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	f.steps(writeReply("a.txt"))
+	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	calls := f.calls()
+	if len(calls) != 1 {
+		t.Fatalf("agent calls = %d, want one new session", len(calls))
+	}
+	if argv := strings.Join(calls[0].Argv, " "); strings.Contains(argv, "--resume") {
+		t.Fatalf("a changed assignment reused the old session: %s", argv)
+	}
+	for _, want := range []string{"## Recovery", "the paused assignment is not available on this route"} {
+		if !strings.Contains(calls[0].Stdin, want) {
+			t.Fatalf("new session prompt lacks %q:\n%s", want, calls[0].Stdin)
+		}
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err = %v", unit.Status, err)
+	}
+}
+
+// The checkout lock refuses a second owner, a new instance never removes a
+// lock that names another live process, and a stale file does not block
+// recovery forever.
+func TestRunLockRefusesLiveOwnerAndRecoversStaleFile(t *testing.T) {
+	f := newRunFixture(t)
+	release, err := runLock(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(f.root, ".git", "docflow", "run", "run.lock")
+	if _, err := runLock(f.root); err == nil {
+		t.Fatal("a second owner took the checkout lock")
+	}
+
+	sleeper := exec.Command("sleep", "30")
+	if err := sleeper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = sleeper.Process.Kill()
+		_, _ = sleeper.Process.Wait()
+	})
+	if err := os.WriteFile(path, []byte(strconv.Itoa(sleeper.Process.Pid)+"\n"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("release removed a lock of another live process: %v", err)
+	}
+	if _, err := runLock(f.root); err == nil {
+		t.Fatal("a live foreign lock was overwritten")
+	}
+
+	if err := os.WriteFile(path, []byte("99999999\n"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	staleRelease, err := runLock(f.root)
+	if err != nil {
+		t.Fatalf("a stale lock blocked a new owner: %v", err)
+	}
+	staleRelease()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the stale lock was left behind: %v", err)
+	}
+}

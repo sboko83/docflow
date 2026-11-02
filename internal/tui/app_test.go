@@ -2152,3 +2152,166 @@ func TestFinishedRunRefreshesTheLock(t *testing.T) {
 		t.Fatalf("activate after a run exposed a foreign lock: cmd=%v notice=%q", cmd, model.notice)
 	}
 }
+
+// recoveryModel loads the workspace with an injected recovery classification:
+// the fixtures are not git checkouts, and a test must decide what the saved
+// checkpoint says.
+func recoveryModel(t *testing.T, root string, recovery runner.Recovery) Model {
+	t.Helper()
+	model := New(root)
+	model.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
+	model.recoveryLoad = func(string) (runner.Recovery, error) { return recovery, nil }
+	updated, _ := model.Update(model.Init()())
+	return updated.(Model)
+}
+
+func pausedRecovery() runner.Recovery {
+	return runner.Recovery{
+		Checkpoint: &runner.Checkpoint{Plan: "P001", Unit: "P001.1.2", Stage: "agent", Agent: "pi", Model: "opencode-go/deepseek-v4.1-flash", Effort: "low"},
+		LastRun: &runner.RunSummary{
+			RunID: "20261101T101500Z", Plan: "P001", Reason: "paused", ExitCode: 0, Paused: true,
+			Unit: "P001.1.2", UnitStatus: "paused", Stage: "agent",
+		},
+	}
+}
+
+// TestRecoveryDialogShowsSavedStateAndContinues opens the workspace with a
+// saved checkpoint: the dialog names the unit, stage, last outcome and the
+// choice between Continue and a new run, and Enter resumes the checkpoint.
+func TestRecoveryDialogShowsSavedStateAndContinues(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, recoveryModel(t, root, pausedRecovery()), 120, 40)
+	if model.dialog != dialogRecover {
+		t.Fatalf("recovery dialog = %v, want the saved run dialog", model.dialog)
+	}
+	view := model.String()
+	for _, want := range []string{
+		"Recover the saved run", "P001.1.2", "an agent call",
+		"Last run: 20261101T101500Z — paused (exit 0), paused; P001.1.2 paused",
+		"R continues", "s starts a new run with the plan's settings",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("recovery dialog does not contain %q:\n%s", want, view)
+		}
+	}
+	updated, _ := model.Update(keyMsg("esc"))
+	model = updated.(Model)
+	if model.dialog != dialogNone || !strings.Contains(model.notice, "R continues") {
+		t.Fatalf("dismissed recovery dialog=%v notice=%q", model.dialog, model.notice)
+	}
+	model = selectRow(t, model, "unit:P001.1.2")
+	if view := model.String(); !strings.Contains(view, "Recovery") || !strings.Contains(view, "Stage: an agent call") {
+		t.Fatalf("the interrupted unit card lost its Recovery block:\n%s", view)
+	}
+
+	resume := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, resume)
+	updated, _ = model.Update(keyMsg("R"))
+	model = updated.(Model)
+	if resume.resumed != 1 || model.runState != runner.StateRunning {
+		t.Fatalf("R: resumed=%d state=%s", resume.resumed, model.runState)
+	}
+	if model.recovery != nil {
+		t.Fatal("a started run kept the saved recovery classification")
+	}
+}
+
+// A checkpoint whose unit is already complete, or one that no longer matches
+// the checkout, refuses Continue with the reason and asks for a new run.
+func TestRecoveryRefusesCompletedOrConflictingCheckpoint(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		recovery runner.Recovery
+		want     string
+	}{
+		{
+			name: "conflict",
+			recovery: runner.Recovery{
+				Checkpoint: &runner.Checkpoint{Plan: "P001", Unit: "P001.1.2", Stage: "agent"},
+				Problem:    "runner: recovery conflict: plan P001 changed since the pause",
+			},
+			want: "Cannot continue this checkpoint: runner: recovery conflict: plan P001 changed since the pause",
+		},
+		{
+			name: "completed",
+			recovery: runner.Recovery{
+				Checkpoint: &runner.Checkpoint{Plan: "P001", Unit: "P001.1.1", Stage: "complete"},
+				Completed:  true,
+			},
+			want: "P001.1.1 is already complete",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeTestProject(t)
+			model := resize(t, recoveryModel(t, root, tc.recovery), 120, 40)
+			view := model.String()
+			if !strings.Contains(view, tc.want) {
+				t.Fatalf("recovery dialog does not contain %q:\n%s", tc.want, view)
+			}
+			if strings.Contains(view, "R continues the interrupted unit") {
+				t.Fatalf("a non-resumable checkpoint offered Continue:\n%s", view)
+			}
+			refusal := ""
+			switch {
+			case tc.recovery.Problem != "":
+				refusal = "cannot resume the saved run"
+			case tc.recovery.Completed:
+				refusal = "is already complete"
+			}
+			updated, _ := model.Update(keyMsg("R"))
+			model = updated.(Model)
+			if !strings.Contains(model.notice, refusal) || !strings.Contains(model.notice, "press s to start a new run") {
+				t.Fatalf("R on a non-resumable checkpoint: notice=%q", model.notice)
+			}
+
+			fresh := newFakeController(runner.StateIdle)
+			model = useControllers(t, model, fresh)
+			updated, _ = model.Update(keyMsg("s"))
+			model = updated.(Model)
+			if fresh.started != 1 || model.runState != runner.StateRunning {
+				t.Fatalf("s after the refusal: started=%d state=%s", fresh.started, model.runState)
+			}
+		})
+	}
+}
+
+// A completed unit whose commit is pending is recovered by the existing cycle,
+// not shown as interrupted work and not run again.
+func TestRecoveryPendingCommitIsOfferedAsContinue(t *testing.T) {
+	root := writeTestProject(t)
+	recovery := runner.Recovery{
+		Checkpoint:    &runner.Checkpoint{Plan: "P001", Unit: "P001.1.1", Stage: "commit"},
+		PendingCommit: true,
+	}
+	model := resize(t, recoveryModel(t, root, recovery), 120, 40)
+	view := model.String()
+	for _, want := range []string{"the done/commit transaction (commit pending)", "R finishes the pending commit", "the unit is not run again"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("pending-commit dialog does not contain %q:\n%s", want, view)
+		}
+	}
+	resume := newFakeController(runner.StateIdle)
+	model = useControllers(t, model, resume)
+	updated, _ := model.Update(keyMsg("enter"))
+	model = updated.(Model)
+	if resume.resumed != 1 {
+		t.Fatalf("Continue on a pending commit resumed %d controllers", resume.resumed)
+	}
+}
+
+// A second workspace sees the live runner lock and refuses to start, while
+// viewing stays available.
+func TestRecoveryRefusesStartUnderLiveRunnerLock(t *testing.T) {
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model.lockCheck = func(string) (int, bool, error) { return 4242, true, nil }
+	model = useControllers(t, model)
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "another runner is active (pid 4242)") {
+		t.Fatalf("start under a live runner: notice=%q", model.notice)
+	}
+	if model.runState != "" {
+		t.Fatalf("a refused start created run state %q", model.runState)
+	}
+}

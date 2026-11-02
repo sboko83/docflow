@@ -253,7 +253,8 @@ func (m Model) helpLines(width, height int) []string {
 		"v            show the last verify log of the selected unit",
 		"m            edit models and executors for the next run",
 		"s            start the current Queue run",
-		"R            resume the saved checkpoint",
+		"R            resume the saved checkpoint; the recovery dialog opens on start",
+		"s            start a new run with the plan's settings",
 		"p, S, x      pause · stop after unit · stop now",
 		"a, F, T, C   activate · freeze · thaw · close the plan",
 		"Esc          close search, dialog, overlay, help or return to the tree",
@@ -402,6 +403,13 @@ func (m Model) detailLines(width int) []string {
 		}
 	case rowUnit:
 		lines = m.unitCardLines(selected, width)
+		if recovery := m.recoverySection(selected.unit.ID); len(recovery) > 0 {
+			addBlank()
+			addHeading("Recovery")
+			for _, line := range recovery {
+				add("%s", line)
+			}
+		}
 		section := m.activitySection(width)
 		if len(section.lines) == 0 {
 			break
@@ -665,6 +673,9 @@ func (m Model) statusLine() string {
 	}
 	if m.lockErr != nil {
 		parts = append(parts, "lock:unknown")
+	}
+	if recovery := m.recoverySummaryLine(); recovery != "" {
+		parts = append(parts, recovery)
 	}
 	if m.dialog != dialogNone {
 		parts = append(parts, "dialog")

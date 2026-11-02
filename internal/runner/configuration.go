@@ -355,6 +355,12 @@ func loadControlledConfiguration(root string, plan *format.Plan, args agents.Run
 	return configuration, nil
 }
 
+// AssignmentLines renders the expanded assignment table of the start and
+// recovery dialogs: the effective routes of every open unit and role.
+func AssignmentLines(effective *EffectiveConfiguration) []string {
+	return assignmentLines(effective)
+}
+
 // assignmentLines renders the expanded assignment table of the start dialog.
 func assignmentLines(effective *EffectiveConfiguration) []string {
 	if effective == nil || len(effective.Units) == 0 {

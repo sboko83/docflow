@@ -266,6 +266,10 @@ gate: go test -timeout 20m ./...
 - Store explicit overrides plus a resolved effective snapshot instead of persisting the whole plan assignment — the plan can change without freezing stale routes, while the last effective table stays auditable — rejected persisting only effective routes
 - Allow a configured legacy agent profile that the built-in executor grammar does not list, as long as the profile exists — legacy plans already support custom agents — rejected rejecting every non-builtin agent name
 - Load the interactive configuration only for controlled runs — the ordinary CLI keeps its existing assignment and flag rules — rejected applying the TUI file to plain docflow run
+- Classified recovery in runner.LoadRecovery with the newest journal summary instead of in the TUI — the plan, unit and HEAD checks already belonged to the runner, and the UI only renders one typed result — rejected re-implementing checkpoint validation in the UI.
+- Check a completed unit's pending commit before the completed classification — an [x] unit with an interrupted commit is real work for the existing cycle, while a completed unit without one must not offer Continue — rejected treating every [x] checkpoint as completed.
+- Open the recovery dialog only on the first successful load — reopening after every reload or after the workspace's own Pause would replace the outcome the person is reading — rejected a dialog on every checkpoint presence.
+- Exported runner.AssignmentLines instead of duplicating the table rendering in the TUI — the recovery dialog and start dialog must show the same assignments — rejected a second formatter.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1248,7 +1252,7 @@ Handoff:
 - Unverified: The model editor is covered by model-level tests, not a PTY run with real terminal keys; live TUI acceptance remains P052.4.1.
 - Unverified: The personal roster display is tested with an injected roster; loading the owner's real roster file and catalog on this Mac is not exercised by Verify.
 
-### [ ] P052.3.2 Restore interrupted terminal sessions
+### [x] P052.3.2 Restore interrupted terminal sessions
 Read:
 - internal/runner/checkpoint.go
 - internal/runner/configuration.go
@@ -1264,6 +1268,13 @@ Do:
 - Покрой в pause_test.go и terminal_test.go реальное завершение TUI посреди вызова, повторное открытие, смену модели, недоступную сессию, изменённый план, pending commit и два конкурирующих запуска.
 Verify: `go test -timeout 20m ./internal/tui/ ./internal/runner/ ./internal/cycle/`
 Commit: P052.3.2: restore interrupted terminal sessions
+Handoff:
+- Recovery is read by runner.LoadRecovery: it combines the checkpoint with the newest *.events.jsonl summary and validates plan, unit, HEAD and plan fingerprint. The TUI calls it only on the first successful load and after run completion.
+- Continue (R/Enter) goes through the existing Control.ResumeRun; s starts a fresh controlled run. A completed unit or a conflict refuses R with the reason and asks for s; a pending commit is detected with cycle.CommitPending and stays resumable.
+- The recovery dialog opens once per TUI session (recoveryPrompted); later reloads keep the status notice and the unit-card Recovery block instead of replacing the screen.
+- Lock behaviour is now covered: release removes the lock only when it still names our pid, a live foreign owner refuses a second acquisition, and a stale pid no longer blocks the next owner.
+- Unverified: The recovery dialog's effective assignment block is not exercised with a real saved <git-dir>/docflow/tui/configuration.json: model tests inject Recovery over non-git fixtures, so LoadConfiguration returns no snapshot and the block stays empty.
+- Unverified: The PTY reopen test covers a paused agent call only; the conflict, completed-unit and pending-commit dialogs are driven by model tests, not by a real terminal session.
 
 ### [ ] P052.3.3 Document and package terminal operation
 Read:

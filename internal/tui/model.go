@@ -134,15 +134,18 @@ type Model struct {
 	notice  string
 	noColor bool
 
-	skillDirectory string
-	controller     Controller
-	newController  func(root, skillDirectory string) Controller
-	controllerDone bool
-	runState       runner.State
-	runErr         string
-	runStopped     bool
-	checkpointed   bool
-	pendingPrompt  *Prompt
+	skillDirectory   string
+	controller       Controller
+	newController    func(root, skillDirectory string) Controller
+	controllerDone   bool
+	runState         runner.State
+	runErr           string
+	runStopped       bool
+	checkpointed     bool
+	pendingPrompt    *Prompt
+	recovery         *runner.Recovery
+	recoveryLoad     func(root string) (runner.Recovery, error)
+	recoveryPrompted bool
 
 	dialog       dialogKind
 	dialogTitle  string
@@ -215,6 +218,7 @@ func newModel(root string, load Loader, noColor bool) Model {
 		lockCheck:        runner.CheckoutLockOwner,
 		modelsConfig:     loadModelsConfig,
 		modelsRoster:     loadModelsRoster,
+		recoveryLoad:     runner.LoadRecovery,
 	}
 }
 
@@ -348,6 +352,7 @@ func (m Model) applySnapshot(msg snapshotMsg) Model {
 		m.state = StateReady
 	}
 	m.refreshLock()
+	m = m.refreshRecovery()
 	m.recountMatches()
 	m.syncCursor()
 	// The reloaded card can change height (a status, a Handoff), which moves
