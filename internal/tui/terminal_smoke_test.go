@@ -4,6 +4,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +62,13 @@ func TestTerminalSmoke(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -141,8 +149,7 @@ func TestTerminalSmoke(t *testing.T) {
 	if !testEchoEnabled(t, master) {
 		t.Fatal("terminal echo was not restored")
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 }
 
 func repoRoot(t *testing.T) string {
@@ -158,5 +165,21 @@ func writeAll(t *testing.T, file *os.File, text string) {
 	t.Helper()
 	if _, err := file.WriteString(text); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// finishReader closes the PTY after the child exited and waits, bounded, for
+// the reader goroutine. The slave goes first: on Linux a blocking read on the
+// master survives Close and only the pty hangup (no open slave left) unblocks
+// it with EIO. The bounded wait keeps a leftover descendant holding the slave
+// from stalling the whole suite.
+func finishReader(t *testing.T, master, slave *os.File, readDone <-chan struct{}) {
+	t.Helper()
+	_ = slave.Close()
+	_ = master.Close()
+	select {
+	case <-readDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pty reader did not stop after close")
 	}
 }

@@ -5,6 +5,7 @@ package tui
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,6 +125,13 @@ func TestTerminalDiffAndVerifyKeys(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -173,8 +181,7 @@ func TestTerminalDiffAndVerifyKeys(t *testing.T) {
 		_ = child.Process.Kill()
 		t.Fatalf("tui did not exit\n%s", output())
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 }
 
 // TestTerminalRunPauseResumeQuit drives the real CLI in a PTY with the shell
@@ -226,6 +233,13 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -319,8 +333,7 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	}
 	sendKey("q")
 	waitExit(child, "tui did not exit after the pause")
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 
 	screen.Reset()
 	master, slave = openTestPTY(t)
@@ -353,6 +366,13 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -380,8 +400,7 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	_, _ = master.WriteString("\r")
 
 	waitExit(child, "tui did not exit after the run finished")
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 	if _, err := os.Stat(filepath.Join(project, ".git", "docflow", "run", "run.lock")); !os.IsNotExist(err) {
 		t.Fatalf("checkout lock left after exit: %v", err)
 	}
@@ -436,6 +455,13 @@ func TestTerminalBlockOpensHumanDialog(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -491,8 +517,7 @@ func TestTerminalBlockOpensHumanDialog(t *testing.T) {
 		_ = child.Process.Kill()
 		t.Fatalf("tui did not exit after the block\n%s", output())
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 	if _, err := os.Stat(filepath.Join(project, ".git", "docflow", "run", "run.lock")); !os.IsNotExist(err) {
 		t.Fatalf("checkout lock left after exit: %v", err)
 	}
@@ -551,6 +576,13 @@ func TestTerminalVerifyFromSubdirectory(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -620,8 +652,7 @@ func TestTerminalVerifyFromSubdirectory(t *testing.T) {
 		_ = child.Process.Kill()
 		t.Fatalf("tui did not exit\n%s", output())
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 }
 
 // TestTerminalQuitWithLiveRunStopsAgent leaves the workspace while the fake
@@ -673,6 +704,13 @@ func TestTerminalQuitWithLiveRunStopsAgent(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -730,8 +768,7 @@ func TestTerminalQuitWithLiveRunStopsAgent(t *testing.T) {
 		_ = child.Process.Kill()
 		t.Fatalf("tui did not exit with a live run\n%s", output())
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 
 	if _, err := os.Stat(filepath.Join(project, ".git", "docflow", "tui", "checkpoint.json")); err != nil {
 		t.Fatalf("exit with a live run did not write a checkpoint: %v", err)
@@ -796,6 +833,13 @@ func TestTerminalQuitFromStartPrompt(t *testing.T) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -852,8 +896,7 @@ func TestTerminalQuitFromStartPrompt(t *testing.T) {
 	if !testEchoEnabled(t, master) {
 		t.Fatal("terminal echo was not restored")
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 }
 
 // TestTerminalSigtermStopsLiveRun sends SIGTERM while the fake agent is still
@@ -916,6 +959,13 @@ func testTerminalSignalStopsRun(t *testing.T, sig syscall.Signal) {
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -1016,8 +1066,7 @@ func testTerminalSignalStopsRun(t *testing.T, sig syscall.Signal) {
 	if !testEchoEnabled(t, master) {
 		t.Fatalf("terminal echo was not restored after %s", sig)
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 }
 
 // TestTerminalLockAtAction opens the workspace on a free checkout, then gives
@@ -1164,6 +1213,13 @@ Commit: P002.1.1: draft
 				mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				return
 			}
 		}
@@ -1267,6 +1323,5 @@ Commit: P002.1.1: draft
 		_ = child.Process.Kill()
 		t.Fatalf("tui did not exit\n%s", output())
 	}
-	_ = master.Close()
-	<-readDone
+	finishReader(t, master, slave, readDone)
 }

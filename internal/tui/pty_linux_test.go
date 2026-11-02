@@ -14,7 +14,10 @@ import (
 
 func openTestPTY(t *testing.T) (*os.File, *os.File) {
 	t.Helper()
-	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
+	// Non-blocking: the runtime poller registers the master, so Close
+	// interrupts a concurrent read. A blocking master deadlocks the reader
+	// on Linux, where close does not wake a blocked read.
+	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ package tui
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -539,6 +540,13 @@ func startAcceptTUI(t *testing.T, p *acceptProject, width, height int, args ...s
 				s.mu.Unlock()
 			}
 			if err != nil {
+				if errors.Is(err, syscall.EAGAIN) {
+					// Outside the runtime poller a non-blocking read
+					// reports EAGAIN instead of blocking; wait for data
+					// instead of treating it as EOF.
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
 				s.mu.Lock()
 				s.readErr = err
 				s.mu.Unlock()
