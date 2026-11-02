@@ -91,7 +91,9 @@ func (m Model) render() string {
 	case StateError:
 		body = m.messageLines(width, bodyHeight, "Cannot load the plan workspace.", m.errText, "r retry · ? help · q quit")
 	default:
-		if m.help {
+		if m.models != nil {
+			body = m.modelsLines(width, bodyHeight)
+		} else if m.help {
 			body = m.helpLines(width, bodyHeight)
 		} else if m.dialog != dialogNone {
 			body = m.dialogLinesView(width, bodyHeight)
@@ -249,6 +251,7 @@ func (m Model) helpLines(width, height int) []string {
 		"f, End       follow the newest activity; G jumps to the last event",
 		"d            show the actual git diff of the working tree",
 		"v            show the last verify log of the selected unit",
+		"m            edit models and executors for the next run",
 		"s            start the current Queue run",
 		"R            resume the saved checkpoint",
 		"p, S, x      pause · stop after unit · stop now",
@@ -698,6 +701,9 @@ func (m Model) statusLine() string {
 			}
 		}
 	}
+	if m.models != nil {
+		parts = append(parts, "models")
+	}
 	if m.overlay != overlayNone {
 		name := "diff"
 		if m.overlay == overlayVerify {
@@ -725,7 +731,7 @@ func (m Model) noticeLines(width int) []string {
 }
 
 func keysLine() string {
-	return "↑↓ move · Enter expand · Tab panel · / search · s start · R resume · p pause · S stop after · x stop now · a/F/T/C lifecycle · ? help · q quit"
+	return "↑↓ move · Enter expand · Tab panel · / search · m models · s start · R resume · p pause · S stop after · x stop now · a/F/T/C lifecycle · ? help · q quit"
 }
 
 func goalText(plan *format.Plan) string {

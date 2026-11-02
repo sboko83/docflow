@@ -53,6 +53,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.models != nil {
+		return m.handleModelsKey(msg)
+	}
 	if m.dialog != dialogNone {
 		return m.handleDialogKey(msg)
 	}
@@ -83,6 +86,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
+	case "m":
+		return m.openModels(), nil
 	case "r":
 		m.state = StateLoading
 		m.errText = ""

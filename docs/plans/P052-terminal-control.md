@@ -263,6 +263,9 @@ gate: go test -timeout 20m ./...
 - Follow двигает панель Details при любом фокусе, а не только при фокусе на ней: на двух панелях Details видна рядом с деревом, и статус `activity:N/N follow` при старом окне — ложь — отвергнута синхронизация только по Tab (оставляет устаревшую панель на экране).
 - Ключи диалога прижаты к низу, тело прокручивается между заголовком и ключами — отвергнуты сжатие текста (теряет предусловия) и запрет диалога на малом экране (40x12 — поддерживаемый размер).
 - Лог записи истории фиксируется при её приходе (`ActivityEntry.Log`), а не ищется по attempt: resume и повторный запуск юнита переиспользуют номер attempt — отвергнут ключ по паре (attempt, номер вызова), которого в событиях нет.
+- Store explicit overrides plus a resolved effective snapshot instead of persisting the whole plan assignment — the plan can change without freezing stale routes, while the last effective table stays auditable — rejected persisting only effective routes
+- Allow a configured legacy agent profile that the built-in executor grammar does not list, as long as the profile exists — legacy plans already support custom agents — rejected rejecting every non-builtin agent name
+- Load the interactive configuration only for controlled runs — the ordinary CLI keeps its existing assignment and flag rules — rejected applying the TUI file to plain docflow run
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1219,7 +1222,7 @@ Handoff:
 
 ## Phase 3: Model setup recovery and delivery
 
-### [ ] P052.3.1 Configure models for the run
+### [x] P052.3.1 Configure models for the run
 Read:
 - internal/agents/agents.go:L548-605
 - internal/agents/agents.go:L701-745
@@ -1237,6 +1240,13 @@ Do:
 Verify: `go test -timeout 20m ./internal/tui/ ./internal/runner/ ./internal/agents/`
 Depends: P052.2.4
 Commit: P052.3.1: configure interactive run models
+Handoff:
+- The model editor is opened with m in the TUI; Enter saves, Esc cancels, and - removes a row's override. The saved file is <git-dir>/docflow/tui/configuration.json.
+- RunConfiguration stores only explicit role/unit overrides plus an effective snapshot. Plain Run ignores it; only a controlled run (Control.StartRun/ResumeRun) loads and refreshes it.
+- Role overrides apply to units with a Role: field; unit overrides win over role overrides. A changed triple for the paused unit is reported in the editor notice and makes Resume start a new session.
+- StartPreview now loads the saved configuration, validates it, and carries the expanded assignment table in StartReview.Assignments for the start dialog.
+- Unverified: The model editor is covered by model-level tests, not a PTY run with real terminal keys; live TUI acceptance remains P052.4.1.
+- Unverified: The personal roster display is tested with an injected roster; loading the owner's real roster file and catalog on this Mac is not exercised by Verify.
 
 ### [ ] P052.3.2 Restore interrupted terminal sessions
 Read:

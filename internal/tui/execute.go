@@ -394,6 +394,7 @@ func startDialogLines(prompt Prompt) (lines, keys []string) {
 			lines = append(lines, "  - "+item)
 		}
 	}
+	lines = append(lines, preview.Assignments...)
 	return lines, []string{"Enter/y starts · Esc/n cancels; declining runs nothing"}
 }
 

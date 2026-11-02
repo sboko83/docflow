@@ -623,9 +623,9 @@ type RunArgs struct {
 
 // Route is the full route for a single unit.
 type Route struct {
-	Agent  string
-	Model  string
-	Effort string
+	Agent  string `json:"agent"`
+	Model  string `json:"model"`
+	Effort string `json:"effort,omitempty"`
 }
 
 // RunSelection selects the current unit or the plan named by --plan.
@@ -971,7 +971,7 @@ func BuildCommand(agent map[string]any, prompt, model, schemaFile, session, effo
 	values := map[string]string{
 		"prompt": prompt, "model": model, "effort": effort,
 		"model_variant": modelVariant,
-		"schema": schemaJSON, "schema_file": schemaFile, "session": session,
+		"schema":        schemaJSON, "schema_file": schemaFile, "session": session,
 	}
 	argv := make([]string, len(args))
 	for i, arg := range args {

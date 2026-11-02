@@ -178,6 +178,37 @@ func eventRoutes(routes []agents.Route) []map[string]string {
 // and permissions, with no secret and no message body. The interactive run
 // configuration of P052.3.1 extends it.
 func eventConfig(plan *format.Plan) map[string]any {
+	return eventConfiguration(plan, nil)
+}
+
+// eventConfiguration extends the plan snapshot with the confirmed interactive
+// overlay and its effective table, so the journal names the assignments the
+// next agent call will use.
+func eventConfiguration(plan *format.Plan, configuration *RunConfiguration) map[string]any {
+	fields := eventConfigPlan(plan)
+	if configuration != nil {
+		if len(configuration.Roles) > 0 {
+			roles := map[string]any{}
+			for role, routes := range configuration.Roles {
+				roles[role] = eventRoutes(routes)
+			}
+			fields["configured_roles"] = roles
+		}
+		if len(configuration.Units) > 0 {
+			units := map[string]any{}
+			for id, routes := range configuration.Units {
+				units[id] = eventRoutes(routes)
+			}
+			fields["configured_units"] = units
+		}
+		if configuration.Effective != nil {
+			fields["effective"] = configuration.Effective
+		}
+	}
+	return fields
+}
+
+func eventConfigPlan(plan *format.Plan) map[string]any {
 	fields := map[string]any{"permissions": "auto"}
 	if plan == nil {
 		return fields

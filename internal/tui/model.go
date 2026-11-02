@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"bsv-docflow/internal/agentio"
+	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/runner"
@@ -180,6 +181,10 @@ type Model struct {
 	verifyRef   agentio.ActivityRef
 	verifySkip  int
 	verifyTotal int
+
+	models       *modelsScreen
+	modelsConfig func(plan *format.Plan, args agents.RunArgs) (map[string]any, error)
+	modelsRoster func(plan *format.Plan) (map[string][]agents.Route, error)
 }
 
 // New builds the workspace model for the project at root.
@@ -208,6 +213,8 @@ func newModel(root string, load Loader, noColor bool) Model {
 		newController:    func(root, skills string) Controller { return NewHost(root, skills) },
 		lifecycle:        cycle.Self,
 		lockCheck:        runner.CheckoutLockOwner,
+		modelsConfig:     loadModelsConfig,
+		modelsRoster:     loadModelsRoster,
 	}
 }
 

@@ -18,7 +18,16 @@ type executorChain struct {
 	enabled     bool
 }
 
-func unitExecutorChain(config map[string]any, plan *format.Plan, unit *format.Unit, args agents.RunArgs, unavailable map[string]time.Time) (*executorChain, error) {
+func unitExecutorChain(config map[string]any, plan *format.Plan, unit *format.Unit, args agents.RunArgs, unavailable map[string]time.Time, overrides ...*RunConfiguration) (*executorChain, error) {
+	var configuration *RunConfiguration
+	if len(overrides) > 0 {
+		configuration = overrides[0]
+	}
+	if routes, ok := configuration.unitOverride(plan, unit); ok {
+		// An interactive configuration is an explicit chain, whether the
+		// plan uses roles, an executor triple, or the legacy tiers.
+		return newExecutorChain(routes, config, unavailable, true), nil
+	}
 	if args.Executors {
 		// RunRoute checks that executor mode stayed fixed and validates all
 		// assignments before the runner builds the unit's full chain.

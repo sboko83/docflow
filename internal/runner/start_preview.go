@@ -18,6 +18,7 @@ type StartReview struct {
 	Permissions   string   `json:"permissions,omitempty"`
 	Full          bool     `json:"full"`
 	Prerequisites []string `json:"prerequisites,omitempty"`
+	Assignments   []string `json:"assignments,omitempty"`
 }
 
 // StartRequirements returns the permission mode and the human-provided
@@ -59,6 +60,22 @@ func StartPreview(root string, args Args) (StartReview, error) {
 	preview.Title = sel.Plan.Meta["title"]
 	preview.Permissions = format.PlanPermissions(sel.Plan)
 	preview.Full = preview.Permissions == "full"
+	if agentConfig, configErr := agents.RunConfig(sel.Plan, &args.RunArgs); configErr == nil {
+		configuration, loadErr := LoadConfiguration(root)
+		if loadErr != nil {
+			return StartReview{}, loadErr
+		}
+		if err := ValidateConfiguration(configuration, sel.Plan, agentConfig); err != nil {
+			return StartReview{}, err
+		}
+		effective, err := EffectiveAssignments(sel.Plan, args.RunArgs, agentConfig, configuration)
+		if err != nil {
+			return StartReview{}, err
+		}
+		preview.Assignments = assignmentLines(effective)
+	} else {
+		return StartReview{}, configErr
+	}
 	started := format.PlanStarted(sel.Plan)
 	for _, prerequisite := range format.PlanPrerequisites(sel.Plan) {
 		line := prerequisite.Text
