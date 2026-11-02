@@ -285,6 +285,11 @@ gate: go test -timeout 20m ./...
 - Rejected writing the pruned overlay from StartPreview: the preview must stay read-only, and loadControlledConfiguration already persists the refreshed file at run start
 - Run limits flow from the tui command flags through one applyOptions/WithRunLimits path and Model.newHost, with no second default factory that could silently drop them — keeps one construction point for the host — rejected keeping the old NewHost default factory and overriding it after Run
 - The driver requires the dialog's limit wording produced by runner.RunLimitsLine instead of a locally duplicated string — the acceptance driver and the dialog cannot drift — rejected matching only a loose 'attempts' substring
+- Added a test-only ANSI screen emulator to acceptance_test.go instead of matching raw PTY bytes — raw captures contain only changed suffixes and cursor moves, so screen assertions need a reconstructed grid — rejected suffix matching and model-only assertions.
+- Built the CLI once in TestMain and faked the built-in CLIs on PATH — executor-mode plans ignore DOCFLOW_AGENTS, so the product's own argv and stream profiles must be the boundary under test — rejected custom agent profiles and a build per test.
+- Created the pending-commit fixture with the real prompt/verify/done commands — reproduces the actual done/commit transaction and its committing record — rejected hand-writing the committing marker.
+- Treated a pause during verify as the complete stable boundary (checkpoint stage complete, unit committed, journal paused) — matches P052.1.2's rule that verify and done/commit finish before the pause — rejected expecting a verify-stage checkpoint.
+- Cleared DOCFLOW_RUNNER_UNIT from every acceptance child environment — the suite itself runs under the runner, and direct docflow commands or TUI lifecycle must not inherit its lock — rejected relying on individual commands to unset it.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1423,7 +1428,7 @@ Handoff:
 
 ## Phase 4: Acceptance
 
-### [ ] P052.4.1 Accept the complete terminal workflow
+### [x] P052.4.1 Accept the complete terminal workflow
 Read:
 - internal/tui/terminal_test.go
 - internal/tui/app_test.go
@@ -1444,6 +1449,16 @@ Verify: `go test -timeout 20m ./... && go build -o bin/docflow ./cmd/docflow && 
 Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.4, P052.2.1, P052.2.2, P052.2.3, P052.2.4, P052.3.1, P052.3.2, P052.3.3, P052.3.4, P052.3.5, P052.3.6, P052.3.7
 Role: acceptance
 Commit: P052.4.1: accept terminal workflow
+Handoff:
+- internal/tui/acceptance_test.go builds the CLI once in TestMain and drives it in a PTY with fake codex/pi/claude executables; internal/tui/acceptance_windows_test.go runs the real Windows binary only for the non-terminal refusal and tui --help.
+- The acceptance suite covers navigation/editor, start, live history, pause with a child tool, resume with a changed assignment, stop after unit, stop now, fallback/limits, stderr/diff/verify, manual scroll/follow, large stream, unknown event, human block/note, full/draft/foreign/checkpoint refusals, pending commit, reopen+continue and a pause during verify; docflow verify P052.4.1 and the parity/install checks pass.
+- Unverified disposition: P052.1.1 verify pause is covered by TestAcceptancePauseDuringVerify at the complete boundary; P052.1.3 running and partial call-log reads are covered by the live tool page in TestAcceptancePauseChildProcessAndChangedAssignment; P052.3.1 model editor and P052.3.2 recovery dialogs with a real configuration.json are PTY-covered; P052.3.7 non-default limits are covered. Still open on their units: P052.1.2 waitRefusal pause (the fake switches routes instead), P052.2.3 Close success (model-tested only), P052.3.1 owner's real roster (isolated HOME), and live Pi/Codex/opencode (P052.4.2).
+- Test changes audit: the earlier +skip entries are darwin/linux build tags, -N lines entries are fixture/index updates, the roster fixture uses a now-relative day, and no existing assertion was weakened.
+- The plan file docs/plans/P052-terminal-control.md was already modified before this unit; the acceptance work neither edited nor committed it.
+- The acceptance tests clear DOCFLOW_RUNNER_UNIT from child environments because the suite itself runs under the runner; direct docflow done/verify fixtures and TUI lifecycle actions would otherwise be refused.
+- P052.4.2 still needs the real Pi/Codex run and receipt --check; the fake streams here prove only the product boundary, not live provider shapes or session resume.
+- Unverified: The test-only ANSI emulator covers the CSI sequences the current Bubble Tea renderer emits; a renderer change or an unhandled sequence could make a screen assertion wrong. Missing check: a conformance fixture or golden capture for new renderer sequences.
+- Unverified: The PTY scenarios use fixed 20-60s waits around fake agents; on a heavily loaded CI runner a wait could still be exceeded. Missing check: repeated runs on a loaded Linux CI runner, since this verify ran on macOS.
 
 ### [ ] P052.4.2 Accept live Pi and Codex execution
 Read:
