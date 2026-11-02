@@ -139,8 +139,14 @@ func (h *Host) Finished() bool {
 
 func (h *Host) Err() error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.launch
+	launch := h.launch
+	h.mu.Unlock()
+	if launch != nil {
+		return launch
+	}
+	// A run that fails after authentication but before the first event has no
+	// journal entry; its reason lives on the control, not on the launch.
+	return h.control.Err()
 }
 
 func (h *Host) Close() {

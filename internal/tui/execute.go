@@ -36,10 +36,12 @@ func pollSoon() tea.Cmd {
 }
 
 // eventReloadsPlan names observations after which the tree can show a new
-// unit status or a changed Queue and plan list.
+// unit status or a changed Queue and plan list. docflow prompt marks the unit
+// in progress after unit_start, so attempt is the first event that carries
+// that change.
 func eventReloadsPlan(kind string) bool {
 	switch kind {
-	case "run_start", "unit_start", "unit_end", "commit", "verify", "replan", "close", "run_end":
+	case "run_start", "unit_start", "attempt", "unit_end", "commit", "verify", "replan", "close", "run_end":
 		return true
 	}
 	return false

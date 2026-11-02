@@ -1,11 +1,13 @@
 package runner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"bsv-docflow/internal/agentio"
 	"bsv-docflow/internal/agents"
@@ -62,12 +64,16 @@ func TestQuotaRefusalResetOpencode(t *testing.T) {
 		t.Fatalf("reset = %v; want nil without an exhausted window", *got)
 	}
 	// `limited` wins over the percentage: the refusal waits for that window.
-	limited := strings.Replace(opencodeLimitsFixture(t), `"weekly":{"percent":1,"limited":false`,
-		`"weekly":{"percent":1,"limited":true`, 1)
+	// The fixture's weekly reset is a fixed past date, and a live refusal
+	// always names a future window, so the test moves the reset with the
+	// clock instead of freezing a timestamp that ages into the past.
+	reset := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	limited := strings.Replace(opencodeLimitsFixture(t), `"weekly":{"percent":1,"limited":false,"resetsAt":1793577600000`,
+		fmt.Sprintf(`"weekly":{"percent":1,"limited":true,"resetsAt":%d`, reset.UnixMilli()), 1)
 	config = stubOpencodeQuota(t, limited)
 	got := quotaRefusalReset(route, profile(config, "opencode"))
-	if got == nil || *got != 1793577600 {
-		t.Fatalf("reset = %v; want the weekly window reset 1793577600", got)
+	if got == nil || *got != float64(reset.Unix()) {
+		t.Fatalf("reset = %v; want the weekly window reset %d", got, reset.Unix())
 	}
 	// An agent without a quota command offers no reset and is not probed.
 	if got := quotaRefusalReset(agents.Route{Agent: "fake"}, map[string]any{"stream": "claude"}); got != nil {

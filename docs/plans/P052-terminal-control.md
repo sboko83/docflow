@@ -1144,7 +1144,7 @@ Handoff:
 - The tests pin flow with Model.String() (status line activity:N/M and the 'following the newest event'/'paused: new events...' texts), so changes to those strings break the oracle.
 - Unverified: Selection changed by a filtered tree search (syncCursor, not setCursor) does not reset follow/cursor; no test covers the follow state after such a change, and this unit leaves that path unchanged.
 
-### [ ] P052.2.23 Show the running unit and the pre-start refusal reason
+### [x] P052.2.23 Show the running unit and the pre-start refusal reason
 Read:
 - internal/tui/execute.go:L38-46
 - internal/tui/execute.go:L160-260
@@ -1161,6 +1161,12 @@ Do:
 Verify: `go test -timeout 20m ./...`
 Depends: P052.2.22
 Commit: P052.2.23: show running status and start refusal
+Handoff:
+- План перечитывается по событию attempt (internal/tui/execute.go:eventReloadsPlan): docflow prompt успевает записать [~] до события, поэтому дерево, карточка и статус показывают doing. Проверка: TestAttemptReloadsTheRunningStatus в internal/tui и TestAttemptCarriesTheInProgressStatus в internal/runner.
+- Причина отказа до run_start теперь живёт в runner.Control.Err(); Host.Err() отдаёт ошибку запуска, если она есть, иначе ошибку execute, поэтому notice показывает реальный текст. Проверка: TestControlledRunReportsTheStartRefusalReason.
+- Управляемая остановка не стала failed-notice: runControlled нормализует код и ошибку, Stop now пишет run_end.reason stopped; ветки Paused/Stopped/Cancelled не менялись и покрыты прежними тестами.
+- Попутно починен date-bomb в TestQuotaRefusalResetOpencode: reset недельного окна берётся от time.Now(), иначе тест падал начиная с 2026-11-02 (reset в фикстуре — эта дата).
+- Unverified: перечитывание по attempt проверено событиями и Model.String(), не отдельным PTY-сценарием с живым агентом; смена статуса в середине вызова прежними PTY-тестами не покрыта.
 
 ### [ ] P052.2.4 Review terminal behavior and controls
 Read:

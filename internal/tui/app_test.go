@@ -1512,6 +1512,39 @@ func TestPreStartFailureNoticeShowsTheReason(t *testing.T) {
 	}
 }
 
+// TestAttemptReloadsTheRunningStatus keeps the tree, the unit card and the
+// status line on the unit the runner marks in progress: docflow prompt writes
+// [~] after unit_start, so attempt is the first event that carries it.
+func TestAttemptReloadsTheRunningStatus(t *testing.T) {
+	root := writeTestProject(t)
+	planPath := filepath.Join(root, "docs", "plans", "P001-cache.md")
+	running, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	todo := strings.Replace(string(running), "### [~] P001.1.2", "### [ ] P001.1.2", 1)
+	if err := os.WriteFile(planPath, []byte(todo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model = selectRow(t, model, "unit:P001.1.2")
+	if !strings.Contains(model.String(), "Status: todo") {
+		t.Fatalf("the fixture does not start as todo:\n%s", model.String())
+	}
+	// docflow prompt marks the unit in progress before the agent call starts.
+	if err := os.WriteFile(planPath, running, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	updated, cmd := model.Update(ActivityMsg{Event: runner.Event{Type: "attempt", Unit: "P001.1.2"}})
+	model = updated.(Model)
+	model = applyLoad(t, model, cmd)
+	for _, want := range []string{"Status: doing", "selected:unit:P001.1.2 [doing]"} {
+		if !strings.Contains(model.String(), want) {
+			t.Fatalf("attempt did not reload the running status: missing %q\n%s", want, model.String())
+		}
+	}
+}
+
 func TestPausedNoticeSurvivesReload(t *testing.T) {
 	root := writeTestProject(t)
 	model := resize(t, loadedModel(t, root), 120, 40)

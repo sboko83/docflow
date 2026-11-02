@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"bsv-docflow/internal/agents"
+	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
 )
 
@@ -116,6 +117,57 @@ drain:
 	}
 	if len(files) != 0 {
 		t.Fatalf("a pre-start failure wrote journal files: %v", files)
+	}
+}
+
+// TestAttemptCarriesTheInProgressStatus keeps the event order the workspace
+// reloads on: docflow prompt writes [~] before the attempt event, so a reload
+// at attempt already shows the unit as doing.
+func TestAttemptCarriesTheInProgressStatus(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	f.steps("sleep 1\n" + writeReply("a.txt"))
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, Replans: 1, MaxUnits: intPointer(1), NoNotify: true})
+	deadline := time.After(30 * time.Second)
+	for {
+		select {
+		case event := <-control.Events():
+			if event.Type != "attempt" {
+				continue
+			}
+			_, unit, err := cycle.FindUnit(f.root, event.Unit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if unit.Status != "~" {
+				t.Fatalf("status at attempt = %q, want the in-progress marker", unit.Status)
+			}
+			awaitDone(t, control)
+			return
+		case <-deadline:
+			t.Fatal("the run never reached an attempt")
+		}
+	}
+}
+
+// TestControlledRunReportsTheStartRefusalReason keeps the reason of a refusal
+// that happens before the first run event: runSelection and RunConfig return
+// before start_failure is published, so the host reads the execution error
+// from Err instead of showing a generic failure.
+func TestControlledRunReportsTheStartRefusalReason(t *testing.T) {
+	f := newRunFixture(t)
+	f.setConfig("[tiers]\ndefault = {agent = \"missing\"}\n")
+	t.Setenv("DOCFLOW_AGENTS", f.config)
+	control := NewControl(16, 2)
+	startControlledRun(t, f, control, Args{Attempts: 1, Replans: 1, NoNotify: true})
+	awaitDone(t, control)
+	if got := control.State(); got != StateFailed {
+		t.Fatalf("state = %s, want %s", got, StateFailed)
+	}
+	err := control.Err()
+	if err == nil || !strings.Contains(err.Error(), "agent 'missing' has no profile") {
+		t.Fatalf("Err() = %v, want the refused agent reason", err)
 	}
 }
 

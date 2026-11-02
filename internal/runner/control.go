@@ -69,6 +69,10 @@ type Control struct {
 	// startCancelled records that the interactive owner declined or cancelled
 	// the pending confirmation before any work began.
 	startCancelled bool
+	// err is the execution error of the last run. A refusal before the first
+	// event has no journal entry, so the host reads its reason here instead of
+	// seeing only a failed state.
+	err error
 }
 
 func NewControl(eventBuffer, requestBuffer int) *Control {
@@ -83,6 +87,7 @@ func NewControl(eventBuffer, requestBuffer int) *Control {
 
 func (c *Control) State() State             { c.mu.Lock(); defer c.mu.Unlock(); return c.state }
 func (c *Control) Checkpointed() bool       { c.mu.Lock(); defer c.mu.Unlock(); return c.checkpointed }
+func (c *Control) Err() error               { c.mu.Lock(); defer c.mu.Unlock(); return c.err }
 func (c *Control) Events() <-chan Event     { return c.events }
 func (c *Control) Requests() <-chan Request { return c.requests }
 func (c *Control) Done() <-chan struct{}    { return c.done }
@@ -145,6 +150,7 @@ func (c *Control) Start(parent context.Context, execute func(context.Context, *C
 	c.state = StateStarting
 	c.checkpointed = false
 	c.startCancelled = false
+	c.err = nil
 	c.done = make(chan struct{})
 	c.mu.Unlock()
 	go func() {
@@ -155,6 +161,7 @@ func (c *Control) Start(parent context.Context, execute func(context.Context, *C
 		cancel()
 		c.mu.Lock()
 		cancelled := c.startCancelled
+		c.err = err
 		switch {
 		case paused && err == nil:
 			c.state = StatePaused
