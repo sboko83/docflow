@@ -97,6 +97,15 @@ func (m Model) selectedPlan() *PlanView {
 	return selected.plan
 }
 
+// newHost creates the runner host of one controlled run. Tests replace the
+// factory; the default carries the run limits of this workspace.
+func (m Model) newHost(root, skills string) Controller {
+	if m.newController != nil {
+		return m.newController(root, skills)
+	}
+	return NewHost(root, skills, m.runLimits)
+}
+
 // startRun starts a fresh run or resumes the checkpoint. The runner asks for
 // its own start confirmation through the prompt channel; the workspace never
 // answers it on the person's behalf. The last result reports whether a
@@ -130,11 +139,7 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd, bool) {
 		m.notice = "nothing to start: Queue is empty"
 		return m, nil, false
 	}
-	factory := m.newController
-	if factory == nil {
-		factory = func(root, skills string) Controller { return NewHost(root, skills) }
-	}
-	controller := factory(m.root, m.skillDirectory)
+	controller := m.newHost(m.root, m.skillDirectory)
 	if controller == nil {
 		m.notice = "cannot create the runner host"
 		return m, nil, false
@@ -401,6 +406,9 @@ func startDialogLines(prompt Prompt) (lines, keys []string) {
 		for _, item := range preview.Prerequisites {
 			lines = append(lines, "  - "+item)
 		}
+	}
+	if limits := preview.Limits(); limits != "" {
+		lines = append(lines, limits)
 	}
 	lines = append(lines, preview.Assignments...)
 	return lines, []string{"Enter/y starts · Esc/n cancels; declining runs nothing"}

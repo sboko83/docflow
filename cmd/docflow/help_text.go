@@ -408,7 +408,7 @@ options:
                         skill directory set (default: claude)
   --target DIR          personal skills directory override
 `,
-	"tui": `usage: docflow tui [-h]
+	"tui": `usage: docflow tui [-h] [--attempts N] [--replans N]
 
 open the interactive terminal workspace for the queue and plans
 
@@ -420,7 +420,9 @@ the same activate, freeze, thaw and close checks as the CLI. Without a
 terminal it refuses and points at the ordinary CLI commands.
 
 options:
-  -h, --help  show this help message and exit
+  -h, --help    show this help message and exit
+  --attempts N  agent calls per unit (default 3)
+  --replans N   auto-replan calls per phase (default 3; 0 disables)
 `,
 	"run": `usage: docflow run [-h] [--config PATH] [--agent NAME] [--model M]
                    [--effort E] [--attempts N] [--replans N] [--max-units N]

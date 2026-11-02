@@ -146,6 +146,19 @@ func TestRunWritesReceiptAndCheckAcceptsIt(t *testing.T) {
 	}
 }
 
+func TestCheckRejectsAnotherRunLimit(t *testing.T) {
+	checkout := testCheckout(t)
+	r := runSuccess(t, checkout)
+	if r.Scenarios[0].Attempts != 1 || r.Scenarios[0].Replans != 0 {
+		t.Fatalf("default receipt limits = %d/%d, want 1/0", r.Scenarios[0].Attempts, r.Scenarios[0].Replans)
+	}
+	r.Scenarios[0].Attempts = 3
+	writeTestReceipt(t, checkout, r)
+	if err := checkCommand([]string{"--checkout", checkout, "--binary", testBinary}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "limits") {
+		t.Fatalf("--check accepted another run limit: err = %v", err)
+	}
+}
+
 func TestCheckRejectsAnotherHeadOrBinary(t *testing.T) {
 	checkout := testCheckout(t)
 	runSuccess(t, checkout)
@@ -190,13 +203,13 @@ func TestCheckRejectsUnprovenPauseOrMissingToolCall(t *testing.T) {
 	brokenPause := r
 	brokenPause.Scenarios = append([]scenarioReceipt{}, r.Scenarios...)
 	brokenPause.Scenarios[0].Pause.CheckpointWritten = false
-	if err := validateReceipt(brokenPause, head, hash, defaultMaxCalls, defaultCallLimit, defaultMaxAge, true); err == nil || !strings.Contains(err.Error(), "pause is not proven") {
+	if err := validateReceipt(brokenPause, head, hash, 1, 0, defaultMaxCalls, defaultCallLimit, defaultMaxAge, true); err == nil || !strings.Contains(err.Error(), "pause is not proven") {
 		t.Fatalf("unproven pause: err = %v", err)
 	}
 	missingTool := r
 	missingTool.Scenarios = append([]scenarioReceipt{}, r.Scenarios...)
 	missingTool.Scenarios[0].ToolCall = false
-	if err := validateReceipt(missingTool, head, hash, defaultMaxCalls, defaultCallLimit, defaultMaxAge, true); err == nil || !strings.Contains(err.Error(), "no tool call") {
+	if err := validateReceipt(missingTool, head, hash, 1, 0, defaultMaxCalls, defaultCallLimit, defaultMaxAge, true); err == nil || !strings.Contains(err.Error(), "no tool call") {
 		t.Fatalf("missing tool call: err = %v", err)
 	}
 }
@@ -259,7 +272,7 @@ func TestReceiptMaxAge(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.CreatedAt = time.Now().Add(-8 * 24 * time.Hour)
-	if err := validateReceipt(r, head, hash, defaultMaxCalls, defaultCallLimit, defaultMaxAge, true); err == nil || !strings.Contains(err.Error(), "older") {
+	if err := validateReceipt(r, head, hash, 1, 0, defaultMaxCalls, defaultCallLimit, defaultMaxAge, true); err == nil || !strings.Contains(err.Error(), "older") {
 		t.Fatalf("old receipt: err = %v", err)
 	}
 }

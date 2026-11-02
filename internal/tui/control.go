@@ -44,9 +44,19 @@ type Controller interface {
 	Close()
 }
 
-// Host owns one runner.Control for the checkout and applies the run defaults
-// of the terminal workspace: three attempts per unit and three replans per
-// phase. The plan keeps its own executor, permission and replan settings.
+// RunLimits are the controlled run's attempts per unit and replans per phase.
+type RunLimits struct {
+	Attempts int
+	Replans  int
+}
+
+// DefaultRunLimits are the run limits of the terminal workspace when the
+// command line does not override them.
+func DefaultRunLimits() RunLimits { return RunLimits{Attempts: 3, Replans: 3} }
+
+// Host owns one runner.Control for the checkout and applies the run limits of
+// the terminal workspace. The plan keeps its own executor, permission and
+// replan settings.
 type Host struct {
 	root, skills string
 	args         runner.Args
@@ -59,12 +69,17 @@ type Host struct {
 }
 
 // NewHost builds an idle host for root. The checkout lock is not taken until
-// the run actually starts.
-func NewHost(root, skills string) *Host {
+// the run actually starts. Without an explicit limit it uses the workspace
+// defaults of three attempts and three replans.
+func NewHost(root, skills string, limits ...RunLimits) *Host {
+	limit := DefaultRunLimits()
+	if len(limits) > 0 {
+		limit = limits[0]
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Host{
 		root: root, skills: skills,
-		args:    runner.Args{Attempts: 3, Replans: 3, NoNotify: true},
+		args:    runner.Args{Attempts: limit.Attempts, Replans: limit.Replans, NoNotify: true},
 		ctx:     ctx,
 		cancel:  cancel,
 		control: runner.NewControl(256, 4),

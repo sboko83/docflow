@@ -283,6 +283,8 @@ gate: go test -timeout 20m ./...
 - Лимиты управляемого прогона задаются флагами `docflow tui --attempts/--replans` (по умолчанию 3/3) и видны в стартовом подтверждении; драйвер передаёт их в argv, а квитанция их фиксирует — отвергнуты env-переменная только для драйвера (невидимый из продукта тестовый seam) и запись лимитов в `configuration.json` (этот файл — overlay назначений, а не лимитов); править `Do:` приёмки P052.4.2 запрещено.
 - Prune overlays at each read point instead of making ValidateConfiguration lenient — the [x]/[-] edit guard must survive, and reading is where a stale file appears — rejected a tolerant validator and manual deletion of configuration.json
 - Rejected writing the pruned overlay from StartPreview: the preview must stay read-only, and loadControlledConfiguration already persists the refreshed file at run start
+- Run limits flow from the tui command flags through one applyOptions/WithRunLimits path and Model.newHost, with no second default factory that could silently drop them — keeps one construction point for the host — rejected keeping the old NewHost default factory and overriding it after Run
+- The driver requires the dialog's limit wording produced by runner.RunLimitsLine instead of a locally duplicated string — the acceptance driver and the dialog cannot drift — rejected matching only a loose 'attempts' substring
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1362,7 +1364,7 @@ Handoff:
 - ValidateConfiguration still rejects [x]/[-]/foreign units, so anything constructing a config for validation must prune first or it will be refused.
 - Roles are pruned against roles of ALL units in the plan (same set ValidateConfiguration uses), not only open ones.
 
-### [ ] P052.3.7 Set the controlled run limits
+### [x] P052.3.7 Set the controlled run limits
 Read:
 - internal/tui/control.go:L52-90
 - internal/tui/model.go:L190-230
@@ -1384,6 +1386,12 @@ Verify: `bash -n tools/tui-live.sh && go test -timeout 20m ./cmd/docflow/ ./inte
 Traps: `--replans 0` выключает авто-replan (replan.go:255), это не «без лимита»; `attempts 0` раннер отвергает до старта, поэтому проверка нужна в CLI, а не только в хосте. Обычный `docflow run` и его флаги не меняются.
 Depends: P052.3.4
 Commit: P052.3.7: set controlled run limits
+Handoff:
+- Run limits live on tui.Model.runLimits and reach the host through Model.newHost; newModel no longer installs a default newController factory, so a test that wants a fake controller sets it and a nil factory builds NewHost with the workspace limits.
+- The start dialog limit line is runner.StartReview.Limits(), populated by StartPreview from Args.Attempts/Replans; runner.RunLimitsLine is the single wording shared with tools/tui-live, which requires the exact line 'attempts N · auto-replan off' for replans 0.
+- tools/tui-live run/check now both take --attempts (default 1) and --replans (default 0), pass them to the PTY argv and compare them against scenarioReceipt.attempts/replans; the fake-CLI tests use only the 1/0 default.
+- Unverified: tools/tui-live with non-default --attempts/--replans (for example 2/1) is not exercised on a PTY; tests cover only the 1/0 defaults and receipt mismatch rejection.
+- Unverified: The Windows terminal stub was compiled with GOOS=windows after the startTerminal signature change but no Windows live run was performed; Unix PTY tests are the only runtime coverage.
 
 ### [ ] P052.3.5 Review configuration recovery and delivery
 Read:

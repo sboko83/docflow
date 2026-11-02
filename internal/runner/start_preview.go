@@ -19,6 +19,8 @@ type StartReview struct {
 	Full          bool     `json:"full"`
 	Prerequisites []string `json:"prerequisites,omitempty"`
 	Assignments   []string `json:"assignments,omitempty"`
+	Attempts      int      `json:"attempts,omitempty"`
+	Replans       int      `json:"replans,omitempty"`
 }
 
 // StartRequirements returns the permission mode and the human-provided
@@ -49,7 +51,7 @@ func StartPreview(root string, args Args) (StartReview, error) {
 	if err != nil {
 		return StartReview{}, err
 	}
-	preview := StartReview{Kind: sel.Kind}
+	preview := StartReview{Kind: sel.Kind, Attempts: args.Attempts, Replans: args.Replans}
 	if sel.Unit != nil {
 		preview.Unit = sel.Unit.ID
 	}
@@ -100,6 +102,24 @@ func StartPreview(root string, args Args) (StartReview, error) {
 		preview.Unit = sel.Unit.ID
 	}
 	return preview, nil
+}
+
+// Limits names the effective run limits of the interactive confirmation.
+func (p StartReview) Limits() string {
+	if p.Attempts <= 0 {
+		return ""
+	}
+	return RunLimitsLine(p.Attempts, p.Replans)
+}
+
+// RunLimitsLine is the one wording of the controlled run limits shared by the
+// start dialog and the live acceptance driver.
+func RunLimitsLine(attempts, replans int) string {
+	replan := "off"
+	if replans > 0 {
+		replan = fmt.Sprintf("%d per phase", replans)
+	}
+	return fmt.Sprintf("attempts %d · auto-replan %s", attempts, replan)
 }
 
 func (p StartReview) Summary() string {

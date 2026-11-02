@@ -9,7 +9,7 @@ import (
 
 type terminal struct{}
 
-func startTerminal(string, string, []string) (*terminal, error) {
+func startTerminal(string, string, []string, ...string) (*terminal, error) {
 	return nil, errors.New("live terminal acceptance needs a Unix PTY; run on macOS or Linux")
 }
 

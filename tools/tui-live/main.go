@@ -19,9 +19,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"bsv-docflow/internal/runner"
 )
 
 const (
@@ -70,6 +73,8 @@ type hostInfo struct {
 type scenarioReceipt struct {
 	Name        string      `json:"name"`
 	Route       string      `json:"route"`
+	Attempts    int         `json:"attempts"`
+	Replans     int         `json:"replans"`
 	Agent       string      `json:"agent"`
 	Model       string      `json:"model"`
 	Effort      string      `json:"effort"`
@@ -121,6 +126,8 @@ type independent struct {
 type options struct {
 	checkout     string
 	binary       string
+	attempts     int
+	replans      int
 	maxCalls     int
 	callLimit    time.Duration
 	maxAge       time.Duration
@@ -152,16 +159,18 @@ func main() {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "usage: tools/tui-live.sh --run [--checkout DIR] [--binary PATH] [--max-calls N] [--scenario name]")
-	fmt.Fprintln(w, "       tools/tui-live.sh --check [--checkout DIR] [--binary PATH]")
+	fmt.Fprintln(w, "usage: tools/tui-live.sh --run [--checkout DIR] [--binary PATH] [--attempts N] [--replans N] [--max-calls N] [--scenario name]")
+	fmt.Fprintln(w, "       tools/tui-live.sh --check [--checkout DIR] [--binary PATH] [--attempts N] [--replans N]")
 }
 
 func runFlags(args []string) (*options, error) {
 	flags := flag.NewFlagSet("--run", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	opts := &options{maxCalls: defaultMaxCalls, callLimit: defaultCallLimit, maxAge: defaultMaxAge, toolTimeout: 90 * time.Second, startTimeout: 30 * time.Second}
+	opts := &options{attempts: 1, replans: 0, maxCalls: defaultMaxCalls, callLimit: defaultCallLimit, maxAge: defaultMaxAge, toolTimeout: 90 * time.Second, startTimeout: 30 * time.Second}
 	flags.StringVar(&opts.checkout, "checkout", "", "checkout under test (default: current module)")
 	flags.StringVar(&opts.binary, "binary", "", "docflow binary (default: build bin/docflow)")
+	flags.IntVar(&opts.attempts, "attempts", 1, "attempts per unit passed to docflow tui")
+	flags.IntVar(&opts.replans, "replans", 0, "auto-replans per phase passed to docflow tui")
 	flags.IntVar(&opts.maxCalls, "max-calls", defaultsMaxCalls(), "live calls allowed per scenario")
 	flags.DurationVar(&opts.callLimit, "call-timeout", defaultCallLimit, "maximum duration of one live call")
 	flags.DurationVar(&opts.maxAge, "max-age", defaultMaxAge, "maximum receipt age for --check")
@@ -174,6 +183,12 @@ func runFlags(args []string) (*options, error) {
 	if flags.NArg() != 0 {
 		return nil, errors.New("unexpected arguments")
 	}
+	if opts.attempts < 1 {
+		return nil, errors.New("--attempts must be at least 1")
+	}
+	if opts.replans < 0 {
+		return nil, errors.New("--replans must not be negative")
+	}
 	if opts.maxCalls < 1 || opts.callLimit <= 0 || opts.maxAge <= 0 || opts.toolTimeout <= 0 || opts.startTimeout <= 0 {
 		return nil, errors.New("limits must be positive")
 	}
@@ -185,9 +200,11 @@ func defaultsMaxCalls() int { return defaultMaxCalls }
 func checkFlags(args []string) (*options, error) {
 	flags := flag.NewFlagSet("--check", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	opts := &options{maxAge: defaultMaxAge}
+	opts := &options{attempts: 1, replans: 0, maxAge: defaultMaxAge}
 	flags.StringVar(&opts.checkout, "checkout", "", "checkout whose receipt is checked")
 	flags.StringVar(&opts.binary, "binary", "", "docflow binary to match")
+	flags.IntVar(&opts.attempts, "attempts", 1, "attempts per unit recorded by the receipt")
+	flags.IntVar(&opts.replans, "replans", 0, "auto-replans per phase recorded by the receipt")
 	flags.DurationVar(&opts.maxAge, "max-age", defaultMaxAge, "maximum receipt age")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
@@ -252,7 +269,7 @@ func runCommand(args []string, out io.Writer) error {
 		}
 		fmt.Fprintf(out, "tui-live: %s: ok (%d calls)\n", spec.Name, len(scenario.Calls))
 	}
-	if err := validateReceipt(r, head, binHash, opts.maxCalls, opts.callLimit, opts.maxAge, false); err != nil {
+	if err := validateReceipt(r, head, binHash, opts.attempts, opts.replans, opts.maxCalls, opts.callLimit, opts.maxAge, false); err != nil {
 		r.OK = false
 		r.Error = err.Error()
 		writeReceipt(receiptPath, r)
@@ -294,14 +311,14 @@ func checkCommand(args []string, out io.Writer) error {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return fmt.Errorf("receipt is not JSON: %w", err)
 	}
-	if err := validateReceipt(r, head, binHash, defaultMaxCalls, defaultCallLimit, opts.maxAge, true); err != nil {
+	if err := validateReceipt(r, head, binHash, opts.attempts, opts.replans, defaultMaxCalls, defaultCallLimit, opts.maxAge, true); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "tui-live: ok: HEAD %s, binary %s, %d scenarios\n", head, binHash, len(r.Scenarios))
 	return nil
 }
 
-func validateReceipt(r receipt, head, binHash string, maxCalls int, callLimit, maxAge time.Duration, fresh bool) error {
+func validateReceipt(r receipt, head, binHash string, attempts, replans, maxCalls int, callLimit, maxAge time.Duration, fresh bool) error {
 	if r.Version != receiptVersion {
 		return fmt.Errorf("receipt version %d, want %d", r.Version, receiptVersion)
 	}
@@ -338,6 +355,9 @@ func validateReceipt(r receipt, head, binHash string, maxCalls int, callLimit, m
 		}
 		if s.Route != spec.Route() {
 			return fmt.Errorf("%s: route %q, want %q", spec.Name, s.Route, spec.Route())
+		}
+		if s.Attempts != attempts || s.Replans != replans {
+			return fmt.Errorf("%s: receipt limits %d attempts/%d replans, want %d/%d", spec.Name, s.Attempts, s.Replans, attempts, replans)
 		}
 		if len(s.Calls) == 0 {
 			return fmt.Errorf("%s: no live calls", spec.Name)
@@ -491,7 +511,8 @@ func cliVersions() map[string]string {
 
 func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenarioReceipt, err error) {
 	rec = scenarioReceipt{
-		Name: spec.Name, Route: spec.Route(), Agent: spec.Agent, Model: spec.Model, Effort: spec.Effort,
+		Name: spec.Name, Route: spec.Route(), Attempts: opts.attempts, Replans: opts.replans,
+		Agent: spec.Agent, Model: spec.Model, Effort: spec.Effort,
 		StartedAt: time.Now().UTC(),
 	}
 	transition := func(name string) { rec.Transitions = append(rec.Transitions, name) }
@@ -504,7 +525,8 @@ func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenari
 		defer os.RemoveAll(project)
 	}
 	env := terminalEnv()
-	term, err := startTerminal(opts.binary, project, env)
+	tuiArgs := []string{"--attempts", strconv.Itoa(opts.attempts), "--replans", strconv.Itoa(opts.replans)}
+	term, err := startTerminal(opts.binary, project, env, tuiArgs...)
 	if err != nil {
 		return rec, err
 	}
@@ -534,6 +556,10 @@ func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenari
 	term.Send("s")
 	if err := term.WaitFor("Start the current Queue run?", opts.startTimeout); err != nil {
 		return rec, fmt.Errorf("start dialog: %w", err)
+	}
+	limitLine := runner.RunLimitsLine(opts.attempts, opts.replans)
+	if err := term.WaitFor(limitLine, opts.startTimeout); err != nil {
+		return rec, fmt.Errorf("start dialog does not show the run limits: %w", err)
 	}
 	if err := term.WaitFor(spec.Route(), opts.startTimeout); err != nil {
 		return rec, fmt.Errorf("start dialog does not show the assignment: %w", err)
@@ -610,7 +636,7 @@ func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenari
 	transition("exited")
 
 	// Reopen the same project and finish the second unit.
-	term2, err := startTerminal(opts.binary, project, env)
+	term2, err := startTerminal(opts.binary, project, env, tuiArgs...)
 	if err != nil {
 		return rec, err
 	}
@@ -633,6 +659,10 @@ func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenari
 	if err := term2.WaitFor("Start the current Queue run?", opts.startTimeout); err != nil {
 		term2.Close()
 		return rec, fmt.Errorf("second start dialog: %w", err)
+	}
+	if err := term2.WaitFor(limitLine, opts.startTimeout); err != nil {
+		term2.Close()
+		return rec, fmt.Errorf("second start dialog does not show the run limits: %w", err)
 	}
 	term2.Send("\r")
 	if err := waitPlanStatus(project, "P001.1.2", "x", 3*time.Minute); err != nil {

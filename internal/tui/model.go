@@ -135,6 +135,7 @@ type Model struct {
 	noColor bool
 
 	skillDirectory   string
+	runLimits        RunLimits
 	controller       Controller
 	newController    func(root, skillDirectory string) Controller
 	controllerDone   bool
@@ -213,7 +214,7 @@ func newModel(root string, load Loader, noColor bool) Model {
 		followActivity:   true,
 		expandedActivity: map[string]bool{},
 		pages:            map[string]*activityPage{},
-		newController:    func(root, skills string) Controller { return NewHost(root, skills) },
+		runLimits:        DefaultRunLimits(),
 		lifecycle:        cycle.Self,
 		lockCheck:        runner.CheckoutLockOwner,
 		modelsConfig:     loadModelsConfig,

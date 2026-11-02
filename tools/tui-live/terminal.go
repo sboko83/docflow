@@ -26,7 +26,7 @@ type terminal struct {
 	readDone chan struct{}
 }
 
-func startTerminal(bin, dir string, env []string) (*terminal, error) {
+func startTerminal(bin, dir string, env []string, tuiArgs ...string) (*terminal, error) {
 	master, slave, err := openPTY()
 	if err != nil {
 		return nil, err
@@ -36,7 +36,7 @@ func startTerminal(bin, dir string, env []string) (*terminal, error) {
 		slave.Close()
 		return nil, err
 	}
-	cmd := exec.Command(bin, "tui")
+	cmd := exec.Command(bin, append([]string{"tui"}, tuiArgs...)...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave

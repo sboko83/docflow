@@ -275,6 +275,28 @@ func TestTUIHelpAndNonTerminalRefusal(t *testing.T) {
 	}
 }
 
+func TestTUIRunLimitsFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	parsed, code := parseArgs([]string{"tui", "--attempts", "1", "--replans", "0"}, &stdout, &stderr)
+	if parsed == nil || code != 0 {
+		t.Fatalf("tui limits parse = (%v, %d), stderr=%q", parsed, code, stderr.String())
+	}
+	if got := parsed.values["--attempts"]; got != 1 {
+		t.Fatalf("tui --attempts = %#v, want 1", got)
+	}
+	if got := parsed.values["--replans"]; got != 0 {
+		t.Fatalf("tui --replans = %#v, want 0", got)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"tui", "--attempts", "0"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("tui --attempts 0 = %d, stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--attempts must be at least 1") {
+		t.Fatalf("tui --attempts 0 stderr = %q", stderr.String())
+	}
+}
+
 func TestEveryCommandHasHandler(t *testing.T) {
 	for _, spec := range commands {
 		if handlers[spec.name] == nil {

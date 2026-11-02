@@ -17,11 +17,31 @@ type Option func(*options)
 
 type options struct {
 	skillDirectory string
+	runLimits      RunLimits
+	runLimitsSet   bool
 }
 
 // WithSkillDirectory names the installed docflow skills for the start check.
 func WithSkillDirectory(path string) Option {
 	return func(o *options) { o.skillDirectory = path }
+}
+
+// WithRunLimits sets the attempts per unit and replans per phase of the
+// controlled runs this workspace starts.
+func WithRunLimits(attempts, replans int) Option {
+	return func(o *options) {
+		o.runLimits = RunLimits{Attempts: attempts, Replans: replans}
+		o.runLimitsSet = true
+	}
+}
+
+// applyOptions copies the command-line options into the workspace model.
+func applyOptions(model Model, o options) Model {
+	model.skillDirectory = o.skillDirectory
+	if o.runLimitsSet {
+		model.runLimits = o.runLimits
+	}
+	return model
 }
 
 // Run opens the terminal workspace for the project at root. It refuses
@@ -38,8 +58,7 @@ func Run(root string, in io.Reader, out io.Writer, opts ...Option) error {
 	for _, option := range opts {
 		option(&options)
 	}
-	model := New(root)
-	model.skillDirectory = options.skillDirectory
+	model := applyOptions(New(root), options)
 	program := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
 	stopHangup := watchHangup(program)
 	defer stopHangup()
