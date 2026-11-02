@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-02
+
 ### Added
 - `docflow tui` opens a full-screen terminal workspace for the queue and
   plans: the phase and unit tree, a live history of agent messages, tools,
@@ -522,7 +524,8 @@ First public release.
   Releases with sha256 verification; `docflow update` and
   `docflow uninstall`.
 
-[Unreleased]: https://github.com/sboko83/docflow/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/sboko83/docflow/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/sboko83/docflow/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/sboko83/docflow/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/sboko83/docflow/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/sboko83/docflow/compare/v0.18.0...v0.19.0
