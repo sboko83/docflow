@@ -297,6 +297,11 @@ gate: go test -timeout 20m ./...
 - Pi сообщает вызов инструмента дважды (tool_execution_end и toolResult в следующем message_end): парсер закрывает id один раз и берёт имя из toolName, а blockText разворачивает обёртку {"content":[...]} — история показывает один именованный ряд; отвергнуто скрытие toolResult без закрытия id (потерялся бы результат вызова без execution-события).
 - Независимая проверка драйвера принимает ровно один завершающий перевод строки: агентские CLI терминируют файл, а сравнение байт-в-байт валило живую трассу Codex на верном ответе; второй (пустой) строки по-прежнему недостаточно — отвергнуто сравнение с TrimRight (принимало файл из нескольких строк).
 - Владелец разрешил три дополнительных вызова Codex (всего шесть) на один повторный живой прогон: смена бинарника после найденного живым прогоном дефекта драйвера делает прежнюю квитанцию недействительной, и без повтора приёмка недостижима; лимит считается на попытку приёмки — отвергнуты ослабление Verify без живой квитанции и правка Do: приёмки.
+- Находки проверки перед закрытием исправлены напрямую в P052.4.3, без плана исправлений — решение человека: CI был красным на всех ОС с первого push P052, а открытые P052-строки Backlog проверяемы здесь же — отвергнуты новый replan-круг и перенос в Backlog.
+- Отложенные события `replan`/`close`, прерванные управляемым Stop now, несут `result: stopped` и `exit_code: 0` через общий `controlOutcome` — журнал согласован с `run_end`; отвергнута классификация только в `run_end`.
+- Незавершённый вызов replan (Stop now, сигнал, сбой запуска, отмена в ожидании отказа или цепочки) откатывает план к тексту до вызова — правка агента не проверена и не должна оставаться в дереве; отвергнуто сохранение правки при отмене, как было до P052.
+- Пауза в close не откатывает дерево: агент мог уже архивировать и удалить план, поэтому восстановление называет это и просит `git status` перед повторным close — отвергнуты автоматический `git restore` (риск потери чужих правок) и прежний текст «the plan is unchanged».
+- Рантайм Windows проверяется настоящим pseudo console (ConPTY из `golang.org/x/sys/windows`) и тем же тестовым эмулятором экрана, что Unix-приёмка: conhost перерисовывает только изменённые ячейки, поиск по сырому потоку ненадёжен — отвергнуты отдельный эмулятор и проверка только сборки.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1470,7 +1475,7 @@ Handoff:
 ### [x] P052.4.2 Accept live Pi and Codex execution
 Read:
 - tools/tui-live.sh
-- internal/tui/acceptance_test.go
+- internal/tui/acceptance_test.go:L512-560
 - docs/design/tui.md
 - docs/usage.md#автозапуск
 Do:
@@ -1496,3 +1501,25 @@ Handoff:
 - Budget: 6 Codex calls total (3 before the driver fix, 3 after); the owner permitted the repeat and the plan records the budget per acceptance attempt. The Pi route repeated once, 3 calls on the opencode-go subscription. docs/design/runner.md and the plan's Prerequisites describe the stop-file clearing and the extended budget.
 - Test changes audit: the only relaxed assertion is the driver's independent check (one trailing line ending accepted instead of byte-exact); it still rejects a second line and wrong content. All other test files only gained tests; no existing assertion was weakened.
 - Unverified disposition: closed by this live run - P052.1.3 live activity normalization and result shapes, P052.1.5 resume of a paused call on both routes, P052.2.2 live publish and follow, P052.2.3 live Pi/Codex paths and Stop after unit in a real terminal, P052.2.5 child-process termination on Pause, P052.2.6 live call-log tail, P052.3.1 the owner's real roster, P052.3.3 the live terminal contract on this Mac, P052.3.4 real Pi/Codex and the default --run build path. Closed by P052.4.1's PTY acceptance - alt-screen rendering, the activity detail with clipped input, the model editor and recovery dialogs with a real configuration.json, the pause during verify at the complete boundary. Accepted as not a risk - P052.1.6 (the success-path pause branch has no deterministic test but is exercised by the rejected-resume scenario), P052.1.5 (refused-session wording falls back to a new session, the safe path), P052.2.2 and P052.2.6 (a 4 KiB page boundary inside a multibyte rune is neutralized to a replacement character; the page tests cover the boundary), P052.2.8 (the lockCheck seam drives the same branch), P052.2.9 (the notice wording is asserted at the model level; the PTY asserts the state), P052.2.11 (the real event order is constructed in the runner tests), P052.2.14 (the Stop now journal shape is corrected and asserted at the model level), P052.2.20 (the non-start prompt shares showPendingPrompt with the tested start prompt), P052.2.21 (a live terminal sends the same KeyPressMsg), P052.2.22 (the filtered-search path is unchanged), P052.2.23 (events and Model.String() cover the refresh), P052.3.7 (the limits pass through the same argv path and the receipt rejects a mismatch), P052.4.1 (the ANSI emulator covers the current renderer; a renderer change is test maintenance), P052.2.5 SIGKILL (excluded by the unit). Moved to Backlog - Windows and Linux runtime behavior, the PTY scenarios without a live path (Close success, declined start, failing prerequisite, malformed plan, 40x12 and resize), the narrow pause windows (waitRefusal, between units, replan/close, pending commit, inside a git commit, checkpoint write failure, Stop now during replan, run --stop against a live lock, the q/Enter race), the TUI rendering of replan/close stages, the clipped last line of the scrolled pane, the installed-release interactive start, and fixed PTY waits on a loaded Linux CI.
+
+### [x] P052.4.3 Fix the findings of the closing check
+Read:
+- internal/runner/replan.go:L292-330
+- internal/runner/events.go
+- internal/runner/checkpoint.go
+- internal/tui/acceptance_test.go:L512-560
+- tools/test-smoke-run.sh
+Do:
+- Исправь находки проверки перед закрытием напрямую, по поручению человека от 2026-11-02 (не план исправлений): CI красный на всех трёх ОС с первого push P052 (Linux — зависание `internal/tui` в 20 мин, Windows — `roster`/`runner`, macOS — `test-smoke-run.sh`); Stop now во время replan/close пишет событие операции как ошибку и оставляет правку плана; текст восстановления после паузы в close ложно утверждает, что план не тронут.
+- Закрой тестами открытые P052-строки Backlog, которые проверяемы здесь: пауза в ожидании отказа провайдера, `run --stop` по управляемому прогону, стадии replan/close в диалоге восстановления, обрезка последней строки прокрутки; сценарии TUI без PTY и рантайм Windows — настоящим pseudo console (ConPTY).
+- На каждую находку — тест, падающий на прежнем коде.
+Verify: `go test -timeout 20m ./... && bash tools/test-smoke-run.sh`
+Depends: P052.4.2
+Commit: P052.4.3: fix the closing check findings
+Handoff:
+- Юнит выполнен вне раннера, в интерактивной сессии по поручению человека закрыть P052 без плана исправлений (см. Decisions «Находки проверки перед закрытием»).
+- CI: Linux зависал в internal/tui на 20 мин — читатель PTY master не получал EIO, пока родитель держал копию slave; acceptance_test закрывает slave после Start и ограничивает ожидание читателя 5 с. macOS: стаб tools/test-smoke-run.sh не знал tui --help (+ сценарий no-tui). Windows: TestCatalogCachePathWithoutXDG ставит USERPROFILE; checkpointLogs проверял префикс '../' вместо '..'+Separator (продуктовый дефект на путях 8.3); фикстуры паузы писали маркер старта до session id/pid; TestProbeZaiQuotaSharedTimeoutBudget расширен до бюджета 2 с под медленный старт bash.
+- Раннер: controlOutcome (events.go) классифицирует отложенные replan/close под Stop now как stopped/0; незавершённый вызов replan и отмена в ожидании отказа или цепочки откатывают план (restorePlan). ValidateResumable даёт точный текст для replan и close, stageName называет replan/close/complete.
+- Новые тесты: TestStopNowDuringReplanRestoresPlan, TestCanceledReplanRestoresPlan, TestStopNowDuringCloseJournalsStopped (все три падают на старом коде), TestPauseDuringRefusalWait (мутация ветки waitRefusal ломает его), TestRunStopFlagStopsAControlledRun, стадии replan/close в TestRecoveryRefusesCompletedOrConflictingCheckpoint, последняя строка карточки в TestDetailScrollStopsAtTheLastPage.
+- Windows: internal/tui/terminal_windows_test.go — ConPTY-драйвер (x/sys/windows) и эмулятор экрана, вынесенный в screen_test.go; сценарии TestWindowsConsolePauseResume (старт, Pause в вызове агента, checkpoint agent, агент не пишет файл после паузы, lock снят, выход, повторное открытие, R, коммит) и TestWindowsConsoleWorkspaceOutcomes (отказ старта, падение prerequisite, пропавший план и r, 30x8 → 40x12, Close). Фикстура writeRunnableProject* перенесена в terminal_fixture_test.go.
+- Полный go test ./... и docflow verify P052.4.3 зелёные на Windows. Unverified: Linux и macOS после правок не прогонялись — PTY-приёмка на Linux подтверждается только CI после push.

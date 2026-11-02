@@ -533,8 +533,12 @@ func TestDetailScrollStopsAtTheLastPage(t *testing.T) {
 	if visible := model.visibleDetailLines(model.detailWidth()); len(visible) == 0 {
 		t.Fatal("details pane has no content after scrolling to the last page")
 	}
-	if rendered := model.String(); !strings.Contains(rendered, "Handoff") {
-		t.Fatalf("details pane does not show the end of the card:\n%s", rendered)
+	last := strings.TrimSpace(card[len(card)-1])
+	if last == "" {
+		t.Fatalf("fixture card ends with an empty line: %q", card)
+	}
+	if rendered := model.String(); !strings.Contains(rendered, "Handoff") || !strings.Contains(rendered, last) {
+		t.Fatalf("details pane does not show the last card line %q:\n%s", last, rendered)
 	}
 
 	model = send(t, model, keyMsg("pgdown"))
@@ -2223,6 +2227,7 @@ func TestRecoveryRefusesCompletedOrConflictingCheckpoint(t *testing.T) {
 		name     string
 		recovery runner.Recovery
 		want     string
+		also     string
 	}{
 		{
 			name: "conflict",
@@ -2240,13 +2245,30 @@ func TestRecoveryRefusesCompletedOrConflictingCheckpoint(t *testing.T) {
 			},
 			want: "P001.1.1 is already complete",
 		},
+		{
+			name: "replan",
+			recovery: runner.Recovery{
+				Checkpoint: &runner.Checkpoint{Plan: "P001", Unit: "P001.1.2", Stage: "replan"},
+				Problem:    runner.ValidateResumable(runner.Checkpoint{Stage: "replan"}).Error(),
+			},
+			want: "Stage: an auto-replan",
+		},
+		{
+			name: "close",
+			recovery: runner.Recovery{
+				Checkpoint: &runner.Checkpoint{Plan: "P001", Stage: "close"},
+				Problem:    runner.ValidateResumable(runner.Checkpoint{Stage: "close"}).Error(),
+			},
+			want: "Stage: closing the plan",
+			also: "check git status, then close again",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := writeTestProject(t)
 			model := resize(t, recoveryModel(t, root, tc.recovery), 120, 40)
 			view := model.String()
-			if !strings.Contains(view, tc.want) {
-				t.Fatalf("recovery dialog does not contain %q:\n%s", tc.want, view)
+			if !strings.Contains(view, tc.want) || !strings.Contains(view, tc.also) {
+				t.Fatalf("recovery dialog does not contain %q and %q:\n%s", tc.want, tc.also, view)
 			}
 			if strings.Contains(view, "R continues the interrupted unit") {
 				t.Fatalf("a non-resumable checkpoint offered Continue:\n%s", view)

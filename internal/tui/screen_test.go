@@ -1,0 +1,505 @@
+package tui
+
+import (
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+// acceptTerminal reconstructs the visible screen from the PTY byte stream.
+// Bubble Tea renders a full-screen diff: a raw capture contains only changed
+// suffixes and cursor moves, so text assertions must read the screen, not the
+// byte sequence. The emulator covers the CSI subset the renderer and the
+// workspace use; unknown private modes are ignored.
+type acceptTerminal struct {
+	width, height  int
+	grid           [][]rune
+	x, y           int
+	top, bottom    int
+	wrap           bool
+	last           rune
+	pending        []byte
+	savedX, savedY int
+}
+
+func newAcceptTerminal(width, height int) *acceptTerminal {
+	t := &acceptTerminal{wrap: true}
+	t.resize(width, height)
+	return t
+}
+
+func (t *acceptTerminal) resize(width, height int) {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	t.width, t.height = width, height
+	t.grid = make([][]rune, height)
+	for i := range t.grid {
+		t.grid[i] = acceptBlankLine(width)
+	}
+	t.x, t.y = 0, 0
+	t.top, t.bottom = 0, height-1
+}
+
+func acceptBlankLine(width int) []rune {
+	line := make([]rune, width)
+	for i := range line {
+		line[i] = ' '
+	}
+	return line
+}
+
+func (t *acceptTerminal) String() string {
+	lines := make([]string, 0, len(t.grid))
+	for _, line := range t.grid {
+		var b strings.Builder
+		for _, r := range line {
+			if r == 0 {
+				continue
+			}
+			b.WriteRune(r)
+		}
+		lines = append(lines, strings.TrimRight(b.String(), " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func acceptRuneWidth(r rune) int {
+	if r == 0 || r < 32 || (r >= 0x7f && r < 0xa0) {
+		return 0
+	}
+	if unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || unicode.Is(unicode.Cf, r) {
+		return 0
+	}
+	switch {
+	case r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a ||
+		(r >= 0x2e80 && r <= 0xa4cf && r != 0x303f) ||
+		(r >= 0xac00 && r <= 0xd7a3) ||
+		(r >= 0xf900 && r <= 0xfaff) ||
+		(r >= 0xfe10 && r <= 0xfe19) ||
+		(r >= 0xfe30 && r <= 0xfe6f) ||
+		(r >= 0xff00 && r <= 0xff60) ||
+		(r >= 0xffe0 && r <= 0xffe6) ||
+		(r >= 0x1f300 && r <= 0x1f64f) ||
+		(r >= 0x1f900 && r <= 0x1f9ff) ||
+		(r >= 0x20000 && r <= 0x3fffd)):
+		return 2
+	}
+	return 1
+}
+
+func (t *acceptTerminal) feed(data []byte) {
+	t.pending = append(t.pending, data...)
+	for len(t.pending) > 0 {
+		if t.pending[0] == 0x1b {
+			consumed, ok := t.escape(t.pending)
+			if !ok {
+				return
+			}
+			t.pending = t.pending[consumed:]
+			continue
+		}
+		r, size := utf8.DecodeRune(t.pending)
+		if r == utf8.RuneError && size == 1 {
+			if !utf8.FullRune(t.pending) {
+				return
+			}
+			// An invalid byte is not printable output; drop it.
+			t.pending = t.pending[1:]
+			continue
+		}
+		t.pending = t.pending[size:]
+		t.control(r)
+	}
+}
+
+func (t *acceptTerminal) control(r rune) {
+	switch r {
+	case '\x00', '\x07':
+		return
+	case '\r':
+		t.x = 0
+	case '\n':
+		t.lineFeed()
+	case '\b':
+		if t.x > 0 {
+			t.x--
+		}
+	case '\t':
+		t.x = (t.x/8 + 1) * 8
+		if t.x >= t.width {
+			t.x = t.width - 1
+		}
+	default:
+		t.put(r)
+	}
+}
+
+func (t *acceptTerminal) put(r rune) {
+	width := acceptRuneWidth(r)
+	if width == 0 {
+		return
+	}
+	if t.x >= t.width {
+		if t.wrap {
+			t.lineFeed()
+			t.x = 0
+		} else {
+			t.x = t.width - 1
+		}
+	}
+	if t.y < 0 || t.y >= t.height {
+		return
+	}
+	t.grid[t.y][t.x] = r
+	if width == 2 && t.x+1 < t.width {
+		t.grid[t.y][t.x+1] = 0
+	}
+	t.last = r
+	t.x += width
+}
+
+func (t *acceptTerminal) lineFeed() {
+	if t.y == t.bottom {
+		t.scrollUp(1)
+		return
+	}
+	if t.y < t.height-1 {
+		t.y++
+	}
+}
+
+func (t *acceptTerminal) line(index int) []rune {
+	if index < 0 || index >= t.height {
+		return acceptBlankLine(t.width)
+	}
+	return t.grid[index]
+}
+
+func (t *acceptTerminal) scrollUp(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > t.bottom-t.top+1 {
+		n = t.bottom - t.top + 1
+	}
+	for i := 0; i < n; i++ {
+		copy(t.grid[t.top:t.bottom], t.grid[t.top+1:t.bottom+1])
+		t.grid[t.bottom] = acceptBlankLine(t.width)
+	}
+}
+
+func (t *acceptTerminal) scrollDown(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > t.bottom-t.top+1 {
+		n = t.bottom - t.top + 1
+	}
+	for i := 0; i < n; i++ {
+		copy(t.grid[t.top+1:t.bottom+1], t.grid[t.top:t.bottom])
+		t.grid[t.top] = acceptBlankLine(t.width)
+	}
+}
+
+func (t *acceptTerminal) eraseLine(mode int) {
+	if t.y < 0 || t.y >= t.height {
+		return
+	}
+	line := t.grid[t.y]
+	switch mode {
+	case 1:
+		for i := 0; i <= t.x && i < len(line); i++ {
+			line[i] = ' '
+		}
+	case 2:
+		for i := range line {
+			line[i] = ' '
+		}
+	default:
+		for i := t.x; i < len(line); i++ {
+			line[i] = ' '
+		}
+	}
+}
+
+func (t *acceptTerminal) eraseDisplay(mode int) {
+	switch mode {
+	case 1:
+		for i := 0; i < t.y; i++ {
+			t.grid[i] = acceptBlankLine(t.width)
+		}
+		t.eraseLine(1)
+	case 2, 3:
+		for i := range t.grid {
+			t.grid[i] = acceptBlankLine(t.width)
+		}
+	default:
+		t.eraseLine(0)
+		for i := t.y + 1; i < t.height; i++ {
+			t.grid[i] = acceptBlankLine(t.width)
+		}
+	}
+}
+
+func (t *acceptTerminal) deleteChars(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if t.y < 0 || t.y >= t.height {
+		return
+	}
+	line := t.grid[t.y]
+	for i := t.x; i < len(line); i++ {
+		if i+n < len(line) {
+			line[i] = line[i+n]
+		} else {
+			line[i] = ' '
+		}
+	}
+}
+
+func (t *acceptTerminal) insertChars(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if t.y < 0 || t.y >= t.height {
+		return
+	}
+	line := t.grid[t.y]
+	for i := len(line) - 1; i >= t.x; i-- {
+		if i-n >= t.x {
+			line[i] = line[i-n]
+		} else {
+			line[i] = ' '
+		}
+	}
+}
+
+func (t *acceptTerminal) eraseChars(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if t.y < 0 || t.y >= t.height {
+		return
+	}
+	line := t.grid[t.y]
+	for i := t.x; i < t.x+n && i < len(line); i++ {
+		line[i] = ' '
+	}
+}
+
+func (t *acceptTerminal) insertLines(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if t.y < t.top || t.y > t.bottom {
+		return
+	}
+	for i := t.bottom; i >= t.y; i-- {
+		if i-n >= t.y {
+			t.grid[i] = t.grid[i-n]
+		} else {
+			t.grid[i] = acceptBlankLine(t.width)
+		}
+	}
+}
+
+func (t *acceptTerminal) deleteLines(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if t.y < t.top || t.y > t.bottom {
+		return
+	}
+	for i := t.y; i <= t.bottom; i++ {
+		if i+n <= t.bottom {
+			t.grid[i] = t.grid[i+n]
+		} else {
+			t.grid[i] = acceptBlankLine(t.width)
+		}
+	}
+}
+
+func (t *acceptTerminal) escape(data []byte) (int, bool) {
+	if len(data) < 2 {
+		return 0, false
+	}
+	switch data[1] {
+	case '[':
+		for i := 2; i < len(data); i++ {
+			if data[i] >= 0x40 && data[i] <= 0x7e {
+				t.csi(string(data[2:i]), data[i])
+				return i + 1, true
+			}
+		}
+		return 0, false
+	case ']':
+		for i := 2; i < len(data); i++ {
+			if data[i] == 0x07 {
+				return i + 1, true
+			}
+			if data[i] == 0x1b && i+1 < len(data) && data[i+1] == '\\' {
+				return i + 2, true
+			}
+		}
+		return 0, false
+	case '7':
+		t.savedX, t.savedY = t.x, t.y
+		return 2, true
+	case '8':
+		t.x, t.y = t.savedX, t.savedY
+		return 2, true
+	case 'M':
+		if t.y == t.top {
+			t.scrollDown(1)
+		} else if t.y > 0 {
+			t.y--
+		}
+		return 2, true
+	case 'D', 'E':
+		t.lineFeed()
+		if data[1] == 'E' {
+			t.x = 0
+		}
+		return 2, true
+	case '(', ')', '*', '+':
+		if len(data) < 3 {
+			return 0, false
+		}
+		return 3, true
+	}
+	return 2, true
+}
+
+func acceptCSIparam(params []int, index, fallback int) int {
+	if index >= len(params) || params[index] == 0 {
+		return fallback
+	}
+	return params[index]
+}
+
+func (t *acceptTerminal) csi(text string, final byte) {
+	private := byte(0)
+	if len(text) > 0 && strings.ContainsRune("?><=!", rune(text[0])) {
+		private = text[0]
+		text = text[1:]
+	}
+	var params []int
+	for _, part := range strings.Split(text, ";") {
+		part = strings.TrimSpace(part)
+		value := 0
+		if part != "" {
+			if n, err := strconv.Atoi(part); err == nil {
+				value = n
+			}
+		}
+		params = append(params, value)
+	}
+	if private == '?' {
+		switch final {
+		case 'h', 'l':
+			for _, p := range params {
+				switch p {
+				case 7:
+					t.wrap = final == 'h'
+				case 1049:
+					if final == 'h' {
+						t.resize(t.width, t.height)
+					}
+				}
+			}
+		}
+		return
+	}
+	if private != 0 {
+		return
+	}
+	switch final {
+	case 'H', 'f':
+		t.y = acceptCSIparam(params, 0, 1) - 1
+		t.x = acceptCSIparam(params, 1, 1) - 1
+	case 'd':
+		t.y = acceptCSIparam(params, 0, 1) - 1
+	case 'G', '`':
+		t.x = acceptCSIparam(params, 0, 1) - 1
+	case 'A':
+		t.y -= acceptCSIparam(params, 0, 1)
+	case 'B':
+		t.y += acceptCSIparam(params, 0, 1)
+	case 'C':
+		t.x += acceptCSIparam(params, 0, 1)
+	case 'D':
+		t.x -= acceptCSIparam(params, 0, 1)
+	case 'E':
+		t.y += acceptCSIparam(params, 0, 1)
+		t.x = 0
+	case 'F':
+		t.y -= acceptCSIparam(params, 0, 1)
+		t.x = 0
+	case 'e':
+		t.y += acceptCSIparam(params, 0, 1)
+	case 'J':
+		t.eraseDisplay(paramsValue(params))
+	case 'K':
+		t.eraseLine(paramsValue(params))
+	case 'P':
+		t.deleteChars(acceptCSIparam(params, 0, 1))
+	case '@':
+		t.insertChars(acceptCSIparam(params, 0, 1))
+	case 'X':
+		t.eraseChars(acceptCSIparam(params, 0, 1))
+	case 'S':
+		t.scrollUp(acceptCSIparam(params, 0, 1))
+	case 'T':
+		t.scrollDown(acceptCSIparam(params, 0, 1))
+	case 'L':
+		t.insertLines(acceptCSIparam(params, 0, 1))
+	case 'M':
+		t.deleteLines(acceptCSIparam(params, 0, 1))
+	case 'r':
+		t.top = acceptCSIparam(params, 0, 1) - 1
+		t.bottom = acceptCSIparam(params, 1, t.height) - 1
+		if t.top < 0 {
+			t.top = 0
+		}
+		if t.bottom >= t.height {
+			t.bottom = t.height - 1
+		}
+		if t.top > t.bottom {
+			t.top, t.bottom = 0, t.height-1
+		}
+		t.x, t.y = 0, 0
+	case 'b':
+		if t.last != 0 {
+			n := acceptCSIparam(params, 0, 1)
+			for i := 0; i < n; i++ {
+				t.put(t.last)
+			}
+		}
+	case 's':
+		t.savedX, t.savedY = t.x, t.y
+	case 'u':
+		t.x, t.y = t.savedX, t.savedY
+	}
+	if t.x < 0 {
+		t.x = 0
+	}
+	if t.y < 0 {
+		t.y = 0
+	}
+	if t.y >= t.height {
+		t.y = t.height - 1
+	}
+}
+
+func paramsValue(params []int) int {
+	if len(params) == 0 {
+		return 0
+	}
+	return params[0]
+}

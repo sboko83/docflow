@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -154,12 +155,16 @@ func eventExitCode(code int, err error) int {
 	return code
 }
 
-// pauseOutcome reclassifies a deferred operation that a written Pause
-// checkpoint stopped: the journal shows a pause with the success code the host sees, not
-// the internal stop code of the runner.
-func pauseOutcome(totals *runTotals, result string, exit int) (string, int) {
+// controlOutcome reclassifies a deferred operation that the interactive host
+// stopped: a written Pause checkpoint makes it paused and a controlled Stop now
+// makes an unfinished one stopped, both with the success code the host sees,
+// not the internal stop code of the runner. run_end classifies the same way.
+func controlOutcome(ctx context.Context, totals *runTotals, result string, exit int) (string, int) {
 	if totals.isPaused() {
 		return "paused", 0
+	}
+	if result != "done" && stopCancellation(ctx) {
+		return "stopped", 0
 	}
 	return result, exit
 }

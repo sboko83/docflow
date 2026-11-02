@@ -52,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   effect on the update that ships it (0.20.0 updating to 0.21.0 left
   OpenCode without skill links; `docflow install-skills --agent opencode`
   repairs an existing installation).
+- An auto-replan call that does not finish (Ctrl-C, a signal, a failed
+  start) restores the plan to its text before the replan agent ran instead
+  of leaving the agent's partial edit in the working tree.
+- On Windows, a run log under a short (8.3) temporary path is recorded in
+  the pause checkpoint relative to the checkout, not as a `..\` ladder.
 
 ## [0.21.0] - 2026-10-31
 

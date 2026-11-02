@@ -19,6 +19,13 @@ set -euo pipefail
 case "$*" in
     'init --agent pi') mkdir -p docs/plans docs/archive ;;
     'run --dry-run --all') ;;
+    'tui --help')
+        if [ "$TEST_SMOKE_MODE" = no-tui ]; then
+            echo 'unknown command: tui' >&2
+            exit 2
+        fi
+        echo 'usage: docflow tui [-h] [--attempts N] [--replans N]'
+        ;;
     'status') echo 'P001 ready to close' ;;
     'run --yes --max-units 1')
         sed 's/\[ \]/[x]/' docs/plans/P001-close.md > plan.tmp
@@ -77,4 +84,5 @@ check success 0 'smoke-run: ok close' --close
 check queue-retained 1 'P001 is still in the Queue' --close
 check default 0 'smoke-run: ok'
 check dry-run 0 'smoke-run: dry-run ok' --dry-run
-echo 'test-smoke-run: ok (close success, retained queue, default, dry-run)'
+check no-tui 1 'tui --help is missing from the built binary'
+echo 'test-smoke-run: ok (close success, retained queue, default, dry-run, missing tui)'

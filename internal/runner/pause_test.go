@@ -149,7 +149,9 @@ func TestPauseStopsAgentGroupAndWritesCheckpoint(t *testing.T) {
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
 	pidFile := filepath.Join(f.tmp, "child.pid")
-	f.steps("touch " + shellQuote(marker) + "\n" + emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-session"}) + "sleep 60 &\necho $! > " + shellQuote(pidFile) + "\nwait\n")
+	// The marker follows the pid file: a Pause on the marker must find the
+	// descendant already recorded, or a slow shell loses it to the kill.
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-session"}) + "sleep 60 &\necho $! > " + shellQuote(pidFile) + "\ntouch " + shellQuote(marker) + "\nwait\n")
 	control := NewControl(32, 2)
 	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 2})
 	awaitMarker(t, f, marker, control)
@@ -165,7 +167,9 @@ func TestPauseStopsAgentGroupAndWritesCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pidAlive(pid) {
+	// $! is the shell's own pid (an MSYS pid under Git Bash), so the shell
+	// answers whether it is alive.
+	if exec.Command("sh", "-c", `kill -0 "$1" 2>/dev/null`, "sh", strconv.Itoa(pid)).Run() == nil {
 		t.Fatalf("agent descendant %d survived Pause", pid)
 	}
 	cp, err := ReadCheckpoint(f.root)
@@ -270,11 +274,11 @@ func TestPauseCancelsProviderCallWithoutRetryOrFallback(t *testing.T) {
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "claude-started")
 	reset := time.Now().Add(2 * time.Hour).Unix()
-	f.steps("touch " + shellQuote(marker) + "\n" +
-		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-claude", "model": "claude-opus-5-5"}) +
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-claude", "model": "claude-opus-5-5"}) +
 		emit(map[string]any{"type": "assistant", "message": map[string]any{
 			"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "working"}}}}) +
 		emit(map[string]any{"type": "rate_limit_event", "rate_limit_info": map[string]any{"status": "rejected", "resetsAt": reset}}) +
+		"touch " + shellQuote(marker) + "\n" +
 		"trap 'exit 143' TERM\nsleep 60 &\nwait\n")
 	control := NewControl(64, 2)
 	startControlledRun(t, f, control, Args{Attempts: 3})
@@ -421,8 +425,8 @@ func TestResumeRejectedSessionStartsExactlyOneNewSession(t *testing.T) {
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
-	f.steps("touch " + shellQuote(marker) + "\n" +
-		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "paused-session"}) +
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "paused-session"}) +
+		"touch " + shellQuote(marker) + "\n" +
 		"sleep 60 &\nwait\n")
 	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
 	control := NewControl(64, 2)
@@ -674,6 +678,33 @@ func TestStopAfterUnitFinishesTheCurrentUnitOnly(t *testing.T) {
 	}
 }
 
+// `docflow run --stop` from another process reaches a live controlled run
+// through its checkout lock: the current unit finishes and the next one never
+// starts, as with the workspace's own Stop after unit.
+func TestRunStopFlagStopsAControlledRun(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	release := filepath.Join(f.tmp, "agent-release")
+	f.steps("touch " + shellQuote(marker) + "\nwhile [ ! -f " + shellQuote(release) + " ]; do sleep 0.1; done\n" + writeReply("a.txt"))
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1})
+	awaitMarker(t, f, marker, control)
+	r := f.cli("run", "--stop")
+	f.check(r, 0)
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	log := f.git("log", "--format=%s")
+	if !strings.Contains(log, "P001.1.1: first unit") || strings.Contains(log, "P001.1.2: second unit") {
+		t.Fatalf("run --stop did not stop after the current unit:\n%s", log)
+	}
+	if calls := f.calls(); len(calls) != 1 {
+		t.Fatalf("agent calls = %d, want the current unit only", len(calls))
+	}
+}
+
 // A Stop after unit accepted while the execution is still starting must
 // survive the run's own start-up: the current unit finishes and the next one
 // never starts. The run's start-up used to remove the request.
@@ -748,8 +779,8 @@ func TestResumeFromAFreshController(t *testing.T) {
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
-	f.steps("touch " + shellQuote(marker) + "\n" +
-		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "reopen-session"}) +
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "reopen-session"}) +
+		"touch " + shellQuote(marker) + "\n" +
 		"sleep 60 &\nwait\n")
 	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
 	control := NewControl(64, 2)
@@ -885,7 +916,7 @@ func TestStopNowJournalsAsAction(t *testing.T) {
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
-	f.steps("touch " + shellQuote(marker) + "\n" + emit(map[string]any{"type": "system", "subtype": "init", "session_id": "stop-session"}) + "sleep 60 &\nwait\n")
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "stop-session"}) + "touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
 	control := NewControl(32, 2)
 	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 2})
 	awaitMarker(t, f, marker, control)
@@ -956,8 +987,8 @@ func TestPauseBeforeRejectedResumeHandlingStartsNoNewSession(t *testing.T) {
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
-	f.steps("touch " + shellQuote(marker) + "\n" +
-		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "paused-session"}) +
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "paused-session"}) +
+		"touch " + shellQuote(marker) + "\n" +
 		"sleep 60 &\nwait\n")
 	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
 	control := NewControl(64, 2)
@@ -1332,6 +1363,172 @@ func TestPauseDuringCloseWritesCheckpoint(t *testing.T) {
 	}
 }
 
+// A Pause during the provider refusal wait (a throttled pi call is retried on
+// the same route after 30 s) stops the wait at once: the checkpoint names the
+// provider wait, no second call or fallback starts, and the unit is paused.
+func TestPauseDuringRefusalWait(t *testing.T) {
+	f := fallbackExecutorRunFixture(t)
+	controlRunSelf(t, f, nil)
+	throttled := `429: {"code":"1302","message":"Rate limit reached for requests"}`
+	f.steps(emit(map[string]any{"type": "session", "id": "pi-throttled"}) +
+		emit(map[string]any{"type": "message_end", "message": map[string]any{
+			"role": "assistant", "content": []any{}, "stopReason": "error", "errorMessage": throttled,
+		}}) +
+		emit(map[string]any{"type": "agent_settled", "aborted": false}))
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{Attempts: 3, MaxUnits: intPointer(1)})
+	deadline := time.Now().Add(20 * time.Second)
+	for len(f.calls()) == 0 || !strings.Contains(fixtureJournalText(t, f), `"event":"stream"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the throttled call did not finish; calls=%d", len(f.calls()))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// The refusal is classified right after the stream link; leave the
+	// runner time to enter its 30 s wait.
+	time.Sleep(500 * time.Millisecond)
+	if err := control.Pause(); err != nil {
+		t.Fatal(err)
+	}
+	awaitPaused(t, control)
+	cp, err := ReadCheckpoint(f.root)
+	if err != nil || cp.Stage != "quota" || cp.Unit != "P001.1.1" || cp.Agent != "pi" {
+		t.Fatalf("checkpoint = %#v, err = %v", cp, err)
+	}
+	if calls := f.calls(); len(calls) != 1 {
+		t.Fatalf("agent calls = %d, want only the throttled call", len(calls))
+	}
+	for _, record := range fixtureEvents(t, f) {
+		if record["event"] == "route_switch" {
+			t.Fatalf("a Pause in the refusal wait switched routes: %v", record)
+		}
+	}
+	assertPausedJournals(t, f, "paused")
+}
+
+// fixtureJournalText is the raw text of every run stream of the fixture.
+func fixtureJournalText(t *testing.T, f *runFixture) string {
+	t.Helper()
+	var out strings.Builder
+	files, _ := filepath.Glob(filepath.Join(f.root, ".git/docflow/run/*.events.jsonl"))
+	for _, file := range files {
+		data, _ := os.ReadFile(file)
+		out.Write(data)
+	}
+	return out.String()
+}
+
+// stopNowRecords checks the deferred operation event and run_end of a
+// controlled Stop now: both read as the action, not as a runner failure.
+func stopNowRecords(t *testing.T, f *runFixture, operation string) {
+	t.Helper()
+	found := false
+	for _, record := range fixtureEvents(t, f) {
+		switch record["event"] {
+		case operation:
+			found = true
+			if record["result"] != "stopped" || record["exit_code"] != float64(0) {
+				t.Fatalf("%s event = %v, want result stopped and exit_code 0", operation, record)
+			}
+		case "run_end":
+			if record["reason"] != "stopped" || record["exit_code"] != float64(0) {
+				t.Fatalf("stopped run_end = %v", record)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("the stopped run emitted no %s event", operation)
+	}
+}
+
+// A Stop now during auto-replan restores the plan the agent was editing and
+// journals the replan as stopped, like run_end; no checkpoint is written.
+func TestStopNowDuringReplanRestoresPlan(t *testing.T) {
+	f := newReplanFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "replan-started")
+	f.steps(blockReply(), "cp "+planFile+" .git/replan-before\n"+
+		editPlan("- write b.txt", "- write b.txt and c.txt")+
+		"touch "+shellQuote(marker)+"\nsleep 60 &\nwait\n")
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{Replans: 3, Attempts: 1, MaxUnits: intPointer(1)})
+	awaitMarker(t, f, marker, control)
+	if err := control.StopNow(); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	if got, want := f.read(planFile), f.read(".git/replan-before"); got != want {
+		t.Fatalf("the stopped replan left its edit in the plan:\n%s\nwant:\n%s", got, want)
+	}
+	stopNowRecords(t, f, "replan")
+	if _, err := ReadCheckpoint(f.root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a Stop now wrote a checkpoint: %v", err)
+	}
+}
+
+// Without a host the cancellation keeps its old journal shape, but the
+// unfinished replan edit is still not left in the plan.
+func TestCanceledReplanRestoresPlan(t *testing.T) {
+	f := newReplanFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "replan-started")
+	f.steps(blockReply(), "cp "+planFile+" .git/replan-before\n"+
+		editPlan("- write b.txt", "- write b.txt and c.txt")+
+		"touch "+shellQuote(marker)+"\nsleep 60 &\nwait\n")
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	var code int
+	go func() {
+		defer close(done)
+		code, _ = runWithOptions(f.root, Args{Replans: 3, Attempts: 1, MaxUnits: intPointer(1)}, io.Discard, io.Discard, "", runOptions{ctx: parent})
+	}()
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the replan agent did not start")
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the canceled run did not stop")
+	}
+	if got, want := f.read(planFile), f.read(".git/replan-before"); got != want {
+		t.Fatalf("the canceled replan left its edit in the plan:\n%s\nwant:\n%s", got, want)
+	}
+	for _, record := range fixtureEvents(t, f) {
+		if record["event"] == "replan" && record["result"] != "error" {
+			t.Fatalf("canceled replan event = %v, want result error", record)
+		}
+	}
+	if code == 0 {
+		t.Fatal("a canceled run reported success")
+	}
+}
+
+// A Stop now during the closing call journals the close as stopped and makes
+// no closing commit.
+func TestStopNowDuringCloseJournalsStopped(t *testing.T) {
+	f := readyCloseFixture(t)
+	marker := filepath.Join(f.tmp, "close-started")
+	f.steps("touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{Replans: 3, Attempts: 1, Close: true, RunArgs: agents.RunArgs{Config: f.config}})
+	awaitMarker(t, f, marker, control)
+	if err := control.StopNow(); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, control)
+	if subject := f.git("log", "-1", "--format=%s"); subject == "P001: close plan" {
+		t.Fatal("the stopped closing still committed the plan")
+	}
+	stopNowRecords(t, f, "close")
+}
+
 // The closing agent archives and deletes the plan itself; the checkpoint
 // still carries the fingerprint taken before the call.
 func TestPauseDuringCloseAfterArchiveKeepsFingerprint(t *testing.T) {
@@ -1671,8 +1868,8 @@ func TestLoadRecoveryDescribesPausedRun(t *testing.T) {
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
-	f.steps("touch " + shellQuote(marker) + "\n" +
-		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "recovery-session"}) +
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "recovery-session"}) +
+		"touch " + shellQuote(marker) + "\n" +
 		"sleep 60 &\nwait\n")
 	control := NewControl(64, 2)
 	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
@@ -1793,8 +1990,8 @@ func TestResumeWithChangedAssignmentStartsOneNewSession(t *testing.T) {
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
-	f.steps("touch " + shellQuote(marker) + "\n" +
-		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "old-route-session"}) +
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "old-route-session"}) +
+		"touch " + shellQuote(marker) + "\n" +
 		"sleep 60 &\nwait\n")
 	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
 	control := NewControl(64, 2)

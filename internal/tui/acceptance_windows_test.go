@@ -14,8 +14,8 @@ import (
 // TestAcceptanceWindowsConsoleContract exercises the real Windows binary in
 // the CI matrix: without a console the workspace refuses before loading plans
 // with the documented exit code, and --help stays a plain command. The
-// interactive console path has no PTY driver on Windows and is not claimed by
-// this test.
+// interactive console path runs on a pseudo console in
+// terminal_windows_test.go.
 func TestAcceptanceWindowsConsoleContract(t *testing.T) {
 	if testing.Short() {
 		t.Skip("acceptance builds the CLI")

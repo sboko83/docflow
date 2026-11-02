@@ -297,7 +297,7 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 		if items == nil {
 			items = []string{}
 		}
-		result, exit := pauseOutcome(totals, eventStatus(code, runErr), code)
+		result, exit := controlOutcome(ctx, totals, eventStatus(code, runErr), code)
 		totals.events.emit("replan", uid, map[string]any{"route": eventRoute(route), "result": result, "exit_code": exit, "check_changes": items})
 	}()
 	plan, _, err := cycle.FindUnit(root, uid)
@@ -486,6 +486,12 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 					}
 					return paused(attempt, rel, found)
 				}
+				// An edit of a call that did not finish (Stop now, Ctrl-C,
+				// a failed start) is never kept: the plan returns to its
+				// bytes before the replan agent ran.
+				if restoreErr := restorePlan(planPath, string(before)); restoreErr != nil {
+					return 2, restoreErr
+				}
 				return 7, err
 			}
 			out := agentio.AgentOutput(agent, run.Stdout)
@@ -565,6 +571,9 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 								if pauseCancellation(ctx) {
 									return paused(attempt, rel, session)
 								}
+								if restoreErr := restorePlan(planPath, string(before)); restoreErr != nil {
+									return 2, restoreErr
+								}
 								return 7, err
 							}
 							next, available = chain.pick(time.Now())
@@ -613,6 +622,9 @@ func replanUnit(ctx context.Context, root string, args Args, config map[string]a
 			if err := waitRefusal(ctx, agent, refusal, limitProgress{p}); err != nil {
 				if pauseCancellation(ctx) {
 					return paused(attempt, rel, session)
+				}
+				if restoreErr := restorePlan(planPath, string(before)); restoreErr != nil {
+					return 2, restoreErr
 				}
 				return 7, err
 			}

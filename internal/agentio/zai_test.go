@@ -104,19 +104,26 @@ func TestProbeZaiQuotaHangingServer(t *testing.T) {
 }
 
 func TestProbeZaiQuotaSharedTimeoutBudget(t *testing.T) {
+	// The key takes 0.6 s plus the shell's start, which is slow on a loaded
+	// Windows host; the server answers after 3 s. A shared 2 s budget ends
+	// the probe near 2 s, a separate request timeout would run past 2.6 s.
 	fakeZaiPi(t, "sleep 0.6\nprintf 'fake-zai-key\\n'\n")
 	var requested atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requested.Store(true)
-		time.Sleep(600 * time.Millisecond)
+		select {
+		case <-time.After(3 * time.Second):
+		case <-r.Context().Done():
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(zaiFixtureBody("CREDIT_LIMIT")))
 	}))
 	defer server.Close()
 	t.Setenv("DOCFLOW_ZAI_QUOTA_URL", server.URL)
 	start := time.Now()
-	equal(t, ProbeZaiQuota(time.Second), Quota{})
-	if elapsed := time.Since(start); elapsed > 1250*time.Millisecond {
+	equal(t, ProbeZaiQuota(2*time.Second), Quota{})
+	if elapsed := time.Since(start); elapsed > 2500*time.Millisecond {
 		t.Fatalf("probe exceeded shared timeout allowance: %s", elapsed)
 	}
 	if !requested.Load() {

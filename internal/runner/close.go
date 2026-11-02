@@ -250,7 +250,7 @@ func runClose(ctx context.Context, root string, args Args, config map[string]any
 	}
 	var route agents.Route
 	defer func() {
-		result, exit := pauseOutcome(totals, eventStatus(code, runErr), eventExitCode(code, runErr))
+		result, exit := controlOutcome(ctx, totals, eventStatus(code, runErr), eventExitCode(code, runErr))
 		totals.events.emit("close", "", map[string]any{"plan": id, "route": eventRoute(route), "result": result, "exit_code": exit})
 	}()
 	// paused classifies a cancellation the interactive host asked for as a

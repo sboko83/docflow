@@ -187,7 +187,7 @@ func checkpointLogs(root string, logs []string) []string {
 		for _, where := range bases {
 			for _, target := range []string{resolved, clean} {
 				rel, err := filepath.Rel(where, target)
-				if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+				if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 					continue
 				}
 				best = filepath.ToSlash(rel)

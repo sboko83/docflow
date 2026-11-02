@@ -42,6 +42,7 @@ func TestCatalogCachePathWithoutXDG(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir reads it on Windows
 	if got, want := DefaultCachePath(), filepath.Join(home, ".cache", "docflow", "roster", "catalog.json"); got != want {
 		t.Fatalf("DefaultCachePath() = %q, want %q", got, want)
 	}

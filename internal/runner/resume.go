@@ -23,8 +23,12 @@ func (e RecoveryConflictError) Error() string { return "runner: recovery conflic
 // nothing, so the next run starts from the restored plan instead of resuming.
 func ValidateResumable(cp Checkpoint) error {
 	switch cp.Stage {
-	case "replan", "close":
-		return RecoveryConflictError{Reason: fmt.Sprintf("the run paused during %s; the plan is unchanged — start a new run", cp.Stage)}
+	case "replan":
+		return RecoveryConflictError{Reason: "the run paused during replan; the replan edit was rolled back and the plan is unchanged — start a new run"}
+	case "close":
+		// The closing agent may already have archived and removed the plan:
+		// nothing is committed, but the tree is not the plan as it was.
+		return RecoveryConflictError{Reason: "the run paused during close; nothing was committed, and the closing agent's changes may remain in the working tree — check git status, then close again"}
 	}
 	return nil
 }
@@ -109,6 +113,12 @@ func stageName(stage string) string {
 		return "verify"
 	case "commit":
 		return "the done/commit transaction"
+	case "complete":
+		return "the end of a unit"
+	case "replan":
+		return "an auto-replan"
+	case "close":
+		return "closing the plan"
 	}
 	if stage == "" {
 		return "work"
