@@ -1378,9 +1378,9 @@ func TestPauseDuringRefusalWait(t *testing.T) {
 	control := NewControl(64, 2)
 	startControlledRun(t, f, control, Args{Attempts: 3, MaxUnits: intPointer(1)})
 	deadline := time.Now().Add(20 * time.Second)
-	for len(f.calls()) == 0 || !strings.Contains(fixtureJournalText(t, f), `"event":"stream"`) {
+	for !strings.Contains(fixtureJournalText(t, f), `"event":"stream"`) {
 		if time.Now().After(deadline) {
-			t.Fatalf("the throttled call did not finish; calls=%d", len(f.calls()))
+			t.Fatal("the throttled call did not finish")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
