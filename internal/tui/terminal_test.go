@@ -380,8 +380,9 @@ func TestTerminalRunPauseResumeQuit(t *testing.T) {
 	waitFor("Recover the saved run")
 	waitFor("R continues the interrupted unit")
 	sendKey("R")
-	waitFile(lock, true, 20*time.Second)
-
+	// The resumed run is short: on a fast machine the whole run lock window
+	// can close before the first poll, so the run is observed through its
+	// work (the unit file), not the transient lock.
 	waitFile(filepath.Join(project, "a.txt"), true, 30*time.Second)
 	waitFile(lock, false, 30*time.Second)
 	planText, err := os.ReadFile(filepath.Join(project, "docs", "plans", "P001-tui.md"))

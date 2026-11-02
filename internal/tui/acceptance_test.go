@@ -1089,9 +1089,11 @@ func TestAcceptancePauseChildProcessAndChangedAssignment(t *testing.T) {
 	}
 
 	tui.send("R")
-	waitFile(t, p.path(".git/docflow/run/run.lock"), true, 20*time.Second)
-	waitFile(t, p.path(".git/docflow/run/run.lock"), false, 30*time.Second)
+	// The resumed run is short: on a fast machine the whole run lock window
+	// can close before the first poll, so the run is observed through its
+	// outcome, not the transient lock.
 	p.waitPlanStatus("P001.1.1", "x", 30*time.Second)
+	waitFile(t, p.path(".git/docflow/run/run.lock"), false, 5*time.Second)
 
 	calls := p.calls()
 	if len(calls) != 2 {
@@ -1758,9 +1760,11 @@ func TestAcceptanceReopenPausedRun(t *testing.T) {
 		tui.waitFor("an agent call", 10*time.Second)
 		tui.waitFor("P001.1.1: codex | model-a2 | low", 10*time.Second)
 		tui.send("R")
-		waitFile(t, p.path(".git/docflow/run/run.lock"), true, 20*time.Second)
-		waitFile(t, p.path(".git/docflow/run/run.lock"), false, 40*time.Second)
+		// The resumed run is short: on a fast machine the whole run lock
+		// window can close before the first poll, so the run is observed
+		// through its outcome, not the transient lock.
 		p.waitPlanStatus("P001.1.1", "x", 30*time.Second)
+		waitFile(t, p.path(".git/docflow/run/run.lock"), false, 5*time.Second)
 		calls := p.calls()
 		if len(calls) != 2 {
 			t.Fatalf("reopened run calls = %d, want the paused call and one resume", len(calls))
@@ -1853,7 +1857,10 @@ func TestAcceptancePendingCommitRecovery(t *testing.T) {
 	tui.waitFor("the done/commit transaction (commit pending)", 10*time.Second)
 	tui.waitFor("R finishes the pending commit", 10*time.Second)
 	tui.send("R")
-	waitFile(t, p.path(".git/docflow/run/run.lock"), true, 20*time.Second)
+	// The pending-commit recovery is a single commit with no agent call: on a
+	// fast machine the whole run lock window can pass between two polls, so
+	// the run is observed through its finished notice, not the transient lock.
+	tui.waitFor("run finished", 30*time.Second)
 	waitFile(t, p.path(".git/docflow/run/run.lock"), false, 40*time.Second)
 	if subject := p.git("log", "-1", "--format=%s"); subject != "P001.1.1: pending" {
 		t.Fatalf("recovered commit = %q", subject)
