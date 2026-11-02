@@ -674,6 +674,74 @@ func TestStopAfterUnitFinishesTheCurrentUnitOnly(t *testing.T) {
 	}
 }
 
+// A Stop after unit accepted while the execution is still starting must
+// survive the run's own start-up: the current unit finishes and the next one
+// never starts. The run's start-up used to remove the request.
+func TestStopAfterUnitAtRunStartStopsAfterTheFirstUnit(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" + writeReply("a.txt"))
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1}
+	control := NewControl(64, 2)
+	if err := control.StartCheckout(context.Background(), f.root, func(ctx context.Context, host *Control) error {
+		if !host.MarkRunning() {
+			return errors.New("the host did not enter Running")
+		}
+		if err := host.StopAfterUnit(); err != nil {
+			return err
+		}
+		code, err := runControlled(ctx, f.root, args, "", host, nil, true)
+		if err != nil {
+			return err
+		}
+		if code != 0 {
+			return errors.New("run exited with code " + strconv.Itoa(code))
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	awaitDone(t, control)
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the current unit did not run: %v", err)
+	}
+	log := f.git("log", "--format=%s")
+	if !strings.Contains(log, "P001.1.1: first unit") {
+		t.Fatalf("the current unit did not finish:\n%s", log)
+	}
+	for _, file := range eventFiles(t, f) {
+		for _, record := range readEvents(t, file) {
+			if record["event"] == "unit_start" && record["unit"] == "P001.1.2" {
+				t.Fatalf("the stop request was lost at start-up:\n%s", log)
+			}
+		}
+	}
+}
+
+// A stop request left by an earlier run does not block the next interactive
+// start: the host clears it before the owner can ask to stop again.
+func TestInteractiveStartClearsAStaleStopRequest(t *testing.T) {
+	f := newRunFixture(t)
+	controlRunSelf(t, f, nil)
+	marker := filepath.Join(f.tmp, "agent-started")
+	f.steps("touch " + shellQuote(marker) + "\n" + writeReply("a.txt"))
+	stop, err := stopFile(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(stop), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stop, nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	control := NewControl(64, 2)
+	startControlledRun(t, f, control, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)})
+	awaitMarker(t, f, marker, control)
+	awaitFinished(t, control)
+}
+
 // A checkpoint survives the process: a fresh controller (Idle, as after
 // reopening the application) resumes the paused unit.
 func TestResumeFromAFreshController(t *testing.T) {

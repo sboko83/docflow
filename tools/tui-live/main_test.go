@@ -276,3 +276,35 @@ func TestReceiptMaxAge(t *testing.T) {
 		t.Fatalf("old receipt: err = %v", err)
 	}
 }
+
+// One line with a trailing line break is a correct answer: every agent CLI
+// terminates the file it writes. The live Codex route failed on the old
+// byte-exact comparison while its files were right.
+func TestIndependentTestAcceptsTrailingLineBreak(t *testing.T) {
+	dir := t.TempDir()
+	for name, text := range map[string]string{
+		"go.mod":       "module fixture\n\ngo 1.20\n",
+		"live_test.go": independentTest,
+		"a.txt":        "a\n",
+		"b.txt":        "b\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if res := independentCheck(dir); !res.OK {
+		t.Fatalf("a one-line file with a trailing break was rejected: %s", res.Output)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if independentCheck(dir).OK {
+		t.Fatal("a second, empty line passed the independent check")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("wrong\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if independentCheck(dir).OK {
+		t.Fatal("a wrong a.txt passed the independent check")
+	}
+}

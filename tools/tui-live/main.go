@@ -252,7 +252,7 @@ func runCommand(args []string, out io.Writer) error {
 		},
 	}
 	for _, spec := range liveScenarios {
-		scenario, err := runScenario(opts, spec, root)
+		scenario, err := runScenario(opts, spec, root, bin)
 		if err != nil {
 			r.OK = false
 			r.Error = spec.Name + ": " + err.Error()
@@ -509,7 +509,9 @@ func cliVersions() map[string]string {
 	return versions
 }
 
-func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenarioReceipt, err error) {
+// runScenario drives one live route in a real PTY. bin is the resolved
+// binary under test: an explicitly passed one or the freshly built default.
+func runScenario(opts *options, spec scenarioSpec, checkout, bin string) (rec scenarioReceipt, err error) {
 	rec = scenarioReceipt{
 		Name: spec.Name, Route: spec.Route(), Attempts: opts.attempts, Replans: opts.replans,
 		Agent: spec.Agent, Model: spec.Model, Effort: spec.Effort,
@@ -526,7 +528,7 @@ func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenari
 	}
 	env := terminalEnv()
 	tuiArgs := []string{"--attempts", strconv.Itoa(opts.attempts), "--replans", strconv.Itoa(opts.replans)}
-	term, err := startTerminal(opts.binary, project, env, tuiArgs...)
+	term, err := startTerminal(bin, project, env, tuiArgs...)
 	if err != nil {
 		return rec, err
 	}
@@ -636,7 +638,7 @@ func runScenario(opts *options, spec scenarioSpec, checkout string) (rec scenari
 	transition("exited")
 
 	// Reopen the same project and finish the second unit.
-	term2, err := startTerminal(opts.binary, project, env, tuiArgs...)
+	term2, err := startTerminal(bin, project, env, tuiArgs...)
 	if err != nil {
 		return rec, err
 	}
@@ -875,6 +877,7 @@ const independentTest = `package liveaccept
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -884,8 +887,12 @@ func TestFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if string(data) != want {
-			t.Fatalf("%s = %q, want %q", name, data, want)
+		// The unit asks for a single line; one trailing line break still leaves
+		// one line, and every agent CLI terminates the file it writes. A second
+		// line, empty or not, is a different answer.
+		got := strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
+		if got != want {
+			t.Fatalf("%s = %q, want %q", name, got, want)
 		}
 	}
 }

@@ -247,6 +247,14 @@ func (c *Control) startRun(parent context.Context, root string, args Args, skill
 				return nil
 			}
 		}
+		// Clear a stop request left by an earlier run before the host accepts a
+		// new one. StopAfterUnit requires StateRunning, so nothing written after
+		// this point can be mistaken for stale state.
+		if path, err := stopFile(root); err != nil {
+			return err
+		} else {
+			_ = os.Remove(path)
+		}
 		if !host.MarkRunning() {
 			return errors.New("runner: invalid start transition")
 		}

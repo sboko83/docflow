@@ -268,7 +268,12 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 	if err != nil {
 		return 2, err
 	}
-	_ = os.Remove(stop)
+	// A plain run clears a stale stop request here. The interactive host clears
+	// it before it accepts Stop after unit: removing it now could erase a
+	// request the owner made while this execution was starting.
+	if options.control == nil {
+		_ = os.Remove(stop)
+	}
 	input := newRunInput(os.Stdin)
 	if sel.Kind == "blocked" {
 		needs, reason := cycle.BlockedNeeds(sel.Unit)

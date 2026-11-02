@@ -117,6 +117,7 @@ type ActivityParser struct {
 	seq         int64
 	messages    map[string]*messageState
 	tools       map[string]*toolState
+	closed      map[string]bool
 	autoTool    int
 	aborted     bool
 	lastMessage string
@@ -262,12 +263,21 @@ func (p *ActivityParser) toolStart(name, id, command string, input map[string]an
 func (p *ActivityParser) toolEnd(name, id, result string, state ActivityState, files []FileChange, ref ActivityRef) []Activity {
 	id = p.toolID(name, id)
 	command, input := "", map[string]any(nil)
+	// Pi reports one call twice: tool_execution_end carries the result and the
+	// next message_end repeats it as a toolResult. History shows the call once.
+	if p.closed[id] {
+		return nil
+	}
 	if seen := p.tools[id]; seen != nil {
 		if name == "" {
 			name = seen.name
 		}
 		command, input = seen.command, seen.input
 		delete(p.tools, id)
+		if p.closed == nil {
+			p.closed = map[string]bool{}
+		}
+		p.closed[id] = true
 	}
 	return []Activity{{
 		Kind: ActivityKindTool, State: state, Tool: name, ToolID: id,
@@ -626,6 +636,14 @@ func blockText(value any) string {
 			b.WriteString(str(table(entry)["text"]))
 		}
 		return b.String()
+	case map[string]any:
+		// Pi wraps a tool result as {"content": [{type, text}, ...]}.
+		if content, ok := v["content"]; ok {
+			return blockText(content)
+		}
+		if text, ok := v["text"].(string); ok {
+			return text
+		}
 	}
 	return fmt.Sprint(value)
 }
@@ -696,7 +714,7 @@ func (p *ActivityParser) piMessage(message map[string]any, ref ActivityRef, raw 
 		if truth(message["isError"]) {
 			state = ActivityStateFailed
 		}
-		return p.toolEnd("", str(message["toolCallId"]), blockText(message["content"]), state, nil, ref)
+		return p.toolEnd(str(message["toolName"]), str(message["toolCallId"]), blockText(message["content"]), state, nil, ref)
 	}
 	return nil
 }

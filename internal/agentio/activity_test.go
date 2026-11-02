@@ -157,6 +157,45 @@ func TestActivityParserPiToolPair(t *testing.T) {
 	}
 }
 
+// A live Pi call reports its tool twice: tool_execution_end carries the
+// result and the following message_end repeats it as a toolResult. The
+// history shows one named row, not a second unnamed one.
+func TestActivityParserPiToolResultNotDuplicated(t *testing.T) {
+	parser := NewActivityParser(profile(t, "pi"))
+	lines := []string{
+		`{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}`,
+		`{"type":"tool_execution_end","toolCallId":"call_1","toolName":"bash","result":{"content":[{"type":"text","text":"ok"}]},"isError":false}`,
+		`{"type":"message_end","message":{"role":"toolResult","toolCallId":"call_1","toolName":"bash","content":[{"type":"text","text":"ok"}],"isError":false}}`,
+	}
+	var activities []Activity
+	for i, line := range lines {
+		activities = append(activities, parser.Feed("stdout", line, ActivityRef{Stream: "stdout", Offset: int64(i), Length: len(line)})...)
+	}
+	if len(activities) != 2 {
+		t.Fatalf("activities = %#v", activities)
+	}
+	for _, activity := range activities {
+		if activity.Tool != "bash" {
+			t.Fatalf("unnamed tool row = %#v", activity)
+		}
+	}
+	if activities[1].State != ActivityStateSucceeded || activities[1].Result != "ok" || activities[1].Command != "ls" {
+		t.Fatalf("result = %#v", activities[1])
+	}
+}
+
+// A toolResult whose execution event never arrived still names its tool, so a
+// killed call does not leave a blank row in the history.
+func TestActivityParserPiLoneToolResult(t *testing.T) {
+	parser := NewActivityParser(profile(t, "pi"))
+	line := `{"type":"message_end","message":{"role":"toolResult","toolCallId":"call_2","toolName":"bash","content":[{"type":"text","text":"ok"}],"isError":false}}`
+	activities := parser.Feed("stdout", line, ActivityRef{Stream: "stdout", Offset: 0, Length: len(line)})
+	tool := oneTool(t, activities)
+	if tool.Tool != "bash" || tool.State != ActivityStateSucceeded || tool.Result != "ok" {
+		t.Fatalf("lone result = %#v", tool)
+	}
+}
+
 func TestActivityParserFileChange(t *testing.T) {
 	parser := NewActivityParser(profile(t, "codex"))
 	line := `{"type":"item.completed","item":{"id":"f1","type":"file_change","status":"completed","changes":[{"path":"a.go","kind":"update"},{"path":"b.go","kind":"add"}]}}`
