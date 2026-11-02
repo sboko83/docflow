@@ -278,6 +278,9 @@ gate: go test -timeout 20m ./...
 - Teach the Codex fake the app-server JSON-RPC quota exchange — the real Codex route probes quota before the first unit and a plain stdin reader hangs — rejected disabling quota probing or waiting for a timeout.
 - Implement the live terminal driver on Unix PTYs with a Windows compile stub — mandatory live acceptance is this Mac and the repository already gates PTY tests to darwin/linux — rejected a pipe-only terminal that would not prove Bubble Tea behavior.
 - Keep the unit Verify as test -f and put content checks in the project's independent go test — this keeps a separate failure mode for the independent-check test — rejected duplicating one exact check in both places.
+- Одиннадцатый блок P052.3.5 разведён на P052.3.6 (устаревшие переопределения завершённых юнитов) и P052.3.7 (явные attempts/replans управляемого прогона); ревью возвращено в `[ ]` с `Depends` на оба — правка ревью запрещена, а находки меняют разное наблюдаемое поведение: старт и редактор после завершения юнита против лимитов живого прогона.
+- Прунинг overlay — шаг чтения, а не ослабление проверки: `loadControlledConfiguration`, `StartPreview` и редактор моделей снимают переопределения юнитов, которых нет в плане или которые уже `[x]`/`[-]`, и ролей, которых план больше не использует, а `ValidateConfiguration` по-прежнему отказывает новой правке на завершённом юните; файл переписывает только сохранение правки — отвергнуты терпимость `ValidateConfiguration` к сохранённому overlay (теряется запрет `[x]`/`[-]`) и ручное удаление `configuration.json` как способ восстановления.
+- Лимиты управляемого прогона задаются флагами `docflow tui --attempts/--replans` (по умолчанию 3/3) и видны в стартовом подтверждении; драйвер передаёт их в argv, а квитанция их фиксирует — отвергнуты env-переменная только для драйвера (невидимый из продукта тестовый seam) и запись лимитов в `configuration.json` (этот файл — overlay назначений, а не лимитов); править `Do:` приёмки P052.4.2 запрещено.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1336,21 +1339,68 @@ Handoff:
 - Unverified: The default --run build path (no --binary) is not exercised by tests; tests always pass an explicitly built binary.
 - Unverified: The PTY driver is compiled for macOS/Linux only; Windows has a stub returning an error, so no live terminal behavior is covered there.
 
+### [ ] P052.3.6 Drop overrides of completed units
+Read:
+- internal/runner/configuration.go:L143-360
+- internal/runner/start_preview.go:L42-100
+- internal/tui/models.go:L105-200
+- internal/runner/configuration_test.go:L147-242
+- internal/tui/models_test.go:L67-130
+Do:
+- Снимай устаревшие переопределения при чтении конфигурации: оставляй в overlay только юниты, которые ещё открыты в текущем плане, и роли, которые план ещё использует. Сейчас `ValidateConfiguration` (configuration.go:196) отвергает завершённый юнит, `loadControlledConfiguration` проверяет сохранённый overlay на каждом управляемом старте, а `EffectiveAssignments` (configuration.go:251) пропускает `[x]`/`[-]`, поэтому переопределение юнита, который прогон сам довёл до `[x]`, ломает старт, `R` и редактор моделей — восстанавливает только удаление `<git-dir>/docflow/tui/configuration.json`.
+- Держи прунинг шагом чтения, а не ослаблением проверки: `ValidateConfiguration` по-прежнему отказывает новой правке на `[x]`/`[-]` и на юните вне плана; строки редактора и эффективная таблица строятся по одному открытому набору, а сохранение другой правки не падает из-за чужой устаревшей записи.
+- Примени прунинг во всех точках чтения: `loadControlledConfiguration` (до проверки и пересчёта `Effective`), `StartPreview` и загрузка редактора в internal/tui/models.go. Запись файла остаётся за сохранением правки: предпросмотр старта и открытие редактора не переписывают `<git-dir>/docflow/tui/configuration.json`.
+- Добавь проверки: runner-тест повторяет сценарий ревью (overlay на P001.1.1, затем `[x]`: `loadControlledConfiguration` и `EffectiveAssignments` проходят без завершённого юнита); TUI-тест сохраняет правку, помечает юнит `[x]`, переоткрывает рабочее место — в строках `m` этого юнита нет, `-` на другом юните сохраняет файл без устаревшей записи; тест управляемого прогона после завершения юнита — следующий старт и `R` не упираются в отказ overlay.
+Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
+Traps: `ValidateConfiguration` вызывают `StartPreview`, `ResumeRun` и сохранение редактора — прунинг в одной точке оставит остальные пути сломанными; `EffectiveAssignments` уже пропускает завершённые юниты, поэтому строки редактора и проверка обязаны смотреть на один и тот же открытый набор.
+Depends: P052.3.1, P052.3.2
+Commit: P052.3.6: drop overrides of completed units
+
+### [ ] P052.3.7 Set the controlled run limits
+Read:
+- internal/tui/control.go:L52-90
+- internal/tui/model.go:L190-230
+- internal/tui/execute.go:L125-145
+- internal/tui/execute.go:L380-410
+- internal/tui/app.go:L16-45
+- cmd/docflow/main.go:L52-62
+- cmd/docflow/main.go:L345-365
+- cmd/docflow/help_text.go:L411-418
+- tools/tui-live/main.go:L120-265
+- tools/tui-live/terminal.go:L20-60
+Do:
+- Дай управляемому прогону явные attempts и replans: `NewHost` жёстко задаёт `Attempts: 3, Replans: 3` (control.go:67), а приёмка P052.4.2 требует `--attempts 1` и выключенный авто-replan, и у драйвера нет способа их задать. Добавь документированные флаги `docflow tui --attempts N --replans N` (по умолчанию 3/3 — без флагов поведение не меняется; `--attempts` ≥ 1, `--replans` ≥ 0, как у `run`) и проведи их через `tuiterm.WithRunLimits` в `NewHost`.
+- Покажи действующие лимиты в стартовом подтверждении рядом с назначениями (`attempts 1 · auto-replan off` при `replans 0`): лимит виден до старта и проверяем драйвером, а не спрятан в коде хоста.
+- В tools/tui-live добавь `--attempts` (по умолчанию 1) и `--replans` (по умолчанию 0), передавай их в argv `docflow tui` (terminal.go:39), требуй строку лимитов в стартовом диалоге, записывай их в квитанцию и отклоняй в `--check` квитанцию с другими значениями.
+- Добавь тесты: cmd/docflow — флаги `tui` разбираются, `--attempts 0` отклоняется; internal/tui — старт с `WithRunLimits` уходит в `runner.Args`, без опции остаётся 3/3; tools/tui-live/main_test.go с фиктивными CLI — квитанция по умолчанию несёт attempts 1 и replans 0, `--check` отклоняет квитанцию с attempts 3.
+- Обнови docs/usage.md (раздел «Терминальное приложение») и docs/design/tui.md: лимиты прогона задаются флагом, умолчание — 3/3.
+Verify: `bash -n tools/tui-live.sh && go test -timeout 20m ./cmd/docflow/ ./internal/tui/ ./tools/tui-live/`
+Traps: `--replans 0` выключает авто-replan (replan.go:255), это не «без лимита»; `attempts 0` раннер отвергает до старта, поэтому проверка нужна в CLI, а не только в хосте. Обычный `docflow run` и его флаги не меняются.
+Depends: P052.3.4
+Commit: P052.3.7: set controlled run limits
+
 ### [ ] P052.3.5 Review configuration recovery and delivery
 Read:
 - internal/runner/configuration.go
+- internal/runner/start_preview.go
 - internal/tui/models.go
+- internal/tui/control.go
 - internal/tui/terminal_test.go
+- cmd/docflow/main.go:L52-62
+- cmd/docflow/main.go:L345-365
 - tools/tui-live.sh
+- tools/tui-live/main.go:L120-265
 - docs/design/tui.md
 Do:
 - Проверь Phase diff по Goal, Constraints, Decisions и Do фазы: совпадение выбранных и фактических моделей, сохранность плана/ростера, восстановление после прерывания и изоляцию живого проекта.
 - Проверь Test changes, лимит расхода живой приёмки и привязку квитанции к проверяемой сборке; квитанция без реальных инструментов/паузы не считается успехом.
 - Ничего не редактируй; дефект оформляй blocked с blocker plan и конкретным сценарием.
 Verify: `go test -timeout 20m ./...`
-Depends: P052.3.1, P052.3.2, P052.3.3, P052.3.4
+Depends: P052.3.1, P052.3.2, P052.3.3, P052.3.4, P052.3.6, P052.3.7
 Role: review
 Commit: P052.3.5: review interactive configuration
+Handoff:
+- Blocked (plan): Phase 3 expects the saved interactive configuration to survive reopening and the next controlled run to start after a unit completes. Real: a saved override for a unit that later reaches [x]/[-] bricks every controlled start and the model editor. Concrete scenario, reproduced on HEAD 6355c23 with go test -overlay probes (no file edited): (1) runner level - newRunFixture, SaveConfiguration with configuration.Units["P001.1.1"] = fake|override|high, plan.SetStatus("P001.1.1","x"), then loadControlledConfiguration returns 'runner: unit P001.1.1 is x and cannot be reassigned'; EffectiveAssignments returns only P001.1.2, so the editor row is gone; SaveConfiguration of any other edit fails with the same error. (2) TUI level - modelsTestProject, save an override for P001.2.1, mark it [x] in docs/plans/P001-cache.md, reopen the workspace, press m: rows are [P001.1.2 P001.2.2] (P001.2.1 has no row), pressing - on P001.1.2 leaves 'runner: unit P001.2.1 is x and cannot be reassigned'. (3) start path - StartPreview (internal/runner/start_preview.go:68) and loadControlledConfiguration (internal/runner/configuration.go:343) validate the same overlay, so s shows 'Cannot read the current selection: ...' and confirming exits 2 before run_start; R on a completed checkpoint hits the same dead end. Only deleting <git-dir>/docflow/tui/configuration.json recovers. Cause: ValidateConfiguration (configuration.go:196-197) refuses done units, loadControlledConfiguration validates the persisted overlay on every controlled start, EffectiveAssignments (configuration.go:251) skips done units while the editor rows come from it (internal/tui/models.go:145), and the [x]/[-] reassignment guard is right for new edits but wrong for an override the run itself made stale. The plan needs a unit that prunes or ignores done-unit overrides when loading and saving (keeping [x]/[-] unreassignable) and a test for the run-after-completion path. Second plan gap for the live acceptance: P052.4.2 Do requires --attempts 1 and auto-replan off, but the TUI host hardcodes Attempts: 3, Replans: 3 (internal/tui/control.go:67) and tools/tui-live has no seam to set them; the P052.3.4 Handoff admits this. Either add a controlled-run seam the driver can set or amend P052.4.2. Test changes review: the -11 lines in internal/tui/terminal_test.go are the inline exit wait replaced by waitExit plus the new reopen step; no test was weakened. The 'terminal_test.go: +skip' line in the P052.3.2 commit body does not match the diff (no t.Skip added); 'tools/tui-live/main_test.go: +skip' is the darwin/linux build tag. The rest of the phase passed: selected vs actual models (config event before attempt, agent argv carries the override), plan/roster untouched (configuration under the git dir, tree clean), recovery dialog shows the saved effective table with a real configuration.json, the live project is created outside the checkout and its logs are archived under the checkout git dir before removal, the receipt binds HEAD and binary SHA-256 and rejects an unproven pause, a missing tool call and another HEAD or binary, and the budget monitor stops at --max-calls/--call-timeout. go test -timeout 20m ./... and docflow verify P052.3.5 pass.
 
 ## Phase 4: Acceptance
 
@@ -1372,7 +1422,7 @@ Do:
 - Прогони narrow/resize/Unicode/NO_COLOR, большой поток, неизвестное событие, повреждённый checkpoint и восстановление терминала; подключи платформенные сценарии к существующей CI-матрице macOS/Linux/Windows. Не называй кросс-компиляцию проверкой поведения Windows.
 - Разбери все Unverified из Handoff, Test changes и Replan changed check: закрой тестом, обоснуй Accepted либо оставь конкретный незакрытый сценарий. Малую ошибку исправь здесь; существенную оформи blocked с blocker plan, не ослабляя приёмку.
 Verify: `go test -timeout 20m ./... && go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow && bash tools/test-install.sh`
-Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.4, P052.2.1, P052.2.2, P052.2.3, P052.2.4, P052.3.1, P052.3.2, P052.3.3, P052.3.4, P052.3.5
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.4, P052.2.1, P052.2.2, P052.2.3, P052.2.4, P052.3.1, P052.3.2, P052.3.3, P052.3.4, P052.3.5, P052.3.6, P052.3.7
 Role: acceptance
 Commit: P052.4.1: accept terminal workflow
 
@@ -1391,6 +1441,6 @@ Do:
 - Проверь квитанцию --check на текущей сборке, перечисли проверенный macOS/архитектуру и реальные исходы в Handoff; при любом изменении сборки повторная живая проверка необходима и остаётся в пределах разрешённого бюджета.
 - Закрой оставшиеся Unverified/Test changes/Replan changed check по правилам приёмки. Малую ошибку исправь в этом юните с повторной проверкой; крупная требует blocked с blocker plan, без удаления живой приёмки.
 Verify: `bash tools/tui-live.sh --check && go test -timeout 20m ./...`
-Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.4, P052.2.1, P052.2.2, P052.2.3, P052.2.4, P052.3.1, P052.3.2, P052.3.3, P052.3.4, P052.3.5, P052.4.1
+Depends: P052.1.1, P052.1.2, P052.1.3, P052.1.4, P052.2.1, P052.2.2, P052.2.3, P052.2.4, P052.3.1, P052.3.2, P052.3.3, P052.3.4, P052.3.5, P052.3.6, P052.3.7, P052.4.1
 Role: acceptance
 Commit: P052.4.2: accept live terminal execution
