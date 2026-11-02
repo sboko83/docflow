@@ -273,6 +273,11 @@ gate: go test -timeout 20m ./...
 - Brought docs/design/cli.md in sync with the new command although Do named other files — the CLI reference would otherwise list no `tui` — rejected leaving the command table stale.
 - Fixed parity cache isolation instead of filtering `go: downloading` lines in compare_call — the reused read-only module cache was the root cause, and filtering would hide real stderr differences — rejected normalizing the installer build log.
 - Kept `tui.md` as current state with a single link to P052 for the why — the plan's Decisions are the decision record until close moves them to the archive — rejected duplicating the decision list in the topic.
+- Archive logs under the checkout git directory before deleting the temporary project — receipt paths must stay auditable after --run — rejected leaving log paths pointing into a removed temp directory.
+- Stop a live run from a journal-polling budget monitor and repeat the check in receipt validation — a post-run-only check could spend calls past the limit — rejected trusting only the final validation.
+- Teach the Codex fake the app-server JSON-RPC quota exchange — the real Codex route probes quota before the first unit and a plain stdin reader hangs — rejected disabling quota probing or waiting for a timeout.
+- Implement the live terminal driver on Unix PTYs with a Windows compile stub — mandatory live acceptance is this Mac and the repository already gates PTY tests to darwin/linux — rejected a pipe-only terminal that would not prove Bubble Tea behavior.
+- Keep the unit Verify as test -f and put content checks in the project's independent go test — this keeps a separate failure mode for the independent-check test — rejected duplicating one exact check in both places.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1303,7 +1308,7 @@ Handoff:
 - Unverified: The terminal contract (minimum 32x10, split at 100 columns, SIGHUP path, Windows no-SIGHUP) is documented from code and existing tests, not from a live run on Windows or Linux; only macOS was verified here.
 - Unverified: Installer and smoke checks assert only that `tui --help` exists in the binary; they do not exercise an interactive start, pause or recovery from an installed release, which the last P052 unit is reserved for.
 
-### [ ] P052.3.4 Build a bounded live acceptance driver
+### [x] P052.3.4 Build a bounded live acceptance driver
 Read:
 - internal/tui/terminal_test.go
 - internal/tui/app_test.go
@@ -1319,6 +1324,17 @@ Do:
 - Проверь --run на фиктивных CLI и --check на созданной им квитанции; живые Codex/Pi в этом юните не вызывай.
 Verify: `bash -n tools/tui-live.sh && go test -timeout 20m ./tools/tui-live/ ./internal/tui/`
 Commit: P052.3.4: add bounded live acceptance driver
+Handoff:
+- tools/tui-live.sh accepts only explicit --run or --check; --run builds bin/docflow by default and test seams are --checkout and --binary.
+- The receipt lives at <git-dir>/docflow/tui-live/receipt.json. Stream and verify logs are copied to <git-dir>/docflow/tui-live/logs/<scenario>/ before the temporary project is removed, so receipt log paths stay readable.
+- --check validates exactly the two hardcoded routes, HEAD, binary SHA-256, host OS/arch, receipt age (7 days), per-call duration (300s), 1..4 calls per scenario, pause stage agent with zero live agent processes and released lock, a real tool call, all required transitions, successful independent go test ./... and a clean temporary tree.
+- The driver's own budget monitor polls the run journals and sends x when attempts exceed --max-calls or an open call exceeds --call-timeout; validation repeats the check after the run.
+- Tests use tools/tui-live/testdata/fake-pi.sh and fake-codex.sh. TUI_LIVE_SLEEP, TUI_LIVE_TOOL=0 and TUI_LIVE_CONTENT tune them; the Codex fixture answers the app-server quota probe before the first unit. For live P052.4.2 run with no TUI_LIVE_* variables set.
+- The temporary project's independent check verifies a.txt and b.txt content with go test ./..., while each unit's Verify is intentionally only test -f so the independent-check failure scenario is observable.
+- The TUI host still starts runs with its documented three attempts; the driver cannot pass --attempts 1 through the terminal UI, so the live scenario relies on first-attempt success and the driver's stricter four-call budget.
+- Unverified: Real Pi and Codex were not called in this unit by design; P052.4.2 must still confirm their live tool-event markers, routes, process shutdown and final --check on this Mac.
+- Unverified: The default --run build path (no --binary) is not exercised by tests; tests always pass an explicitly built binary.
+- Unverified: The PTY driver is compiled for macOS/Linux only; Windows has a stub returning an error, so no live terminal behavior is covered there.
 
 ### [ ] P052.3.5 Review configuration recovery and delivery
 Read:
