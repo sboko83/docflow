@@ -335,7 +335,7 @@ update: …`, не стоп: цикл юнита и правила replan цел
 владеет терминалом раннера: `RunControlled` запускает тот же `runLoop`,
 но не читает stdin, не ставит обработчики сигналов и не пишет Progress в
 stdout. Наблюдения и вопросы идут через `Control` — единственную точку
-команд и событий:
+команд и событий ([P052](../archive/P052-terminal-control.md)):
 
 - `NewControl(eventBuffer, requestBuffer)` создаёт хост в состоянии
   `Idle`. Состояния: `Idle`, `Starting`, `Running`, `Pausing`, `Paused`,
