@@ -53,6 +53,10 @@ type ActivityEntry struct {
 	Type     string
 	Activity agentio.Activity
 	Fields   map[string]any
+	// Log is the call log the observation was written to, taken when it
+	// arrived. A resumed or re-run call reuses the attempt number, so a later
+	// lookup by attempt would read the newer call's bytes.
+	Log string
 }
 
 // ActivityHistory is the bounded, per-unit history of one interactive run. It
@@ -137,6 +141,11 @@ func (h *ActivityHistory) Add(event runner.Event) (ActivityEntry, bool) {
 		}
 		h.seq++
 		entry := ActivityEntry{Seq: h.seq, At: eventTime(event.Fields, h.now), Type: event.Type, Activity: activity}
+		if activity.Attempt > 0 {
+			entry.Log = unit.logs[activity.Attempt]
+		} else {
+			entry.Log = unit.lastLog
+		}
 		if entry.Activity.Seq == 0 {
 			entry.Activity.Seq = h.seq
 		}
@@ -523,10 +532,13 @@ func (m *Model) loadActivityPageAs(entry ActivityEntry, skip int, forceLive bool
 		m.pages[key] = page
 		m.rememberPage(key)
 	}()
-	log, err := m.history.Log(unit, entry.Activity.Attempt)
-	if err != nil {
-		page.Err = err.Error()
-		return
+	log := entry.Log
+	if log == "" {
+		var err error
+		if log, err = m.history.Log(unit, entry.Activity.Attempt); err != nil {
+			page.Err = err.Error()
+			return
+		}
 	}
 	path, err := resolveLogPath(m.root, log)
 	if err != nil {

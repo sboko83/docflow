@@ -150,29 +150,67 @@ func (m Model) renderTooSmall(width, height int) string {
 
 func (m Model) dialogLinesView(width, height int) []string {
 	styles := newStyles(m.noColor)
-	var out []string
-	add := func(text string) {
-		for _, line := range wrapLine(text, max(1, width-2)) {
-			out = append(out, padLine(" "+line, width))
+	head, body, keys, window := m.dialogLayout(width, height)
+	visible := body
+	if len(body) > window {
+		top := m.dialogOffset(len(body), window)
+		visible = append([]string{}, body[top:top+window]...)
+		if height-len(head)-len(keys) > window {
+			hidden := len(body) - window
+			visible = append(visible, padLine(styles.dim.Render(fmt.Sprintf(" ↑/↓ scroll · %d more lines", hidden)), width))
 		}
 	}
-	add(styles.title.Render(m.dialogTitle))
-	add(strings.Repeat("─", max(1, width-2)))
-	for _, line := range m.dialogLines {
-		add(line)
-	}
-	if m.dialog == dialogHuman {
-		add("")
-		add("note: " + m.dialogInput + "▏")
-		add("Enter unblocks and continues · Esc leaves it blocked")
-	}
-	for len(out) < height {
+	out := append(append([]string{}, head...), visible...)
+	for len(out) < height-len(keys) {
 		out = append(out, strings.Repeat(" ", width))
 	}
-	if len(out) > height {
-		out = out[:height]
+	return append(out, keys...)
+}
+
+// dialogLayout splits a dialog into its title, body and keys. The keys that
+// answer the dialog never leave the screen: the body scrolls between the
+// title and the keys in a window one line short of the room it has, the last
+// line naming how much is out of view. On a small screen the separator under
+// the title gives way first, then the title.
+func (m Model) dialogLayout(width, height int) (head, body, keys []string, window int) {
+	styles := newStyles(m.noColor)
+	wrap := func(texts ...string) []string {
+		var out []string
+		for _, text := range texts {
+			for _, line := range wrapLine(text, max(1, width-2)) {
+				out = append(out, padLine(" "+line, width))
+			}
+		}
+		return out
 	}
-	return out
+	head = wrap(styles.title.Render(m.dialogTitle), strings.Repeat("─", max(1, width-2)))
+	var keyTexts []string
+	if m.dialog == dialogHuman {
+		keyTexts = append(keyTexts, "note: "+m.dialogInput+"▏")
+	}
+	keys = wrap(append(keyTexts, m.dialogKeys...)...)
+	body = wrap(m.dialogLines...)
+	if len(body) > height-len(head)-len(keys) {
+		head = head[:1]
+	}
+	if len(keys) >= height {
+		head, keys = nil, keys[len(keys)-height:]
+	}
+	room := max(0, height-len(head)-len(keys))
+	if len(body) > room && room < 2 && len(head) > 0 {
+		// One line of body under a scroll marker beats the title.
+		head = nil
+		room = max(0, height-len(keys))
+	}
+	if len(body) <= room {
+		return head, body, keys, room
+	}
+	return head, body, keys, max(0, room-1)
+}
+
+// dialogOffset clamps the scroll offset to the body that is out of view.
+func (m Model) dialogOffset(lines, window int) int {
+	return max(0, min(m.dialogTop, lines-window))
 }
 
 func (m Model) messageLines(width, height int, lines ...string) []string {

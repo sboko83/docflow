@@ -517,20 +517,12 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) switchPanel() Model {
-	if m.singlePanel() {
-		if m.focus == focusTree {
-			m.focus = focusDetails
-		} else {
-			m.focus = focusTree
-		}
-		return m
-	}
 	if m.focus == focusTree {
 		m.focus = focusDetails
 	} else {
 		m.focus = focusTree
 	}
-	return m
+	return m.followView()
 }
 
 func (m Model) activateRow() Model {

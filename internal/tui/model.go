@@ -146,6 +146,8 @@ type Model struct {
 	dialog       dialogKind
 	dialogTitle  string
 	dialogLines  []string
+	dialogKeys   []string
+	dialogTop    int
 	dialogInput  string
 	dialogNote   bool
 	exitAfterRun bool
@@ -239,7 +241,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focus == focusDetails {
 			return m.syncActivityScroll(), nil
 		}
-		return m, nil
+		return m.followView(), nil
 	case snapshotMsg:
 		return m.applySnapshot(msg), nil
 	case ActivityMsg:
@@ -277,12 +279,24 @@ func (m Model) applyEvent(event runner.Event) Model {
 		return m
 	}
 	if event.Unit == m.selectedUnit() && m.followActivity {
-		m.syncActivityCursor()
-		if m.focus == focusDetails {
-			return m.syncActivityScroll()
-		}
+		return m.followView()
 	}
 	return m
+}
+
+// followView keeps the newest observation in the Details pane while follow is
+// on, whichever pane has focus: the pane is on screen beside the tree, and a
+// switch to it must not show a stale window. An open diff or verify overlay
+// owns the pane and keeps its own scroll.
+func (m Model) followView() Model {
+	if !m.followActivity {
+		return m
+	}
+	m.syncActivityCursor()
+	if m.overlay != overlayNone {
+		return m
+	}
+	return m.syncActivityScroll()
 }
 
 // selectedUnit returns the id of the selected unit row, or an empty string.
@@ -329,6 +343,9 @@ func (m Model) applySnapshot(msg snapshotMsg) Model {
 	m.refreshLock()
 	m.recountMatches()
 	m.syncCursor()
+	// The reloaded card can change height (a status, a Handoff), which moves
+	// where the newest observation is.
+	m = m.followView()
 	if m.blockedPending {
 		// The snapshot loaded before the run stopped cannot see the `[!]` that
 		// `docflow block` writes while the runner is still stopping. This
@@ -563,6 +580,10 @@ func (m Model) toggle(key string) Model {
 	return m
 }
 
+// syncCursor keeps the selection on its row after the tree changed (a reload,
+// a filter, an expanded node). When the selected row is gone the selection
+// moves, and the new unit opens as setCursor opens it: following its own
+// newest observation, not the old unit's paused cursor.
 func (m *Model) syncCursor() {
 	rows := m.rows()
 	if len(rows) == 0 {
@@ -585,7 +606,11 @@ func (m *Model) syncCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	previous := m.selected
 	m.selected = rows[m.cursor].key
+	if m.selected != previous {
+		*m = m.openSelection()
+	}
 }
 
 func (m Model) setCursor(index int) Model {
@@ -606,20 +631,25 @@ func (m Model) setCursor(index int) Model {
 	m.cursor = index
 	m.selected = rows[index].key
 	if changed {
-		m.detailTop = 0
-		m.activityCursor = 0
-		m.expandedActivity = map[string]bool{}
-		m.pages = map[string]*activityPage{}
-		m.pageOrder = nil
-		m.activityMatches = 0
-		m.overlay = overlayNone
-		m.diffText, m.diffErr, m.verifyText, m.verifyErr = "", "", "", ""
-		// A pause belongs to the history of the unit the reader paused on:
-		// another unit opens following its own newest observation.
-		m.followActivity = true
-		return m.syncActivityScroll()
+		return m.openSelection()
 	}
 	return m
+}
+
+// openSelection resets the per-unit view state after the selection changed.
+func (m Model) openSelection() Model {
+	m.detailTop = 0
+	m.activityCursor = 0
+	m.expandedActivity = map[string]bool{}
+	m.pages = map[string]*activityPage{}
+	m.pageOrder = nil
+	m.activityMatches = 0
+	m.overlay = overlayNone
+	m.diffText, m.diffErr, m.verifyText, m.verifyErr = "", "", "", ""
+	// A pause belongs to the history of the unit the reader paused on:
+	// another unit opens following its own newest observation.
+	m.followActivity = true
+	return m.syncActivityScroll()
 }
 
 func (m Model) moveCursor(delta int) Model {

@@ -281,9 +281,9 @@ func (m Model) resolveBlocked() Model {
 	if reason == "" {
 		reason = "the plan records no reason"
 	}
-	m.dialog = dialogHuman
-	m.dialogTitle = unit + " is blocked (needs human)"
-	m.dialogLines = []string{reason, "", "Continue runs the existing unblock command with your note."}
+	m = m.openDialog(dialogHuman, unit+" is blocked (needs human)",
+		[]string{reason, "", "Continue runs the existing unblock command with your note."},
+		[]string{"Enter unblocks and continues · Esc leaves it blocked"})
 	m.dialogInput, m.dialogNote = "", true
 	return m
 }
@@ -326,32 +326,61 @@ func (m Model) showPendingPrompt() Model {
 	}
 	switch prompt.Kind {
 	case "confirm_start":
-		m.dialog = dialogStart
-		m.dialogTitle = "Start the current Queue run?"
-		m.dialogLines = startDialogLines(*prompt)
+		lines, keys := startDialogLines(*prompt)
+		m = m.openDialog(dialogStart, "Start the current Queue run?", lines, keys)
 		m.dialogInput, m.dialogNote = "", false
 	default:
-		m.dialog = dialogStart
-		m.dialogTitle = prompt.Message
 		line := prompt.Message
 		if prompt.Unit != "" {
 			line = prompt.Unit + ": " + line
 		}
-		m.dialogLines = []string{line, "", "Enter/y confirms · Esc/n declines"}
+		m = m.openDialog(dialogStart, prompt.Message, []string{line}, []string{"Enter/y confirms · Esc/n declines"})
 	}
 	return m
 }
 
-func startDialogLines(prompt Prompt) []string {
+// openDialog shows a dialog whose keys stay pinned under its body: a body
+// taller than the screen scrolls with ↑/↓ and PgUp/PgDn instead of pushing the
+// keys that answer it out of view.
+func (m Model) openDialog(kind dialogKind, title string, lines, keys []string) Model {
+	m.dialog = kind
+	m.dialogTitle = title
+	m.dialogLines = lines
+	m.dialogKeys = keys
+	m.dialogTop = 0
+	return m
+}
+
+// scrollDialog moves the dialog body within the part that is out of view.
+func (m Model) scrollDialog(key string) (Model, bool) {
+	switch key {
+	case "up":
+		m.dialogTop--
+	case "down":
+		m.dialogTop++
+	case "pgup":
+		m.dialogTop -= max(1, m.bodyHeight()-4)
+	case "pgdown":
+		m.dialogTop += max(1, m.bodyHeight()-4)
+	default:
+		return m, false
+	}
+	width, _ := m.size()
+	_, body, _, window := m.dialogLayout(width, m.bodyHeight())
+	m.dialogTop = m.dialogOffset(len(body), window)
+	return m, true
+}
+
+func startDialogLines(prompt Prompt) (lines, keys []string) {
 	fields := prompt.Fields
 	if errText := strValue(fields["preview_error"]); errText != "" {
-		return []string{"Cannot read the current selection:", errText, "", "Enter/y tries anyway · Esc/n cancels"}
+		return []string{"Cannot read the current selection:", errText}, []string{"Enter/y tries anyway · Esc/n cancels"}
 	}
 	preview, ok := fields["preview"].(runner.StartReview)
 	if !ok {
-		return []string{prompt.Message, "", "Enter/y starts · Esc/n cancels"}
+		return []string{prompt.Message}, []string{"Enter/y starts · Esc/n cancels"}
 	}
-	lines := []string{preview.Summary()}
+	lines = []string{preview.Summary()}
 	if preview.Permissions != "" {
 		line := "permissions: " + preview.Permissions
 		if preview.Full {
@@ -365,8 +394,7 @@ func startDialogLines(prompt Prompt) []string {
 			lines = append(lines, "  - "+item)
 		}
 	}
-	lines = append(lines, "", "Enter/y starts · Esc/n cancels; declining runs nothing")
-	return lines
+	return lines, []string{"Enter/y starts · Esc/n cancels; declining runs nothing"}
 }
 
 func (m Model) answerPrompt(confirmed bool, note string) Model {
@@ -380,6 +408,9 @@ func (m Model) answerPrompt(confirmed bool, note string) Model {
 
 func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	key := msg.String()
+	if scrolled, ok := m.scrollDialog(key); ok {
+		return scrolled, nil
+	}
 	switch m.dialog {
 	case dialogStart:
 		switch key {
@@ -453,12 +484,10 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 func (m Model) requestQuit() (Model, tea.Cmd) {
 	if m.runIsActive() || (m.controller != nil && !m.controllerDone) {
-		m.dialog = dialogExit
-		m.dialogTitle = "A run is still active"
-		m.dialogLines = []string{
+		m = m.openDialog(dialogExit, "A run is still active", nil, []string{
 			"Enter/y stops the run at a stable boundary, writes its checkpoint and exits.",
 			"Esc/n stays with the live run.",
-		}
+		})
 		return m, nil
 	}
 	if m.controller != nil {
