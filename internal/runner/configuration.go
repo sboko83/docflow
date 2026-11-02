@@ -100,6 +100,33 @@ func (c *RunConfiguration) hasOverrides() bool {
 	return c != nil && (len(c.Roles) > 0 || len(c.Units) > 0)
 }
 
+// PruneToPlan drops the overrides that can no longer apply to the plan: units
+// that left it or that are already finished or skipped, and roles the plan no
+// longer uses. Reading a saved overlay prunes it; ValidateConfiguration stays
+// strict, so a new edit on a finished unit is still refused.
+func (c *RunConfiguration) PruneToPlan(plan *format.Plan) {
+	if c == nil || plan == nil {
+		return
+	}
+	usedRoles := map[string]bool{}
+	for _, unit := range plan.Units {
+		if field := unit.Field("Role"); field != nil {
+			usedRoles[field.Value] = true
+		}
+	}
+	for id := range c.Units {
+		unit := plan.Unit(id)
+		if unit == nil || doneStatus(unit.Status) {
+			delete(c.Units, id)
+		}
+	}
+	for role := range c.Roles {
+		if !usedRoles[role] {
+			delete(c.Roles, role)
+		}
+	}
+}
+
 // WriteConfiguration stores the overlay and its effective snapshot atomically.
 func WriteConfiguration(root string, configuration *RunConfiguration) error {
 	if configuration == nil {
@@ -339,6 +366,7 @@ func loadControlledConfiguration(root string, plan *format.Plan, args agents.Run
 	if err != nil {
 		return nil, err
 	}
+	configuration.PruneToPlan(plan)
 	if configuration.hasOverrides() {
 		if err := ValidateConfiguration(configuration, plan, agentConfig); err != nil {
 			return nil, err

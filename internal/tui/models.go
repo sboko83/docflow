@@ -126,6 +126,9 @@ func (m Model) openModels() Model {
 		return m
 	}
 	screen := &modelsScreen{plan: plan, config: config, agentConfig: agentConfig, notice: configErr}
+	// The editor shows only the overrides that still apply to the plan: a
+	// finished unit must not appear as a row nor refuse the next save.
+	screen.config.PruneToPlan(plan.Doc)
 	if m.modelsRoster != nil {
 		screen.roster, err = m.modelsRoster(plan.Doc)
 		if err != nil {

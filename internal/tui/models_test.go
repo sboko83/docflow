@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -210,4 +211,78 @@ func teaText(text string) tea.KeyPressMsg {
 		msg.Code = runes[0]
 	}
 	return msg
+}
+
+// An override saved for a unit that a later run completed must disappear from
+// the reopened editor instead of refusing the next save.
+func TestModelsEditorDropsCompletedUnitOverrides(t *testing.T) {
+	model := loadedModelsModel(t)
+	root := model.root
+	model = send(t, model, keyMsg("m"))
+	model.models.cursor = modelsRowIndex(model, "P001.1.2")
+	if model.models.cursor < 0 {
+		t.Fatalf("P001.1.2 is missing from the model screen: %s", model.models.notice)
+	}
+	model = send(t, model, keyMsg("enter"))
+	model.models.input = "pi | fast | high"
+	model = send(t, model, keyMsg("enter"))
+	if model.models.editing {
+		t.Fatalf("the edit was not saved: %s", model.models.notice)
+	}
+	saved, err := runner.LoadConfiguration(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := saved.Units["P001.1.2"]; !ok {
+		t.Fatalf("fixture did not save the override: %#v", saved.Units)
+	}
+
+	// The unit is completed outside the workspace, as a run does.
+	planPath := filepath.Join(root, "docs", "plans", "P001-cache.md")
+	plan, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(plan), "### [~] P001.1.2", "### [x] P001.1.2", 1)
+	if err := os.WriteFile(planPath, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testGitOutput(t, root, "add", "-A")
+	testGitOutput(t, root, "commit", "-qm", "finish unit")
+
+	model = loadedModel(t, root)
+	model.modelsConfig = func(*format.Plan, agents.RunArgs) (map[string]any, error) {
+		return modelsTestConfig(), nil
+	}
+	model.modelsRoster = func(*format.Plan) (map[string][]agents.Route, error) {
+		return nil, nil
+	}
+	model = resize(t, model, 120, 40)
+	model = send(t, model, keyMsg("m"))
+	if model.models == nil {
+		t.Fatalf("m did not open the model editor: %s", model.notice)
+	}
+	if index := modelsRowIndex(model, "P001.1.2"); index >= 0 {
+		screen := model.String()
+		t.Fatalf("the completed unit is still a row:\n%s", screen)
+	}
+	if modelsRowIndex(model, "P001.2.1") < 0 {
+		t.Fatal("an open unit disappeared from the model screen")
+	}
+
+	// Resetting another unit rewrites the file without the stale entry.
+	model.models.cursor = modelsRowIndex(model, "P001.2.1")
+	model = send(t, model, keyMsg("enter"))
+	model.models.input = "-"
+	model = send(t, model, keyMsg("enter"))
+	if model.models.editing {
+		t.Fatalf("the reset was not saved: %s", model.models.notice)
+	}
+	loaded, err := runner.LoadConfiguration(model.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := loaded.Units["P001.1.2"]; ok {
+		t.Fatalf("saving another edit kept the completed unit's override: %#v", loaded.Units)
+	}
 }

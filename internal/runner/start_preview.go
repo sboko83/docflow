@@ -65,6 +65,9 @@ func StartPreview(root string, args Args) (StartReview, error) {
 		if loadErr != nil {
 			return StartReview{}, loadErr
 		}
+		// The preview never rewrites the file: it only drops the overrides
+		// that no longer apply, so a stale entry cannot refuse the dialog.
+		configuration.PruneToPlan(sel.Plan)
 		if err := ValidateConfiguration(configuration, sel.Plan, agentConfig); err != nil {
 			return StartReview{}, err
 		}

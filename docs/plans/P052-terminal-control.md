@@ -281,6 +281,8 @@ gate: go test -timeout 20m ./...
 - Одиннадцатый блок P052.3.5 разведён на P052.3.6 (устаревшие переопределения завершённых юнитов) и P052.3.7 (явные attempts/replans управляемого прогона); ревью возвращено в `[ ]` с `Depends` на оба — правка ревью запрещена, а находки меняют разное наблюдаемое поведение: старт и редактор после завершения юнита против лимитов живого прогона.
 - Прунинг overlay — шаг чтения, а не ослабление проверки: `loadControlledConfiguration`, `StartPreview` и редактор моделей снимают переопределения юнитов, которых нет в плане или которые уже `[x]`/`[-]`, и ролей, которых план больше не использует, а `ValidateConfiguration` по-прежнему отказывает новой правке на завершённом юните; файл переписывает только сохранение правки — отвергнуты терпимость `ValidateConfiguration` к сохранённому overlay (теряется запрет `[x]`/`[-]`) и ручное удаление `configuration.json` как способ восстановления.
 - Лимиты управляемого прогона задаются флагами `docflow tui --attempts/--replans` (по умолчанию 3/3) и видны в стартовом подтверждении; драйвер передаёт их в argv, а квитанция их фиксирует — отвергнуты env-переменная только для драйвера (невидимый из продукта тестовый seam) и запись лимитов в `configuration.json` (этот файл — overlay назначений, а не лимитов); править `Do:` приёмки P052.4.2 запрещено.
+- Prune overlays at each read point instead of making ValidateConfiguration lenient — the [x]/[-] edit guard must survive, and reading is where a stale file appears — rejected a tolerant validator and manual deletion of configuration.json
+- Rejected writing the pruned overlay from StartPreview: the preview must stay read-only, and loadControlledConfiguration already persists the refreshed file at run start
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1339,7 +1341,7 @@ Handoff:
 - Unverified: The default --run build path (no --binary) is not exercised by tests; tests always pass an explicitly built binary.
 - Unverified: The PTY driver is compiled for macOS/Linux only; Windows has a stub returning an error, so no live terminal behavior is covered there.
 
-### [ ] P052.3.6 Drop overrides of completed units
+### [x] P052.3.6 Drop overrides of completed units
 Read:
 - internal/runner/configuration.go:L143-360
 - internal/runner/start_preview.go:L42-100
@@ -1355,6 +1357,10 @@ Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
 Traps: `ValidateConfiguration` вызывают `StartPreview`, `ResumeRun` и сохранение редактора — прунинг в одной точке оставит остальные пути сломанными; `EffectiveAssignments` уже пропускает завершённые юниты, поэтому строки редактора и проверка обязаны смотреть на один и тот же открытый набор.
 Depends: P052.3.1, P052.3.2
 Commit: P052.3.6: drop overrides of completed units
+Handoff:
+- Pruning is a read-time step: runner.PruneToPlan(plan) mutates the overlay in memory; only SaveConfiguration/loadControlledConfiguration write the file. StartPreview and the TUI editor deliberately do not rewrite configuration.json.
+- ValidateConfiguration still rejects [x]/[-]/foreign units, so anything constructing a config for validation must prune first or it will be refused.
+- Roles are pruned against roles of ALL units in the plan (same set ValidateConfiguration uses), not only open ones.
 
 ### [ ] P052.3.7 Set the controlled run limits
 Read:

@@ -1,12 +1,14 @@
 package runner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"bsv-docflow/internal/agents"
+	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
 )
 
@@ -238,5 +240,181 @@ func TestStartPreviewShowsEveryOpenAssignment(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("start assignments do not contain %q:\n%s", want, text)
 		}
+	}
+}
+
+// A saved overlay outlives the run that completed its unit: reading it must
+// drop the finished unit instead of refusing the next controlled start.
+func TestCompletedUnitOverridesArePrunedOnRead(t *testing.T) {
+	f := newRunFixture(t)
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}}
+	configuration := NewRunConfiguration()
+	configuration.Units["P001.1.1"] = []agents.Route{{Agent: "fake", Model: "stale-model", Effort: "high"}}
+	configuration.Roles["ghost"] = []agents.Route{{Agent: "fake", Model: "role-model"}}
+	if err := WriteConfiguration(f.root, configuration); err != nil {
+		t.Fatal(err)
+	}
+	f.replace(planFile, "### [ ] P001.1.1", "### [x] P001.1.1")
+	plan, err := format.ParsePlan(f.read(planFile), planFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentConfig, err := agents.RunConfig(plan, &agents.RunArgs{Config: f.config})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Validation stays strict: only reading prunes the stale entries.
+	loaded := NewRunConfiguration()
+	loaded.Units["P001.1.1"] = []agents.Route{{Agent: "fake", Model: "stale-model", Effort: "high"}}
+	if err := ValidateConfiguration(loaded, plan, agentConfig); err == nil {
+		t.Fatal("ValidateConfiguration accepted an override on a finished unit")
+	}
+
+	path, err := ConfigurationPath(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := StartPreview(f.root, args)
+	if err != nil {
+		t.Fatalf("StartPreview refused a stale override: %v", err)
+	}
+	if text := strings.Join(preview.Assignments, "\n"); strings.Contains(text, "stale-model") {
+		t.Fatalf("start assignments still show the finished unit:\n%s", text)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("StartPreview rewrote the saved configuration:\n%s\n---\n%s", before, after)
+	}
+
+	pruned, err := loadControlledConfiguration(f.root, plan, args.RunArgs, agentConfig)
+	if err != nil {
+		t.Fatalf("loadControlledConfiguration refused a stale override: %v", err)
+	}
+	if _, ok := pruned.Units["P001.1.1"]; ok {
+		t.Fatalf("the finished unit survived in the overlay: %#v", pruned.Units)
+	}
+	if _, ok := pruned.Roles["ghost"]; ok {
+		t.Fatalf("a role the plan does not use survived: %#v", pruned.Roles)
+	}
+	if pruned.Effective == nil {
+		t.Fatal("the pruned overlay has no effective table")
+	}
+	for _, unit := range pruned.Effective.Units {
+		if unit.Unit == "P001.1.1" {
+			t.Fatal("the effective table still carries the finished unit")
+		}
+	}
+	effective, err := EffectiveAssignments(plan, args.RunArgs, agentConfig, pruned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range effective.Units {
+		if unit.Unit == "P001.1.1" {
+			t.Fatal("EffectiveAssignments still carries the finished unit")
+		}
+	}
+}
+
+// The unit a controlled run just finished must not block the next start: the
+// saved overlay is pruned, not rejected.
+func TestControlledStartAfterCompletedUnit(t *testing.T) {
+	f := newRunFixture(t)
+	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
+	controlRunSelf(t, f, nil)
+	plan, err := format.ParsePlan(f.read(planFile), planFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentConfig, err := agents.RunConfig(plan, &agents.RunArgs{Config: f.config})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration := NewRunConfiguration()
+	configuration.Units["P001.1.1"] = []agents.Route{{Agent: "fake", Model: "override-model", Effort: "high"}}
+	if _, err := SaveConfiguration(f.root, plan, args.RunArgs, agentConfig, configuration); err != nil {
+		t.Fatal(err)
+	}
+	f.steps(writeReply("a.txt"))
+	first := NewControl(64, 2)
+	startControlledRun(t, f, first, args)
+	awaitDone(t, first)
+	if got := first.State(); got != StateFinished {
+		t.Fatalf("first run state = %s, want Finished; err=%v", got, first.Err())
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.1"); err != nil || unit.Status != "x" {
+		t.Fatalf("unit status = %q, err=%v", unit.Status, err)
+	}
+	saved, err := LoadConfiguration(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := saved.Units["P001.1.1"]; !ok {
+		t.Fatal("the fixture lost the stale override the run leaves behind")
+	}
+
+	preview, err := StartPreview(f.root, args)
+	if err != nil {
+		t.Fatalf("the start preview refused the completed unit's override: %v", err)
+	}
+	if text := strings.Join(preview.Assignments, "\n"); strings.Contains(text, "override-model") {
+		t.Fatalf("the start preview still shows the finished unit's route:\n%s", text)
+	}
+
+	f.steps(writeReply("b.txt"))
+	second := NewControl(64, 2)
+	startControlledRun(t, f, second, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1})
+	awaitDone(t, second)
+	if got := second.State(); got != StateFinished {
+		t.Fatalf("second run state = %s, want Finished; err=%v", got, second.Err())
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.2"); err != nil || unit.Status != "x" {
+		t.Fatalf("second unit status = %q, err=%v", unit.Status, err)
+	}
+}
+
+// Resume reads the overlay again: a stale entry left by a finished unit must
+// not turn R into an overlay refusal.
+func TestResumeAfterCompletedUnitIgnoresStaleOverride(t *testing.T) {
+	f := newRunFixture(t)
+	f.replace(planFile, "### [ ] P001.1.1", "### [x] P001.1.1")
+	stale := NewRunConfiguration()
+	stale.Units["P001.1.1"] = []agents.Route{{Agent: "fake", Model: "stale-model", Effort: "high"}}
+	if err := WriteConfiguration(f.root, stale); err != nil {
+		t.Fatal(err)
+	}
+	head := f.git("rev-parse", "HEAD")
+	if err := WriteCheckpoint(f.root, Checkpoint{
+		Plan: "P001", Unit: "P001.1.2", Head: head,
+		PlanHash: PlanFingerprint([]byte(f.read(planFile))),
+		Stage:    "agent", Agent: "fake", Model: "", Effort: "", Calls: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	controlRunSelf(t, f, nil)
+	f.steps(writeReply("b.txt"))
+	control := NewControl(64, 2)
+	if err := control.ResumeRun(context.Background(), f.root, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1}, ""); err != nil {
+		t.Fatalf("ResumeRun refused the stale override: %v", err)
+	}
+	awaitDone(t, control)
+	if got := control.State(); got != StateFinished {
+		t.Fatalf("resumed state = %s, want Finished; err=%v", got, control.Err())
+	}
+	if _, unit, err := cycle.FindUnit(f.root, "P001.1.2"); err != nil || unit.Status != "x" {
+		t.Fatalf("resumed unit status = %q, err=%v", unit.Status, err)
+	}
+	saved, err := LoadConfiguration(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := saved.Units["P001.1.1"]; ok {
+		t.Fatalf("the resume kept the finished unit's override: %#v", saved.Units)
 	}
 }
