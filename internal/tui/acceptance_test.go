@@ -170,7 +170,7 @@ func newAcceptProject(t *testing.T, plans []acceptPlan) *acceptProject {
 	backlog.WriteString("\n## Frozen\n\n## Backlog\n")
 	write("docs/docflow.md", "---\ndocflow: 3\n---\n## Queue\n"+queue.String()+backlog.String())
 	for _, args := range [][]string{
-		{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@example.invalid"},
+		{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@localhost"},
 		{"config", "commit.gpgsign", "false"}, {"add", "-A"}, {"commit", "-qm", "init"},
 	} {
 		command := exec.Command("git", args...)

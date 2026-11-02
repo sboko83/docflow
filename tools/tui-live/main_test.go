@@ -39,7 +39,7 @@ func testCheckout(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, args := range [][]string{
-		{"init", "-q"}, {"config", "user.name", "live-test"}, {"config", "user.email", "live-test@example.invalid"},
+		{"init", "-q"}, {"config", "user.name", "live-test"}, {"config", "user.email", "live-test@localhost"},
 		{"config", "commit.gpgsign", "false"},
 	} {
 		if _, err := gitOutput(dir, args...); err != nil {

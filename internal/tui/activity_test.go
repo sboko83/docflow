@@ -410,7 +410,7 @@ func TestWorkingDiffComesFromGit(t *testing.T) {
 	gitAvailable(t)
 	root := t.TempDir()
 	runGit(t, root, "init")
-	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.email", "test@localhost")
 	runGit(t, root, "config", "user.name", "Test")
 	path := filepath.Join(root, "a.txt")
 	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {

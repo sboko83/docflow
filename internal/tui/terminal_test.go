@@ -1124,7 +1124,7 @@ Verify: `+"`true`"+`
 Commit: P002.1.1: draft
 `)
 	for _, args := range [][]string{
-		{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@example.invalid"},
+		{"init", "-q"}, {"config", "user.name", "t"}, {"config", "user.email", "t@localhost"},
 		{"config", "commit.gpgsign", "false"}, {"add", "-A"}, {"commit", "-qm", "init"},
 	} {
 		command := exec.Command("git", args...)

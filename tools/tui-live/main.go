@@ -862,7 +862,7 @@ func createProject(checkout string, spec scenarioSpec) (string, error) {
 		}
 	}
 	for _, args := range [][]string{
-		{"init", "-q"}, {"config", "user.name", "tui-live"}, {"config", "user.email", "tui-live@example.invalid"},
+		{"init", "-q"}, {"config", "user.name", "tui-live"}, {"config", "user.email", "tui-live@localhost"},
 		{"config", "commit.gpgsign", "false"}, {"add", "-A"}, {"commit", "-qm", "init"},
 	} {
 		if _, err := gitOutput(dir, args...); err != nil {

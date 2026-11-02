@@ -20,7 +20,7 @@ func modelsTestProject(t *testing.T) string {
 	for _, args := range [][]string{
 		{"init", "-q"},
 		{"config", "user.name", "t"},
-		{"config", "user.email", "t@example.invalid"},
+		{"config", "user.email", "t@localhost"},
 		{"config", "commit.gpgsign", "false"},
 		{"add", "-A"},
 		{"commit", "-qm", "fixture"},
