@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docflow tui` opens a full-screen terminal workspace for the queue and
+  plans: the phase and unit tree, a live history of agent messages, tools,
+  file changes and checks, model and executor reassignment for the next run,
+  Pause, Stop after unit, Stop now, Continue after a human block and
+  recovery of a saved run. Assignments are saved under the git directory and
+  never rewrite the plan or the personal roster; the command ships in the
+  same binary and requires an interactive terminal.
 - Model roster v2: `roster scan` builds a catalog of models, context
   windows, prices and reasoning levels from the Pi and OpenCode CLIs plus
   known Codex/Claude metadata (`--online` adds the optional models.dev
@@ -25,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profiles as presets.
 
 ### Changed
+- Building from source requires Go 1.26 or newer (the terminal workspace uses
+  Bubble Tea v2); released binaries stay self-contained with `CGO=0`.
 - `roster apply` writes only the plan header, takes `--preset` or one-off
   condition flags instead of hand-picked models, warns about a unit outside
   the current conditions or over the read budget, and restores the file

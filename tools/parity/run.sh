@@ -8,6 +8,11 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
 fi
 
 source_root="$(cd "$(dirname "$0")/../.." && pwd -P)"
+# Keep the Go caches outside the disposable sandbox, as test-install.sh does:
+# a fresh HOME would download the modules again and the concurrent "go:
+# downloading" lines are not ordered, so two identical runs would differ.
+go_cache=$(go env GOCACHE)
+go_mod_cache=$(go env GOMODCACHE)
 
 binary_path() {
     if [ ! -f "$1" ] || [ ! -x "$1" ]; then
@@ -39,7 +44,7 @@ win_env=()
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         win_env=("SYSTEMROOT=${SYSTEMROOT:-}" "COMSPEC=${COMSPEC:-}"
-            "PATHEXT=${PATHEXT:-}" "WINDIR=${WINDIR:-}" "GOCACHE=$(go env GOCACHE)" "MSYS=winsymlinks:nativestrict")
+            "PATHEXT=${PATHEXT:-}" "WINDIR=${WINDIR:-}" "MSYS=winsymlinks:nativestrict")
         ;;
 esac
 
@@ -60,6 +65,7 @@ run_scenario() {
             CODEX_HOME="$work/sandbox/codex" TMPDIR="$work/sandbox/tmp" \
             ${win_env[@]+"${win_env[@]}"} ${win_sandbox[@]+"${win_sandbox[@]}"} \
             XDG_CONFIG_HOME="$work/sandbox/home/.config" \
+            GOCACHE="$go_cache" GOMODCACHE="$go_mod_cache" \
             LC_ALL=C TZ=UTC TERM=dumb DOCFLOW_NOTIFY=0 DOCFLOW_SKILLS_CHECK=0 \
             GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
             GIT_AUTHOR_NAME='docflow parity' GIT_AUTHOR_EMAIL=parity@example.invalid \

@@ -270,6 +270,9 @@ gate: go test -timeout 20m ./...
 - Check a completed unit's pending commit before the completed classification — an [x] unit with an interrupted commit is real work for the existing cycle, while a completed unit without one must not offer Continue — rejected treating every [x] checkpoint as completed.
 - Open the recovery dialog only on the first successful load — reopening after every reload or after the workspace's own Pause would replace the outcome the person is reading — rejected a dialog on every checkpoint presence.
 - Exported runner.AssignmentLines instead of duplicating the table rendering in the TUI — the recovery dialog and start dialog must show the same assignments — rejected a second formatter.
+- Brought docs/design/cli.md in sync with the new command although Do named other files — the CLI reference would otherwise list no `tui` — rejected leaving the command table stale.
+- Fixed parity cache isolation instead of filtering `go: downloading` lines in compare_call — the reused read-only module cache was the root cause, and filtering would hide real stderr differences — rejected normalizing the installer build log.
+- Kept `tui.md` as current state with a single link to P052 for the why — the plan's Decisions are the decision record until close moves them to the archive — rejected duplicating the decision list in the topic.
 
 ## Phase 1: Controllable runner and activity stream
 
@@ -1276,7 +1279,7 @@ Handoff:
 - Unverified: The recovery dialog's effective assignment block is not exercised with a real saved <git-dir>/docflow/tui/configuration.json: model tests inject Recovery over non-git fixtures, so LoadConfiguration returns no snapshot and the block stays empty.
 - Unverified: The PTY reopen test covers a paused agent call only; the conflict, completed-unit and pending-commit dialogs are driven by model tests, not by a real terminal session.
 
-### [ ] P052.3.3 Document and package terminal operation
+### [x] P052.3.3 Document and package terminal operation
 Read:
 - README.md#how-it-works
 - README.ru.md
@@ -1291,6 +1294,14 @@ Do:
 - Расширь существующие installer/smoke-проверки наличием tui --help в установленном бинарнике; сохрани одну поставку, отсутствие runtime-зависимостей и CGO=0.
 Verify: `go test -timeout 20m ./... && go build -o bin/docflow ./cmd/docflow && bash tools/test-install.sh && bash tools/parity/run.sh bin/docflow bin/docflow`
 Commit: P052.3.3: document and package terminal operation
+Handoff:
+- docs/design/tui.md is the current-contract topic for `docflow tui`; its Decisions section links to docs/plans/P052-terminal-control.md, so closing P052 must repoint that link to the archive entry.
+- docs/design/runner.md now has an `## Интерактивный хост` section and event-table rows for `config`, `stream` and `state`; `unit_end.status: stopped` is documented as the controlled Stop now result.
+- docs/design/cli.md gained the `tui` command row, and docs/usage.md has a new `## Терминальное приложение` section with keys, assignments, Pause/Stop, human block, recovery and terminal limits.
+- tools/parity/run.sh now passes the host GOCACHE/GOMODCACHE into scenario sandboxes: without it the new Bubble Tea module graph re-downloaded dependencies with nondeterministic `go: downloading` ordering, and the read-only module cache broke sandbox reset between reference and candidate runs.
+- tools/test-install.sh checks `docflow tui --help` in the installed release binary; tools/smoke-run.sh checks it in the built binary, both without a controlling terminal.
+- Unverified: The terminal contract (minimum 32x10, split at 100 columns, SIGHUP path, Windows no-SIGHUP) is documented from code and existing tests, not from a live run on Windows or Linux; only macOS was verified here.
+- Unverified: Installer and smoke checks assert only that `tui --help` exists in the binary; they do not exercise an interactive start, pause or recovery from an installed release, which the last P052 unit is reserved for.
 
 ### [ ] P052.3.4 Build a bounded live acceptance driver
 Read:

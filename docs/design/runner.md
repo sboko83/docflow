@@ -228,19 +228,24 @@ limit reached`. В режиме исполнителей replan идёт по ц
 | `event` | Дополнительные поля |
 |---|---|
 | `run_start` | `plan` — ID плана, `units` — полное число его юнитов |
+| `config` | `plan`, `permissions`; `executor`, `fallback`, `replan`, `roles` — маршруты плана; `configured_roles`, `configured_units` — явные overrides интерактивной конфигурации; `effective` — разрешённый снимок назначений |
 | `unit_start` | `route` — выбранный маршрут |
 | `attempt` | `n` — номер попытки, `route`, `log` — путь лога относительно корня репозитория |
+| `stream` | `attempt`, `log` — путь лога, `stdout`/`stderr` — объекты `path`, `offset`, `length`; `empty: true`, когда вызов не дал байтов; `replan: true` у replan, `plan` и `close: true` у закрытия |
 | `quota` | `name` — провайдер, `windows` — массив объектов `label`, `used` (проценты), `reset` (сырое значение или `null`) |
 | `route_switch` | `from`, `to` — маршруты, `kind` — класс отказа |
 | `replan` | `route` — последний маршрут, `result` — результат (`paused` под управляемой паузой), `exit_code`, `check_changes` — массив пунктов смен проверок, записанных в `## Decisions` (`<id> Verify: <старое> -> <новое>`, `<id> skipped`); пустой, когда смен нет |
 | `close` | `plan` — ID плана, `route` — последний маршрут, `result` (`paused` под управляемой паузой), `exit_code` |
-| `verify` | `exit_code`; `reused: true`, если проверка агента переиспользована |
+| `verify` | `exit_code`; `reused: true`, если проверка агента переиспользована; `stage` (`verify`, `preflight` или `gate`) и `stdout`/`stderr` — ссылки на лог `verify.<uid>.<n>.out` |
+| `state` | `state: Paused`, `stage` — устойчивая граница, на которой записан checkpoint, `attempt`; пишется только вместе с записанным checkpoint паузы |
 | `commit` | `sha` — hash коммита, `test_changes` — массив пунктов ослабленных тестов этого коммита, тот же текст, что в строках `test change:` его вывода; пустой, когда пунктов нет |
 | `unit_end` | `status`, `seconds` — время всего юнита, `cost` — сумма стоимости вызовов, если известна, `test_changes` — число пунктов `test_changes` коммита юнита (0, когда их нет) |
 | `run_end` | `reason` — причина остановки, `exit_code` — итоговый код раннера; `paused: true` — прогон остановлен управляемой паузой |
 
 `status` и `result`: `done`, `blocked`, `failed`, `error` (ошибка самого
 вызова раннера) или `paused` (юнит остановлен управляемой паузой).
+`unit_end.status: stopped` — юнит, прерванный управляемым Stop now
+(отдельное действие человека, не пауза).
 Управляемая пауза закрывает поток собственным событием, а не ошибкой
 раннера: юнит, который остановила пауза, получает
 `unit_end.status: paused`, а `run_end` — `paused: true`, `reason: paused`
@@ -264,9 +269,12 @@ fingerprint, полувалидированный ответ не коммити
 её показывают `unit_end`, `run_end`, отложенные `replan`/`close` и переход
 хоста из Pausing в Paused. Ошибка записи checkpoint паузой не является:
 прогон получает код 2, статус `error`, хост — Failed, событие `state` не
-пишется. Отмена сигналом, Stop now, отмена родительского контекста
+пишется. Управляемый Stop now закрывает журнал отдельным действием:
+`unit_end.status: stopped`, `run_end.reason: stopped`, `exit_code: 0` без
+поля `paused`. Отмена сигналом, отмена родительского контекста
 и прогон без интерактивного хозяина классифицируются как раньше:
-`context canceled` и код 2 в потоке означают ошибку раннера, не паузу. Событие `replan` завершает операцию replan; её `attempt`,
+`context canceled` и код 2 в потоке означают ошибку раннера, не паузу и не
+действие человека. Событие `replan` завершает операцию replan; её `attempt`,
 `route_switch` и `commit` дополнительно несут `replan: true`. Закрытие даёт
 такие же события; его `attempt`, `route_switch` и `commit`
 несут `close: true` и `plan` вместо `unit`, событие `close` завершает операцию.
@@ -317,6 +325,58 @@ update: …`, не стоп: цикл юнита и правила replan цел
 `<agent>: quota exhausted until HH:MM, skipped` показывают пропущенные
 маршруты. Если вся цепочка недоступна, раннер ждёт ближайший срок, а
 `--no-wait` завершает запуск с кодом 7.
+
+## Интерактивный хост
+
+Интерактивное приложение (`docflow tui`) не повторяет цикл раннера и не
+владеет терминалом раннера: `RunControlled` запускает тот же `runLoop`,
+но не читает stdin, не ставит обработчики сигналов и не пишет Progress в
+stdout. Наблюдения и вопросы идут через `Control` — единственную точку
+команд и событий:
+
+- `NewControl(eventBuffer, requestBuffer)` создаёт хост в состоянии
+  `Idle`. Состояния: `Idle`, `Starting`, `Running`, `Pausing`, `Paused`,
+  `Stopping`, `Blocked`, `Cancelled`, `Finished`, `Failed`.
+- `StartCheckout(parent, root, execute)` берёт общий checkout lock на всё
+  время `execute` и освобождает его после возврата; управляемый
+  `runWithOptions` получает признак `locked` и второй замок не берёт.
+  Обычный `Run` берёт замок сам. Чужой живой владелец отказывает и
+  интерактивному старту.
+- `Start` запускает одно выполнение за раз из `Idle`, `Paused`,
+  `Cancelled`, `Finished`, `Failed` или `Blocked`. По возврате `execute`
+  хост выбирает итог: `Paused` — только `Pausing` вместе с записанным
+  checkpoint и без ошибки; пауза без checkpoint, как и ошибка, даёт
+  `Failed`; `Blocked` — остановка на блоке; отменённое подтверждение
+  старта — `Cancelled`; `Stopping` — `Finished`.
+- `StartRun` сам запрашивает подтверждение старта: `Ask` с
+  `Kind: "confirm_start"` и `Fields["preview"]` — `StartReview` из
+  `StartPreview` (сводка выбора, режим прав, предусловия, эффективные
+  назначения). Отказ подтверждения зовёт `MarkStartCancelled`, и работа
+  не начинается. `MarkRunning` фиксирует принятое подтверждение.
+- `Pause` требует `Running`, переводит в `Pausing` и отменяет контекст
+  выполнения; `CancelStart` отменяет ожидающее подтверждение без работы;
+  `StopAfterUnit` переводит в `Stopping` и пишет stop-файл, не отменяя
+  контекст; `StopNow` переводит в `Stopping` и отменяет контекст без
+  checkpoint. `Pause` и `StopNow` различаются по состоянию хоста и
+  отменённому контексту, а не по коду выхода.
+- `ResumeRun` читает checkpoint, проверяет `ValidateResumable` и
+  `ValidateCheckpoint` и при расхождении публикует `recovery_conflict`,
+  ничего не запуская; иначе стартует без повторного подтверждения.
+  Сессия продолжается только на том же agent/model/effort.
+- `Publish` кладёт событие в ограниченную очередь, не блокируя писателя:
+  при переполнении выбрасывается самое старое наблюдение. `Ask` ждёт
+  ответа или отмены контекста; `Request.Answer` принимает ответ один раз.
+  `Checkpointed` и `Err` отдают последнюю запись паузы и причину отказа
+  выполнения; `Done` закрывается по завершении.
+
+Дополнительно к журналу хост получает события, которые в поток не
+попадают: `activity` (типизированный `agentio.Activity` в поле `Data`
+вместе с метаданными ссылки), `start_failure` (причина отказа до первого
+события, когда `run_start` ещё невозможен) и `stop_after_unit`. Они не
+сериализуются и не меняют формат версии 1: `state`, `stream`, `config` и
+поля `paused`/`stopped` — совместимые дополнения, которые читатель
+неизвестных полей и событий игнорирует. Контракт состояния и клавиш
+приложения — [tui.md](tui.md).
 
 ## Result JSON
 

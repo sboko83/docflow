@@ -227,6 +227,11 @@ echo '== install 0.0.1'
 install_sh "$WORK/install.log" || { cat "$WORK/install.log" >&2; fail 'install.sh failed'; }
 GOT=$(docflow --version)
 [ "$GOT" = 0.0.1 ] || fail "docflow --version: got '$GOT', want '0.0.1'"
+OUT=$(docflow tui --help) || fail 'installed binary: docflow tui --help failed'
+printf '%s\n' "$OUT" | grep -qF 'usage: docflow tui' \
+    || fail "installed binary: no tui help in '${OUT}'"
+printf '%s\n' "$OUT" | grep -qF 'interactive terminal workspace' \
+    || fail "installed binary: tui help has no workspace line in '${OUT}'"
 skill_links_present 'install 0.0.1'
 # No DOCFLOW_SKILLS and redirected stderr: docflow install links globally,
 # hints, and stores nothing, so scripted installs keep working on every OS.
