@@ -3,10 +3,13 @@ set -e
 
 usage() {
     cat <<'EOF'
-Usage: bash tools/install-dev.sh [--bin-dir DIR] [--no-skills] [--dry-run]
+Usage: bash tools/install-dev.sh [--bin-dir DIR] [--dry-run]
 
-Build and install docflow from this checkout. The default directory is
-~/.local/bin. The checkout must remain in place while the symlink is used.
+Build and install the development docflow from this checkout as docflow-dev.
+The default directory is ~/.local/bin. The docflow on PATH stays the
+installed release. The installed skill links are not touched here; switch
+them with bash tools/switch-skills.sh. The checkout must remain in place
+while the symlink is used.
 EOF
 }
 
@@ -17,17 +20,12 @@ fail() {
 
 BIN_DIR="${HOME:+$HOME/.local/bin}"
 DRY_RUN=0
-NO_SKILLS=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --bin-dir)
             [ "$#" -ge 2 ] || fail '--bin-dir requires a directory'
             BIN_DIR=$2
             shift 2
-            ;;
-        --no-skills)
-            NO_SKILLS=1
-            shift
             ;;
         --dry-run)
             DRY_RUN=1
@@ -86,7 +84,7 @@ check_path_components() {
     done
 }
 check_path_components "$BIN_DIR"
-TARGET="$BIN_DIR/docflow$EXE"
+TARGET="$BIN_DIR/docflow-dev$EXE"
 
 resolve_path() {
     local path="$1" link parent
@@ -122,39 +120,16 @@ elif [ -e "$TARGET" ]; then
     exit 1
 fi
 
-PATH_DOCFLOW=$(command -v docflow 2>/dev/null || true)
-if [ -n "$PATH_DOCFLOW" ]; then
-    RESOLVED_PATH_DOCFLOW=$(resolve_path "$PATH_DOCFLOW") \
-        || fail "cannot resolve PATH command $PATH_DOCFLOW"
-    if [ "$RESOLVED_PATH_DOCFLOW" != "$SOURCE" ]; then
-        printf 'conflict: PATH resolves docflow to %s (resolves to %s)\n' \
-            "$PATH_DOCFLOW" "$RESOLVED_PATH_DOCFLOW" >&2
+PATH_DEV=$(command -v "docflow-dev$EXE" 2>/dev/null || command -v docflow-dev 2>/dev/null || true)
+if [ -n "$PATH_DEV" ]; then
+    RESOLVED_PATH_DEV=$(resolve_path "$PATH_DEV") \
+        || fail "cannot resolve PATH command $PATH_DEV"
+    if [ "$RESOLVED_PATH_DEV" != "$SOURCE" ]; then
+        printf 'conflict: PATH resolves docflow-dev to %s (resolves to %s)\n' \
+            "$PATH_DEV" "$RESOLVED_PATH_DEV" >&2
         exit 1
     fi
 fi
-
-install_skills() {
-    local agent
-    [ "$NO_SKILLS" -eq 0 ] || return 0
-    for agent in claude codex pi opencode; do
-        if command -v "$agent" >/dev/null 2>&1; then
-            if [ "$DRY_RUN" -eq 1 ]; then
-                printf 'would install skills: %s install-skills --agent %s\n' \
-                    "$TARGET" "$agent"
-            else
-                "$TARGET" install-skills --agent "$agent"
-            fi
-        fi
-    done
-    if [ -n "${HOME:-}" ] && [ -d "$HOME/.zcode" ]; then
-        if [ "$DRY_RUN" -eq 1 ]; then
-            printf 'would install skills: %s install-skills --target %s\n' \
-                "$TARGET" "$HOME/.zcode/skills"
-        else
-            "$TARGET" install-skills --target "$HOME/.zcode/skills"
-        fi
-    fi
-}
 
 if [ "$DRY_RUN" -eq 1 ]; then
     printf 'would build: go build -o %s ./cmd/docflow\n' "$SOURCE"
@@ -163,7 +138,6 @@ if [ "$DRY_RUN" -eq 1 ]; then
     else
         printf 'would install symlink: %s -> %s\n' "$TARGET" "$SOURCE"
     fi
-    install_skills
     exit 0
 fi
 
@@ -188,7 +162,6 @@ if [ "$TARGET_OWN" -eq 0 ]; then
 fi
 
 printf 'installed: %s -> %s\n' "$TARGET" "$SOURCE"
-install_skills
 
 BIN_DIR_PHYSICAL=$(cd "$BIN_DIR" && pwd -P) \
     || fail "cannot resolve $BIN_DIR"

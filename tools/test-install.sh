@@ -348,8 +348,7 @@ fi
     || fail 'the foreign skill is gone after the switch to project'
 
 echo '== update --skills global restores the personal links for the sections below'
-# install-dev.sh below must find the release links to report that it redirects
-# them to the checkout, so the mode returns to global here.
+# The later sections check the personal links, so the mode returns to global here.
 OUT=$(docflow update --skills global)
 printf '%s\n' "$OUT" | grep -qxF 'up to date: 0.0.3' \
     || fail "update --skills global (restore): got '$OUT', want 'up to date: 0.0.3'"
@@ -397,27 +396,46 @@ GOT=$(docflow --version)
 [ "$GOT" = 0.0.3 ] \
     || fail "version changed after a development update: got '$GOT', want '0.0.3'"
 
-echo '== install-dev.sh relinks release skills to the checkout'
+echo '== install-dev.sh links docflow-dev and leaves the skills alone'
 bash "$DEV_REPO/tools/install-dev.sh" >"$WORK/install-dev.log" 2>&1 \
     || { cat "$WORK/install-dev.log" >&2; fail 'install-dev.sh failed'; }
-grep -qF 'relinked' "$WORK/install-dev.log" \
-    || fail "install-dev.sh: no relink message in '$(cat "$WORK/install-dev.log")'"
+GOT=$(read_link "$HOME/.local/bin/docflow-dev$EXE") \
+    || fail 'no docflow-dev link after install-dev.sh'
+[ "$GOT" = "$DEV_REPO/bin/docflow$EXE" ] \
+    || fail "readlink ~/.local/bin/docflow-dev after install-dev.sh: got '$GOT', want '$DEV_REPO/bin/docflow$EXE'"
 for dir in $SKILL_DIRS; do
-    for skill in "$DEV_REPO"/skills/*/; do
-        name=$(basename "$skill")
+    for name in $(release_skill_names); do
         GOT=$(read_link "$HOME/$dir/$name") || fail "no skill link ~/$dir/$name"
-        WANT=$DEV_REPO/skills/$name
-        [ "$GOT" = "$WANT" ] \
-            || fail "readlink ~/$dir/$name after install-dev.sh: got '$GOT', want '$WANT'"
+        case "$GOT" in
+            *".docflow/current/skills/$name") ;;
+            *) fail "skill link ~/$dir/$name moved to the checkout: got '$GOT'" ;;
+        esac
     done
 done
-# Put the release links back so uninstall below checks its own links.
-for dir in $SKILL_DIRS; do
-    for skill in "$REPO_DIR"/skills/*/; do
-        remove_skill_link "$HOME/$dir/$(basename "$skill")"
+
+echo '== switch-skills.sh moves the personal links to the checkout and back'
+# switch-skills.sh manages these three directories; ~/.pi/agent/skills stays
+# release-owned here.
+SWITCH_DIRS='.claude/skills .agents/skills .zcode/skills'
+bash "$DEV_REPO/tools/switch-skills.sh" dev >"$WORK/skills-dev.log" 2>&1 \
+    || { cat "$WORK/skills-dev.log" >&2; fail 'switch-skills.sh dev failed'; }
+for dir in $SWITCH_DIRS; do
+    for name in $(release_skill_names); do
+        GOT=$(read_link "$HOME/$dir/$name") || fail "no skill link ~/$dir/$name"
+        [ "$GOT" = "$DEV_REPO/skills/$name" ] \
+            || fail "readlink ~/$dir/$name after switch-skills dev: got '$GOT', want '$DEV_REPO/skills/$name'"
     done
 done
-rm "$HOME/.local/bin/docflow$EXE"
+bash "$DEV_REPO/tools/switch-skills.sh" release >"$WORK/skills-release.log" 2>&1 \
+    || { cat "$WORK/skills-release.log" >&2; fail 'switch-skills.sh release failed'; }
+for dir in $SWITCH_DIRS; do
+    for name in $(release_skill_names); do
+        GOT=$(read_link "$HOME/$dir/$name") || fail "no skill link ~/$dir/$name"
+        [ "$GOT" = "$HOME/.docflow/current/skills/$name" ] \
+            || fail "readlink ~/$dir/$name after switch-skills release: got '$GOT', want release"
+    done
+done
+rm "$HOME/.local/bin/docflow-dev$EXE"
 for agent in claude codex pi; do
     docflow install-skills --agent "$agent" >/dev/null \
         || fail "release install-skills --agent $agent failed"

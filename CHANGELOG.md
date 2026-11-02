@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `tools/install-dev.sh` links the development CLI as `docflow-dev`
+  (`~/.local/bin/docflow-dev`) and no longer installs skills: the
+  `docflow` on PATH and the installed skill links stay on the release.
+  New `tools/switch-skills.sh [dev|release|status]` switches the personal
+  skill links between the release copy and the checkout.
+
 ## [0.22.0] - 2026-11-02
 
 ### Added

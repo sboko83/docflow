@@ -1,8 +1,21 @@
 Task and documentation workflow for AI agents: plans split into one-session
 units, handoff between sessions, decision archive, `docflow` CLI.
 
+## Dev CLI
+The CLI under development lives in this repo. Sessions working here call it
+as `docflow-dev` (a symlink to `bin/docflow`; rebuild with
+`bash tools/install-dev.sh` or `go build -o bin/docflow ./cmd/docflow`).
+The `docflow` on PATH is the installed release — do not use it for plan
+operations here.
+
+The installed skills (`bsv-docs`, `bsv-docflow-*`) are release-owned. When
+`skills/` in this checkout matters to the task, read the checkout copy
+`skills/<name>/SKILL.md`, or switch the installed links with
+`bash tools/switch-skills.sh dev` (and back with `release`; no-arg prints
+the current mode).
+
 ## Start of session
-Run `docflow status` (prints `start:`), then read `README.md` (state) and
+Run `docflow-dev status` (prints `start:`), then read `README.md` (state) and
 `docs/design/README.md` (index of decisions and formats). Read a topic file
 when a unit's `Read:` links it or when planning. Plans are docflow plans,
 not the bsv-docs PLAN genre.
@@ -60,11 +73,11 @@ explicitly instead.
 - Sources live only in `skills/`. Never edit installed skill directories.
 - The installed CLI is the GitHub release (`install.sh`):
   `~/.docflow/bin/docflow` -> `~/.docflow/current`. `tools/install-dev.sh`
-  is only for developing docflow itself; do not expect `~/.local/bin/docflow`.
-- `bash tools/install-dev.sh` builds the CLI, links `~/.local/bin/docflow`
-  to `bin/docflow`, and installs skills for agent CLIs found in `PATH`
-  (`claude`, `codex`, `pi`) and in `~/.zcode/skills` when `~/.zcode` exists;
-  `--no-skills` skips the skills. Direct installation uses
+  is only for developing docflow itself; it links `~/.local/bin/docflow-dev`
+  and leaves the installed skills alone.
+- `bash tools/switch-skills.sh dev` points the personal skill links at this
+  checkout, `release` points them back at `~/.docflow/current/skills`,
+  no-arg prints the mode. Direct installation for other agents uses
   `docflow install-skills --agent claude|codex|pi` or
   `docflow install-skills --target ~/.zcode/skills`. Working-tree edits,
   uncommitted ones included, are live at once; run the installer again for

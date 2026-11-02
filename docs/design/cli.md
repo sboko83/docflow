@@ -10,10 +10,11 @@ Go 1.26+, модуль `bsv-docflow`: точка входа `cmd/docflow`, ко�
 установка — `install.sh` из корня репозитория: скачивает релиз и запускает
 `docflow install` (без Go, см. [«Релизы»](#релизы)). Для разработки
 `tools/install-dev.sh` собирает
-`bin/docflow`, создаёт симлинк в выбранном каталоге (`~/.local/bin` по
-умолчанию) и ставит скиллы агентам, чей CLI есть в PATH, и в
-`~/.zcode/skills` при наличии `~/.zcode`; `--no-skills` пропускает скиллы
-([P028](../archive/P028-go-cutover.md)). Скиллы читаются рядом с бинарником: в dev-сборке — из
+`bin/docflow` и создаёт симлинк `docflow-dev` в выбранном каталоге
+(`~/.local/bin` по умолчанию); `docflow` на PATH остаётся релизом, скиллы
+он не трогает — личные симлинки скиллов переключает
+`tools/switch-skills.sh`
+([P057](../archive/P057-dev-cli-skill-switch.md)). Скиллы читаются рядом с бинарником: в dev-сборке — из
 checkout, в standalone — из `~/.docflow/current`. Решение о переносе и его
 ограничениях: [P024](../archive/P024-go-cli.md).
 

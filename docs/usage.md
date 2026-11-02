@@ -191,16 +191,17 @@ bash tools/install-dev.sh --dry-run
 bash tools/install-dev.sh
 ~~~
 
-Скрипт проверяет исходники, собирает bin/docflow, создаёт симлинк в
-выбранном каталоге (`~/.local/bin` по умолчанию; другой — через `--bin-dir
-DIR`) и ставит скиллы агентам, чьи CLI найдены в PATH (`claude`, `codex`,
-`pi`, `opencode`), а также в `~/.zcode/skills`, если существует каталог `~/.zcode`.
-Флаг `--no-skills` пропускает установку скиллов, `--dry-run` печатает план,
-ничего не меняя. Скрипт не меняет PATH: если каталог не найден в PATH, он
+Скрипт проверяет исходники, собирает bin/docflow и создаёт симлинк
+`docflow-dev` в выбранном каталоге (`~/.local/bin` по умолчанию; другой —
+через `--bin-dir DIR`). `docflow` на PATH остаётся установленным релизом.
+Скиллы скрипт не трогает: симлинки скиллов переключает утилита
+`bash tools/switch-skills.sh` (`dev` — на checkout, `release` — на релиз,
+без аргумента — текущий режим). Флаг `--dry-run` печатает план, ничего
+не меняя. Скрипт не меняет PATH: если каталог не найден в PATH, он
 напечатает команду для добавления в профиль оболочки. Сохраните checkout
 на месте, пока используете CLI: симлинк ведёт в него.
 
-`docflow update` и `docflow uninstall` в dev-сборке отказывают.
+`docflow-dev update` и `docflow-dev uninstall` в dev-сборке отказывают.
 Обновление — переключить чистый checkout на новый тег и повторить
 установщик; сначала проверьте локальные изменения и сохраните их отдельно,
 не сбрасывая:
@@ -211,8 +212,8 @@ git status --short
 git fetch --tags origin
 git checkout vX.Y.Z
 bash tools/install-dev.sh
-docflow --version
-docflow doctor --agent codex
+docflow-dev --version
+docflow-dev doctor --agent codex
 ~~~
 
 Если личные скиллы ставились через произвольный `--target DIR` вне

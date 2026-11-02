@@ -165,8 +165,12 @@ cd bsv-docflow
 bash tools/install-dev.sh
 ~~~
 
-The script builds `bin/docflow` and links it from the checkout (keep the
-checkout); `docflow update` refuses in such a build.
+The script builds `bin/docflow` and links it as `docflow-dev` in
+`~/.local/bin`; the `docflow` on PATH stays the installed release (keep the
+checkout). It does not touch the installed skills —
+`bash tools/switch-skills.sh dev|release|status` switches their links
+between the release and the checkout. `docflow-dev update` refuses in such
+a build.
 
 ## Project links (docs in Russian)
 

@@ -161,8 +161,11 @@ cd bsv-docflow
 bash tools/install-dev.sh
 ~~~
 
-Скрипт собирает bin/docflow и линкует его из checkout (сохраните
-checkout); `docflow update` в такой сборке отказывает.
+Скрипт собирает bin/docflow и линкует его как `docflow-dev` в
+`~/.local/bin`; `docflow` на PATH остаётся установленным релизом
+(сохраните checkout). Скиллы скрипт не трогает — симлинки скиллов
+переключает `bash tools/switch-skills.sh dev|release|status`.
+`docflow-dev update` в такой сборке отказывает.
 
 ## Ссылки по проекту (доки на русском)
 
