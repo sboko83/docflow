@@ -875,8 +875,6 @@ func routeOf(value string) (Route, error) {
 	return route, nil
 }
 
-// ChainRoutes parses a "agent | model | effort; ..." chain into routes;
-// empty segments are skipped.
 // ReplanRoutes returns the chain auto-replan runs on. Replan is on by default
 // in executor mode and `replan:` only picks the route: without the key it is
 // the header `executor:` followed by `fallback:`, the chain of a unit without
@@ -901,6 +899,8 @@ func ReplanRoutes(plan *format.Plan) ([]Route, error) {
 	return append([]Route{primary}, fallback...), nil
 }
 
+// ChainRoutes parses a "agent | model | effort; ..." chain into routes;
+// empty segments are skipped.
 func ChainRoutes(value string) ([]Route, error) {
 	var routes []Route
 	for _, raw := range strings.Split(value, ";") {

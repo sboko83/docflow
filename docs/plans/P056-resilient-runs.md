@@ -271,13 +271,15 @@ Handoff:
 - TestReviewBlockBudget covers spent (2 prior + new block -> stop, 1 call), left (1 prior -> replan called) and ordinary (2 prior, no Role -> replan called); it asserts the fixture carries the prior items.
 - Texts: skills/bsv-docflow-plan Review section, docs/design/runner.md#авто-replan (links docs/plans/P056 — repoint at close), CHANGELOG Changed, Backlog entry 'Ревью-юнит не сходится' marks (а) done.
 
-### [ ] P056.1.7 Restore the ChainRoutes doc comment
+### [x] P056.1.7 Restore the ChainRoutes doc comment
 Read:
 - internal/agents/agents.go:L870-920
 Do:
 - Верни комментарий «ChainRoutes parses …» над `func ChainRoutes`: при вставке `ReplanRoutes` (P056.1.2) он оказался над комментарием `ReplanRoutes`, и godoc отдаёт его чужой функции. Текст обоих комментариев не меняй.
 Verify: `go test -timeout 20m ./internal/agents/`
 Commit: P056.1.7: restore the ChainRoutes doc comment
+Handoff:
+- The ChainRoutes doc comment sits above func ChainRoutes again; ReplanRoutes keeps its own comment, texts unchanged (go doc shows both).
 
 ### [ ] P056.1.4 Review the resilience changes
 Read:
