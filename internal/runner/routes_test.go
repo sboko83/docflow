@@ -160,7 +160,9 @@ func TestDryRunFallback(t *testing.T) {
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -; pi | zai/glm-5.3 | high")
 	r := f.cli("run", "--dry-run", "--all")
-	f.check(r, 0, "fallback: codex gpt-5.5 -; pi zai/glm-5.3 high")
+	f.check(r, 0, "fallback: codex gpt-5.5 -; pi zai/glm-5.3 high",
+		// No replan: key — replan runs on the executor chain by default.
+		"replan: claude claude-opus-5-5 high; codex gpt-5.5 -; pi zai/glm-5.3 high (default)")
 	fallbackAt := strings.Index(r.out, "fallback:")
 	lastRouteAt := strings.LastIndex(r.out, "P001.1.2 [ ] Second unit:")
 	if fallbackAt < 0 || lastRouteAt < 0 || fallbackAt < lastRouteAt {

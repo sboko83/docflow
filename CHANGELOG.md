@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skips the check with one line.
 
 ### Changed
+- Auto-replan is on by default in executor mode: a plan-class block or a
+  stale `Read:` link is replanned even without a `replan:` key, on the
+  header `executor:` followed by `fallback:`. `replan:` now only picks the
+  route; `docflow run --replans 0` turns replan off for a run. `--dry-run
+  --all` prints the default chain as `replan: … (default)`.
 - `tools/install-dev.sh` links the development CLI as `docflow-dev`
   (`~/.local/bin/docflow-dev`) and no longer installs skills: the
   `docflow` on PATH and the installed skill links stay on the release.

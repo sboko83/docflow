@@ -99,9 +99,9 @@ done. Quota bars show each subscription window as the share a unit spent
 ![docflow run: a stale unit and an automatic replan](docs/img/demo-replan.svg)
 
 Unit 2.1 moved `main.go` under `cmd/slug/`, so unit 2.2 still read a file
-that no longer exists. `prompt` refuses such a unit; the agent from the
-plan's `replan:` key repairs the plan and commits it, and the unit runs
-again in the same run.
+that no longer exists. `prompt` refuses such a unit; the replan agent —
+from the plan's `replan:` key, or the plan's executor without it — repairs
+the plan and commits it, and the unit runs again in the same run.
 
 ![docflow run: the last unit, the summary, and docflow status](docs/img/demo-finish.svg)
 

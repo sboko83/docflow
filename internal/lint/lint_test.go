@@ -285,8 +285,11 @@ func TestLintPermissionsReplanAndPrerequisites(t *testing.T) {
 		issue(t, report, "permissions 'sudo' not in: auto, full", "error", 7)
 	})
 	t.Run("replan", func(t *testing.T) {
+		// Replan is on by default: an executor plan without the key is clean.
+		report, _ := lintProject(t, projectOptions{plan: &execPlan})
+		assertClean(t, report)
 		plan := withMeta(execPlan, "replan: codex | gpt-5.5 | -; claude | claude-opus-5-5 | high\n")
-		report, _ := lintProject(t, projectOptions{plan: &plan})
+		report, _ = lintProject(t, projectOptions{plan: &plan})
 		assertClean(t, report)
 		plan = withMeta(testPlan, "replan: pi | x | -\n")
 		report, _ = lintProject(t, projectOptions{plan: &plan})

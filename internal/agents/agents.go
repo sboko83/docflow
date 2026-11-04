@@ -794,8 +794,8 @@ func PlanAgents(config map[string]any, plan *format.Plan, args RunArgs) []string
 		}
 		addRoutes(routes)
 	}
-	if value := plan.Meta["replan"]; value != "" {
-		if routes, err := ChainRoutes(value); err == nil {
+	if args.Executors {
+		if routes, err := ReplanRoutes(plan); err == nil {
 			addRoutes(routes)
 		}
 	}
@@ -870,6 +870,30 @@ func routeOf(value string) (Route, error) {
 
 // ChainRoutes parses a "agent | model | effort; ..." chain into routes;
 // empty segments are skipped.
+// ReplanRoutes returns the chain auto-replan runs on. Replan is on by default
+// in executor mode and `replan:` only picks the route: without the key it is
+// the header `executor:` followed by `fallback:`, the chain of a unit without
+// `Role:`. A legacy plan and an executor plan without a header `executor:`
+// get no chain, and a plan-class block stops their run as before.
+func ReplanRoutes(plan *format.Plan) ([]Route, error) {
+	if value := strings.TrimSpace(plan.Meta["replan"]); value != "" {
+		return ChainRoutes(value)
+	}
+	head, ok := plan.Meta["executor"]
+	if !ok {
+		return nil, nil
+	}
+	primary, err := routeOf(head)
+	if err != nil {
+		return nil, err
+	}
+	fallback, err := ChainRoutes(plan.Meta["fallback"])
+	if err != nil {
+		return nil, err
+	}
+	return append([]Route{primary}, fallback...), nil
+}
+
 func ChainRoutes(value string) ([]Route, error) {
 	var routes []Route
 	for _, raw := range strings.Split(value, ";") {

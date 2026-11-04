@@ -252,7 +252,12 @@ func restorePlan(path, text string) error {
 }
 
 func runReplan(ctx context.Context, root string, args Args, config map[string]any, plan *format.Plan, uid, trigger string, p *Progress, totals *runTotals, replans map[string]int, unavailable map[string]time.Time) (*int, error) {
-	if trigger == "" || plan.Meta["replan"] == "" || args.Replans < 1 {
+	if trigger == "" || args.Replans < 1 {
+		return nil, nil
+	}
+	// A bad route is reported by replanUnit; only a plan without any route
+	// (legacy, or no header executor) keeps the plain stop.
+	if routes, err := agents.ReplanRoutes(plan); err == nil && len(routes) == 0 {
 		return nil, nil
 	}
 	if !replanAllowed(replans, uid, args.Replans) {

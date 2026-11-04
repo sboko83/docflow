@@ -582,7 +582,7 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, configurati
 	}
 	// The replan agent runs only after a block, but its quota still matters
 	// for the run; a bad replan route is reported when replan starts.
-	if len(units) > 0 && plan.Meta["replan"] != "" && args.Replans >= 1 {
+	if len(units) > 0 && args.Replans >= 1 {
 		if chain, err := replanExecutorChain(config, plan, args.RunArgs, unavailable); err == nil {
 			routes = append(routes, chain.routes...)
 			for _, route := range chain.routes {
@@ -1700,7 +1700,9 @@ func dryRunAll(args Args, config map[string]any, plan *format.Plan, stdout, stde
 }
 
 // chainLines renders the fallback, role, and replan chains of the header,
-// in that order, as dry-run lines; absent keys produce no line.
+// in that order, as dry-run lines; absent keys produce no line, except replan:
+// an executor plan without the key replans on its executor chain, shown as
+// `replan: … (default)`.
 func chainLines(plan *format.Plan) ([]string, error) {
 	keys := append([]string{"fallback"}, append(lint.RoleKeys(), "replan")...)
 	lines := make([]string, 0, len(keys))
@@ -1711,6 +1713,15 @@ func chainLines(plan *format.Plan) ([]string, error) {
 		}
 		if line != "" {
 			lines = append(lines, line)
+		}
+	}
+	if _, present := plan.Meta["replan"]; !present {
+		routes, err := agents.ReplanRoutes(plan)
+		if err != nil {
+			return nil, fmt.Errorf("replan: %s", err)
+		}
+		if len(routes) > 0 {
+			lines = append(lines, "replan: "+routesLine(routes)+" (default)")
 		}
 	}
 	return lines, nil
@@ -1731,6 +1742,10 @@ func chainLine(plan *format.Plan, key string) (string, error) {
 	if len(routes) == 0 {
 		return "", nil
 	}
+	return key + ": " + routesLine(routes), nil
+}
+
+func routesLine(routes []agents.Route) string {
 	parts := make([]string, 0, len(routes))
 	for _, route := range routes {
 		model, effort := route.Model, route.Effort
@@ -1742,7 +1757,7 @@ func chainLine(plan *format.Plan, key string) (string, error) {
 		}
 		parts = append(parts, strings.Join([]string{route.Agent, model, effort}, " "))
 	}
-	return key + ": " + strings.Join(parts, "; "), nil
+	return strings.Join(parts, "; ")
 }
 
 type limitProgress struct{ p *Progress }

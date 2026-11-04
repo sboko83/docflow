@@ -145,6 +145,7 @@ replan сам добавил юниты 1.8 и 1.9, и прогон продол
   decide before P056), and the other Backlog options (blocking scope,
   incremental re-review, stats signal) — they stay in Backlog.
 - Baseline runs inside the start block after the quota probe and is cancelled by the run context, not by its own signal handler — a re-raised signal would kill the runner past run_end and the lock release; rejected reusing runVerifyCommand as is.
+- PlanAgents adds the replan chain only in executor mode — a legacy plan has no replan route since replan: needs executor mode; rejected keeping the key-only check, which would miss the default chain.
 
 ## Phase 1: Defects stop the run only once
 
@@ -172,7 +173,7 @@ Handoff:
 - Red baseline: log .git/docflow/run/baseline.<n>.out via nextCallLog(logs, "baseline."), lines 'baseline: gate failed (exit N): <cmd>' and 'log: …', totals.stop/notification set, exit 2. Lines: 'baseline: gate passed', 'baseline: skipped, the tree has work in progress' (const baselineSkipped).
 - Tests with a gate now count one extra baseline run (verify-count 'xx'); the gate retry case uses 'test -f gate.ok || ! test -f a.txt' so the baseline stays green. Design: docs/design/runner.md#старт-прогона links docs/plans/P056 — repoint to the archive at close. CHANGELOG [Unreleased] Added has the baseline line.
 
-### [ ] P056.1.2 Turn auto-replan on by default
+### [x] P056.1.2 Turn auto-replan on by default
 Read:
 - internal/runner/replan.go:L254-270
 - internal/runner/chain.go:L15-72
@@ -200,6 +201,10 @@ Do:
 Verify: `go test -timeout 20m ./internal/runner/ ./internal/agents/ ./internal/lint/ ./cmd/docflow/`
 Traps: не читай ростер в `run` — маршрут по умолчанию только из шапки плана. Ключ `replan:` не удаляй из формата: меняется его роль, а не наличие. Лимиты replan и `check_replan` не трогай. Миграция 2 → 3 (`cycle/lifecycle.go`, «replan carries the fallback chain») касается только планов с ключом — не трогай.
 Commit: P056.1.2: turn auto-replan on by default
+Handoff:
+- agents.ReplanRoutes(plan) is the single replan route: non-empty replan: -> its chain; else header executor: + fallback:; else empty (legacy, or executor mode with only unit Executor: fields). Used by runReplan (empty -> plain stop), replanExecutorChain, startQuota, PlanAgents (only with args.Executors), eventConfigPlan and chainLines.
+- Dry run with --all prints 'replan: <routes> (default)' when the key is absent (chainLines/routesLine in run.go). TestReplanRun: 'no-key' now replans on claude|opus|high, new 'legacy' mode keeps the stop; 'disabled' (--replans 0) unchanged.
+- Texts updated: skills/bsv-docflow-plan (Procedure 6 and 9, Ask before units, Sample notes, Review, Replan under the runner), skills/bsv-docflow-run, docs/design/runner.md#авто-replan, docs/design/format.md (replan:, role keys), README.md + README.ru.md, CHANGELOG Changed. runner.md and format.md link docs/plans/P056 — repoint at close.
 
 ### [ ] P056.1.3 Make replan prove the failure
 Read:

@@ -219,12 +219,16 @@ func eventConfigPlan(plan *format.Plan) map[string]any {
 		return fields
 	}
 	fields["plan"], fields["permissions"] = plan.Meta["id"], format.PlanPermissions(plan)
-	for _, key := range []string{"executor", "fallback", "replan"} {
+	for _, key := range []string{"executor", "fallback"} {
 		if value := plan.Meta[key]; value != "" {
 			if routes, err := agents.ChainRoutes(value); err == nil {
 				fields[key] = eventRoutes(routes)
 			}
 		}
+	}
+	// Replan runs on the executor chain when the key is absent.
+	if routes, err := agents.ReplanRoutes(plan); err == nil && len(routes) > 0 {
+		fields["replan"] = eventRoutes(routes)
 	}
 	roles := map[string]any{}
 	for _, unit := range plan.Units {

@@ -257,7 +257,7 @@ func editPlan(old, new string) string {
 }
 
 func TestReplanRun(t *testing.T) {
-	for _, mode := range []string{"success", "quota", "stale-read", "broken-link", "unchanged", "dirty-open", "dirty-resume", "other-file", "permissions", "agent-commit", "human", "replan-blocked", "check-change", "unit-limit", "run-limit", "no-key", "disabled", "skills"} {
+	for _, mode := range []string{"success", "quota", "stale-read", "broken-link", "unchanged", "dirty-open", "dirty-resume", "other-file", "permissions", "agent-commit", "human", "replan-blocked", "check-change", "unit-limit", "run-limit", "no-key", "legacy", "disabled", "skills"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newReplanFixture(t)
 			steps := []string{blockReply(), liftReply("P001.1.1"), writeReply("b.txt"), writeReply("d.txt")}
@@ -309,9 +309,15 @@ func TestReplanRun(t *testing.T) {
 				steps = []string{blockReply(), liftReply("P001.1.1"), blockReply()}
 				args = []string{"--replans", "1"}
 				code, needle, calls = 3, "P001.1.1: replan limit reached", 3
-			case "no-key", "disabled":
-				if mode == "no-key" {
-					f.replace(planFile, "replan: claude | haiku | low\n", "")
+			case "no-key":
+				// Replan is on by default: without the key it runs on the
+				// executor chain.
+				f.replace(planFile, "replan: claude | haiku | low\n", "")
+				needle = "P001.1.1 replan -> claude | opus | high"
+			case "legacy", "disabled":
+				if mode == "legacy" {
+					f.replace(planFile, "executor: claude | opus | high\nreplan: claude | haiku | low\n", "")
+					args = []string{"--config", f.config}
 				} else {
 					args = []string{"--replans", "0"}
 				}
@@ -340,6 +346,11 @@ func TestReplanRun(t *testing.T) {
 				t.Fatalf("calls %d != %d\n%s%s", len(gotCalls), calls, r.out, r.err)
 			}
 			subjects := f.git("log", "--format=%s")
+			if mode == "no-key" {
+				if argv := strings.Join(gotCalls[1].Argv, " "); !strings.Contains(argv, "--model opus") || !strings.Contains(gotCalls[1].Stdin, "# Replan P001.1.1") {
+					t.Fatalf("default replan call = %s", argv)
+				}
+			}
 			if mode == "success" || mode == "dirty-resume" || mode == "quota" {
 				if subjects != "P001.1.2: second unit\nP001.1.1: first unit\nP001: replan P001.1.1\nfixture\ninit" {
 					t.Fatal(subjects)

@@ -57,10 +57,11 @@ runner parses it. In a `blocked` reply set `blocker`: `"plan"` when
 `Do:` contradicts reality and the plan needs a new step, a new unit or a
 fix; `"human"` when only a person can unblock it — a login, access, a
 secret, a device or a decision — with `reason` saying what exactly to
-do. A reply without the field counts as `human`. With the plan's
-`replan:` key a `"plan"` block is replanned automatically and the unit
-is re-prompted; `"human"`, or no `replan:` key, stops the run and
-notifies. On a resumed unit — Handoff `Unblocked:` after the latest
+do. A reply without the field counts as `human`. In a plan with
+executors a `"plan"` block is replanned automatically — on the `replan:`
+route, or on the plan's executor chain without the key — and the unit is
+re-prompted; `"human"`, `--replans 0` or a plan without executors stops
+the run and notifies. On a resumed unit — Handoff `Unblocked:` after the latest
 `Blocked (human)` (a legacy `Blocked:` item counts as human) — check that
 condition with a command first; a `blocked` reply for a step the person
 claimed as done is the answer too: name in `reason` what is still missing.

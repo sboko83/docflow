@@ -66,8 +66,7 @@ pays off for multi-unit work"), the choice stays with the user.
 6. Survey — see "Ask before units": one block of questions to the user,
    before any unit is written — the plan's executor and separate ones for
    heavy units and acceptance, `permissions: auto|full` with what `full`
-   removes, the auto-replan executor or off, and what only a human
-   provides (the `## Prerequisites` items).
+   removes, and what only a human provides (the `## Prerequisites` items).
 7. Units — see "Unit". The order of units is the order of execution.
    When the plan changes what the user sees (UI, CLI, API), the last phase
    is "Acceptance", see below.
@@ -80,9 +79,9 @@ pays off for multi-unit work"), the choice stays with the user.
    by hand. Read its warnings: a unit `Executor:` outside the conditions,
    an open unit whose `Read:` proxy is over its role budget, a role
    without a fallback. Apply refuses before writing when an open unit
-   needs an executor or role chain the conditions leave empty.
-   When the user did not opt in to auto-replan, delete the `replan:` line
-   apply wrote — after every repeated apply too.
+   needs an executor or role chain the conditions leave empty. The
+   `replan:` line apply writes only picks the replan route; deleting it
+   does not turn replan off.
 10. `docflow lint`. No script — check against the sample manually.
 11. Show the plan to the user, apply edits. Leave `status: draft`; the
    project's rules and the commission decide the commit and its message.
@@ -113,12 +112,13 @@ the user has already stated is recorded mechanically and not asked again.
   commands. No key — `auto`, the default mode. Name the mode in the
   survey anyway: a committed `full` must not be a silent escalation by
   commit.
-- Auto-replan: `replan: agent | model | effort` in the frontmatter — the
-  executor that fixes a plan-class block or a stale `Read:` link and lets
-  the run continue (see "Replan under the runner"). Without the key a
-  block stops the run. Off unless the user opts in; executor mode only,
-  `lint` enforces it. `roster apply` writes `replan:`; a refusal removes
-  it.
+- Auto-replan is not a survey question: in executor mode it is on by
+  default and fixes a plan-class block or a stale `Read:` link so the run
+  continues (see "Replan under the runner"). `replan: agent | model |
+  effort` in the frontmatter only picks its route — `roster apply` writes
+  it, or by hand on an explicit request for a route; without the key
+  replan runs on `executor:` + `fallback:`. The only opt-out is `docflow
+  run --replans 0`, per run.
 - What only a human provides: a login, a test account — name where the
   credentials live (an environment variable, a file outside the
   repository), never their value — a device or simulator step, a secret,
@@ -325,7 +325,7 @@ reviewers of each `check` access in use) ends with a review unit.
   a defect, `blocked` with `blocker: "plan"`. `none` means the phase
   touched no tests.
 - A defect — `blocked` with `blocker: "plan"` (outside the runner,
-  `docflow block --needs plan`): the plan's `replan:` schedules the fix.
+  `docflow block --needs plan`): auto-replan schedules the fix.
   Observations without a defect — a plain Handoff item, not `Unverified:`:
   the reviewer changed no code, so they are not unverified risks.
 - `Verify:` — the plan's `gate:`.
@@ -373,8 +373,9 @@ Commit: P007.1.1: add feed cache schema
 - The set and order of H2 headings is fixed for every type;
   `## Prerequisites` is optional, between `## Constraints` and `## Traps`.
 - `permissions:`, `replan:`, and `## Prerequisites` are optional; without
-  them the run is `auto`, a plan-class block stops the run, and the start
-  has nothing to confirm. The survey of "Ask before units" decides them.
+  them the run is `auto`, replan runs on the executor chain, and the start
+  has nothing to confirm. The survey of "Ask before units" decides
+  `permissions:` and `## Prerequisites`.
 - Unit statuses: `[ ]` todo, `[~]` in progress, `[x]` done, `[-]` skipped,
   `[!]` blocked. The script sets them, not the skill (the exception is
   replan).
@@ -416,8 +417,10 @@ plan has drifted from reality.
 Units driven by `docflow run` (the `## Cycle (runner mode)` prompt)
 replan automatically: a `blocked` reply with `blocker: "plan"`, or a
 `prompt` rejection on a stale `Read:` link (code 2), is handed to the
-plan's `replan:` executor — the procedure above, no human in the loop —
-and the run continues when it succeeds. The replan agent's part:
+replan executor — the plan's `replan:` route, or its `executor:` +
+`fallback:` chain without the key; the procedure above, no human in the
+loop — and the run continues when it succeeds. `--replans 0` turns it
+off for a run. The replan agent's part:
 
 - Edit only the plan file, by the rules above: units `[ ]` and `[!]`,
   new units with the next phase numbers, `Read:`/`## Context` links,

@@ -48,7 +48,7 @@ func unitExecutorChain(config map[string]any, plan *format.Plan, unit *format.Un
 }
 
 func replanExecutorChain(config map[string]any, plan *format.Plan, args agents.RunArgs, unavailable map[string]time.Time) (*executorChain, error) {
-	routes, err := agents.ChainRoutes(plan.Meta["replan"])
+	routes, err := agents.ReplanRoutes(plan)
 	if err != nil {
 		return nil, err
 	}
