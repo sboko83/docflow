@@ -271,6 +271,14 @@ Handoff:
 - TestReviewBlockBudget covers spent (2 prior + new block -> stop, 1 call), left (1 prior -> replan called) and ordinary (2 prior, no Role -> replan called); it asserts the fixture carries the prior items.
 - Texts: skills/bsv-docflow-plan Review section, docs/design/runner.md#авто-replan (links docs/plans/P056 — repoint at close), CHANGELOG Changed, Backlog entry 'Ревью-юнит не сходится' marks (а) done.
 
+### [ ] P056.1.7 Restore the ChainRoutes doc comment
+Read:
+- internal/agents/agents.go:L870-920
+Do:
+- Верни комментарий «ChainRoutes parses …» над `func ChainRoutes`: при вставке `ReplanRoutes` (P056.1.2) он оказался над комментарием `ReplanRoutes`, и godoc отдаёт его чужой функции. Текст обоих комментариев не меняй.
+Verify: `go test -timeout 20m ./internal/agents/`
+Commit: P056.1.7: restore the ChainRoutes doc comment
+
 ### [ ] P056.1.4 Review the resilience changes
 Read:
 - internal/runner/run.go:L403-520
@@ -283,9 +291,11 @@ Do:
 - Разбери каждый пункт Test changes: обоснованное изменение допускается, ослабленная ради зелёного Verify проверка — дефект.
 - Ничего не редактируй; при дефекте верни blocked с blocker plan и конкретным сценарием, иначе зафиксируй вывод в Handoff.
 Verify: `go test -timeout 20m ./...`
-Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.5, P056.1.6
+Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.5, P056.1.6, P056.1.7
 Role: review
 Commit: P056.1.4: review resilient run changes
+Handoff:
+- Blocked (plan): internal/agents/agents.go: the ReplanRoutes doc comment was inserted below the ChainRoutes doc comment, so godoc attaches 'ChainRoutes parses…' to ReplanRoutes and ChainRoutes has no doc; move the ChainRoutes comment back above ChainRoutes.
 
 ## Phase 2: Acceptance
 
@@ -300,6 +310,6 @@ Do:
 - Повтори инцидент P052: gate, покрасневший между двумя прогонами, останавливает следующий прогон один раз на старте с путём baseline-лога, а не внутри юнита и не дважды.
 - Прогони полный gate, сборку и parity.
 Verify: `go test -timeout 20m ./... && go build -o bin/docflow ./cmd/docflow && bash tools/parity/run.sh bin/docflow bin/docflow`
-Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.4, P056.1.5, P056.1.6
+Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.4, P056.1.5, P056.1.6, P056.1.7
 Role: acceptance
 Commit: P056.2.1: accept hands-off run
