@@ -5,8 +5,11 @@ checkout_fixture
 printf '#!/bin/sh\nexit 99\n' >"$HOME/isolated path/docflow"
 /bin/chmod +x "$HOME/isolated path/docflow"
 before=$(/bin/ls -id "$HOME/isolated path/docflow")
-installer --bin-dir "$bin_dir" --dry-run || [ "$?" -eq 1 ]
-installer --bin-dir "$bin_dir" || [ "$?" -eq 1 ]
-[ ! -d "$bin_dir" ]
+# The development CLI installs as docflow-dev beside the release docflow on
+# PATH (P057): the foreign docflow neither blocks it nor is replaced.
+installer --bin-dir "$bin_dir" --dry-run
+installer --bin-dir "$bin_dir"
+[ -L "$bin_dir/docflow-dev$e2e_exe" ]
+[ ! -e "$bin_dir/docflow$e2e_exe" ]
 [ "$before" = "$(/bin/ls -id "$HOME/isolated path/docflow")" ]
 observe 'cat "$HOME/isolated path/docflow"'

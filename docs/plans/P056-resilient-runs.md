@@ -305,7 +305,7 @@ Handoff:
 
 ## Phase 2: Acceptance
 
-### [ ] P056.2.1 Accept a hands-off run
+### [x] P056.2.1 Accept a hands-off run
 Read:
 - internal/runner/run_test.go:L40-240
 - internal/lint/lint_test.go:L271-330
@@ -319,3 +319,7 @@ Verify: `go test -timeout 20m ./... && go build -o bin/docflow ./cmd/docflow && 
 Depends: P056.1.1, P056.1.2, P056.1.3, P056.1.4, P056.1.5, P056.1.6, P056.1.7
 Role: acceptance
 Commit: P056.2.1: accept hands-off run
+Handoff:
+- internal/runner/resilience_acceptance_test.go drives the built CLI: default replan on the executor route finishes a review-blocked plan (replan, fix unit, review) with a clean tree and both new prompt rules present; --replans 0 stops; a gate red between two runs (P052) stops the second run once at the start with code 2, the failure tail and baseline.1.out, no agent call; repair, skip and delete of a foreign test show as 'test change:' lines and in the commit body; a review with two prior plan blocks stops on the third with code 3 and no replan.
+- Repair outside Do: parity was red on main in CI on every OS since 10f8ee6 (install-dev.sh contract P057). tools/parity/e2e.sh still passed the removed --no-skills and ran bin/docflow instead of docflow-dev, so 5 install scenarios failed and 4 conflict/Go/resource scenarios passed only because the installer died on the flag. Fixed: the helper flag and name, the conflict scenarios target docflow-dev, foreign_docflow_on_path_is_preserved now expects a successful docflow-dev install that leaves the foreign docflow alone, and the p020 new-user paths put a docflow link to the same build on PATH as the release stand-in for doctor. All 70 parity scenarios pass on Windows.
+- A blocked stop leaves only the [!] record uncommitted in the plan file (existing behaviour); the budget scenario asserts exactly that.

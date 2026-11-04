@@ -210,7 +210,7 @@ checkout_fixture() {
     cd "$outside"
 }
 
-installer() { run_docflow /bin/bash "$checkout/tools/install-dev.sh" --no-skills "$@"; }
+installer() { run_docflow /bin/bash "$checkout/tools/install-dev.sh" "$@"; }
 
-installed_cli() { run_docflow "$bin_dir/docflow$e2e_exe" "$@"; }
+installed_cli() { run_docflow "$bin_dir/docflow-dev$e2e_exe" "$@"; }
 export plan e2e_exe

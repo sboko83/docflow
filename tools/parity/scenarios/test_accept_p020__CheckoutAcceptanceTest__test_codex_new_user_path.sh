@@ -5,6 +5,9 @@ parity_repo
 checkout_fixture
 installer --bin-dir "$bin_dir" --dry-run
 installer --bin-dir "$bin_dir"
+# install-dev.sh links only docflow-dev (P057); doctor checks the docflow on
+# PATH, which a user gets from the release. Stand in for it with the same build.
+ln -s "$(readlink "$bin_dir/docflow-dev$e2e_exe")" "$bin_dir/docflow$e2e_exe"
 export PATH="$bin_dir:$PATH"
 installed_cli --version
 installed_cli install-skills --agent codex
