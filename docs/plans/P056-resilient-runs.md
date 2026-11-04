@@ -206,7 +206,7 @@ Handoff:
 - Dry run with --all prints 'replan: <routes> (default)' when the key is absent (chainLines/routesLine in run.go). TestReplanRun: 'no-key' now replans on claude|opus|high, new 'legacy' mode keeps the stop; 'disabled' (--replans 0) unchanged.
 - Texts updated: skills/bsv-docflow-plan (Procedure 6 and 9, Ask before units, Sample notes, Review, Replan under the runner), skills/bsv-docflow-run, docs/design/runner.md#авто-replan, docs/design/format.md (replan:, role keys), README.md + README.ru.md, CHANGELOG Changed. runner.md and format.md link docs/plans/P056 — repoint at close.
 
-### [ ] P056.1.3 Make replan prove the failure
+### [x] P056.1.3 Make replan prove the failure
 Read:
 - internal/runner/replan_rules.go
 - internal/runner/replan.go:L30-46
@@ -222,6 +222,10 @@ Do:
 Verify: `go test -timeout 20m ./internal/runner/`
 Traps: скилл ставится отдельно и может отсутствовать у агента; источник правды для раннера — `replanRules`.
 Commit: P056.1.3: make replan prove the failure
+Handoff:
+- replanRules gained rule 2 (reproduce the named failure at HEAD, record it in Decisions; red -> fix unit, green does not lift the block); old rules 2-9 are now 3-10, rule 7 says running the check is not the unit's work.
+- The skill carries the same rule inside Replan step 1 (no renumbering: 'step 4 above' refers to it). TestVerifyGuardReplanRulesSkillParity now compares with whitespace collapsed and checks 'a green run at replan time does not lift the block' and '"did not reproduce" is not proof'; TestReplanPrompt checks the phrases in the built prompt.
+- docs/design/runner.md#авто-replan and CHANGELOG Changed describe the rule; runner.md links docs/plans/P056 — repoint at close.
 
 ### [ ] P056.1.5 Allow a bounded repair of a failing gate
 Read:

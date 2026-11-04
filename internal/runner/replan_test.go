@@ -202,7 +202,8 @@ func TestReplanPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"# Replan P001.1.2 Stuck\n", "Plan: P001 Plan (" + planFile + ")", "## Trigger\nP001.1.2: blocked (needs plan): b.py is gone\n\n", "## Handoff of P001.1.2", "- Blocked (plan): b.py is gone", "## Tree\nclean: no uncommitted work", "bsv-docflow-plan", "Replan mode", "Edit only the plan file", "new units with the next", "Context links", "Traps", "append to Decisions", "frontmatter", "Goal", "Constraints", "Prerequisites", "`[x]`", "`[-]`", "reference checks", "Do not do the unit", "docflow lint", "Do not commit", `"blocker"`, `"human"`} {
+	for _, s := range []string{"# Replan P001.1.2 Stuck\n", "Plan: P001 Plan (" + planFile + ")", "## Trigger\nP001.1.2: blocked (needs plan): b.py is gone\n\n", "## Handoff of P001.1.2", "- Blocked (plan): b.py is gone", "## Tree\nclean: no uncommitted work", "bsv-docflow-plan", "Replan mode", "Edit only the plan file", "new units with the next", "Context links", "Traps", "append to Decisions", "frontmatter", "Goal", "Constraints", "Prerequisites", "`[x]`", "`[-]`", "reference checks", "Do not do the unit", "docflow lint", "Do not commit", `"blocker"`, `"human"`,
+		"run it at\n   HEAD before editing the plan", "a green run at replan time\n   does not lift the block", "\"did not reproduce\" is not proof"} {
 		if !strings.Contains(prompt, s) {
 			t.Errorf("missing %q", s)
 		}

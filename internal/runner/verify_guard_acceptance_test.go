@@ -406,9 +406,12 @@ func TestVerifyGuardReplanRulesSkillParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skill := string(text)
-	for _, phrase := range []string{"the runner skips a `[x]` unit", "`Role: review`", "`Role: acceptance`"} {
-		if !strings.Contains(replanRules, phrase) {
+	// Both texts wrap differently: compare them with whitespace collapsed.
+	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	skill, rules := flat(string(text)), flat(replanRules)
+	for _, phrase := range []string{"the runner skips a `[x]` unit", "`Role: review`", "`Role: acceptance`",
+		"a green run at replan time does not lift the block", `"did not reproduce" is not proof`} {
+		if !strings.Contains(rules, phrase) {
 			t.Errorf("the replan rule text lost %q", phrase)
 		}
 		if !strings.Contains(skill, phrase) {

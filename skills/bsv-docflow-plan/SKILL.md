@@ -388,6 +388,14 @@ plan has drifted from reality.
 
 1. Read the block reason or the `prompt` error, the Handoffs of the done
    units (the file's new path is usually there), `## Decisions`.
+   When the trigger names a failing test, package or command, run it at
+   HEAD before editing the plan, several times (`-count=3` when the tool
+   has it), and record the command and its result in `## Decisions`.
+   Red — add a unit that fixes the failure. Green — a green run at replan
+   time does not lift the block: never explain the unit's failure by
+   load, a flake or another session; "did not reproduce" is not proof.
+   Add a unit that reproduces the failure under the unit's conditions
+   (date, environment, test order) and fixes it, or block for a human.
 2. Edit only `[ ]` and `[!]` units. Do not touch `[x]` and `[-]` units —
    they are history.
 3. New units take the next numbers of the phase; do not renumber the
