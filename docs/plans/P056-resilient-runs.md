@@ -281,7 +281,7 @@ Commit: P056.1.7: restore the ChainRoutes doc comment
 Handoff:
 - The ChainRoutes doc comment sits above func ChainRoutes again; ReplanRoutes keeps its own comment, texts unchanged (go doc shows both).
 
-### [ ] P056.1.4 Review the resilience changes
+### [x] P056.1.4 Review the resilience changes
 Read:
 - internal/runner/run.go:L403-520
 - internal/runner/replan.go:L254-270
@@ -298,6 +298,10 @@ Role: review
 Commit: P056.1.4: review resilient run changes
 Handoff:
 - Blocked (plan): internal/agents/agents.go: the ReplanRoutes doc comment was inserted below the ChainRoutes doc comment, so godoc attaches 'ChainRoutes parses…' to ReplanRoutes and ChainRoutes has no doc; move the ChainRoutes comment back above ChainRoutes.
+- Round 2: the round-1 finding (ChainRoutes doc comment displaced by ReplanRoutes) is fixed in P056.1.7; no new defect in the phase diff 4d5a574..HEAD.
+- Checked: baseline runs before any agent, once per call, skips [~]/pending commit/dirty tree, is cancelled through ctx without the signal re-raise, and a Pause during the quota probe still reaches runUnit (stopped flag only for a cancelled baseline). Default replan comes from executor:+fallback: via agents.ReplanRoutes in runReplan, replanExecutorChain, startQuota, PlanAgents, eventConfigPlan and chainLines; no roster read; --replans 0 still stops.
+- Checked: the repair rule forbids skip/deleted test/looser assertion and keeps environment failures a block; replanRules keep all prior rules (renumbered 3-10) and stay complete without the skill; the review budget counts Handoff items of anchor units only.
+- Test changes, each justified: gate-count tests now include the baseline run (xx), the gate-retry gate stays green on the clean tree, replan 'no-key' expects the default route by design, parity test compares whitespace-collapsed text with more phrases, RunnerCycle hash pinned anew, pause test race fixed by printing init before the marker (assertion unchanged). None weakens a check.
 
 ## Phase 2: Acceptance
 
