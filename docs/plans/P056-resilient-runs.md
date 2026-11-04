@@ -2,7 +2,7 @@
 id: P056
 title: Make autonomous runs self-healing
 type: feature
-status: draft
+status: active
 created: 2026-11-01
 executor: pi | opencode-go/deepseek-v4.1-flash | low
 fallback: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | medium
