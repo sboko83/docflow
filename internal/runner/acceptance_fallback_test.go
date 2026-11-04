@@ -108,8 +108,8 @@ func TestAcceptanceAgentVerifyReused(t *testing.T) {
 	r := f.cli("run", "--no-wait", "--max-units", "1")
 	f.check(r, 0, "switching to codex gpt-5.5", "P001.1.1: verify reused", "P001.1.1 done:")
 	count, err := os.ReadFile(filepath.Join(f.root, ".git", "verify-count"))
-	if err != nil || string(count) != "x" {
-		t.Fatalf("gate count = %q, %v; want one run", count, err)
+	if err != nil || string(count) != "xx" {
+		t.Fatalf("gate count = %q, %v; want the baseline and the agent's verify", count, err)
 	}
 	var verifies int
 	for _, record := range fixtureEvents(t, f) {

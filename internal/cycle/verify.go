@@ -2,6 +2,7 @@ package cycle
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -118,15 +119,8 @@ func Verify(root, unitID string, skip *string, noGate bool, projectRepos func(st
 			if err := clearVerified(root, unit.ID); err != nil {
 				return Result{}, err
 			}
-			lines := splitCommandLines(output)
-			if len(lines) > verifyTail {
-				lines = lines[len(lines)-verifyTail:]
-			}
 			var text strings.Builder
-			for _, line := range lines {
-				text.WriteString(line)
-				text.WriteByte('\n')
-			}
+			text.WriteString(FailureTail(output))
 			fmt.Fprintf(&text, "%s: %s failed (exit %d): %s\n", unit.ID, check.kind, code, check.command)
 			fmt.Fprintf(&text, "log: %s\n", logRel)
 			return Result{Code: clierrors.EXIT_VERIFY, Stdout: text.String()}, nil
@@ -190,14 +184,26 @@ func writeVerifyLog(path string, output []byte) error {
 }
 
 func runVerifyCommand(root, command string) (string, int) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, procgroup.StopSignals...)
+	defer signal.Stop(signals)
+	return runPlanCommand(context.Background(), root, command, signals)
+}
+
+// RunPlanCommand runs a plan command (`gate:`, `Verify:`) the way verify does:
+// the plan shell, a detached process group, stdin closed, stdout and stderr
+// combined. It leaves signals to the caller: a cancelled ctx stops the group
+// and returns the output so far with a non-zero code.
+func RunPlanCommand(ctx context.Context, root, command string) (string, int) {
+	return runPlanCommand(ctx, root, command, nil)
+}
+
+func runPlanCommand(ctx context.Context, root, command string, signals <-chan os.Signal) (string, int) {
 	cmd := verifyShell(command)
 	cmd.Dir = root
 	procgroup.Detach(cmd)
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, procgroup.StopSignals...)
-	defer signal.Stop(signals)
 	watch, err := procgroup.Start(cmd)
 	if err == nil {
 		defer watch.Close()
@@ -210,6 +216,11 @@ func runVerifyCommand(root, command string) (string, int) {
 			// the way an uncaught signal would.
 			_ = procgroup.Kill(cmd, watch, done, verifyKillGrace)
 			procgroup.Reraise(sig)
+		case <-ctx.Done():
+			err = procgroup.Kill(cmd, watch, done, verifyKillGrace)
+			if err == nil {
+				err = ctx.Err()
+			}
 		}
 	}
 	text := strings.ToValidUTF8(output.String(), "\uFFFD")
@@ -221,6 +232,21 @@ func runVerifyCommand(root, command string) (string, int) {
 		return text, exit.ExitCode()
 	}
 	return text, 127
+}
+
+// FailureTail returns the last lines of a failed plan command's output that
+// verify prints, each ending in a newline; the full output goes to a log.
+func FailureTail(output string) string {
+	lines := splitCommandLines(output)
+	if len(lines) > verifyTail {
+		lines = lines[len(lines)-verifyTail:]
+	}
+	var text strings.Builder
+	for _, line := range lines {
+		text.WriteString(line)
+		text.WriteByte('\n')
+	}
+	return text.String()
 }
 
 func splitCommandLines(text string) []string {

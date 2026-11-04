@@ -463,7 +463,14 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 			if err := startQuota(config, sel.Plan, args, configuration, p, totals, unavailable); err != nil {
 				return 2, err
 			}
+			code, stopped, err := baselineGate(ctx, root, sel, p, totals)
 			p.close()
+			if code != 0 || err != nil {
+				return code, err
+			}
+			if stopped {
+				continue
+			}
 		}
 		if sel.Kind == "close" {
 			return end(planID, "plan finished")

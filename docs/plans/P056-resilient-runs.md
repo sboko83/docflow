@@ -144,10 +144,11 @@ replan сам добавил юниты 1.8 и 1.9, и прогон продол
   shipping P056 first and leaving the Backlog item open (its record said to
   decide before P056), and the other Backlog options (blocking scope,
   incremental re-review, stats signal) — they stay in Backlog.
+- Baseline runs inside the start block after the quota probe and is cancelled by the run context, not by its own signal handler — a re-raised signal would kill the runner past run_end and the lock release; rejected reusing runVerifyCommand as is.
 
 ## Phase 1: Defects stop the run only once
 
-### [ ] P056.1.1 Check the plan gate before the first unit
+### [x] P056.1.1 Check the plan gate before the first unit
 Read:
 - internal/runner/run.go:L403-520
 - internal/runner/run.go:L296-330
@@ -165,6 +166,11 @@ Do:
 Verify: `go test -timeout 20m ./internal/runner/ ./internal/cycle/`
 Traps: не дублируй запуск команды и не вызывай из раннера `runVerifyCommand` с его перевыбросом сигнала. Лог baseline не должен совпадать с glob `<uid>.*.out`: имя без id плана. Baseline не заменяет проверку юнита: `docflow verify` по-прежнему гоняет gate после работы.
 Commit: P056.1.1: check the gate before the first unit
+Handoff:
+- Baseline lives in internal/runner/baseline.go (baselineGate), called in runLoop between startQuota and p.close(); it returns (code, stopped, err) and only a cancelled baseline itself ends the loop iteration — a Pause during the quota probe still reaches runUnit's quota-wait checkpoint (TestPauseDuringExecutorChainWait caught the broader version).
+- cycle.RunPlanCommand(ctx, root, command) is the cancellable plan-command run; runVerifyCommand wraps it with its signal re-raise. cycle.FailureTail(output) is the shared 40-line tail.
+- Red baseline: log .git/docflow/run/baseline.<n>.out via nextCallLog(logs, "baseline."), lines 'baseline: gate failed (exit N): <cmd>' and 'log: …', totals.stop/notification set, exit 2. Lines: 'baseline: gate passed', 'baseline: skipped, the tree has work in progress' (const baselineSkipped).
+- Tests with a gate now count one extra baseline run (verify-count 'xx'); the gate retry case uses 'test -f gate.ok || ! test -f a.txt' so the baseline stays green. Design: docs/design/runner.md#старт-прогона links docs/plans/P056 — repoint to the archive at close. CHANGELOG [Unreleased] Added has the baseline line.
 
 ### [ ] P056.1.2 Turn auto-replan on by default
 Read:

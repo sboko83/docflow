@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docflow run` checks the plan's `gate:` once before the first unit when
+  that unit is `[ ]` and the tree is clean: a red gate stops the run with
+  code 2 before any agent starts, printing the failure tail and the full log
+  path `.git/docflow/run/baseline.<n>.out`; a green one prints
+  `baseline: gate passed`. A `[~]` unit, a pending commit or a dirty tree
+  skips the check with one line.
+
 ### Changed
 - `tools/install-dev.sh` links the development CLI as `docflow-dev`
   (`~/.local/bin/docflow-dev`) and no longer installs skills: the

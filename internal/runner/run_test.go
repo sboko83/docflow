@@ -313,10 +313,10 @@ func TestRunReusesAgentVerify(t *testing.T) {
 	f.replace(planFile, "status: active", "status: active\ngate: printf x >> .git/verify-count")
 	step := "printf a > a.txt\n" + shellQuote(f.binary) + " verify P001.1.1 >/dev/null\n" + doneReply()
 	r := f.run([]string{step}, "--max-units", "1")
-	f.check(r, 0, "P001.1.1: verify reused (tree unchanged since the agent's verify)")
+	f.check(r, 0, "baseline: gate passed", "P001.1.1: verify reused (tree unchanged since the agent's verify)")
 	count, err := os.ReadFile(filepath.Join(f.root, ".git", "verify-count"))
-	if err != nil || string(count) != "x" {
-		t.Fatalf("gate count = %q, %v; want one run", count, err)
+	if err != nil || string(count) != "xx" {
+		t.Fatalf("gate count = %q, %v; want the baseline and the agent's verify", count, err)
 	}
 }
 
@@ -330,9 +330,74 @@ func TestRunIgnoresSkipRecord(t *testing.T) {
 		t.Fatal("runner reused a skipped verification")
 	}
 	count, err := os.ReadFile(filepath.Join(f.root, ".git", "verify-count"))
-	if err != nil || string(count) != "x" {
-		t.Fatalf("gate count = %q, %v; want runner's full verify", count, err)
+	if err != nil || string(count) != "xx" {
+		t.Fatalf("gate count = %q, %v; want the baseline and runner's full verify", count, err)
 	}
+}
+
+func TestRunBaselineGate(t *testing.T) {
+	gate := func(f *runFixture, command string) {
+		f.replace(planFile, "status: active", "status: active\ngate: "+command)
+	}
+	t.Run("red", func(t *testing.T) {
+		f := newRunFixture(t)
+		gate(f, "echo '--- FAIL: TestExpired'; echo 'FAIL example/roster'; exit 1")
+		before := f.read(planFile)
+		r := f.run([]string{writeReply("a.txt")})
+		f.check(r, 2, "FAIL example/roster", "baseline: gate failed (exit 1)", "log: .git/docflow/run/baseline.1.out")
+		if len(f.calls()) != 0 || f.read(planFile) != before {
+			t.Fatal("a red baseline called the agent or changed the plan")
+		}
+		log, err := os.ReadFile(filepath.Join(f.root, ".git", "docflow", "run", "baseline.1.out"))
+		if err != nil || !strings.Contains(string(log), "--- FAIL: TestExpired") {
+			t.Fatalf("baseline log = %q, %v", log, err)
+		}
+		for _, record := range fixtureEvents(t, f) {
+			if record["event"] == "run_end" && !strings.Contains(fmt.Sprint(record["reason"]), "baseline: gate failed") {
+				t.Fatalf("run_end = %v", record)
+			}
+		}
+		f.check(f.run(nil), 2, "log: .git/docflow/run/baseline.2.out")
+	})
+	t.Run("green once", func(t *testing.T) {
+		f := newRunFixture(t)
+		gate(f, "printf x >> .git/gate-count")
+		r := f.run([]string{writeReply("a.txt"), writeReply("b.txt")})
+		f.check(r, 0, "run: 2 units,")
+		if n := strings.Count(r.out+r.err, "baseline: gate passed"); n != 1 {
+			t.Fatalf("baseline ran %d times:\n%s%s", n, r.out, r.err)
+		}
+		if count, _ := os.ReadFile(filepath.Join(f.root, ".git", "gate-count")); string(count) != "xxx" {
+			t.Fatalf("gate count = %q, want the baseline and two verifies", count)
+		}
+	})
+	t.Run("no gate", func(t *testing.T) {
+		f := newRunFixture(t)
+		r := f.run([]string{writeReply("a.txt")}, "--max-units", "1")
+		f.check(r, 0)
+		if strings.Contains(r.out+r.err, "baseline") {
+			t.Fatalf("a plan without gate printed a baseline line:\n%s%s", r.out, r.err)
+		}
+	})
+	t.Run("in progress", func(t *testing.T) {
+		f := newRunFixture(t)
+		gate(f, "printf x >> .git/gate-count")
+		f.replace(planFile, "### [ ] P001.1.1", "### [~] P001.1.1")
+		r := f.run([]string{writeReply("a.txt")}, "--max-units", "1")
+		f.check(r, 0, "baseline: skipped, the tree has work in progress")
+		if count, _ := os.ReadFile(filepath.Join(f.root, ".git", "gate-count")); string(count) != "x" {
+			t.Fatalf("gate count = %q, want the unit's verify only", count)
+		}
+	})
+	t.Run("dirty", func(t *testing.T) {
+		f := newRunFixture(t)
+		gate(f, "printf x >> .git/gate-count")
+		f.write("stray.txt", "x")
+		r := f.run([]string{writeReply("a.txt")}, "--max-units", "1")
+		if !strings.Contains(r.out+r.err, baselineSkipped) || strings.Contains(r.out+r.err, "baseline: gate") {
+			t.Fatalf("a dirty tree ran the baseline:\n%s%s", r.out, r.err)
+		}
+	})
 }
 
 func TestRunLoopRetries(t *testing.T) {
@@ -347,7 +412,9 @@ func TestRunLoopRetries(t *testing.T) {
 				steps = []string{writeReply("a.txt"), "touch lint.ok\n" + doneReply()}
 				needle = "preflight failed"
 			case "gate":
-				f.replace(planFile, "status: active", "status: active\ngate: test -f gate.ok")
+				// Green on the clean tree, so the baseline passes and the
+				// unit's verify meets the failure.
+				f.replace(planFile, "status: active", "status: active\ngate: test -f gate.ok || ! test -f a.txt")
 				steps = []string{writeReply("a.txt"), "touch gate.ok\n" + doneReply()}
 				needle = "gate failed"
 			case "hook":

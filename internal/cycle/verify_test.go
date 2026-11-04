@@ -1,11 +1,13 @@
 package cycle
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func verifyPlan() string {
@@ -153,6 +155,27 @@ func TestVerifyFailureTailAndCleanup(t *testing.T) {
 	}
 	if reason, err := skipReason(root, "P001.1.2"); err != nil || reason != nil {
 		t.Fatalf("skip reason after failure = %v, %v", reason, err)
+	}
+}
+
+// The runner's baseline gate runs outside an agent: a cancelled context (Ctrl-C
+// of a plain run, a host's Pause or Stop) must stop the command's group rather
+// than wait for it or re-raise the signal.
+func TestRunPlanCommandStopsOnCancel(t *testing.T) {
+	root := t.TempDir()
+	output, code := RunPlanCommand(context.Background(), root, "echo checked; exit 3")
+	if code != 3 || output != "checked\n" {
+		t.Fatalf("RunPlanCommand() = %q, %d", output, code)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	output, code = RunPlanCommand(ctx, root, "echo started; sleep 30")
+	if code == 0 || !strings.Contains(output, "started") {
+		t.Fatalf("cancelled RunPlanCommand() = %q, %d", output, code)
+	}
+	if elapsed := time.Since(start); elapsed > 15*time.Second {
+		t.Fatalf("cancelled command ran %s", elapsed)
 	}
 }
 
