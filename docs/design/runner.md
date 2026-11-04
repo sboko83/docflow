@@ -181,7 +181,13 @@ replan`, событие `replan` несёт массив `check_changes` — п�
 который останавливает вызов ([P050](../archive/P050-verify-guard.md)).
 Лимиты: 2 replan на юнит, `--replans N` (по умолчанию 3) на фазу плана
 ([P037](../archive/P037-replan-phase-limit.md));
-превышение — прежний стоп со строкой `replan limit reached`; план без
+превышение — прежний стоп со строкой `replan limit reached`. Опорный юнит
+(`Role: review`/`acceptance`), у которого в Handoff уже три пункта
+`Blocked (plan):` (текущий включён), в replan не идёт: жёлтая строка `<id>:
+blocked N times, review budget spent; decide by hand`, код 3. Счёт берётся из
+плана, а не из счётчиков вызова, поэтому переживает перезапуски: P052.2.4
+блокировался 10 раз за несколько прогонов при лимите 2 на вызов
+([P056](../plans/P056-resilient-runs.md)). План без
 маршрута replan и `--replans 0` останавливаются на блоке без этой строки.
 В режиме исполнителей replan идёт по цепочке `replan:` — полной, без
 добавления `fallback:`; без ключа — по `executor:` + `fallback:`. Отказ `limit` или `outage` переводит

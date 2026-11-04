@@ -325,7 +325,11 @@ reviewers of each `check` access in use) ends with a review unit.
   a defect, `blocked` with `blocker: "plan"`. `none` means the phase
   touched no tests.
 - A defect — `blocked` with `blocker: "plan"` (outside the runner,
-  `docflow block --needs plan`): auto-replan schedules the fix.
+  `docflow block --needs plan`): auto-replan schedules the fix. The third
+  `Blocked (plan)` of the same review or acceptance unit stops the run
+  instead (`blocked 3 times, review budget spent`): another round rarely
+  converges, so a human decides — fix the findings by hand, or record the
+  remaining ones in the Handoff and let acceptance judge them.
   Observations without a defect — a plain Handoff item, not `Unverified:`:
   the reviewer changed no code, so they are not unverified risks.
 - `Verify:` — the plan's `gate:`.

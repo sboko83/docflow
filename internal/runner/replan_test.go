@@ -231,6 +231,50 @@ func TestReplanPrompt(t *testing.T) {
 	}
 }
 
+// A review unit that blocks a third time stops the run for a human instead of
+// another replan; the count comes from the plan's Handoff, so earlier runs'
+// blocks count. An ordinary unit keeps replanning under the per-call limits.
+func TestReviewBlockBudget(t *testing.T) {
+	humanReplan := doneReply(map[string]any{"status": "blocked", "reason": "replan reached", "blocker": "human"})
+	for _, tc := range []struct {
+		name          string
+		review        bool
+		prior, calls  int
+		needle, other string
+	}{
+		{"review spent", true, 2, 1, "P001.1.1: blocked 3 times, review budget spent; decide by hand", "replan reached"},
+		{"review left", true, 1, 2, "replan blocked (needs human): replan reached", "review budget spent"},
+		{"ordinary", false, 2, 2, "replan blocked (needs human): replan reached", "review budget spent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newReplanFixture(t)
+			unit := "### [ ] P001.1.1 First unit\nRead:\n- a.txt\nDo:\n- write b.txt\nVerify: `test -f b.txt`\n"
+			edit := unit
+			if tc.review {
+				f.replace(planFile, "replan: claude | haiku | low", "replan: claude | haiku | low\nreview: claude | sonnet | high")
+				edit += "Role: review\n"
+			}
+			edit += "Commit: P001.1.1: first unit\nHandoff:\n"
+			for i := 0; i < tc.prior; i++ {
+				edit += fmt.Sprintf("- Blocked (plan): round %d\n", i+1)
+			}
+			f.replace(planFile, unit+"Commit: P001.1.1: first unit\n", edit)
+			if !strings.Contains(f.read(planFile), fmt.Sprintf("Blocked (plan): round %d", tc.prior)) {
+				t.Fatalf("fixture lacks the prior blocks:\n%s", f.read(planFile))
+			}
+			f.steps(blockReply(), humanReplan)
+			r := f.cli("run", "--no-wait")
+			f.check(r, 3, tc.needle)
+			if strings.Contains(r.out+r.err, tc.other) {
+				t.Fatalf("unexpected %q:\n%s%s", tc.other, r.out, r.err)
+			}
+			if calls := f.calls(); len(calls) != tc.calls {
+				t.Fatalf("calls %d != %d\n%s%s", len(calls), tc.calls, r.out, r.err)
+			}
+		})
+	}
+}
+
 func newReplanFixture(t *testing.T) *runFixture {
 	f := newRunFixture(t)
 	f.write("docs/docflow.md", strings.ReplaceAll(loopDoc, "- P002\n", ""))

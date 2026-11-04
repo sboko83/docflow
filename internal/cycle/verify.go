@@ -679,6 +679,23 @@ func BlockedNeeds(unit *format.Unit) (needs, reason string) {
 	return blockedClass(blockedItem(unit))
 }
 
+// PlanBlocks counts the unit's `Blocked (plan): …` Handoff items. Replan
+// lifts a block but keeps its item, so the count is the number of plan-class
+// blocks the unit took across replans and runs.
+func PlanBlocks(unit *format.Unit) int {
+	field := unit.Field("Handoff")
+	if field == nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range field.Items {
+		if strings.HasPrefix(entry.Text, "Blocked (plan):") {
+			count++
+		}
+	}
+	return count
+}
+
 // Unblock resumes a unit that a person blocked for a human: the unit goes
 // back to [~] and reports in its Handoff what the person did. A `plan`
 // block is lifted by replanning, not here. The caller checks the blocked

@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fails on a real defect outside `Do:` (an expired fixture, an outdated
   test): a minimal fix named in the Handoff, never a weakened check; an
   environment failure still blocks.
+- A review or acceptance unit that blocks for the plan a third time stops
+  `docflow run` for a human (`blocked 3 times, review budget spent; decide by
+  hand`, code 3) instead of another replan; the count comes from the unit's
+  Handoff, so it survives restarts.
 - `tools/install-dev.sh` links the development CLI as `docflow-dev`
   (`~/.local/bin/docflow-dev`) and no longer installs skills: the
   `docflow` on PATH and the installed skill links stay on the release.

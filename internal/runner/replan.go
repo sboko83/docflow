@@ -251,6 +251,10 @@ func restorePlan(path, text string) error {
 	return os.WriteFile(path, []byte(text), 0o644)
 }
 
+// reviewBlockBudget is the number of plan-class blocks after which a review or
+// acceptance unit stops the run instead of another replan.
+const reviewBlockBudget = 3
+
 func runReplan(ctx context.Context, root string, args Args, config map[string]any, plan *format.Plan, uid, trigger string, p *Progress, totals *runTotals, replans map[string]int, unavailable map[string]time.Time) (*int, error) {
 	if trigger == "" || args.Replans < 1 {
 		return nil, nil
@@ -259,6 +263,17 @@ func runReplan(ctx context.Context, root string, args Args, config map[string]an
 	// (legacy, or no header executor) keeps the plain stop.
 	if routes, err := agents.ReplanRoutes(plan); err == nil && len(routes) == 0 {
 		return nil, nil
+	}
+	// A review that keeps finding defects does not converge by more rounds
+	// (P052.2.4 blocked ten times): its third block is a human decision. The
+	// count lives in the plan's Handoff, so it survives restarts, unlike the
+	// per-call limits below. The selected plan predates the block: reread it.
+	if _, unit, err := cycle.FindUnit(root, uid); err == nil && anchorRole(unit) != "" {
+		if n := cycle.PlanBlocks(unit); n >= reviewBlockBudget {
+			totals.stop = fmt.Sprintf("%s: blocked %d times, review budget spent; decide by hand", uid, n)
+			p.line(totals.stop, false, "yellow")
+			return nil, nil
+		}
 	}
 	if !replanAllowed(replans, uid, args.Replans) {
 		p.line(uid+": replan limit reached", true, "")

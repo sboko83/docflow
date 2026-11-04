@@ -248,7 +248,7 @@ Handoff:
 - Repair outside Do: TestRepeatedPauseAndResumeContinueTheSameAttempt raced — the fake agent touched its marker before printing the session init, so a Pause right after the marker saved an empty session (failed once under the full suite). The steps now print init first; the assertion is unchanged.
 - Same rule in skills/bsv-docflow-run/SKILL.md (Procedure step 4), docs/design/cycle.md#цикл-юнита and CHANGELOG Changed; cycle.md links docs/plans/P056 — repoint at close.
 
-### [ ] P056.1.6 Stop a review that does not converge
+### [x] P056.1.6 Stop a review that does not converge
 Read:
 - internal/runner/replan.go:L120-140
 - internal/runner/replan.go:L254-290
@@ -266,6 +266,10 @@ Do:
 Verify: `go test -timeout 20m ./internal/runner/`
 Traps: не храни счётчик вне плана — именно счётчик вызова не остановил P052.2.4. Не меняй `check_replan` и формат пункта `Blocked (plan):`.
 Commit: P056.1.6: stop a review that does not converge
+Handoff:
+- cycle.PlanBlocks(unit) counts 'Blocked (plan):' Handoff items. runReplan rereads the unit (cycle.FindUnit) after the route check; an anchor unit (anchorRole review/acceptance) with >= reviewBlockBudget (3) items stops: yellow line '<id>: blocked N times, review budget spent; decide by hand', totals.stop set, run exits 3 without the replan call.
+- TestReviewBlockBudget covers spent (2 prior + new block -> stop, 1 call), left (1 prior -> replan called) and ordinary (2 prior, no Role -> replan called); it asserts the fixture carries the prior items.
+- Texts: skills/bsv-docflow-plan Review section, docs/design/runner.md#авто-replan (links docs/plans/P056 — repoint at close), CHANGELOG Changed, Backlog entry 'Ревью-юнит не сходится' marks (а) done.
 
 ### [ ] P056.1.4 Review the resilience changes
 Read:
