@@ -227,7 +227,7 @@ Handoff:
 - The skill carries the same rule inside Replan step 1 (no renumbering: 'step 4 above' refers to it). TestVerifyGuardReplanRulesSkillParity now compares with whitespace collapsed and checks 'a green run at replan time does not lift the block' and '"did not reproduce" is not proof'; TestReplanPrompt checks the phrases in the built prompt.
 - docs/design/runner.md#авто-replan and CHANGELOG Changed describe the rule; runner.md links docs/plans/P056 — repoint at close.
 
-### [ ] P056.1.5 Allow a bounded repair of a failing gate
+### [x] P056.1.5 Allow a bounded repair of a failing gate
 Read:
 - internal/agents/agents.go:L174-225
 - internal/agents/agents_test.go:L592-618
@@ -242,6 +242,11 @@ Do:
 Verify: `go test -timeout 20m ./internal/agents/ ./internal/runner/`
 Traps: правило не отменяет блок для среды — падения process group в sandbox из P052 не повод править тест. `--skip` остаётся аварийным и с согласием человека, а не заменой ремонта.
 Commit: P056.1.5: allow a bounded gate repair
+Handoff:
+- RunnerCycle step 2 carries the bounded repair (real defect outside Do:, minimal fix named in handoff, never weaken, environment or large repair -> blocked); step 1 points to it as the one exception. TestStrictRunnerSchema pins the new SHA-256 and three phrases.
+- The wording avoids the word 'sandbox': TestRunnerPromptInstructions requires a full-permissions prompt without it, so the environment example is 'restricted access'.
+- Repair outside Do: TestRepeatedPauseAndResumeContinueTheSameAttempt raced — the fake agent touched its marker before printing the session init, so a Pause right after the marker saved an empty session (failed once under the full suite). The steps now print init first; the assertion is unchanged.
+- Same rule in skills/bsv-docflow-run/SKILL.md (Procedure step 4), docs/design/cycle.md#цикл-юнита and CHANGELOG Changed; cycle.md links docs/plans/P056 — repoint at close.
 
 ### [ ] P056.1.6 Stop a review that does not converge
 Read:

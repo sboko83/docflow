@@ -476,7 +476,7 @@ func TestRepeatedPauseAndResumeContinueTheSameAttempt(t *testing.T) {
 	first := filepath.Join(f.tmp, "first-started")
 	second := filepath.Join(f.tmp, "second-started")
 	kickoff := emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-session"})
-	f.steps("touch " + shellQuote(first) + "\n" + kickoff + "sleep 60 &\nwait\n")
+	f.steps(kickoff + "touch " + shellQuote(first) + "\nsleep 60 &\nwait\n")
 	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 2, MaxUnits: intPointer(1)}
 	control := NewControl(64, 2)
 	startControlledRun(t, f, control, args)
@@ -485,9 +485,10 @@ func TestRepeatedPauseAndResumeContinueTheSameAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitPaused(t, control)
-	f.steps("touch " + shellQuote(second) + "\n" +
-		emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-session-2"}) +
-		"sleep 60 &\nwait\n")
+	// The session line is written before the marker: a Pause right after the
+	// marker must find it in the agent's output.
+	f.steps(emit(map[string]any{"type": "system", "subtype": "init", "session_id": "pause-session-2"}) +
+		"touch " + shellQuote(second) + "\nsleep 60 &\nwait\n")
 	if err := control.ResumeRun(context.Background(), f.root, args, ""); err != nil {
 		t.Fatal(err)
 	}

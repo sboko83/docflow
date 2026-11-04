@@ -43,6 +43,13 @@ This skill covers only running a docflow unit.
    inspect the complete stdout and stderr at the path printed as `log:`.
    The runner reuses a successful full verify while the tree is unchanged;
    a `--skip` record is never reused.
+   A bounded repair is the one exception to "only what `Do:` says": when
+   `Verify:` or `gate:` fails on a real defect outside `Do:` — an expired
+   fixture, a wrong expectation, an outdated test — make the minimal
+   repair and name it in the Handoff. Never weaken the check (no skip, no
+   deleted test, no looser assertion): the edit shows up in `Test changes`
+   and in review, and a weakened check is a defect. An environment failure
+   (sandbox, permissions, a missing tool) or a large repair stays a block.
 5. `docflow finish <id> --handoff "…"` — `verify`, `done`, and `commit` in
    one call; one `--handoff` per item, a decision made along the way —
    `--decision "…"`. Check the printed file list against `Do:`.

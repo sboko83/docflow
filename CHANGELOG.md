@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The replan prompt and the planning skill require reproducing a failure
   the trigger names: run it at HEAD before editing the plan and record the
   result; a green run at replan time no longer lifts the block as a flake.
+- The runner cycle and the run skill allow a bounded repair of a check that
+  fails on a real defect outside `Do:` (an expired fixture, an outdated
+  test): a minimal fix named in the Handoff, never a weakened check; an
+  environment failure still blocks.
 - `tools/install-dev.sh` links the development CLI as `docflow-dev`
   (`~/.local/bin/docflow-dev`) and no longer installs skills: the
   `docflow` on PATH and the installed skill links stay on the release.

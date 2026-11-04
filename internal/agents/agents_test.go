@@ -590,7 +590,7 @@ func TestRunRouteModeFixedForRun(t *testing.T) {
 }
 
 func TestStrictRunnerSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(RunnerCycle))); got != "d80ff9b59c2e320a16a23e556956791c0f7a155bac90d1fd6a148846fffa3784" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(RunnerCycle))); got != "10f4ba699e80de15fff57a201434ffaba46f9f6bdf38ce351876478b9e013c33" {
 		t.Fatalf("RunnerCycle SHA-256 = %s", got)
 	}
 	flat := strings.Join(strings.Fields(RunnerCycle), " ")
@@ -599,6 +599,9 @@ func TestStrictRunnerSchema(t *testing.T) {
 		"Not: items already listed under `## Handoff from Depends`, ideas to improve tests, checks of code this unit did not change.",
 		"A `Do:` step or Goal requirement left undone is not unverified: finish it, or reply blocked with blocker \"plan\".",
 		"An empty list claims every risk of this change is covered by `Verify`.",
+		"When `Verify:` or `gate:` fails on a real defect outside `Do:` (an expired fixture, a wrong expectation, an outdated test), make the minimal repair and name it in `handoff`.",
+		"Never weaken the check: no skip, no deleted test, no looser assertion",
+		"An environment failure (restricted access, permissions, a missing tool) or a large repair is not repaired by editing a test: reply blocked.",
 	} {
 		if !strings.Contains(flat, part) {
 			t.Errorf("RunnerCycle missing %q", part)
