@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-04
+
 ### Added
 - `docflow run` checks the plan's `gate:` once before the first unit when
   that unit is `[ ]` and the tree is clean: a red gate stops the run with
@@ -555,7 +557,8 @@ First public release.
   Releases with sha256 verification; `docflow update` and
   `docflow uninstall`.
 
-[Unreleased]: https://github.com/sboko83/docflow/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/sboko83/docflow/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/sboko83/docflow/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/sboko83/docflow/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/sboko83/docflow/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/sboko83/docflow/compare/v0.19.0...v0.20.0
