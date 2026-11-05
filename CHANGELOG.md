@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docflow commit` refuses new files that look like secrets (`.env`, keys,
+  certificates) or exceed 5 MiB, exits with code 5 and lists them; set
+  `DOCFLOW_ALLOW_STAGED=1` to commit anyway.
+
 ### Fixed
 - The end-of-run notification now falls back to the terminal bell when the 
   notification tool starts but fails (non-zero exit), not only when it is 

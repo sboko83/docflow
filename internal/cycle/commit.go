@@ -334,6 +334,9 @@ func commitRepo(root, message string) (string, string, []string, error) {
 	if _, err := gitx.Git(root, "add", "-A"); err != nil {
 		return "", "", nil, err
 	}
+	if err := guardStaged(root); err != nil {
+		return "", "", nil, err
+	}
 	changes, err := stagedTestChanges(root)
 	if err != nil {
 		return "", "", nil, err

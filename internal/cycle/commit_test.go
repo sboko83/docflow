@@ -314,3 +314,26 @@ func formatPlanForTest(t *testing.T, root string) (*format.Plan, error) {
 	}
 	return format.ParsePlan(string(content), commitPlanPath)
 }
+
+func TestCommitRefusesSecretFiles(t *testing.T) {
+	root := makeCommitProject(t, commitPlan(" "), map[string]string{"a.py": "print(1)\n"})
+	startCommitUnit(t, root)
+	writeCycleFile(t, root, "a.py", "print(2)\n")
+	writeCycleFile(t, root, ".env", "TOKEN=x\n")
+	writeCycleFile(t, root, ".env.example", "TOKEN=\n")
+	verifyAndDoneCommitUnit(t, root, nil)
+	result, err := Commit(root, "P001.1.1", nil)
+	if err == nil || !strings.Contains(err.Error(), ".env (secret file name)") || strings.Contains(err.Error(), ".env.example") {
+		t.Fatalf("Commit() = %#v, %v", result, err)
+	}
+	if errorExitCode(err) != 5 {
+		t.Fatalf("exit code = %d", errorExitCode(err))
+	}
+	if got := gitCycle(t, root, "diff", "--cached", "--name-only"); strings.Contains(got, ".env\n") {
+		t.Fatalf(".env still staged: %q", got)
+	}
+	t.Setenv(AllowStagedEnv, "1")
+	if result, err := Commit(root, "P001.1.1", nil); err != nil || result.Code != 0 {
+		t.Fatalf("Commit() with allow = %#v, %v", result, err)
+	}
+}
