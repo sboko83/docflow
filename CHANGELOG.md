@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docflow stats --runs [PLAN]` summarises the run event streams per unit:
+  attempts, verify failures, replans, blocked ends, test changes, time and
+  cost.
 - `docflow stats` prints a `review-blocks:` line for each review unit that
   ended blocked three or more times in the run event streams, so a review
   that does not converge is visible before it eats more rounds.

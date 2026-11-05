@@ -153,15 +153,16 @@ options:
   --decision DECISION  item for ## Decisions; repeat per item
   --skip REASON        record the fingerprint without running Verify
 `,
-	"stats": `usage: docflow stats [-h] [PLAN]
+	"stats": `usage: docflow stats [-h] [--runs] [PLAN]
 
-token use per unit: context proxy against the real figures
+token use per unit: context proxy against the real figures; --runs summarises run events instead
 
 positional arguments:
   PLAN        only the units of this plan, e.g. P009
 
 options:
   -h, --help  show this help message and exit
+  --runs      per-unit attempts, verify failures, replans, blocked ends and time from the run event streams
 `,
 	"block": `usage: docflow block [-h] --reason REASON [--needs {human,plan}] id
 

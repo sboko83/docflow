@@ -24,7 +24,7 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | `status` | очередь, текущий план, прогресс; при блоке — класс (`needs human` / `needs plan`) и для человека строка `unblock:` с командой |
 | `next` | id следующего доступного юнита |
 | `prompt`, `verify`, `done`, `commit`, `block [--needs human\|plan]`, `unblock [--note NOTE]` | цикл юнита, см. [«Цикл юнита»](cycle.md#цикл-юнита) |
-| `stats [Pxxx]` | расход токенов по юнитам, см. [«Учёт токенов»](cycle.md#учёт-токенов) |
+| `stats [--runs] [Pxxx]` | расход токенов по юнитам, см. [«Учёт токенов»](cycle.md#учёт-токенов) |
 | `lint` | структура, id и их уникальность, Depends, бюджет `Read:` |
 | `new <slug>` | план из шаблона со следующим id, строка в Queue |
 | `activate <id>` | `draft` → `active` после lint плана без ошибок (иначе код 2, план не меняется); id в конец Queue, если его там нет; замороженный — отказ с подсказкой `thaw`; не коммитит, подсказка `commit: Pxxx: activate plan` |
