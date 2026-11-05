@@ -162,7 +162,7 @@ positional arguments:
 
 options:
   -h, --help  show this help message and exit
-  --runs      per-unit docflow version, attempts, verify failures, replans, blocked ends and time from the run event streams
+  --runs      per-unit docflow version, attempts, verify failures, replans, blocked ends, time and rework (commits outside docflow that change the unit's lines within 7 days) from the run event streams
   --json      runs: print the report as JSON
 `,
 	"block": `usage: docflow block [-h] --reason REASON [--needs {human,plan}] id

@@ -26,6 +26,10 @@ type RunRow struct {
 	TestChanges int     `json:"test_changes"` // sum of unit_end test_changes
 	Seconds     float64 `json:"seconds"`      // sum of unit_end seconds
 	Cost        float64 `json:"cost"`         // sum of unit_end cost
+	Commit      string  `json:"commit"`       // sha of the unit's latest commit event, replan commits excluded
+	// Rework counts the commits outside docflow that changed the unit's files
+	// within ReworkWindow after its commit; nil when the commit is unknown.
+	Rework *int `json:"rework"`
 }
 
 type runEvent struct {
@@ -40,6 +44,7 @@ type runEvent struct {
 	Unverified  int      `json:"unverified"`
 	Seconds     float64  `json:"seconds"`
 	Cost        *float64 `json:"cost"`
+	Sha         string   `json:"sha"`
 }
 
 // RunsReport is the --runs summary as JSON.
@@ -101,6 +106,10 @@ func RunRows(root, planID string) ([]RunRow, error) {
 				}
 			case "replan":
 				row.Replans++
+			case "commit":
+				if !event.Replan && event.Sha != "" {
+					row.Commit = event.Sha
+				}
 			case "unit_end":
 				if event.Status == "blocked" {
 					row.Blocked++
@@ -136,6 +145,14 @@ func RunsCommand(root, planID string, asJSON bool) (Result, error) {
 	if len(rows) == 0 {
 		return Result{Code: clierrors.EXIT_NOTHING, Stderr: "no runs: no run events recorded\n"}, nil
 	}
+	for i := range rows {
+		if rows[i].Commit == "" {
+			continue
+		}
+		if n, ok := reworkCommits(root, rows[i].Commit); ok {
+			rows[i].Rework = &n
+		}
+	}
 	if asJSON {
 		data, err := json.MarshalIndent(RunsReport{Units: rows}, "", "  ")
 		if err != nil {
@@ -144,7 +161,7 @@ func RunsCommand(root, planID string, asJSON bool) (Result, error) {
 		return Result{Stdout: string(data) + "\n"}, nil
 	}
 	var out strings.Builder
-	out.WriteString("unit version attempts verify_fails replans blocked test_changes seconds cost unverified done\n")
+	out.WriteString("unit version attempts verify_fails replans blocked test_changes seconds cost unverified rework done\n")
 	for _, row := range rows {
 		cost := "-"
 		if row.Cost > 0 {
@@ -158,8 +175,12 @@ func RunsCommand(root, planID string, asJSON bool) (Result, error) {
 		if version == "" {
 			version = "-"
 		}
-		fmt.Fprintf(&out, "%s %s %d %d %d %d %d %.1f %s %d %s\n", row.Unit, version, row.Attempts,
-			row.VerifyFails, row.Replans, row.Blocked, row.TestChanges, row.Seconds, cost, row.Unverified, done)
+		rework := "-"
+		if row.Rework != nil {
+			rework = fmt.Sprint(*row.Rework)
+		}
+		fmt.Fprintf(&out, "%s %s %d %d %d %d %d %.1f %s %d %s %s\n", row.Unit, version, row.Attempts,
+			row.VerifyFails, row.Replans, row.Blocked, row.TestChanges, row.Seconds, cost, row.Unverified, rework, done)
 	}
 	return Result{Stdout: out.String()}, nil
 }
