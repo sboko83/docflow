@@ -54,6 +54,10 @@ explicitly instead.
   `go build -o bin/docflow ./cmd/docflow`.
 - Format spec, `templates/` and `lint` change together. Bumping `docflow: N`
   requires a migration path.
+- Format growth freeze: a new format key, section, status or CLI command
+  lands only together with removing or generalizing an existing one; the
+  plan's `## Decisions` names what it replaces. Otherwise it is a design
+  question for the user, not a unit.
 - The benchmark runs with `go run ./tools/bench`; every run is committed in
   `bench/results/`. Change benchmark tasks only with `go run
   ./tools/bench validate` passing.

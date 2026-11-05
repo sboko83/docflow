@@ -502,3 +502,5 @@ The commands `activate`, `freeze`, and `thaw` do not commit on their own.
 - Do not plan "explore and decide" without a criterion — that is not a
   unit, it is a question to the user before planning.
 - Do not duplicate decisions from the architecture — link them in `Read:`.
+- Do not plan a new format key, section, status or command without a unit
+  that removes or generalizes an existing one; name it in `## Decisions`.
