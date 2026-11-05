@@ -329,7 +329,7 @@ docflow prompt → работа → docflow verify <id>* → docflow finish <id>
 - `done --handoff "…" [--decision "…"]` — `[x]`, Handoff и Decisions в
   план. Handoff — то, чего следующий юнит не увидит в коде; decision —
   выбор, которого не было в плане: `решение — почему — альтернатива`.
-- `commit` — `git add -A` (новые файлы с секретными именами и > 5 МиБ — отказ кодом 5, обход `DOCFLOW_ALLOW_STAGED=1`) и коммит с subject из `Commit:`, body из
+- `commit` — `git add -A` (новые файлы с секретными именами, > 5 МиБ и добавленные строки с токенами (AWS, GitHub, Slack, Google, `sk-`, приватные ключи) — отказ кодом 5, обход `DOCFLOW_ALLOW_STAGED=1`) и коммит с subject из `Commit:`, body из
   Handoff. Отказывает, если дерево изменилось после `verify`.
 
 После отказа commit-hook `run` возвращает ошибку агенту в пределах `--attempts`.

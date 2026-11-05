@@ -5,6 +5,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 
 	"bsv-docflow/internal/clierrors"
@@ -13,7 +15,7 @@ import (
 
 // commit stages the whole tree, so whatever an agent left outside .gitignore
 // would land in the unit's commit. Newly added files that look like secrets or
-// are large binaries stop the commit with EXIT_ORDER and a list; the index is
+// are large binaries, and added lines that contain a token, stop the commit with EXIT_ORDER and a list; the index is
 // reset so the tree fingerprint still matches and the human can delete, ignore or allow them.
 
 // AllowStagedEnv set to a non-empty value turns the guard off for one run.
@@ -48,6 +50,46 @@ func secretReason(name string) string {
 	return ""
 }
 
+// tokenPatterns match well-known credential formats in added lines. They are
+// deliberately specific: a false positive stops a unit's commit.
+var tokenPatterns = []struct {
+	reason string
+	re     *regexp.Regexp
+}{
+	{"private key", regexp.MustCompile(`-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----`)},
+	{"AWS access key", regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
+	{"GitHub token", regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b`)},
+	{"Slack token", regexp.MustCompile(`\bxox[abprs]-[A-Za-z0-9-]{20,}`)},
+	{"Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}\b`)},
+	{"API key (sk-)", regexp.MustCompile(`\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{32,}`)},
+}
+
+// tokenReasons maps each file with a token-looking added line to the reason.
+func tokenReasons(root string) (map[string]string, error) {
+	out, err := gitx.Git(root, "diff", "--cached", "--no-renames", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "-U0")
+	if err != nil {
+		return nil, err
+	}
+	found := map[string]string{}
+	file := ""
+	for _, line := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ b/"):
+			file = strings.TrimSuffix(strings.TrimPrefix(line, "+++ b/"), "\r")
+		case strings.HasPrefix(line, "+++ "):
+			file = ""
+		case strings.HasPrefix(line, "+") && file != "" && found[file] == "":
+			for _, p := range tokenPatterns {
+				if p.re.MatchString(line) {
+					found[file] = "token: " + p.reason
+					break
+				}
+			}
+		}
+	}
+	return found, nil
+}
+
 // guardStaged checks the files added to the index of root.
 func guardStaged(root string) error {
 	if os.Getenv(AllowStagedEnv) != "" {
@@ -57,12 +99,20 @@ func guardStaged(root string) error {
 	if err != nil {
 		return err
 	}
+	tokens, err := tokenReasons(root)
+	if err != nil {
+		return err
+	}
 	var lines []string
+	listed := map[string]bool{}
 	for _, name := range strings.Split(string(out), "\x00") {
 		if name == "" {
 			continue
 		}
 		reason := secretReason(name)
+		if reason == "" {
+			reason = tokens[name]
+		}
 		if reason == "" {
 			if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err == nil && info.Size() > maxAddedBytes {
 				reason = fmt.Sprintf("%d MiB", info.Size()>>20)
@@ -70,8 +120,15 @@ func guardStaged(root string) error {
 		}
 		if reason != "" {
 			lines = append(lines, fmt.Sprintf("  %s (%s)", name, reason))
+			listed[name] = true
 		}
 	}
+	for name, reason := range tokens {
+		if !listed[name] {
+			lines = append(lines, fmt.Sprintf("  %s (%s)", name, reason))
+		}
+	}
+	sort.Strings(lines)
 	if len(lines) == 0 {
 		return nil
 	}
@@ -80,7 +137,7 @@ func guardStaged(root string) error {
 	}
 	return clierrors.DocflowError{
 		Code: clierrors.EXIT_ORDER,
-		Message: "commit refused: new files look like secrets or large binaries:\n" + strings.Join(lines, "\n") +
+		Message: "commit refused: new files or lines look like secrets or large binaries:\n" + strings.Join(lines, "\n") +
 			"\ndelete them, add to .gitignore, or set " + AllowStagedEnv + "=1 to commit anyway",
 	}
 }

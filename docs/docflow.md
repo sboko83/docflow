@@ -41,11 +41,6 @@ start_budget: 4000
   Решить: запуск проверок в песочнице агента или контейнере, либо честное
   описание границы в runner.md и usage.md
   ([оценка](reviews/2026-10-28-agentic-review.md)).
-- `docflow commit`: проверка секретов и крупных файлов сделана (имена
-  `.env`/ключи/сертификаты и файлы > 5 МиБ, код 5, обход
-  `DOCFLOW_ALLOW_STAGED=1`), строка `outside Do:` раннера о файлах, которых
-  не называют `Read/Do/Traps/Verify` юнита, тоже. Осталось: проверка
-  содержимого на токены ([оценка](reviews/2026-10-28-agentic-review.md)).
 - `permissions: full` (`bypassPermissions`, `--dangerously-bypass-…`) на
   часы автономного прогона держится на одном y/N. Описать и проверить
   запуск `docflow run` в контейнере или devcontainer; решить, требовать

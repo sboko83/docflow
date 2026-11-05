@@ -337,3 +337,22 @@ func TestCommitRefusesSecretFiles(t *testing.T) {
 		t.Fatalf("Commit() with allow = %#v, %v", result, err)
 	}
 }
+
+func TestCommitRefusesTokenInContent(t *testing.T) {
+	root := makeCommitProject(t, commitPlan(" "), map[string]string{"a.py": "print(1)\n"})
+	startCommitUnit(t, root)
+	writeCycleFile(t, root, "a.py", "print(2)\nKEY = \"AKIA"+"ABCDEFGHIJKLMNOP\"\n")
+	writeCycleFile(t, root, "b.py", "print(3)\n")
+	verifyAndDoneCommitUnit(t, root, nil)
+	result, err := Commit(root, "P001.1.1", nil)
+	if err == nil || !strings.Contains(err.Error(), "a.py (token: AWS access key)") || strings.Contains(err.Error(), "b.py") {
+		t.Fatalf("Commit() = %#v, %v", result, err)
+	}
+	if errorExitCode(err) != 5 {
+		t.Fatalf("exit code = %d", errorExitCode(err))
+	}
+	t.Setenv(AllowStagedEnv, "1")
+	if result, err := Commit(root, "P001.1.1", nil); err != nil || result.Code != 0 {
+		t.Fatalf("Commit() with allow = %#v, %v", result, err)
+	}
+}
