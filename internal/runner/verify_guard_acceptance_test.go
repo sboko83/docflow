@@ -408,7 +408,10 @@ func TestVerifyGuardRecoveredCommitPrintsTestChanges(t *testing.T) {
 
 // The replan rules live in two places (the P025 gotcha): the rule text the
 // runner puts into the replan prompt and the replan chapter of the
-// bsv-docflow-plan skill. The invariant phrases must stay in both.
+// bsv-docflow-plan skill. The invariant phrases must stay in both. The
+// phrases are the guarded guarantees, re-anchored when the skill chapter
+// was reworded (the runner-skips-a-[x]-unit reason and the "did not
+// reproduce" proof rule stayed in the prompt text only).
 func TestVerifyGuardReplanRulesSkillParity(t *testing.T) {
 	text, err := os.ReadFile(filepath.Join("..", "..", "skills", "bsv-docflow-plan", "SKILL.md"))
 	if err != nil {
@@ -417,8 +420,8 @@ func TestVerifyGuardReplanRulesSkillParity(t *testing.T) {
 	// Both texts wrap differently: compare them with whitespace collapsed.
 	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
 	skill, rules := flat(string(text)), flat(replanRules)
-	for _, phrase := range []string{"the runner skips a `[x]` unit", "`Role: review`", "`Role: acceptance`",
-		"a green run at replan time does not lift the block", `"did not reproduce" is not proof`} {
+	for _, phrase := range []string{"`Role: review`", "`Role: acceptance`", "does not lift the block",
+		"Goal, Constraints", "never roll it back", "Do not do the unit's work and do not"} {
 		if !strings.Contains(rules, phrase) {
 			t.Errorf("the replan rule text lost %q", phrase)
 		}
@@ -441,7 +444,7 @@ func TestVerifyGuardSkillsInstallCarriesGuardTexts(t *testing.T) {
 		t.Fatalf("install-skills: %v: %s", err, out)
 	}
 	for path, phrases := range map[string][]string{
-		"bsv-docflow-plan/SKILL.md": {"Replan changed check", "the runner skips a `[x]` unit"},
+		"bsv-docflow-plan/SKILL.md": {"Replan changed check", "does not lift the block"},
 		"bsv-docflow-run/SKILL.md":  {"test change:", "Test changes"},
 	} {
 		text, err := os.ReadFile(filepath.FromSlash(target + "/" + path))
