@@ -36,3 +36,13 @@ tools/parity/scenarios/verify_done_cross_binary.sh:email
 tools/demo-run.sh:email
 tools/smoke-run.sh:email
 tools/smoke-opencode.sh:email
+
+# Pattern literals of the staged-commit guard: the detector table names the
+# formats it matches, and the test builds a fake AWS key for it.
+internal/cycle/stagedguard.go:begin
+internal/cycle/stagedguard.go:token
+internal/cycle/commit_test.go:token
+
+# Changelog and usage docs name the guarded token formats.
+CHANGELOG.md:token
+docs/usage.md:token
