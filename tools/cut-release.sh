@@ -144,7 +144,9 @@ EOF
     [ -n "$link" ] || fail 'CHANGELOG.md has no [Unreleased]: <repo>/compare/vX.Y.Z...HEAD link'
 
     say "release $cur -> $new; running the gates"
-    go test ./... >/dev/null || fail 'go test ./... failed'
+    # The runner integration tests need more than Go's ten-minute default on
+    # Windows (see .github/workflows/ci.yml).
+    go test -timeout 20m ./... >/dev/null || fail 'go test -timeout 20m ./... failed'
     bash tools/test-install.sh >/dev/null || fail 'tools/test-install.sh failed'
     bash tools/audit-public.sh >/dev/null \
         || fail 'tools/audit-public.sh found unreviewed data; a human reviews new allowances'

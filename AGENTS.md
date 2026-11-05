@@ -42,8 +42,10 @@ explicitly instead.
   library falls short; add one deliberately — each is permanent maintenance.
   The build stays a self-contained binary: the user installs nothing beyond
   it.
-- Tests live with their Go packages; run `go test ./...` — it is also the
-  plans' `gate:`. CI also runs `bash tools/test-install.sh` (installer and
+- Tests live with their Go packages; run `go test -timeout 20m ./...` — it
+  is also the plans' `gate:`. The runner integration tests alone take over
+  ten minutes on Windows, so Go's default timeout kills the package with a
+  panic that looks like a hang. CI also runs `bash tools/test-install.sh` (installer and
   update against a local release layout) and the e2e scenarios
   `bash tools/parity/run.sh bin/docflow bin/docflow` after
   `go build -o bin/docflow ./cmd/docflow`.
