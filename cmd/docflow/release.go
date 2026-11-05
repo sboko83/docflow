@@ -426,12 +426,17 @@ func standaloneHome(command string) (string, error) {
 	return release.Home()
 }
 
-func handleUpdate(parsed *parsedArgs) error {
+// handleUpdate narrates its steps on stderr through updateReport; the result
+// stays on stdout.
+func handleUpdate(parsed *parsedArgs, stderr io.Writer) error {
 	home, err := standaloneHome("update")
 	if err != nil {
 		return err
 	}
+	report := newUpdateReport(stderr)
+	defer report.endBar()
 	checkOnly, _ := parsed.values["--check"].(bool)
+	report.say("installed version %s", version)
 	var mode, hint string
 	var chosen bool
 	if !checkOnly {
@@ -444,16 +449,19 @@ func handleUpdate(parsed *parsedArgs) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	report.say("checking the latest release at %s", displayRelease(release.BaseURL()))
 	latest, err := release.Latest(ctx, release.BaseURL())
 	if err != nil {
 		return err
 	}
 	if release.Compare(latest, version) <= 0 {
+		report.say("latest release is %s, nothing to update", latest)
 		stdout := fmt.Sprintf("up to date: %s\n", version)
 		if !checkOnly {
 			if chosen {
 				// A mode chosen now (flag or answer) applies even without a
 				// newer release.
+				report.say("applying the skills mode: %s", mode)
 				result, err := applyChosenSkillsMode(home, mode, chosen)
 				if err != nil {
 					return err
@@ -464,6 +472,7 @@ func handleUpdate(parsed *parsedArgs) error {
 		}
 		return commandResult{stdout: stdout}
 	}
+	report.say("latest release is %s (installed %s)", latest, version)
 	if checkOnly {
 		return commandResult{stdout: fmt.Sprintf("update available: %s -> %s\n", version, latest)}
 	}
@@ -472,15 +481,17 @@ func handleUpdate(parsed *parsedArgs) error {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	if err := release.Fetch(ctx, release.BaseURL(), latest, runtime.GOOS, runtime.GOARCH, dir); err != nil {
+	if err := release.FetchProgress(ctx, release.BaseURL(), latest, runtime.GOOS, runtime.GOARCH, dir, report.fetch); err != nil {
 		return err
 	}
 	if err := validateReleaseSource(dir); err != nil {
 		return err
 	}
+	report.say("activating %s", latest)
 	if err := activateRelease(home, dir, latest); err != nil {
 		return err
 	}
+	report.say("linking skills (%s)", mode)
 	result, delegated, err := applySkillsModeForUpdate(home, mode, chosen)
 	if err != nil {
 		return err

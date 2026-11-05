@@ -251,6 +251,9 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	if parsed.command == "run" {
 		handler = func(parsed *parsedArgs) error { return handleRun(parsed, stdout, stderr) }
 	}
+	if parsed.command == "update" {
+		handler = releaseCommand(func(parsed *parsedArgs) error { return handleUpdate(parsed, stderr) })
+	}
 	if parsed.command == "tui" {
 		handler = func(parsed *parsedArgs) error { return handleTUI(parsed, stdout) }
 	}
@@ -319,7 +322,7 @@ func makeHandlers() map[string]handlerFunc {
 	out["stats"] = handleStats
 	out["tui"] = func(parsed *parsedArgs) error { return handleTUI(parsed, os.Stdout) }
 	out["install"] = releaseCommand(handleInstall)
-	out["update"] = releaseCommand(handleUpdate)
+	out["update"] = releaseCommand(func(parsed *parsedArgs) error { return handleUpdate(parsed, os.Stderr) })
 	out["uninstall"] = releaseCommand(handleUninstall)
 	out["skills-apply"] = releaseCommand(handleSkillsApply)
 	return out

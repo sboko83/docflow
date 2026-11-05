@@ -114,24 +114,26 @@ func Compare(a, b string) int {
 	return 0
 }
 
-func get(ctx context.Context, url string) (io.ReadCloser, error) {
+// get returns the response body and its length (-1 when the server does not
+// announce one).
+func get(ctx context.Context, url string) (io.ReadCloser, int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
+		return nil, 0, fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
-	return resp.Body, nil
+	return resp.Body, resp.ContentLength, nil
 }
 
 func Latest(ctx context.Context, base string) (string, error) {
-	body, err := get(ctx, strings.TrimRight(base, "/")+"/latest/download/VERSION")
+	body, _, err := get(ctx, strings.TrimRight(base, "/")+"/latest/download/VERSION")
 	if err != nil {
 		return "", err
 	}
@@ -150,6 +152,51 @@ func Latest(ctx context.Context, base string) (string, error) {
 // Fetch verifies a release archive before extracting it. Only regular files
 // and directories are accepted; archive links and special files are rejected.
 func Fetch(ctx context.Context, base, version, goos, goarch, dir string) error {
+	return FetchProgress(ctx, base, version, goos, goarch, dir, nil)
+}
+
+// Stages reported by FetchProgress, in order.
+const (
+	// StageDownload is reported once with Done == 0 when the archive request
+	// is answered (Total is the archive size, -1 when unknown), then on every
+	// chunk read.
+	StageDownload = "download"
+	// StageVerify is reported when the archive matches its checksum.
+	StageVerify = "verify"
+	// StageExtract is reported before the verified archive is unpacked.
+	StageExtract = "extract"
+)
+
+// Event describes the progress of FetchProgress.
+type Event struct {
+	Stage string
+	Name  string // archive file name
+	Done  int64  // bytes downloaded so far (StageDownload)
+	Total int64  // archive size in bytes, -1 when unknown
+}
+
+// progressReader reports the bytes read from the wrapped reader.
+type progressReader struct {
+	src  io.Reader
+	done int64
+	on   func(done int64)
+}
+
+func (r *progressReader) Read(p []byte) (int, error) {
+	n, err := r.src.Read(p)
+	if n > 0 {
+		r.done += int64(n)
+		r.on(r.done)
+	}
+	return n, err
+}
+
+// FetchProgress is Fetch with a callback for the download, the checksum check
+// and the extraction; on may be nil.
+func FetchProgress(ctx context.Context, base, version, goos, goarch, dir string, on func(Event)) error {
+	if on == nil {
+		on = func(Event) {}
+	}
 	version, err := normalizedVersion(version)
 	if err != nil {
 		return err
@@ -163,7 +210,7 @@ func Fetch(ctx context.Context, base, version, goos, goarch, dir string) error {
 	if err != nil {
 		return err
 	}
-	body, err := get(ctx, url+name)
+	body, size, err := get(ctx, url+name)
 	if err != nil {
 		return err
 	}
@@ -175,20 +222,26 @@ func Fetch(ctx context.Context, base, version, goos, goarch, dir string) error {
 	defer os.Remove(archive.Name())
 	defer archive.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(archive, hash), body); err != nil {
+	on(Event{Stage: StageDownload, Name: name, Total: size})
+	reader := &progressReader{src: body, on: func(done int64) {
+		on(Event{Stage: StageDownload, Name: name, Done: done, Total: size})
+	}}
+	if _, err := io.Copy(io.MultiWriter(archive, hash), reader); err != nil {
 		return err
 	}
 	if hex.EncodeToString(hash.Sum(nil)) != want {
 		return fmt.Errorf("sha256 mismatch for %s", name)
 	}
+	on(Event{Stage: StageVerify, Name: name, Done: reader.done, Total: size})
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
+	on(Event{Stage: StageExtract, Name: name, Done: reader.done, Total: size})
 	return extract(archive, dir)
 }
 
 func checksum(ctx context.Context, url, name string) (string, error) {
-	body, err := get(ctx, url)
+	body, _, err := get(ctx, url)
 	if err != nil {
 		return "", err
 	}

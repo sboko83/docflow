@@ -277,9 +277,15 @@ func TestReleaseInstallUpdateUninstall(t *testing.T) {
 	releaseLink(t, filepath.Join(f.home, "current"), "versions/1.0.0")
 	for _, next := range []string{"1.1.0", "1.2.0"} {
 		latest = next
-		stdout, _ = runRelease(t, 0, "update")
+		var stderr string
+		stdout, stderr = runRelease(t, 0, "update")
 		if !strings.Contains(stdout, "updated: "+version+" -> "+latest) || strings.Contains(stdout, "already linked") || strings.Contains(stdout, "install-skills --project") {
 			t.Fatalf("update stdout=%q", stdout)
+		}
+		for _, step := range []string{"update: installed version " + version + "\n", "update: latest release is " + latest, "update: downloading ", "update: checksum ok", "update: activating " + latest + "\n", "update: linking skills"} {
+			if !strings.Contains(stderr, step) {
+				t.Fatalf("update stderr misses %q: %q", step, stderr)
+			}
 		}
 		for _, target := range targets {
 			if !strings.Contains(stdout, "  "+displayPath(target)+": 1 linked\n") {
