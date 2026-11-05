@@ -28,7 +28,8 @@ Rows:
               `docs/design/runner.md` and one line range of it, the same unit
               with only ranged reads, and an acceptance unit
 
-`--check` fails (exit 1) when at the target number of plans the start reads
+`--check` fails (exit 1) when the body of `bsv-docflow-plan` exceeds 3000
+tokens, or when at the target number of plans the start reads
 exceed `start_budget`, the regular-unit prompt with only ranged reads exceeds
 half of `read_budget`, or all skill descriptions together exceed 1500 tokens:
 a description grows by a few dozen bytes per plan, so the current size says
@@ -57,6 +58,8 @@ import tempfile
 
 TOKEN_DIVISOR = 4
 SKILL_DESC_BUDGET = 1500
+# Body budgets (proxy tokens) of skills read in full on every use.
+SKILL_BODY_BUDGETS = {"skills/bsv-docflow-plan/SKILL.md": 3000}
 DEFAULT_TARGET = 200
 DEFAULT_WINDOW = "P035"
 
@@ -601,7 +604,8 @@ def main():
         desc_growth += per_plan(desc, base_desc)
         add_row(path + "#description", "skill_desc", desc,
                 growth=per_plan(desc, base_desc))
-        add_row(path, "skill", body, growth=per_plan(body, base_body))
+        add_row(path, "skill", body, growth=per_plan(body, base_body),
+                limit=SKILL_BODY_BUDGETS.get(path))
     add_row("skills:descriptions", "skills_all", desc_total, growth=desc_growth,
             limit=SKILL_DESC_BUDGET, detail="every installed skill description")
 
@@ -665,6 +669,9 @@ def main():
         elif row["kind"] == "skills_all":
             limit, what, against = (row["limit"], "skill descriptions",
                                     "%d" % SKILL_DESC_BUDGET)
+        elif row["kind"] == "skill" and row["limit"]:
+            limit, what, against = (row["limit"], "skill body",
+                                    "%d" % row["limit"])
         elif row["name"] == "prompt:regular:ranged" and read_budget:
             limit, what, against = (read_budget // 2, "ranged-only prompt",
                                     "read_budget / 2")

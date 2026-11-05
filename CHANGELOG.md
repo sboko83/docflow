@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of Goal, Constraints or Decisions, or a regression of an earlier fix; other
   findings go to the Handoff for acceptance, and a repeated review checks the
   closed findings and the fix units' diff instead of the whole phase.
+- The `bsv-docflow-plan` skill is cut from ~7.1k to ~2.9k tokens: the flag
+  and roster reference stays in `docs/usage.md`, and
+  `tools/context-audit.py --check` now fails when the skill body passes
+  3000 tokens.
 
 ## [0.24.0] - 2026-11-05
 
