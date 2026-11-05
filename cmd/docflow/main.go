@@ -233,6 +233,8 @@ func main() {
 }
 
 func run(argv []string, stdout, stderr io.Writer) int {
+	// run_start records the version for every runner entry: run and tui.
+	runner.Version = version
 	parsed, code := parseArgs(argv, stdout, stderr)
 	if code != clierrors.EXIT_OK {
 		return code
@@ -351,7 +353,6 @@ func handleRun(parsed *parsedArgs, stdout, stderr io.Writer) error {
 	}
 	// A missing checkout only disables the advisory skill check.
 	source, _ := currentSkillDirectory()
-	runner.Version = version
 	code, err := runner.Run(root, args, stdout, stderr, source)
 	if err != nil {
 		return err

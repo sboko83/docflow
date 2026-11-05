@@ -265,7 +265,7 @@ blocked N times, review budget spent; decide by hand`, код 3. Счёт бер
 
 | `event` | Дополнительные поля |
 |---|---|
-| `run_start` | `plan` — ID плана, `units` — полное число его юнитов |
+| `run_start` | `plan` — ID плана, `units` — полное число его юнитов, `version` — версия docflow, запустившего прогон (в потоках старых версий его нет) |
 | `config` | `plan`, `permissions`; `executor`, `fallback`, `replan`, `roles` — маршруты плана; `configured_roles`, `configured_units` — явные overrides интерактивной конфигурации; `effective` — разрешённый снимок назначений |
 | `unit_start` | `route` — выбранный маршрут |
 | `attempt` | `n` — номер попытки, `route`, `log` — путь лога относительно корня репозитория |

@@ -23,9 +23,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   findings go to the Handoff for acceptance, and a repeated review checks the
   closed findings and the fix units' diff instead of the whole phase.
 - The `bsv-docflow-plan` skill is cut from ~7.1k to ~2.9k tokens: the flag
-  and roster reference stays in `docs/usage.md`, and
+  and roster reference moves to `docflow <command> --help`, and
   `tools/context-audit.py --check` now fails when the skill body passes
   3000 tokens.
+
+### Fixed
+- `docflow commit` checks added lines for tokens in files whose names hold
+  non-ASCII characters or spaces too; before, a token in such a file was
+  missed or listed with a stray tab.
+- A notification tool that is slow and hits its timeout no longer rings the
+  terminal bell as if it had failed: a killed tool reported its exit code
+  instead of the deadline.
+- `docflow update` prints the `downloaded` summary in a log also when the
+  server announces no archive size.
+- `run_start` records the docflow version for runs started from
+  `docflow tui` too, and `docflow stats -h` lists `--json`.
 
 ## [0.24.0] - 2026-11-05
 

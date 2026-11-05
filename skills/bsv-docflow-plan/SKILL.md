@@ -8,8 +8,8 @@ description: "Turns a task into a docflow plan — phases and one-agent-session 
 A plan is written for a cold agent that never saw the chat: every unit says
 what to read, what to do, how to verify, which traps exist, what to commit
 with. General documentation rules: `bsv-docs`; CHANGELOG: `bsv-changelog`.
-The full reference (flags, conditions, roster) is `docs/usage.md` of the
-docflow repository and `docflow <command> --help`.
+The full reference (flags, conditions, roster) is `docflow <command>
+--help`.
 
 ## When
 
@@ -60,11 +60,13 @@ already stated is recorded mechanically and not asked again.
 
 - Conditions and budget: ask which temporary limits apply and whether a
   preset applies — not which model goes to which role. Translate the answer
-  into flags (`--off`, `--minimal`, `--lean`, `--prefer`, `--expires`,
-  `--only`; `docs/usage.md` «Условия»), show the resolved conditions and
-  chains before writing units, pass the same flags to `roster apply`. A
-  condition that outlives the plan is a `roster off|budget|expire|allow|
-  deny` command.
+  into flags: «локальные недоступны» `--off local`; «codex по минимуму»
+  `--minimal codex` (acceptance and replan only); `--lean A,B` drops heavy,
+  acceptance and replan; `--prefer A,B` puts an access first; «zai до
+  четверга» `--expires zai=DATE`; «zai только flash» `--only zai=*flash*`.
+  Show the resolved conditions and chains (`roster brief` with the flags)
+  before writing units, pass the same flags to `roster apply`. A condition
+  that outlives the plan is a `roster off|budget|expire|allow|deny` command.
 - `permissions: auto|full` in the frontmatter. `full` runs agents without
   their sandbox and approvals; name the mode anyway — a committed `full`
   must not be a silent escalation. No key — `auto`.

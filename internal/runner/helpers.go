@@ -189,6 +189,11 @@ var runNotificationProcess = func(argv []string, timeout time.Duration) (bool, e
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
 	err = command.Run()
+	if ctx.Err() != nil {
+		// A killed tool exits non-zero and Run reports that exit, not the
+		// deadline; spawn tells a slow tool from a broken one by this error.
+		return true, ctx.Err()
+	}
 	return true, err
 }
 

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -127,6 +128,29 @@ func TestNotifySpawnTimeoutIsIgnored(t *testing.T) {
 	}
 	if !spawn([]string{"notify-send"}) {
 		t.Fatal("spawn returned false after a timeout")
+	}
+}
+
+// TestNotifyHelperSleep is the slow notification tool of the test below; it
+// only sleeps when that test starts it.
+func TestNotifyHelperSleep(t *testing.T) {
+	if os.Getenv("DOCFLOW_NOTIFY_HELPER") != "sleep" {
+		t.Skip("helper process")
+	}
+	time.Sleep(10 * time.Second)
+}
+
+// A real tool killed by the timeout exits non-zero; the process runner must
+// still report the deadline, or spawn rings the bell for a slow tool.
+func TestNotificationProcessTimeoutReportsDeadline(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOCFLOW_NOTIFY_HELPER", "sleep")
+	started, err := runNotificationProcess([]string{exe, "-test.run=^TestNotifyHelperSleep$"}, 300*time.Millisecond)
+	if !started || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runNotificationProcess = %v, %v; want started with a deadline error", started, err)
 	}
 }
 

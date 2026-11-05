@@ -72,3 +72,21 @@ func TestUpdateReportEndBarBeforeError(t *testing.T) {
 		t.Fatalf("unfinished bar not terminated: %q", out.String())
 	}
 }
+
+// A server that announces no size still gets the summary line in a log.
+func TestUpdateReportWithoutTerminalUnknownSize(t *testing.T) {
+	var out bytes.Buffer
+	r := newUpdateReport(&out)
+	for _, e := range []release.Event{
+		{Stage: release.StageDownload, Name: "a.tar.gz", Total: -1},
+		{Stage: release.StageDownload, Name: "a.tar.gz", Done: 2048, Total: -1},
+		{Stage: release.StageVerify, Name: "a.tar.gz", Done: 2048, Total: -1},
+	} {
+		r.fetch(e)
+	}
+	got := out.String()
+	if !strings.Contains(got, "update: downloading a.tar.gz\n") || !strings.Contains(got, "update: downloaded 2.0 KB in ") ||
+		strings.Index(got, "downloaded") > strings.Index(got, "checksum ok") {
+		t.Fatalf("report = %q", got)
+	}
+}

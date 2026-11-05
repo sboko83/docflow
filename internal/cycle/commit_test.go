@@ -356,3 +356,39 @@ func TestCommitRefusesTokenInContent(t *testing.T) {
 		t.Fatalf("Commit() with allow = %#v, %v", result, err)
 	}
 }
+
+// Git ends a header name that has a space with a tab and quotes non-ASCII
+// names by default; the token check must still name such files.
+func TestCommitRefusesTokenInOddPaths(t *testing.T) {
+	root := makeCommitProject(t, commitPlan(" "), map[string]string{"a.py": "print(1)\n"})
+	startCommitUnit(t, root)
+	writeCycleFile(t, root, "a.py", "print(2)\n")
+	key := "KEY = \"AKIA" + "ABCDEFGHIJKLMNOP\"\n"
+	writeCycleFile(t, root, "with space.py", key)
+	writeCycleFile(t, root, "ключ.py", key)
+	verifyAndDoneCommitUnit(t, root, nil)
+	_, err := Commit(root, "P001.1.1", nil)
+	if err == nil {
+		t.Fatal("Commit() accepted tokens in files with odd names")
+	}
+	for _, want := range []string{"  with space.py (token: AWS access key)\n", "  ключ.py (token: AWS access key)\n"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error misses %q: %v", want, err)
+		}
+	}
+}
+
+func TestDiffHeaderPath(t *testing.T) {
+	for header, want := range map[string]string{
+		"b/a.go":            "a.go",
+		"b/with space.go\t": "with space.go",
+		"b/crlf.go\r":       "crlf.go",
+		`"b/\321\202.go"`:   "т.go",
+		`"b/quote\".go"`:    `quote".go`,
+		"/dev/null":         "",
+	} {
+		if got := diffHeaderPath(header); got != want {
+			t.Errorf("diffHeaderPath(%q) = %q, want %q", header, got, want)
+		}
+	}
+}

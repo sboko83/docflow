@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"bsv-docflow/internal/clierrors"
@@ -66,7 +67,9 @@ var tokenPatterns = []struct {
 
 // tokenReasons maps each file with a token-looking added line to the reason.
 func tokenReasons(root string) (map[string]string, error) {
-	out, err := gitx.Git(root, "diff", "--cached", "--no-renames", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "-U0")
+	// quotePath=false keeps non-ASCII names raw; a name with a quote, a
+	// backslash or a control character is still C-quoted and unquoted below.
+	out, err := gitx.Git(root, "-c", "core.quotePath=false", "diff", "--cached", "--no-renames", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "-U0")
 	if err != nil {
 		return nil, err
 	}
@@ -74,10 +77,8 @@ func tokenReasons(root string) (map[string]string, error) {
 	file := ""
 	for _, line := range strings.Split(string(out), "\n") {
 		switch {
-		case strings.HasPrefix(line, "+++ b/"):
-			file = strings.TrimSuffix(strings.TrimPrefix(line, "+++ b/"), "\r")
 		case strings.HasPrefix(line, "+++ "):
-			file = ""
+			file = diffHeaderPath(strings.TrimPrefix(line, "+++ "))
 		case strings.HasPrefix(line, "+") && file != "" && found[file] == "":
 			for _, p := range tokenPatterns {
 				if p.re.MatchString(line) {
@@ -88,6 +89,24 @@ func tokenReasons(root string) (map[string]string, error) {
 		}
 	}
 	return found, nil
+}
+
+// diffHeaderPath returns the path of a "+++ " header without its "b/"
+// prefix, "" for /dev/null. Git ends a name that contains a space with a tab
+// and C-quotes a name with special characters.
+func diffHeaderPath(header string) string {
+	header = strings.TrimRight(header, "\r\t")
+	if strings.HasPrefix(header, `"`) {
+		unquoted, err := strconv.Unquote(header)
+		if err != nil {
+			return ""
+		}
+		header = unquoted
+	}
+	if !strings.HasPrefix(header, "b/") {
+		return ""
+	}
+	return strings.TrimPrefix(header, "b/")
 }
 
 // guardStaged checks the files added to the index of root.

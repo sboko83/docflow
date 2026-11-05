@@ -60,6 +60,11 @@ func (r *updateReport) fetch(e release.Event) {
 		}
 		r.download(e)
 	case release.StageVerify:
+		if !r.tty && r.total <= 0 {
+			// Without a size no chunk counts as the last one; the summary
+			// line comes once the whole archive is read.
+			r.say("downloaded %s in %s", formatBytes(e.Done), time.Since(r.started).Round(100*time.Millisecond))
+		}
 		r.say("checksum ok (sha256)")
 	case release.StageExtract:
 		r.say("extracting")
