@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -253,9 +252,6 @@ func TestCommitResultsDoesNotCommitOtherStagedChanges(t *testing.T) {
 }
 
 func TestRunTinySingleAndDocflowArms(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake codex and pi agents are POSIX shell scripts; bare-name PATH lookup does not resolve them on Windows")
-	}
 	root := t.TempDir()
 	configHome := filepath.Join(root, "config")
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -296,35 +292,7 @@ func TestValue(t *testing.T) { if tiny.Value() != 2 { t.Fatal("value") } }
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	pi := `#!/bin/sh
-case "$*" in
-  *'auth print-api-key'*) exit 1 ;;
-esac
-cat >/dev/null
-printf 'package tiny\nfunc Value() int { return 2 }\n' > value.go
-printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"{\"status\":\"done\",\"handoff\":[\"tiny complete\"],\"decisions\":[],\"unverified\":[],\"reason\":\"\",\"blocker\":\"\"}"}],"usage":{"input":3,"cost":{"total":0.25}}}}'
-`
-	if err := os.WriteFile(filepath.Join(binDir, "pi"), []byte(pi), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	codex := `#!/bin/sh
-if [ "${1:-}" = "app-server" ]; then
-  while IFS= read -r request; do
-    case "$request" in
-      *'"id":1'*) printf '%s\n' '{"id":1,"result":{}}' ;;
-      *'"id":2'*) printf '%s\n' '{"id":2,"result":{"rateLimits":[]}}'; exit 0 ;;
-    esac
-  done
-  exit 0
-fi
-cat >/dev/null
-printf 'package tiny\nfunc Value() int { return 2 }\n' > value.go
-printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\"status\":\"done\",\"handoff\":[\"done\"],\"decisions\":[],\"unverified\":[],\"reason\":\"\",\"blocker\":\"\"}"}}'
-printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":4}}'
-`
-	if err := os.WriteFile(filepath.Join(binDir, "codex"), []byte(codex), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	buildFakeAgents(t, fixture, binDir)
 	fakeDocflow := nativeBin(root, "fake-docflow")
 	build := exec.Command("go", "build", "-o", fakeDocflow, "./cmd/docflow")
 	build.Dir = fixture
@@ -367,9 +335,7 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens
 	if err != nil || string(afterDryRun) != string(beforeDryRun) {
 		t.Fatalf("dry-run changed results: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(binDir, "pi"), []byte("#!/bin/sh\nsleep 5\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	setFakeAgentMode(t, binDir, "sleep")
 	if err := runCommandAt(root, []string{"--task", "tiny", "--arms", "single", "--single-route", "pi | test-model | high", "--roster", "bench/roster.toml", "--docflow", fakeDocflow, "--timeout", "1"}, &output); err != nil {
 		t.Fatalf("timeout run: %v", err)
 	}

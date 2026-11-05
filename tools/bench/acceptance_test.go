@@ -73,31 +73,6 @@ const acceptanceCatalog = `{
 }
 `
 
-const acceptancePi = `#!/bin/sh
-case "$*" in
-  *'auth print-api-key'*) exit 1 ;;
-esac
-cat >/dev/null
-printf 'package tinybase\n\nfunc Value() int { return 2 }\n' > value.go
-printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"{\"status\":\"done\",\"handoff\":[\"tiny complete\"],\"decisions\":[],\"unverified\":[],\"reason\":\"\",\"blocker\":\"\"}"}],"usage":{"input":3,"cost":{"total":0.25}}}}'
-`
-
-const acceptanceCodex = `#!/bin/sh
-if [ "${1:-}" = "app-server" ]; then
-  while IFS= read -r request; do
-    case "$request" in
-      *'"id":1'*) printf '%s\n' '{"id":1,"result":{}}' ;;
-      *'"id":2'*) printf '%s\n' '{"id":2,"result":{"rateLimits":[]}}'; exit 0 ;;
-    esac
-  done
-  exit 0
-fi
-cat >/dev/null
-printf 'package tinybase\n\nfunc Value() int { return 2 }\n' > value.go
-printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\"status\":\"done\",\"handoff\":[\"done\"],\"decisions\":[],\"unverified\":[],\"reason\":\"\",\"blocker\":\"\"}"}}'
-printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":4}}'
-`
-
 type acceptanceEnv struct {
 	t        *testing.T
 	root     string // temporary checkout copy
@@ -109,9 +84,6 @@ type acceptanceEnv struct {
 
 func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("fake codex and pi agents are POSIX shell scripts; bare-name PATH lookup does not resolve them on Windows")
-	}
 	fixture, err := repoRoot()
 	if err != nil {
 		t.Fatal(err)
@@ -167,8 +139,7 @@ func newAcceptanceEnv(t *testing.T) *acceptanceEnv {
 	if err := os.MkdirAll(e.binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeAcceptanceFile(t, e.binDir, "pi", acceptancePi, 0o755)
-	writeAcceptanceFile(t, e.binDir, "codex", acceptanceCodex, 0o755)
+	buildFakeAgents(t, fixture, e.binDir)
 	return e
 }
 
@@ -398,10 +369,11 @@ func TestAcceptanceBenchmarkRun(t *testing.T) {
 // arm is recorded with status interrupted and the partial run is committed.
 func TestAcceptanceBenchmarkInterrupt(t *testing.T) {
 	e := newAcceptanceEnv(t)
-	writeAcceptanceFile(t, e.binDir, "pi", "#!/bin/sh\nsleep 60\n", 0o755)
+	setFakeAgentMode(t, e.binDir, "sleep")
 
 	var out, errOut bytes.Buffer
 	c := e.command(e.tinyRunArgs("single")...)
+	prepareInterrupt(c)
 	c.Stdout, c.Stderr = &out, &errOut
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
@@ -426,7 +398,7 @@ func TestAcceptanceBenchmarkInterrupt(t *testing.T) {
 		_ = c.Process.Kill()
 		t.Fatalf("arm did not start\nstdout:\n%s\nstderr:\n%s", out.String(), errOut.String())
 	}
-	if err := c.Process.Signal(os.Interrupt); err != nil {
+	if err := sendInterrupt(c); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -632,13 +604,7 @@ func TestAcceptanceShortStat(t *testing.T) {
 // scoring and committing the partial result.
 func TestAcceptanceDocflowTimeout(t *testing.T) {
 	e := newAcceptanceEnv(t)
-	writeAcceptanceFile(t, e.binDir, "pi", `#!/bin/sh
-case "$*" in *'auth print-api-key'*) exit 1 ;; esac
-cat >/dev/null
-sleep 60 &
-echo $! > child.pid
-wait
-`, 0o755)
+	setFakeAgentMode(t, e.binDir, "child")
 	args := append(e.tinyRunArgs("docflow"), "--timeout", "2")
 	started := time.Now()
 	out, errOut, code := e.run(args...)
@@ -655,7 +621,7 @@ wait
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := exec.Command("sh", "-c", `kill -0 "$1" 2>/dev/null`, "sh", strings.TrimSpace(string(pid))).Run(); err == nil {
+	if processAlive(strings.TrimSpace(string(pid))) {
 		t.Fatalf("agent child %s survived timeout", pid)
 	}
 	if got := e.lastCommitSubject(); got != "bench: run "+runID {
@@ -679,4 +645,45 @@ func TestAcceptanceCustomResults(t *testing.T) {
 			t.Fatalf("unexpected commit path %s", file)
 		}
 	}
+}
+
+// buildFakeAgents builds the fakeagent command as pi and codex into binDir.
+// The fake is a Go program, so a bare-name PATH lookup finds it on Windows
+// too (pi.exe); setFakeAgentMode switches its behavior.
+func buildFakeAgents(t *testing.T, fixture, binDir string) {
+	t.Helper()
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pi := nativeBin(binDir, "pi")
+	build := exec.Command("go", "build", "-o", pi, "./tools/bench/testdata/fakeagent")
+	build.Dir = fixture
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build fake agent: %v\n%s", err, output)
+	}
+	data, err := os.ReadFile(pi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nativeBin(binDir, "codex"), data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setFakeAgentMode selects the fake agents' behavior: "" completes the task,
+// "sleep" blocks, "child" leaves a sleeping child process.
+func setFakeAgentMode(t *testing.T, binDir, mode string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(binDir, "fakeagent.mode"), []byte(mode), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// processAlive reports whether the process with the given pid still runs.
+func processAlive(pid string) bool {
+	if runtime.GOOS == "windows" {
+		out, _ := exec.Command("tasklist", "/FI", "PID eq "+pid, "/NH").Output()
+		return strings.Contains(string(out), " "+pid+" ")
+	}
+	return exec.Command("sh", "-c", `kill -0 "$1" 2>/dev/null`, "sh", pid).Run() == nil
 }
