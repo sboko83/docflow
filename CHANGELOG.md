@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The end-of-run notification now falls back to the terminal bell when the 
+  notification tool starts but fails (non-zero exit), not only when it is 
+  missing, and sends only the first sentence of a multi-paragraph reason.
+
 ### Changed
 - `docflow update` narrates what it does on stderr instead of staying silent
   until the end: the installed version, the release check against GitHub,

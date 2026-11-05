@@ -629,14 +629,35 @@ func applescript(text string) string {
 }
 
 func spawn(argv []string) bool {
-	started, _ := runNotificationProcess(argv, NotificationTimeout)
-	return started
+	started, err := runNotificationProcess(argv, NotificationTimeout)
+	// A timeout means the tool is slow, not broken; any other error (missing
+	// tool, non-zero exit) leaves the user unnotified, so the bell must ring.
+	return started && (err == nil || errors.Is(err, context.DeadlineExceeded))
+}
+
+const notificationMaxRunes = 160
+
+// shortNotification keeps the first line and first sentence of text, capped,
+// so a multi-paragraph reason does not become a notification body.
+func shortNotification(text string) string {
+	text = strings.TrimSpace(text)
+	if i := strings.IndexByte(text, '\n'); i >= 0 {
+		text = text[:i]
+	}
+	if i := strings.Index(text, ". "); i >= 0 {
+		text = text[:i+1]
+	}
+	if r := []rune(text); len(r) > notificationMaxRunes {
+		text = string(r[:notificationMaxRunes-1]) + "…"
+	}
+	return text
 }
 
 func notify(text string, off bool, stderr io.Writer) {
 	if off || os.Getenv("DOCFLOW_NOTIFY") == "0" {
 		return
 	}
+	text = shortNotification(text)
 	sent := false
 	switch currentPlatform {
 	case "darwin":

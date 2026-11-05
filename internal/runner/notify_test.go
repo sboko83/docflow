@@ -93,6 +93,33 @@ func TestNotifyMissingToolRingsTTYBell(t *testing.T) {
 	}
 }
 
+func TestNotifyToolFailureRingsTTYBell(t *testing.T) {
+	saveNotificationHooks(t)
+	currentPlatform = "linux"
+	runNotificationProcess = func([]string, time.Duration) (bool, error) {
+		return true, errors.New("exit status 1")
+	}
+	stderr := &fakeTTY{}
+	notify("x", false, stderr)
+	if stderr.String() != "\a" {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestNotifyShortensReason(t *testing.T) {
+	saveNotificationHooks(t)
+	currentPlatform = "linux"
+	var got []string
+	runNotificationProcess = func(argv []string, _ time.Duration) (bool, error) {
+		got = append([]string(nil), argv...)
+		return true, nil
+	}
+	notify("P1 blocked (needs plan): first sentence. Second sentence.\n\nMore.", false, nil)
+	if want := "P1 blocked (needs plan): first sentence."; got[2] != want {
+		t.Fatalf("text = %q, want %q", got[2], want)
+	}
+}
+
 func TestNotifySpawnTimeoutIsIgnored(t *testing.T) {
 	saveNotificationHooks(t)
 	runNotificationProcess = func([]string, time.Duration) (bool, error) {
