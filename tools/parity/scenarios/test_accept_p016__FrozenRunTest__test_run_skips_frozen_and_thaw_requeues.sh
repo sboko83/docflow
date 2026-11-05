@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # test_accept_p016.FrozenRunTest.test_run_skips_frozen_and_thaw_requeues
 source "$(dirname "$parity_scenario")/../e2e.sh"
 loop_fixture

@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # test_accept_p020.CheckoutAcceptanceTest.test_foreign_docflow_on_path_is_preserved
 source "$(dirname "$parity_scenario")/../e2e.sh"
 checkout_fixture

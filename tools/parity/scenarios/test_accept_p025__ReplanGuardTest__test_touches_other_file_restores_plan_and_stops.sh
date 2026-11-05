@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # test_accept_p025.ReplanGuardTest.test_touches_other_file_restores_plan_and_stops
 source "$(dirname "$parity_scenario")/../e2e.sh"
 plan=docs/plans/P001-autonomous.md

@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # A whole-file Read over whole_read_limit warns with the file size and the
 # Gotchas of the archive entries it links; a range or a raised limit does not.
 parity_repo

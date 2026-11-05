@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # test_repos.ReposCommitTest.test_crash_after_root_commit_recovers_without_duplicate
 source "$(dirname "$parity_scenario")/../e2e.sh"
 repos_fixture

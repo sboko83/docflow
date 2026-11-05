@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # test_accept_p020.CheckoutAcceptanceTest.test_codex_new_user_path
 source "$(dirname "$parity_scenario")/../e2e.sh"
 parity_repo

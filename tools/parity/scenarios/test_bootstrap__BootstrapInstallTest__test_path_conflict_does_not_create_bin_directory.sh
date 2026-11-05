@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # test_bootstrap.BootstrapInstallTest.test_path_conflict_does_not_create_bin_directory
 source "$(dirname "$parity_scenario")/../e2e.sh"
 checkout_fixture

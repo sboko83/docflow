@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # P044 acceptance: an unverified item copied from a Depends unit is dropped,
 # the prompt tells the agent not to copy it, and init writes the plan trigger.
 parity_repo

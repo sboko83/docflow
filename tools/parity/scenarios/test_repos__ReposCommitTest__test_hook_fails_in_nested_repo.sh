@@ -1,4 +1,5 @@
 #!/bin/bash
+declare -F parity_repo >/dev/null || { echo "run via tools/parity/run.sh" >&2; exit 2; }
 # test_repos.ReposCommitTest.test_hook_fails_in_nested_repo
 source "$(dirname "$parity_scenario")/../e2e.sh"
 repos_fixture
