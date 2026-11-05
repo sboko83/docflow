@@ -55,6 +55,7 @@ func codexFallbackSuccessStep(f *runFixture) string {
 }
 
 func TestRunFallbackOnLimit(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
 	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
@@ -102,6 +103,7 @@ func piContextLimitStep(t *testing.T) string {
 }
 
 func TestRunFallbackCarriesRefusedAttemptContext(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.write("tracked.txt", "before\n")
 	f.commit("seed tracked file")
@@ -134,6 +136,7 @@ func TestRunFallbackCarriesRefusedAttemptContext(t *testing.T) {
 }
 
 func TestRunRoleFallbackOnLimit(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.replace(planFile, "fallback: codex | gpt-5.5 | -", "fallback: codex | gpt-6-luna | max\nheavy: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | high")
 	f.replace(planFile, "Commit: P001.1.1: first unit", "Role: heavy\nCommit: P001.1.1: first unit")
@@ -153,6 +156,7 @@ func TestRunRoleFallbackOnLimit(t *testing.T) {
 }
 
 func TestRunExplicitExecutorKeepsFallback(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.replace(planFile, "fallback: codex | gpt-5.5 | -", "fallback: codex | gpt-6-luna | max\nheavy: claude | claude-haiku-5-5 | -; codex | gpt-6.1-sol | high")
 	f.replace(planFile, "Commit: P001.1.1: first unit", "Executor: pi | zai/glm-5.3 | max\nCommit: P001.1.1: first unit")
@@ -169,6 +173,7 @@ func TestRunExplicitExecutorKeepsFallback(t *testing.T) {
 }
 
 func TestRunFallbackOnOutage(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.steps(piOutageStep(), codexFallbackSuccessStep(f))
 	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
@@ -193,6 +198,7 @@ func TestRunAllExhaustedNoWait(t *testing.T) {
 }
 
 func TestRunQuotaSkipRoleChain(t *testing.T) {
+	skipSlow(t)
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nheavy: claude | claude-opus-5-5 | high; codex | gpt-6.1-sol | high")
 	f.replace(planFile, "Commit: P001.1.1: first unit", "Role: heavy\nCommit: P001.1.1: first unit")
@@ -213,6 +219,7 @@ func TestRunQuotaSkipRoleChain(t *testing.T) {
 }
 
 func TestRunQuotaSkip(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"probe", "fallback-probe", "stream"} {
 		t.Run(mode, func(t *testing.T) {
 			var f *runFixture
@@ -278,6 +285,7 @@ func TestRunQuotaSkip(t *testing.T) {
 }
 
 func TestReplanFallback(t *testing.T) {
+	skipSlow(t)
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-6-luna | max\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
@@ -318,6 +326,7 @@ func TestReplanFallback(t *testing.T) {
 }
 
 func TestReplanChainExhaustedSkipsFallback(t *testing.T) {
+	skipSlow(t)
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-6-luna | max\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")

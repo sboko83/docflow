@@ -31,6 +31,7 @@ func zaiResetMs(after time.Duration) int64 {
 func zaiClock(ms int64) string { return time.Unix(ms/1000, 0).Local().Format("15:04") }
 
 func TestAcceptanceZaiQuotaStartAndDelta(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	five, seven := zaiResetMs(2*time.Hour), zaiResetMs(6*24*time.Hour)
 	server.bodies = []string{liveZaiQuotaBody(28, 30, five, seven), liveZaiQuotaBody(31, 30, five, seven)}
@@ -40,6 +41,7 @@ func TestAcceptanceZaiQuotaStartAndDelta(t *testing.T) {
 }
 
 func TestAcceptanceZaiExhaustedRouteSkipped(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	five := zaiResetMs(2 * time.Hour)
 	server.bodies = []string{liveZaiQuotaBody(100, 30, five, zaiResetMs(6*24*time.Hour))}
@@ -52,6 +54,7 @@ func TestAcceptanceZaiExhaustedRouteSkipped(t *testing.T) {
 }
 
 func TestAcceptanceZaiProbeFailureKeepsRunning(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"http-500", "no-key"} {
 		t.Run(mode, func(t *testing.T) {
 			f, server := zaiRunFixture(t)
@@ -77,6 +80,7 @@ func TestAcceptanceZaiProbeFailureKeepsRunning(t *testing.T) {
 }
 
 func TestAcceptanceNonZaiPiRouteNotProbed(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	f.replace(planFile, "executor: pi | zai/glm-5.3 | max", "executor: pi | local/x | -")
 	server.bodies = []string{liveZaiQuotaBody(100, 100, zaiResetMs(2*time.Hour), zaiResetMs(6*24*time.Hour))}
@@ -92,6 +96,7 @@ func TestAcceptanceNonZaiPiRouteNotProbed(t *testing.T) {
 }
 
 func TestAcceptanceZaiLimitWaitsForServerReset(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	five, seven := zaiResetMs(2*time.Hour), zaiResetMs(6*24*time.Hour)
 	exhausted := zaiResetMs(90 * time.Minute)
@@ -111,6 +116,7 @@ func TestAcceptanceZaiLimitWaitsForServerReset(t *testing.T) {
 }
 
 func TestAcceptanceZaiKeyNeverLeaks(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	const key = "zai-secret-key-7f3a"
 	t.Setenv("FAKE_ZAI_KEY", key)

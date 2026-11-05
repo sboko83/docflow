@@ -37,6 +37,7 @@ func toolStep() string {
 }
 
 func TestRunStalledAttemptResumesSession(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("idle_timeout = 5\n")
 	steps := []string{stallStep(), writeReply("a.txt")}
@@ -61,6 +62,7 @@ func TestRunStalledAttemptResumesSession(t *testing.T) {
 // profile's limit and login patterns — reading them would send the run to the
 // fallback route and stop the run for a login the agent never missed.
 func TestRunStalledAttemptIsNotRefusal(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	fake, _ := filepath.Abs("../agentio/testdata/fake_agent.sh")
 	probe := "stream = \"claude\"\nlimit = \"usage limit\"\nauth = \"not logged in\"\n"
@@ -87,6 +89,7 @@ func TestRunStalledAttemptIsNotRefusal(t *testing.T) {
 }
 
 func TestRunTimeCapWhileActiveResumesAndHints(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("stream = \"claude\"\ntimeout = 2\n")
 	steps := []string{activeStep(), writeReply("a.txt")}
@@ -107,6 +110,7 @@ func TestRunTimeCapWhileActiveResumesAndHints(t *testing.T) {
 }
 
 func TestRunTimeCapDuringToolNamesTheActivity(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("stream = \"claude\"\ntimeout = 2\n")
 	steps := []string{toolStep(), writeReply("a.txt")}
@@ -119,6 +123,7 @@ func TestRunTimeCapDuringToolNamesTheActivity(t *testing.T) {
 }
 
 func TestRunSilentTimeoutStaysAProblem(t *testing.T) {
+	skipSlow(t)
 	// An agent that printed nothing the whole call is silent, not active: the
 	// cap is reported as the problem line and the summary gives no hint.
 	f := newRunFixture(t)

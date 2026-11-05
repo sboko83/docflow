@@ -55,6 +55,7 @@ func TestRunnerPromptInstructions(t *testing.T) {
 }
 
 func TestPrerequisiteTimeoutAndClosedInput(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	text := strings.Replace(f.read(planFile), "## Traps", "## Prerequisites\n- token: `echo no-token >&2; exit 3`\n- server: `exec sleep 5`\n- input: `read x`\n\n## Traps", 1)
 	plan, err := format.ParsePlan(text, planFile)
@@ -124,6 +125,7 @@ drain:
 // reloads on: docflow prompt writes [~] before the attempt event, so a reload
 // at attempt already shows the unit as doing.
 func TestAttemptCarriesTheInProgressStatus(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	f.steps("sleep 1\n" + writeReply("a.txt"))

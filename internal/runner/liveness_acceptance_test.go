@@ -21,6 +21,7 @@ func acceptRun(f *runFixture, steps []string, args ...string) runResult {
 }
 
 func TestAcceptSilentAgentStopsAsStalled(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("stream = \"claude\"\nidle_timeout = 5\n")
 	step := emit(map[string]any{"type": "system", "subtype": "init", "session_id": "s1"}) + "sleep 10\n"
@@ -36,6 +37,7 @@ func TestAcceptSilentAgentStopsAsStalled(t *testing.T) {
 }
 
 func TestAcceptToolInFlightIsNotStalled(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("stream = \"claude\"\nidle_timeout = 5\n")
 	step := emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{map[string]any{
@@ -55,6 +57,7 @@ func TestAcceptToolInFlightIsNotStalled(t *testing.T) {
 }
 
 func TestAcceptTimeCapWhileActiveResumes(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("stream = \"claude\"\ntimeout = 2\n")
 	r := acceptRun(f, []string{activeStep(), writeReply("a.txt")}, "--attempts", "2")

@@ -147,6 +147,7 @@ func TestConfigurationRoundTripKeepsPlan(t *testing.T) {
 }
 
 func TestControlledRunUsesSavedConfiguration(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	plan, err := format.ParsePlan(f.read(planFile), planFile)
@@ -325,6 +326,7 @@ func TestCompletedUnitOverridesArePrunedOnRead(t *testing.T) {
 // The unit a controlled run just finished must not block the next start: the
 // saved overlay is pruned, not rejected.
 func TestControlledStartAfterCompletedUnit(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	args := Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1, MaxUnits: intPointer(1)}
 	controlRunSelf(t, f, nil)
@@ -382,6 +384,7 @@ func TestControlledStartAfterCompletedUnit(t *testing.T) {
 // Resume reads the overlay again: a stale entry left by a finished unit must
 // not turn R into an overlay refusal.
 func TestResumeAfterCompletedUnitIgnoresStaleOverride(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.replace(planFile, "### [ ] P001.1.1", "### [x] P001.1.1")
 	stale := NewRunConfiguration()

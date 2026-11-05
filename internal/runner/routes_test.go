@@ -61,6 +61,7 @@ func codexStep(f *runFixture, n int, five, seven float64, write bool) string {
 }
 
 func TestRunMixedRoutesAndQuotas(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"routes", "failed-codex", "start-quota", "only-routed"} {
 		t.Run(mode, func(t *testing.T) {
 			probe := mode == "start-quota" || mode == "only-routed"
@@ -111,6 +112,7 @@ func TestRunMixedRoutesAndQuotas(t *testing.T) {
 }
 
 func TestRunStartQuota(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"probe", "missing-probe"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -199,6 +201,7 @@ func TestDryRunRoleChains(t *testing.T) {
 }
 
 func TestRunExecutor(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"dry", "override", "haiku", "flags", "bad-assignment", "retry", "full-no", "full-yes", "zero", "replan-quota", "replan-off"} {
 		t.Run(mode, func(t *testing.T) {
 			f := executorRunFixture(t)

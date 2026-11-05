@@ -381,6 +381,7 @@ func awaitFinished(t *testing.T, control *Control) {
 // resume starts exactly one new session with the full prompt and the recovery
 // reason, never a fallback route.
 func TestResumeWithoutSessionStartsOneNewSession(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
@@ -422,6 +423,7 @@ func TestResumeWithoutSessionStartsOneNewSession(t *testing.T) {
 // A provider that refuses the saved session is retried once in a new session,
 // inside the same attempt: the attempt limit is not reset and no fallback runs.
 func TestResumeRejectedSessionStartsExactlyOneNewSession(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
@@ -471,6 +473,7 @@ func TestResumeRejectedSessionStartsExactlyOneNewSession(t *testing.T) {
 // Pause then Resume can repeat: the second resume still continues the same
 // attempt and session, and the unit finishes normally.
 func TestRepeatedPauseAndResumeContinueTheSameAttempt(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	first := filepath.Join(f.tmp, "first-started")
@@ -522,6 +525,7 @@ func TestRepeatedPauseAndResumeContinueTheSameAttempt(t *testing.T) {
 // the timeout left at the pause, and a wait as long as the whole timeout does
 // not kill it.
 func TestResumeExcludesPauseTimeFromTimeout(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.replace(planFile, "created: 2026-10-12\n", "created: 2026-10-12\ntimeout: 4\n")
 	controlRunSelf(t, f, nil)
@@ -553,6 +557,7 @@ func TestResumeExcludesPauseTimeFromTimeout(t *testing.T) {
 // A checkpoint taken after the unit's commit resumes at the next unit: the
 // finished commit is not repeated and the agent is not called for it again.
 func TestResumeDoesNotRepeatACompletedCommit(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.steps(writeReply("a.txt"))
 	reached, release, before := gateOn(t, "commit")
@@ -597,6 +602,7 @@ func TestResumeDoesNotRepeatACompletedCommit(t *testing.T) {
 // A moved HEAD or an edited plan is a visible recovery conflict, not a silent
 // continuation of the wrong work.
 func TestResumeReportsPlanAndHeadConflicts(t *testing.T) {
+	skipSlow(t)
 	for _, tc := range []struct {
 		name   string
 		change func(*runFixture)
@@ -640,6 +646,7 @@ func TestResumeReportsPlanAndHeadConflicts(t *testing.T) {
 // Stop after unit is a controller command: the running unit reaches its commit
 // boundary and the next unit never starts.
 func TestStopAfterUnitFinishesTheCurrentUnitOnly(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
@@ -683,6 +690,7 @@ func TestStopAfterUnitFinishesTheCurrentUnitOnly(t *testing.T) {
 // through its checkout lock: the current unit finishes and the next one never
 // starts, as with the workspace's own Stop after unit.
 func TestRunStopFlagStopsAControlledRun(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
@@ -777,6 +785,7 @@ func TestInteractiveStartClearsAStaleStopRequest(t *testing.T) {
 // A checkpoint survives the process: a fresh controller (Idle, as after
 // reopening the application) resumes the paused unit.
 func TestResumeFromAFreshController(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
@@ -1067,6 +1076,7 @@ func TestPauseDuringExecutorChainWait(t *testing.T) {
 // Pause after the recovered pending commit finished its transaction writes the
 // complete checkpoint and publishes it; the recovered commit is not repeated.
 func TestPauseAfterRecoveredPendingCommit(t *testing.T) {
+	skipSlow(t)
 	f := pendingCommitFixture(t)
 	reached, release, before := gateOn(t, "commit")
 	controlRunSelf(t, f, before)
@@ -1201,6 +1211,7 @@ func TestCanceledParentDuringExecutorChainWaitIsNotPause(t *testing.T) {
 // A parent context canceled while the recovered pending commit runs is not a
 // Pause either, although the same boundary under a real Pause publishes one.
 func TestCanceledParentAfterRecoveredPendingCommitIsNotPause(t *testing.T) {
+	skipSlow(t)
 	f := pendingCommitFixture(t)
 	reached, release, before := gateOn(t, "commit")
 	controlRunSelf(t, f, before)
@@ -1678,6 +1689,7 @@ func seamPause(t *testing.T, seam *func(context.Context, string), boundary, mark
 // before its commit, stops the operation: the plan is restored, nothing is
 // committed, and no second agent starts.
 func TestPauseAfterSuccessfulReplanCallStopsBeforeCommit(t *testing.T) {
+	skipSlow(t)
 	for _, boundary := range []string{"after-agent", "before-commit"} {
 		t.Run(boundary, func(t *testing.T) {
 			f := newReplanFixture(t)
@@ -1912,6 +1924,7 @@ func TestLoadRecoveryDescribesPausedRun(t *testing.T) {
 // A checkpoint written at the complete boundary belongs to a finished unit:
 // reopening must not offer to continue it as interrupted work.
 func TestLoadRecoveryAfterCompletedUnitHasNothingToContinue(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.steps(writeReply("a.txt"))
 	reached, release, before := gateOn(t, "commit")
@@ -1948,6 +1961,7 @@ func TestLoadRecoveryAfterCompletedUnitHasNothingToContinue(t *testing.T) {
 // pending commit is still recovered by the existing cycle: LoadRecovery names
 // it, and ResumeRun finishes the commit without calling the agent again.
 func TestLoadRecoveryRestoresPendingCommit(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	f.check(f.cli("prompt", "P001.1.1"), 0)
@@ -1988,6 +2002,7 @@ func TestLoadRecoveryRestoresPendingCommit(t *testing.T) {
 // A checkpoint pinned to another assignment starts one new session with the
 // full prompt instead of pairing the saved session with a different route.
 func TestResumeWithChangedAssignmentStartsOneNewSession(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")

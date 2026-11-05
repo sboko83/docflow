@@ -54,6 +54,7 @@ func fixtureEvents(t *testing.T, f *runFixture) []map[string]any {
 }
 
 func TestRunEventStream(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
 	f.check(f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1"), 0)
@@ -114,6 +115,7 @@ func TestRunEventStreamDryRun(t *testing.T) {
 }
 
 func TestRunEventStreamFailedVerifyAndCost(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("cost = \"json:total_cost_usd\"\n")
 	reply := func(cost float64) string {
@@ -293,6 +295,7 @@ func TestVerifyStageNamesTheFailedCheck(t *testing.T) {
 }
 
 func TestRunEventStreamSlowHostDoesNotBlock(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	noise := strings.Repeat("printf '%s\\n' '{\"type\":\"unknown_event\"}'\n", 40)
 	f.steps(noise + writeReply("a.txt"))

@@ -235,6 +235,7 @@ func TestReplanPrompt(t *testing.T) {
 // another replan; the count comes from the plan's Handoff, so earlier runs'
 // blocks count. An ordinary unit keeps replanning under the per-call limits.
 func TestReviewBlockBudget(t *testing.T) {
+	skipSlow(t)
 	humanReplan := doneReply(map[string]any{"status": "blocked", "reason": "replan reached", "blocker": "human"})
 	for _, tc := range []struct {
 		name          string
@@ -302,6 +303,7 @@ func editPlan(old, new string) string {
 }
 
 func TestReplanRun(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"success", "quota", "stale-read", "broken-link", "unchanged", "dirty-open", "dirty-resume", "other-file", "permissions", "agent-commit", "human", "replan-blocked", "check-change", "unit-limit", "run-limit", "no-key", "legacy", "disabled", "skills"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newReplanFixture(t)
@@ -535,6 +537,7 @@ func TestRestorePlan(t *testing.T) {
 }
 
 func TestReplanAgentFailures(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"retry", "no-session", "error-result", "auth", "limit", "exhausted", "blocked-edit", "commit-hook"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newReplanFixture(t)
@@ -615,6 +618,7 @@ func TestReplanTimeout(t *testing.T) {
 }
 
 func TestReplanPlanTimeout(t *testing.T) {
+	skipSlow(t)
 	f := newReplanFixture(t)
 	f.replace(planFile, "created: 2026-10-20\n", "created: 2026-10-20\ntimeout: 60\n")
 	f.replace(planFile, "### [ ] P001.1.1", "### [!] P001.1.1")

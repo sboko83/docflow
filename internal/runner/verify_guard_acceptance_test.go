@@ -65,6 +65,7 @@ func weakenStep() string {
 // `Test changes:` block with both items, the run output prints the
 // `test change:` lines and the summary counter, unit_end reports 2.
 func TestVerifyGuardRunMarksTestChanges(t *testing.T) {
+	skipSlow(t)
 	f := guardFixture(t)
 	r := f.runBare([]string{weakenStep(), doneReply(), doneReply()})
 	f.check(r, 0, "run: 3 units",
@@ -105,6 +106,7 @@ func TestVerifyGuardRunMarksTestChanges(t *testing.T) {
 // has no phase diff. A prompt marks its unit [~], so each subtest prompts
 // one unit of its own fixture.
 func TestVerifyGuardPromptsCarryTestChanges(t *testing.T) {
+	skipSlow(t)
 	section := "## Test changes\n\n- P001.1.1: work unit: a_test.go: -1 lines\n- P001.1.1: work unit: b_test.go: +skip\n"
 	t.Run("review", func(t *testing.T) {
 		f := guardFixture(t)
@@ -176,6 +178,7 @@ func TestVerifyGuardReplanRejectsAnchorVerifyChange(t *testing.T) {
 // it, and the review and acceptance prompts of the same run show both the
 // recorded line and the test changes section.
 func TestVerifyGuardReplanRecordsCheckChange(t *testing.T) {
+	skipSlow(t)
 	f := guardFixture(t)
 	item := "P001.1.1 Verify: `test -f a.txt` -> `true`"
 	edit := editPlan("Verify: `test -f a.txt`", "Verify: `true`") + editPlan("### [!] P001.1.1", "### [~] P001.1.1")
@@ -218,6 +221,7 @@ func TestVerifyGuardReplanRecordsCheckChange(t *testing.T) {
 // The ordinary-unit case also weakens the Verify of the same unit: the
 // marked-[x] problem is the only one and check_changes stays empty.
 func TestVerifyGuardReplanRejectsMarkedDone(t *testing.T) {
+	skipSlow(t)
 	t.Run("ordinary unit weakened and marked", func(t *testing.T) {
 		f := newReplanFixture(t)
 		edit := editPlan("### [ ] P001.1.2 Second unit", "### [x] P001.1.2 Second unit") +
@@ -254,6 +258,7 @@ func TestVerifyGuardReplanRejectsMarkedDone(t *testing.T) {
 // recorded end to end: the Decisions line, the run line, the summary
 // counter and the replan event; the skipped unit never runs.
 func TestVerifyGuardReplanSkipEndToEnd(t *testing.T) {
+	skipSlow(t)
 	f := newReplanFixture(t)
 	edit := editPlan("### [ ] P001.1.2 Second unit", "### [-] P001.1.2 Second unit") +
 		editPlan("### [!] P001.1.1", "### [~] P001.1.1")
@@ -290,6 +295,7 @@ func perlEdit(old, new string) string {
 // A plan written with CRLF keeps its line endings through a replan: the
 // item docflow appends to ## Decisions ends with the plan's own CRLF.
 func TestVerifyGuardReplanOnCRLFPlan(t *testing.T) {
+	skipSlow(t)
 	f := newReplanFixture(t)
 	f.write(planFile, strings.ReplaceAll(f.read(planFile), "\n", "\r\n"))
 	f.commit("crlf plan")
@@ -312,6 +318,7 @@ func TestVerifyGuardReplanOnCRLFPlan(t *testing.T) {
 // repository prefix, and the review and acceptance prompts carry the
 // per-repository blocks of the section.
 func TestVerifyGuardNestedRepoTestChanges(t *testing.T) {
+	skipSlow(t)
 	f := guardFixture(t)
 	f.write("docs/docflow.md", strings.Replace(loopDoc, "read_budget: 40000\n", "read_budget: 40000\nrepos: deps/*\n", 1))
 	f.write(".gitignore", "deps/module\n")
@@ -361,6 +368,7 @@ func TestVerifyGuardNestedRepoTestChanges(t *testing.T) {
 // test change items, counts them in the summary and reports them in the
 // commit event and unit_end.
 func TestVerifyGuardRecoveredCommitPrintsTestChanges(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.write("a_test.go", "package a\nfunc TestA() {}\nfunc TestB() {}\n")
 	f.commit("tests")

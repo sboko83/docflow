@@ -32,6 +32,7 @@ func fixUnitReply() string {
 }
 
 func TestAcceptResilienceDefaultReplanFinishesReview(t *testing.T) {
+	skipSlow(t)
 	f := resilienceFixture(t)
 	f.steps(writeReply("b.txt"), blockReply(), fixUnitReply(), writeReply("e.txt"), doneReply())
 	r := f.cli("run", "--no-wait")
@@ -71,6 +72,7 @@ func TestAcceptResilienceDefaultReplanFinishesReview(t *testing.T) {
 // fixture) stops the next run once at its start, before any agent, with the
 // baseline log — not inside a unit and not twice.
 func TestAcceptResilienceGateRedBetweenRuns(t *testing.T) {
+	skipSlow(t)
 	f := resilienceFixture(t)
 	f.replace(planFile, "status: active", "status: active\ngate: test ! -f expired || { echo 'FAIL example/roster (fixture expired)'; exit 1; }")
 	f.steps(writeReply("b.txt"))
@@ -98,6 +100,7 @@ func TestAcceptResilienceGateRedBetweenRuns(t *testing.T) {
 // repair shows in Test changes; a weakened test (a skip, a deleted file) is
 // just as visible, so review and acceptance judge it.
 func TestAcceptResilienceRepairShowsInTestChanges(t *testing.T) {
+	skipSlow(t)
 	for _, tc := range []struct{ name, step, item string }{
 		{"repair", "printf 'func TestRoster() { want := \"2026-12-01\" }\\n' > roster_test.go\n", "roster_test.go: -1 lines"},
 		{"skip", "printf 'func TestRoster() { t.Skip(\"later\") }\\n' > roster_test.go\n", "roster_test.go: +skip"},
@@ -120,6 +123,7 @@ func TestAcceptResilienceRepairShowsInTestChanges(t *testing.T) {
 // A review that blocks a third time stops the run for a human instead of
 // another replan, although the per-call limits would allow one.
 func TestAcceptResilienceReviewBudget(t *testing.T) {
+	skipSlow(t)
 	f := resilienceFixture(t)
 	edit := "Role: review\nCommit: P001.1.2: second unit\nHandoff:\n"
 	for i := 1; i <= 2; i++ {

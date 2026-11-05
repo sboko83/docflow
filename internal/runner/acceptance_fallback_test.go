@@ -43,6 +43,7 @@ func callRoutes(f *runFixture) []string {
 }
 
 func TestAcceptanceZaiLimitFallsBackToCodex(t *testing.T) {
+	skipSlow(t)
 	f := acceptanceFixture(t)
 	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
 	r := f.cli("run", "--no-wait", "--max-units", "1")
@@ -59,6 +60,7 @@ func TestAcceptanceZaiLimitFallsBackToCodex(t *testing.T) {
 }
 
 func TestAcceptancePiFetchFailedFallsBack(t *testing.T) {
+	skipSlow(t)
 	f := acceptanceFixture(t)
 	f.steps(piFailureStep("fetch failed"), codexFallbackSuccessStep(f))
 	r := f.cli("run", "--no-wait", "--max-units", "1")
@@ -69,6 +71,7 @@ func TestAcceptancePiFetchFailedFallsBack(t *testing.T) {
 }
 
 func TestAcceptanceWholeChainUnavailable(t *testing.T) {
+	skipSlow(t)
 	f := acceptanceFixture(t)
 	codexOutage := emit(map[string]any{"type": "thread.started", "thread_id": "t-outage"}) + emit(map[string]any{"type": "turn.failed", "error": map[string]any{"message": "HTTP 503"}})
 	claudeLimit := emit(map[string]any{"type": "result", "is_error": true, "result": "API Error: 429 rate_limit_error"}) + "exit 1\n"
@@ -84,6 +87,7 @@ func TestAcceptanceWholeChainUnavailable(t *testing.T) {
 }
 
 func TestAcceptanceTimeoutKillsDetachedGrandchild(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("timeout = 3\n")
 	first := f.run([]string{"sleep 5\n"}, "--attempts", "1", "--max-units", "1")
@@ -101,6 +105,7 @@ func TestAcceptanceTimeoutKillsDetachedGrandchild(t *testing.T) {
 }
 
 func TestAcceptanceAgentVerifyReused(t *testing.T) {
+	skipSlow(t)
 	f := acceptanceFixture(t)
 	f.replace(planFile, "status: active", "status: active\ngate: printf x >> .git/verify-count")
 	verify := "echo a > a.txt\n" + shellQuote(f.binary) + " verify P001.1.1 >/dev/null\n"

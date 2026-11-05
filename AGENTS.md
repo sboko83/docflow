@@ -42,8 +42,11 @@ explicitly instead.
   library falls short; add one deliberately — each is permanent maintenance.
   The build stays a self-contained binary: the user installs nothing beyond
   it.
-- Tests live with their Go packages; run `go test -timeout 20m ./...` — it
-  is also the plans' `gate:`. The runner integration tests alone take over
+- Tests live with their Go packages. While working, run `go test -short
+  -timeout 20m ./...` (~100 s on Windows): `skipSlow(t)` in
+  `internal/runner` skips the integration tests that take over 2 s. The full
+  `go test -timeout 20m ./...` is what CI and acceptance run and is the
+  plans' `gate:`. The runner integration tests alone take over
   ten minutes on Windows, so Go's default timeout kills the package with a
   panic that looks like a hang. CI also runs `bash tools/test-install.sh` (installer and
   update against a local release layout) and the e2e scenarios

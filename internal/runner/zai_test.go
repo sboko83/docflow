@@ -98,6 +98,7 @@ func piSuccessStep() string {
 }
 
 func TestRunZaiQuotaStartLineAndDelta(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	reset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
 	server.bodies = []string{
@@ -117,6 +118,7 @@ func TestRunZaiQuotaStartLineAndDelta(t *testing.T) {
 }
 
 func TestRunZaiQuotaExhaustedAfterFirstUnitSkipsNextRoute(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	reset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
 	server.bodies = []string{
@@ -137,6 +139,7 @@ func TestRunZaiQuotaExhaustedAfterFirstUnitSkipsNextRoute(t *testing.T) {
 }
 
 func TestRunZaiQuotaExhaustedSkipsRoute(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	reset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
 	server.bodies = []string{zaiQuotaBody(100, 30, reset, reset+86400)}
@@ -151,6 +154,7 @@ func TestRunZaiQuotaExhaustedSkipsRoute(t *testing.T) {
 }
 
 func TestRunPiWithoutZaiModelIsNotProbed(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	f.replace(planFile, "executor: pi | zai/glm-5.3 | max", "executor: pi | glm-5.3 | max")
 	f.steps(piSuccessStep())
@@ -169,6 +173,7 @@ func TestRunPiWithoutZaiModelIsNotProbed(t *testing.T) {
 }
 
 func TestRunZaiLimitWithoutResetWaitsForQuotaReset(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	calmed := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
 	latest := zaiMinuteFloor(time.Now().Add(3 * time.Hour))
@@ -188,6 +193,7 @@ func TestRunZaiLimitWithoutResetWaitsForQuotaReset(t *testing.T) {
 }
 
 func TestReplanZaiQuotaProbesAfterCall(t *testing.T) {
+	skipSlow(t)
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nreplan: pi | zai/glm-5.3 | max")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
@@ -212,6 +218,7 @@ func TestReplanZaiQuotaProbesAfterCall(t *testing.T) {
 }
 
 func TestReplanZaiLimitWithoutResetUsesServerQuotaReset(t *testing.T) {
+	skipSlow(t)
 	f := executorRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\nfallback: codex | gpt-5.5 | -\nreplan: pi | zai/glm-5.3 | max; codex | gpt-5.5 | -")
 	fake, err := filepath.Abs("../agentio/testdata/fake_agent.sh")
@@ -243,6 +250,7 @@ func TestReplanZaiLimitWithoutResetUsesServerQuotaReset(t *testing.T) {
 }
 
 func TestRunZaiLimitWithoutResetUsesProfileWait(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	reset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
 	server.bodies = []string{
@@ -261,6 +269,7 @@ func TestRunZaiLimitWithoutResetUsesProfileWait(t *testing.T) {
 }
 
 func TestRunZaiLimitWithFreshQuotaUsesProfileWait(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	fiveReset := zaiMinuteFloor(time.Now().Add(2 * time.Hour))
 	sevenReset := zaiMinuteFloor(time.Now().Add(3 * time.Hour))

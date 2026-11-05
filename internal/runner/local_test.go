@@ -57,6 +57,7 @@ func TestLocalTerminalDisplay(t *testing.T) {
 }
 
 func TestRunLocalSkipsQuotaProbes(t *testing.T) {
+	skipSlow(t)
 	f, server := zaiRunFixture(t)
 	f.write(planFile, strings.ReplaceAll(f.read(planFile), "zai/glm-5.3", "strata/swift-1.5-iq3_s"))
 	// Even a custom Pi quota command must not run for the local provider.

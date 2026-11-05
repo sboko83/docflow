@@ -58,6 +58,7 @@ func rosterRunFixture(t *testing.T, field1, field2 string) *runFixture {
 }
 
 func TestRoleAcceptanceHeavyLimitTakesSecondHeavyRoute(t *testing.T) {
+	skipSlow(t)
 	f := rosterRunFixture(t, "Role: heavy", "Executor: pi | zai/glm-5.3 | max")
 	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
 	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")
@@ -72,6 +73,7 @@ func TestRoleAcceptanceHeavyLimitTakesSecondHeavyRoute(t *testing.T) {
 }
 
 func TestRoleAcceptanceExecutorUnitTakesFallback(t *testing.T) {
+	skipSlow(t)
 	f := rosterRunFixture(t, "Executor: pi | zai/glm-5.3 | max", "Role: heavy")
 	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
 	r := f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1")

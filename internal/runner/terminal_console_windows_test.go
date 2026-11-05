@@ -150,6 +150,7 @@ func consoleProgressHost() int {
 // ConPTY rewrites ANSI and cursor movement, so check semantic output here;
 // exact emitted line widths and frame boundaries are checked by the child.
 func TestWindowsConsoleRun(t *testing.T) {
+	skipSlow(t)
 	t.Setenv("TERM", "xterm")
 	t.Setenv("NO_COLOR", "")
 	f := readyCloseFixture(t)
@@ -188,6 +189,7 @@ func TestWindowsConsoleRun(t *testing.T) {
 // `Blocked (human)`. Answering yes reads a note, lifts the block and the unit
 // runs to its commit; answering no keeps the block and stops the run.
 func TestWindowsConsoleUnblockAsk(t *testing.T) {
+	skipSlow(t)
 	t.Setenv("TERM", "xterm")
 	t.Setenv("NO_COLOR", "")
 	for _, tc := range []struct {

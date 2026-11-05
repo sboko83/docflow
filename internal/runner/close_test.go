@@ -53,6 +53,7 @@ func readyCloseFixture(t *testing.T) *runFixture {
 }
 
 func TestRunCloseAfterUnits(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	r := f.run([]string{writeReply("a.txt"), writeReply("b.txt"), closeArchiveStep(f.binary) + doneReply()}, "--close")
 	f.check(r, 0, "P001: closed", "run: 2 units,")
@@ -109,6 +110,7 @@ func TestRunCloseReadyAtStart(t *testing.T) {
 }
 
 func TestRunCloseChecksLeaveTree(t *testing.T) {
+	skipSlow(t)
 	for _, tc := range []struct {
 		name, want string
 		step       func(string) string
@@ -139,6 +141,7 @@ func TestRunCloseChecksLeaveTree(t *testing.T) {
 }
 
 func TestRunCloseRoutes(t *testing.T) {
+	skipSlow(t)
 	for _, cheap := range []bool{false, true} {
 		name := "executor"
 		if cheap {
@@ -164,6 +167,7 @@ func TestRunCloseRoutes(t *testing.T) {
 }
 
 func TestRunCloseFallback(t *testing.T) {
+	skipSlow(t)
 	for _, cheap := range []bool{false, true} {
 		name := "executor"
 		if cheap {
@@ -231,6 +235,7 @@ func TestRunCloseRetryKeepsLogs(t *testing.T) {
 // speaking. The attempt is work cut short: a ↻ line, the session is resumed and
 // the summary hints, the closing is not reported as a problem.
 func TestRunCloseTimeCapWhileActive(t *testing.T) {
+	skipSlow(t)
 	f := readyCloseFixture(t)
 	f.configure("stream = \"claude\"\ntimeout = 4\n")
 	tick := emit(map[string]any{"type": "assistant", "message": map[string]any{
@@ -261,6 +266,7 @@ func TestRunCloseTimeCapWhileActive(t *testing.T) {
 }
 
 func TestRunCloseTimeCapDuringToolNamesTheActivity(t *testing.T) {
+	skipSlow(t)
 	f := readyCloseFixture(t)
 	f.configure("stream = \"claude\"\ntimeout = 2\n")
 	r := f.run([]string{toolStep(), closeArchiveStep(f.binary) + doneReply()}, "--close", "--attempts", "2")
@@ -270,6 +276,7 @@ func TestRunCloseTimeCapDuringToolNamesTheActivity(t *testing.T) {
 
 // A closing call that printed nothing keeps the problem line and no cap hint.
 func TestRunCloseSilentTimeoutStaysAProblem(t *testing.T) {
+	skipSlow(t)
 	f := readyCloseFixture(t)
 	f.configure("timeout = 2\n")
 	r := f.run([]string{"sleep 60\n"}, "--close", "--attempts", "1")
@@ -289,6 +296,7 @@ func TestRunCloseDirtyTreeDoesNotCallAgent(t *testing.T) {
 }
 
 func TestRunCloseDryRun(t *testing.T) {
+	skipSlow(t)
 	for _, ready := range []bool{false, true} {
 		for _, all := range []bool{false, true} {
 			f := executorRunFixture(t)
@@ -309,6 +317,7 @@ func TestRunCloseDryRun(t *testing.T) {
 }
 
 func TestRunWithoutCloseLeavesReadyPlan(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.check(f.run([]string{writeReply("a.txt"), writeReply("b.txt")}), 0, "P001: ready to close")
 	if len(f.calls()) != 2 || !strings.Contains(f.read(planFile), "### [x]") {
@@ -317,6 +326,7 @@ func TestRunWithoutCloseLeavesReadyPlan(t *testing.T) {
 }
 
 func TestRunCloseRespectsStopAndUnitLimit(t *testing.T) {
+	skipSlow(t)
 	for _, softStop := range []bool{false, true} {
 		f := newRunFixture(t)
 		steps := []string{writeReply("a.txt")}

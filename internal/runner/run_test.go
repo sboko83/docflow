@@ -241,6 +241,7 @@ func quotaEvent(five, seven float64, reset int) string {
 }
 
 func TestRunCli(t *testing.T) {
+	skipSlow(t)
 	for _, tc := range []struct {
 		name   string
 		args   []string
@@ -279,6 +280,7 @@ func TestRunCli(t *testing.T) {
 }
 
 func TestRunLoopTwoUnits(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	t.Setenv("DOCFLOW_RUNNER_UNIT", "P999.1.1")
 	r := f.run([]string{"printf a > a.txt\n" + doneReply(map[string]any{"handoff": []string{"первое"}}), "printf b > b.txt\n" + doneReply(map[string]any{"decisions": []string{"д — п — а"}})})
@@ -309,6 +311,7 @@ func TestRunLoopTwoUnits(t *testing.T) {
 }
 
 func TestRunReusesAgentVerify(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\ngate: printf x >> .git/verify-count")
 	step := "printf a > a.txt\n" + shellQuote(f.binary) + " verify P001.1.1 >/dev/null\n" + doneReply()
@@ -321,6 +324,7 @@ func TestRunReusesAgentVerify(t *testing.T) {
 }
 
 func TestRunIgnoresSkipRecord(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.replace(planFile, "status: active", "status: active\ngate: printf x >> .git/verify-count")
 	step := "printf a > a.txt\n" + shellQuote(f.binary) + " verify P001.1.1 --skip 'agent cannot verify' >/dev/null\n" + doneReply()
@@ -336,6 +340,7 @@ func TestRunIgnoresSkipRecord(t *testing.T) {
 }
 
 func TestRunBaselineGate(t *testing.T) {
+	skipSlow(t)
 	gate := func(f *runFixture, command string) {
 		f.replace(planFile, "status: active", "status: active\ngate: "+command)
 	}
@@ -401,6 +406,7 @@ func TestRunBaselineGate(t *testing.T) {
 }
 
 func TestRunLoopRetries(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"verify", "preflight", "gate", "hook", "no-session", "invalid-unverified"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -452,6 +458,7 @@ func TestRunLoopRetries(t *testing.T) {
 }
 
 func TestRunLogNamesUnique(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	first := f.run([]string{"exit 1"}, "--attempts", "1", "--max-units", "1")
 	if first.code == 0 {
@@ -477,6 +484,7 @@ func TestRunLogNamesUnique(t *testing.T) {
 }
 
 func TestZeroTimeoutNeverKills(t *testing.T) {
+	skipSlow(t)
 	for _, timeout := range []int{0, -1} {
 		t.Run(fmt.Sprintf("%d", timeout), func(t *testing.T) {
 			f := newRunFixture(t)
@@ -491,6 +499,7 @@ func TestZeroTimeoutNeverKills(t *testing.T) {
 }
 
 func TestRunPlanTimeout(t *testing.T) {
+	skipSlow(t)
 	profile := map[string]any{"timeout": 1}
 	plan := &format.Plan{Doc: format.Doc{Meta: map[string]string{"timeout": "60"}}}
 	if got := agentCallTimeout(plan, profile); got != 60*time.Second {
@@ -518,6 +527,7 @@ func TestRunPlanTimeout(t *testing.T) {
 }
 
 func TestRunLoopFailures(t *testing.T) {
+	skipSlow(t)
 	for _, tc := range []struct {
 		name, step, config, text string
 		attempts, code           int
@@ -557,6 +567,7 @@ func TestRunLoopFailures(t *testing.T) {
 }
 
 func TestRunPendingCommit(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.write(".git/hooks/pre-commit", "#!/bin/sh\necho fix-lint; exit 1\n")
 	_ = os.Chmod(filepath.Join(f.root, ".git/hooks/pre-commit"), 0o755)
@@ -575,6 +586,7 @@ func TestRunPendingCommit(t *testing.T) {
 }
 
 func TestRunResumesAfterMigrate(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.write("docs/docflow.md", strings.Replace(f.read("docs/docflow.md"), "docflow: 3", "docflow: 1", 1))
 	f.write(planFile, strings.Replace(f.read(planFile), "### [ ] P001.1.1", "### [~] P001.1.1", 1))
@@ -599,6 +611,7 @@ func TestRunResumesAfterMigrate(t *testing.T) {
 }
 
 func TestRunOrderAndGitFailures(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"agent-commit", "foreign-commit", "plan-commit", "amend", "status", "signing", "guard", "dirty", "stale-read"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -664,6 +677,7 @@ func TestRunOrderAndGitFailures(t *testing.T) {
 }
 
 func TestRunStartPrerequisitesAndPermissions(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"full-refused", "full-yes", "manual-refused", "manual-yes", "prerequisite-failed", "dry"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -713,6 +727,7 @@ func TestRunStartPrerequisitesAndPermissions(t *testing.T) {
 }
 
 func TestRunPrerequisiteOnce(t *testing.T) {
+	skipSlow(t)
 	t.Run("started plan skips failing command and confirmation", func(t *testing.T) {
 		f := newRunFixture(t)
 		f.replace(planFile, "### [ ] P001.1.1", "### [x] P001.1.1")
@@ -737,6 +752,7 @@ func TestRunPrerequisiteOnce(t *testing.T) {
 
 // Acceptance for P033: one scenario per claim of the plan Goal.
 func TestRunOncePrerequisitesAcceptance(t *testing.T) {
+	skipSlow(t)
 	const failing = "- baseline: `echo no-baseline >&2; exit 3` (once)\n"
 	const passing = "- env: `test -f docs/docflow.md`\n"
 	prereqs := func(f *runFixture, items string) {
@@ -804,6 +820,7 @@ func TestRunOncePrerequisitesAcceptance(t *testing.T) {
 }
 
 func TestRunStopsAndLock(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"max-units", "soft-stop", "stale-stop", "lock", "stop-command", "empty", "blocked"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -881,6 +898,7 @@ func TestRunStopsOnHumanBlock(t *testing.T) {
 }
 
 func TestRunSubdirectoryAndNested(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"subdir", "nested-commit", "nested-hook", "nested-amend"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -941,6 +959,7 @@ func TestRunSubdirectoryAndNested(t *testing.T) {
 }
 
 func TestRunProgressAndCost(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"default", "growth", "rollover", "verbose", "blocked", "gave-up", "unverified", "cost"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -1069,6 +1088,7 @@ func TestUnverifiedKey(t *testing.T) {
 // the copy keeps one risk open unit after unit. Normalisation ignores case,
 // spacing and trailing punctuation, and the tail that marks inheritance.
 func TestRunUnverifiedRepeatedFromDepends(t *testing.T) {
+	skipSlow(t)
 	const control = "поток не проверен"
 	const dropLine = "  unverified: 1 repeated from Depends dropped"
 	cases := []struct {
@@ -1145,6 +1165,7 @@ func TestRunUnverifiedRepeatedFromDepends(t *testing.T) {
 // `test change: <item>` under the unit, the count in the run summary, the
 // items in the unit's `commit` event and their number in `unit_end`.
 func TestRunTestChanges(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.write("a_test.go", "package a\nfunc TestA() {}\nfunc TestB() {}\n")
 	f.commit("tests")
@@ -1177,6 +1198,7 @@ func TestRunTestChanges(t *testing.T) {
 }
 
 func TestRunNotify(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"ready", "blocked", "soft-stop", "prerequisite", "flag-off", "env-off"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -1243,6 +1265,7 @@ func waitForFile(t *testing.T, path string) {
 }
 
 func TestRunLimitsResumeWithoutSpendingAttempt(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.configure("error = \"json:is_error\"\nlimit = \"hit your limit\"\nlimit_wait = 0\n")
 	f.steps(emit(map[string]any{"is_error": true, "result": "hit your limit · resets 1700000000", "session_id": "s1"}), writeReply("a.txt"))
@@ -1255,6 +1278,7 @@ func TestRunLimitsResumeWithoutSpendingAttempt(t *testing.T) {
 }
 
 func TestRunSuccessfulQuotedErrorsAndResultFallback(t *testing.T) {
+	skipSlow(t)
 	for _, mode := range []string{"limit", "auth", "fenced", "bare"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newRunFixture(t)
@@ -1274,6 +1298,7 @@ func TestRunSuccessfulQuotedErrorsAndResultFallback(t *testing.T) {
 }
 
 func TestRunCodexFailedTurnResumesAndRecordsTokens(t *testing.T) {
+	skipSlow(t)
 	f := mixedRunFixture(t, false)
 	f.configure("tokens = [\"json:usage.input_tokens\"]\noutput_tokens = \"json:usage.output_tokens\"\n")
 	failed := emit(map[string]any{"type": "thread.started", "thread_id": "t1"}) + emit(map[string]any{"type": "turn.failed", "error": map[string]any{"message": "boom"}})

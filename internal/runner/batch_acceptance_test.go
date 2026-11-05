@@ -13,6 +13,7 @@ import (
 // diff, the event stream and run --close.
 
 func TestBatchRouteSwitchCarriesDiffStatAndLastMessage(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.write("tracked.txt", "before\n")
 	f.commit("seed tracked file")
@@ -40,6 +41,7 @@ func TestBatchRouteSwitchCarriesDiffStatAndLastMessage(t *testing.T) {
 }
 
 func TestBatchReviewPromptHasPhaseDiff(t *testing.T) {
+	skipSlow(t)
 	f := newRunFixture(t)
 	f.replace(planFile, "Commit: P001.1.2: second unit\n", "Commit: P001.1.2: second unit\n\n### [ ] P001.1.3 Review unit\nRole: review\nRead:\n- docs/docflow.md\nDo:\n- review the phase\nVerify: `true`\nCommit: P001.1.3: review unit\n")
 	base := f.git("rev-parse", "--short", "HEAD")
@@ -58,6 +60,7 @@ func TestBatchReviewPromptHasPhaseDiff(t *testing.T) {
 }
 
 func TestBatchEventStreamRecordsRouteSwitch(t *testing.T) {
+	skipSlow(t)
 	f := fallbackExecutorRunFixture(t)
 	f.steps(piLimitStep(t), codexFallbackSuccessStep(f))
 	f.check(f.cli("run", "--no-wait", "--attempts", "1", "--max-units", "1"), 0, "switching to codex gpt-5.5")
