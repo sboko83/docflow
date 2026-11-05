@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docflow commit` refuses new files that look like secrets (`.env`, keys,
   certificates) or exceed 5 MiB, exits with code 5 and lists them; set
   `DOCFLOW_ALLOW_STAGED=1` to commit anyway.
+- `docflow run` prints an `outside Do:` warning under a finished unit for
+  committed files that the unit's `Read`, `Do`, `Traps` and `Verify` do not
+  name (the plan file excluded). It is a hint and never fails the unit.
 
 ### Fixed
 - The end-of-run notification now falls back to the terminal bell when the 

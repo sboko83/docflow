@@ -485,6 +485,28 @@ func (p *Progress) testChanges(items []string) {
 	}
 }
 
+// outsideDo prints the files the unit's commit touched without the unit's
+// Read, Do, Traps or Verify naming them, in the style of Test changes. It is
+// a hint for the human, not a failure.
+func (p *Progress) outsideDo(files []string) {
+	if len(files) == 0 {
+		return
+	}
+	if !p.fancy {
+		for _, file := range files {
+			p.line("  "+outsideDoLabel+file, false, "yellow")
+		}
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clearLocked()
+	p.wrappedLocked("! Outside Do:", "│  ", "yellow", p.out, "")
+	for _, file := range files {
+		p.wrappedLocked(file, "│    ", "", p.out, "")
+	}
+}
+
 // resume reports an attempt the time cap ended while the agent was still
 // working: the run keeps the session and tries again, so the line is yellow
 // without the "!" mark that names a problem.

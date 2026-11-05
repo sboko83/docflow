@@ -1484,6 +1484,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			p.unverified(u)
 		}
 		p.testChanges(changes)
+		p.outsideDo(outsideDo(unit, plan.Path, res.Stdout))
 		totals.unverified += len(unverified)
 		totals.testChanges += len(changes)
 		totals.rows = append(totals.rows, unitRow{uid, seconds, cost, unitIn, unitOut, attempt})

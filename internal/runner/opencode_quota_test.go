@@ -41,9 +41,9 @@ func stubOpencodeQuota(t *testing.T, body string) map[string]any {
 }
 
 var opencodeLimitsWant = agentio.Quota{
-	{"rolling", 0.03, float64(1793392006000)},
-	{"weekly", 0.01, float64(1793577600000)},
-	{"monthly", 0.0, float64(1796033332000)},
+	{Label: "rolling", Used: 0.03, Reset: float64(1793392006000)},
+	{Label: "weekly", Used: 0.01, Reset: float64(1793577600000)},
+	{Label: "monthly", Used: 0.0, Reset: float64(1796033332000)},
 }
 
 func TestRefreshQuotaOpencode(t *testing.T) {
