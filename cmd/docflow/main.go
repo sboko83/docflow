@@ -351,6 +351,7 @@ func handleRun(parsed *parsedArgs, stdout, stderr io.Writer) error {
 	}
 	// A missing checkout only disables the advisory skill check.
 	source, _ := currentSkillDirectory()
+	runner.Version = version
 	code, err := runner.Run(root, args, stdout, stderr, source)
 	if err != nil {
 		return err

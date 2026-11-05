@@ -131,7 +131,7 @@ diff; при `repos:` блоки строятся для корневого и �
   затирает.
 - Раннер после каждого вызова агента дописывает `sessions` (id сессий),
   `tokens` (сумма путей профиля `tokens`), `cost`, `calls`.
-- `stats --runs [Pxxx]` — строка на юнит из потоков событий раннера: `unit attempts verify_fails replans blocked test_changes seconds cost done` (попытки без replan-вызовов; без `docflow run` — `no runs`). Заменяет ручной разбор `*.events.jsonl`.
+- `stats --runs [Pxxx]` — строка на юнит из потоков событий раннера: `unit version attempts verify_fails replans blocked test_changes seconds cost done` (попытки без replan-вызовов; без `docflow run` — `no runs`). Заменяет ручной разбор `*.events.jsonl`.
 - `stats [Pxxx]` — строка на юнит: `unit proxy reqs sum_ctx base_ctx
   peak_ctx peak/proxy grow/proxy source`; внизу — медианы `peak/proxy` и
   `grow/proxy`. `base_ctx` — первый запрос первой сессии в порядке записи;

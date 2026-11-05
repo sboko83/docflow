@@ -162,7 +162,7 @@ positional arguments:
 
 options:
   -h, --help  show this help message and exit
-  --runs      per-unit attempts, verify failures, replans, blocked ends and time from the run event streams
+  --runs      per-unit docflow version, attempts, verify failures, replans, blocked ends and time from the run event streams
 `,
 	"block": `usage: docflow block [-h] --reason REASON [--needs {human,plan}] id
 

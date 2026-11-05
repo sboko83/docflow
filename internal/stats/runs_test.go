@@ -14,6 +14,7 @@ func TestRunsCommandFoldsEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	events := strings.Join([]string{
+		`{"event":"run_start","version":"0.24.0"}`,
 		`{"event":"attempt","unit":"P001.1.1","n":1}`,
 		`{"event":"verify","unit":"P001.1.1","exit_code":1}`,
 		`{"event":"unit_end","unit":"P001.1.1","status":"blocked","seconds":2.5,"test_changes":0}`,
@@ -34,8 +35,8 @@ func TestRunsCommandFoldsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "unit attempts verify_fails replans blocked test_changes seconds cost done\n" +
-		"P001.1.1 2 1 1 1 2 4.0 0.2500 yes\n"
+	want := "unit version attempts verify_fails replans blocked test_changes seconds cost done\n" +
+		"P001.1.1 0.24.0 2 1 1 1 2 4.0 0.2500 yes\n"
 	if result.Code != 0 || result.Stdout != want {
 		t.Fatalf("RunsCommand() = %#v, want %q", result, want)
 	}

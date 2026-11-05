@@ -16,6 +16,7 @@ import (
 // RunRow summarises one unit across all run event streams.
 type RunRow struct {
 	Unit        string
+	Version     string  // docflow version of the latest run_start seen before the unit's events
 	Attempts    int     // attempt events, replan attempts excluded
 	VerifyFails int     // verify events with a non-zero exit code
 	Replans     int     // replan events
@@ -28,6 +29,7 @@ type RunRow struct {
 
 type runEvent struct {
 	Event       string   `json:"event"`
+	Version     string   `json:"version"`
 	Unit        string   `json:"unit"`
 	Status      string   `json:"status"`
 	ExitCode    int      `json:"exit_code"`
@@ -56,11 +58,18 @@ func RunRows(root, planID string) ([]RunRow, error) {
 		if err != nil {
 			continue
 		}
+		version := ""
 		scanner := bufio.NewScanner(file)
 		scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 		for scanner.Scan() {
 			var event runEvent
-			if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Unit == "" || event.Close {
+			if json.Unmarshal(scanner.Bytes(), &event) != nil {
+				continue
+			}
+			if event.Event == "run_start" {
+				version = event.Version
+			}
+			if event.Unit == "" || event.Close {
 				continue
 			}
 			if planID != "" && !strings.HasPrefix(event.Unit, planID+".") {
@@ -70,6 +79,9 @@ func RunRows(root, planID string) ([]RunRow, error) {
 			if row == nil {
 				row = &RunRow{Unit: event.Unit}
 				rows[event.Unit] = row
+			}
+			if version != "" {
+				row.Version = version
 			}
 			switch event.Event {
 			case "attempt":
@@ -116,7 +128,7 @@ func RunsCommand(root, planID string) (Result, error) {
 		return Result{Code: clierrors.EXIT_NOTHING, Stderr: "no runs: no run events recorded\n"}, nil
 	}
 	var out strings.Builder
-	out.WriteString("unit attempts verify_fails replans blocked test_changes seconds cost done\n")
+	out.WriteString("unit version attempts verify_fails replans blocked test_changes seconds cost done\n")
 	for _, row := range rows {
 		cost := "-"
 		if row.Cost > 0 {
@@ -126,7 +138,11 @@ func RunsCommand(root, planID string) (Result, error) {
 		if row.Done {
 			done = "yes"
 		}
-		fmt.Fprintf(&out, "%s %d %d %d %d %d %.1f %s %s\n", row.Unit, row.Attempts,
+		version := row.Version
+		if version == "" {
+			version = "-"
+		}
+		fmt.Fprintf(&out, "%s %s %d %d %d %d %d %.1f %s %s\n", row.Unit, version, row.Attempts,
 			row.VerifyFails, row.Replans, row.Blocked, row.TestChanges, row.Seconds, cost, done)
 	}
 	return Result{Stdout: out.String()}, nil

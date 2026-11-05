@@ -148,6 +148,9 @@ func (t *runTotals) namedQuotas() []NamedQuota {
 
 // Run drives only the current plan. Cycle commands run as subprocesses of this
 // binary so their order checks and persisted state stay identical to manual use.
+// Version is the docflow version recorded in run_start; the CLI sets it.
+var Version string
+
 func Run(root string, args Args, stdout, stderr io.Writer, skillDirectory string) (code int, runErr error) {
 	return runWithOptions(root, args, stdout, stderr, skillDirectory, runOptions{})
 }
@@ -327,6 +330,9 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 	}
 	totals.events = newObservedEventStream(root, now, stderr, observe)
 	fields := map[string]any{"plan": "", "units": 0}
+	if Version != "" {
+		fields["version"] = Version
+	}
 	if sel.Plan != nil {
 		fields["plan"], fields["units"] = sel.Plan.Meta["id"], len(sel.Plan.Units)
 	}
