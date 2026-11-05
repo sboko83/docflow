@@ -467,10 +467,10 @@ func TestAcceptanceValidateCorpus(t *testing.T) {
 		t.Fatalf("validate --task all exit %d\nstdout:\n%s\nstderr:\n%s", code, out.String(), errOut.String())
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("validate printed %d lines, want 3:\n%s", len(lines), out.String())
+	if len(lines) != 4 {
+		t.Fatalf("validate printed %d lines, want 4:\n%s", len(lines), out.String())
 	}
-	for _, name := range []string{"small", "medium", "large"} {
+	for _, name := range []string{"small", "medium", "large", "hard"} {
 		found := false
 		for _, line := range lines {
 			if strings.HasPrefix(line, name+": base ") && strings.Contains(line, "solution ") && strings.HasSuffix(line, "lint ok") {
@@ -528,6 +528,14 @@ func TestAcceptanceOracleFairness(t *testing.T) {
 					"row{Description: e.Description, Currency: e.Currency, Amount: e.Amount, Date: e.Date}"},
 			},
 		},
+		{
+			// The plan fixes a retry at least every 50 ms, not the interval:
+			// poll the lock more slowly.
+			task: "hard",
+			mutations: [][2]string{
+				{"time.Sleep(10 * time.Millisecond)", "time.Sleep(45 * time.Millisecond)"},
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.task, func(t *testing.T) {
@@ -544,7 +552,7 @@ func TestAcceptanceOracleFairness(t *testing.T) {
 			}
 			for _, mutation := range tc.mutations {
 				path := filepath.Join(dir, "cmd", "ledger", "main.go")
-				if tc.task == "large" {
+				if tc.task == "large" || tc.task == "hard" {
 					path = filepath.Join(dir, "internal", "journal", "store.go")
 				}
 				data, err := os.ReadFile(path)

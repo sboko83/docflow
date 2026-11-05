@@ -21,4 +21,7 @@ cheap stack (flash executor, flash review/acceptance) completes the
 whole corpus for ≈$0.45, vs $1.49 with trusted reviewers and $3.15 for
 a one-shot `glm-5.3` run. Details, caveats (n=1) and the next-step
 requirement for a hard corpus live in [the design doc](../docs/design/bench.md),
-section «Живые прогоны».
+section «Живые прогоны». The `hard` task (2026-11-05) answers that requirement: its oracle
+drives the built binary as separate processes (concurrent writers, lock
+timeout and staleness, a simulated crash before rename); it has no live
+runs yet.
