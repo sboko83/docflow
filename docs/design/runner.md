@@ -277,7 +277,7 @@ blocked N times, review budget spent; decide by hand`, код 3. Счёт бер
 | `verify` | `exit_code`; `reused: true`, если проверка агента переиспользована; `stage` (`verify`, `preflight` или `gate`) и `stdout`/`stderr` — ссылки на лог `verify.<uid>.<n>.out` |
 | `state` | `state: Paused`, `stage` — устойчивая граница, на которой записан checkpoint, `attempt`; пишется только вместе с записанным checkpoint паузы |
 | `commit` | `sha` — hash коммита, `test_changes` — массив пунктов ослабленных тестов этого коммита, тот же текст, что в строках `test change:` его вывода; пустой, когда пунктов нет |
-| `unit_end` | `status`, `seconds` — время всего юнита, `cost` — сумма стоимости вызовов, если известна, `test_changes` — число пунктов `test_changes` коммита юнита (0, когда их нет) |
+| `unit_end` | `status`, `seconds` — время всего юнита, `cost` — сумма стоимости вызовов, если известна, `test_changes` — число пунктов `test_changes` коммита юнита (0, когда их нет), `unverified` — число собственных пунктов `Unverified:` юнита, унаследованные отброшены (0, когда их нет) |
 | `run_end` | `reason` — причина остановки, `exit_code` — итоговый код раннера; `paused: true` — прогон остановлен управляемой паузой |
 
 `status` и `result`: `done`, `blocked`, `failed`, `error` (ошибка самого

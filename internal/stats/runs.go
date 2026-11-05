@@ -15,16 +15,17 @@ import (
 
 // RunRow summarises one unit across all run event streams.
 type RunRow struct {
-	Unit        string
-	Version     string  // docflow version of the latest run_start seen before the unit's events
-	Attempts    int     // attempt events, replan attempts excluded
-	VerifyFails int     // verify events with a non-zero exit code
-	Replans     int     // replan events
-	Blocked     int     // unit_end with status blocked
-	Done        bool    // a unit_end with status done was seen
-	TestChanges int     // sum of unit_end test_changes
-	Seconds     float64 // sum of unit_end seconds
-	Cost        float64 // sum of unit_end cost
+	Unit        string  `json:"unit"`
+	Version     string  `json:"version"`      // docflow version of the latest run_start seen before the unit's events
+	Attempts    int     `json:"attempts"`     // attempt events, replan attempts excluded
+	VerifyFails int     `json:"verify_fails"` // verify events with a non-zero exit code
+	Replans     int     `json:"replans"`      // replan events
+	Blocked     int     `json:"blocked"`      // unit_end with status blocked
+	Unverified  int     `json:"unverified"`   // sum of unit_end unverified, the unit's own Unverified items
+	Done        bool    `json:"done"`         // a unit_end with status done was seen
+	TestChanges int     `json:"test_changes"` // sum of unit_end test_changes
+	Seconds     float64 `json:"seconds"`      // sum of unit_end seconds
+	Cost        float64 `json:"cost"`         // sum of unit_end cost
 }
 
 type runEvent struct {
@@ -36,8 +37,14 @@ type runEvent struct {
 	Replan      bool     `json:"replan"`
 	Close       bool     `json:"close"`
 	TestChanges int      `json:"test_changes"`
+	Unverified  int      `json:"unverified"`
 	Seconds     float64  `json:"seconds"`
 	Cost        *float64 `json:"cost"`
+}
+
+// RunsReport is the --runs summary as JSON.
+type RunsReport struct {
+	Units []RunRow `json:"units"`
 }
 
 // RunRows folds the run event streams into one row per unit, limited to
@@ -102,6 +109,7 @@ func RunRows(root, planID string) ([]RunRow, error) {
 					row.Done = true
 				}
 				row.TestChanges += event.TestChanges
+				row.Unverified += event.Unverified
 				row.Seconds += event.Seconds
 				if event.Cost != nil {
 					row.Cost += *event.Cost
@@ -118,8 +126,9 @@ func RunRows(root, planID string) ([]RunRow, error) {
 	return out, nil
 }
 
-// RunsCommand prints the per-unit run summary.
-func RunsCommand(root, planID string) (Result, error) {
+// RunsCommand prints the per-unit run summary as a table or, with asJSON,
+// as a JSON report.
+func RunsCommand(root, planID string, asJSON bool) (Result, error) {
 	rows, err := RunRows(root, planID)
 	if err != nil {
 		return Result{}, err
@@ -127,8 +136,15 @@ func RunsCommand(root, planID string) (Result, error) {
 	if len(rows) == 0 {
 		return Result{Code: clierrors.EXIT_NOTHING, Stderr: "no runs: no run events recorded\n"}, nil
 	}
+	if asJSON {
+		data, err := json.MarshalIndent(RunsReport{Units: rows}, "", "  ")
+		if err != nil {
+			return Result{}, err
+		}
+		return Result{Stdout: string(data) + "\n"}, nil
+	}
 	var out strings.Builder
-	out.WriteString("unit version attempts verify_fails replans blocked test_changes seconds cost done\n")
+	out.WriteString("unit version attempts verify_fails replans blocked test_changes seconds cost unverified done\n")
 	for _, row := range rows {
 		cost := "-"
 		if row.Cost > 0 {
@@ -142,8 +158,8 @@ func RunsCommand(root, planID string) (Result, error) {
 		if version == "" {
 			version = "-"
 		}
-		fmt.Fprintf(&out, "%s %s %d %d %d %d %d %.1f %s %s\n", row.Unit, version, row.Attempts,
-			row.VerifyFails, row.Replans, row.Blocked, row.TestChanges, row.Seconds, cost, done)
+		fmt.Fprintf(&out, "%s %s %d %d %d %d %d %.1f %s %d %s\n", row.Unit, version, row.Attempts,
+			row.VerifyFails, row.Replans, row.Blocked, row.TestChanges, row.Seconds, cost, row.Unverified, done)
 	}
 	return Result{Stdout: out.String()}, nil
 }

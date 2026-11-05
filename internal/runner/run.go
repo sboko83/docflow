@@ -817,6 +817,9 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 	// weakened tests a unit's own commit marks in its body. unit_end reports
 	// them and the run summary counts them across the run.
 	var testChanges int
+	// unverifiedCount counts the unit's own `Unverified:` items — inherited
+	// ones already dropped; unit_end reports them like test_changes.
+	var unverifiedCount int
 	defer func() {
 		status := pausedUnitStatus(totals, eventStatus(code, runErr))
 		if status != "done" && stopCancellation(ctx) {
@@ -824,7 +827,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 			// while one that reached its commit boundary stays done.
 			status = "stopped"
 		}
-		fields := map[string]any{"status": status, "seconds": time.Since(start).Seconds(), "test_changes": testChanges}
+		fields := map[string]any{"status": status, "seconds": time.Since(start).Seconds(), "test_changes": testChanges, "unverified": unverifiedCount}
 		if cost != nil {
 			fields["cost"] = *cost
 		}
@@ -1491,6 +1494,7 @@ func runUnit(ctx context.Context, root string, args Args, config map[string]any,
 		}
 		p.testChanges(changes)
 		p.outsideDo(outsideDo(unit, plan.Path, res.Stdout))
+		unverifiedCount = len(unverified)
 		totals.unverified += len(unverified)
 		totals.testChanges += len(changes)
 		totals.rows = append(totals.rows, unitRow{uid, seconds, cost, unitIn, unitOut, attempt})

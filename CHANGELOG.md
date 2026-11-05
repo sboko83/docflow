@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `docflow stats --runs [PLAN]` summarises the run event streams per unit:
   docflow version, attempts, verify failures, replans, blocked ends, test
-  changes, time and cost. `run_start` events now record the docflow
+  changes, the unit's own unverified items, time and cost; `--json` prints
+  the same report as JSON. `run_start` events now record the docflow
   `version`.
 - `docflow stats` prints a `review-blocks:` line for each review unit that
   ended blocked three or more times in the run event streams, so a review

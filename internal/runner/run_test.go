@@ -1197,6 +1197,30 @@ func TestRunTestChanges(t *testing.T) {
 	}
 }
 
+// A unit whose result JSON carries `Unverified` items reports their number
+// in its `unit_end` event: the unit's own items, the inherited ones already
+// dropped. `stats --runs` folds that number.
+func TestRunUnitEndUnverified(t *testing.T) {
+	skipSlow(t)
+	f := newRunFixture(t)
+	risky := doneReply(map[string]any{"unverified": []string{"мобильная вёрстка не проверена"}})
+	steps := []string{"printf a > " + shellQuote("a.txt") + "\n" + risky, writeReply("b.txt")}
+	r := f.run(steps)
+	f.check(r, 0, "Unverified: мобильная вёрстка не проверена", ", 1 unverified", "run: 2 units")
+	for _, record := range fixtureEvents(t, f) {
+		if record["event"] != "unit_end" {
+			continue
+		}
+		want := float64(0)
+		if record["unit"] == "P001.1.1" {
+			want = 1
+		}
+		if record["unverified"] != want {
+			t.Fatalf("unit_end %v unverified = %v, want %v", record["unit"], record["unverified"], want)
+		}
+	}
+}
+
 func TestRunNotify(t *testing.T) {
 	skipSlow(t)
 	for _, mode := range []string{"ready", "blocked", "soft-stop", "prerequisite", "flag-off", "env-off"} {

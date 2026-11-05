@@ -41,7 +41,7 @@ var commands = []commandSpec{
 	{name: "done", help: "mark the current unit done and write its Handoff", args: []argument{positional("id", "", true), requiredAppend("--handoff", "HANDOFF", "Handoff item; repeat per item"), appendOption("--decision", "DECISION", "item for ## Decisions; repeat per item")}},
 	{name: "commit", help: "commit the current unit with its Commit subject", args: []argument{positional("id", "", true)}},
 	{name: "finish", help: "verify, done and commit the current unit in one call", args: []argument{positional("id", "", true), requiredAppend("--handoff", "HANDOFF", "Handoff item; repeat per item"), appendOption("--decision", "DECISION", "item for ## Decisions; repeat per item"), option("--skip", "REASON", "record the fingerprint without running Verify")}},
-	{name: "stats", help: "token use per unit: context proxy against the real figures; --runs summarises run events instead", args: []argument{positional("PLAN", "", false), flag("--runs", "per-unit attempts, verify failures, replans, blocked ends and time from the run event streams")}},
+	{name: "stats", help: "token use per unit: context proxy against the real figures; --runs summarises run events instead", args: []argument{positional("PLAN", "", false), flag("--runs", "per-unit attempts, verify failures, replans, blocked ends and time from the run event streams"), flag("--json", "runs: print the report as JSON")}},
 	{name: "block", help: "mark the current unit blocked", args: []argument{positional("id", "", true), requiredOption("--reason", "REASON", ""), choiceOption("--needs", "", "who unblocks the unit (default: human)", "human", "human", "plan")}},
 	{name: "unblock", help: "resume a unit blocked for a human", args: []argument{positional("id", "", true), option("--note", "NOTE", "what the person did to lift the block")}},
 	{name: "lint", help: "check structure, ids, Depends and the Read budget"},
@@ -788,9 +788,12 @@ func handleStats(parsed *parsedArgs) error {
 		return err
 	}
 	planID, _ := parsed.values["PLAN"].(string)
+	asJSON, _ := parsed.values["--json"].(bool)
 	var result stats.Result
 	if runs, _ := parsed.values["--runs"].(bool); runs {
-		result, err = stats.RunsCommand(root, planID)
+		result, err = stats.RunsCommand(root, planID, asJSON)
+	} else if asJSON {
+		return clierrors.DocflowError{Message: "docflow stats: --json belongs to --runs", Code: clierrors.EXIT_FORMAT}
 	} else {
 		result, err = stats.Command(root, planID)
 	}
