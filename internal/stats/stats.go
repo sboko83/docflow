@@ -550,5 +550,6 @@ func Command(root, planID string) (Result, error) {
 	} else {
 		output.WriteString("median grow/proxy: -\n")
 	}
+	output.WriteString(reviewBlockLines(root, planID))
 	return Result{Code: clierrors.EXIT_OK, Stdout: output.String()}, nil
 }

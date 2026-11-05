@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docflow stats` prints a `review-blocks:` line for each review unit that
+  ended blocked three or more times in the run event streams, so a review
+  that does not converge is visible before it eats more rounds.
+
 ### Changed
 - The review-unit template in `bsv-docflow-plan` blocks only on a violation
   of Goal, Constraints or Decisions, or a regression of an earlier fix; other
