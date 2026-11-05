@@ -317,7 +317,12 @@ reviewers of each `check` access in use) ends with a review unit.
   review unit; a longer stretch splits into phases.
 - `Do:` template — review the diff named in the prompt's `## Phase diff`
   against `Goal`, `Constraints`, `## Decisions`, and each unit's `Do:`.
-  The reviewer edits nothing.
+  The reviewer edits nothing. Only a violation of `Goal`/`Constraints`/
+  `## Decisions` or a regression of an earlier fix-unit blocks; any other
+  finding (a missed edge case, polish) goes to the Handoff as a plain
+  item for acceptance, not to `blocked`. A repeated review checks that the
+  earlier findings are closed and reads the fix units' diff, not the whole
+  phase anew.
 - The prompt's `## Test changes` section lists the test edits of the
   phase's commits — a test file that lost lines, a deleted test file, an
   added skip marker. Every item is taken apart: justified by the diff and

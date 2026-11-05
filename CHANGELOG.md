@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The review-unit template in `bsv-docflow-plan` blocks only on a violation
+  of Goal, Constraints or Decisions, or a regression of an earlier fix; other
+  findings go to the Handoff for acceptance, and a repeated review checks the
+  closed findings and the fix units' diff instead of the whole phase.
+
 ## [0.24.0] - 2026-11-05
 
 ### Added
