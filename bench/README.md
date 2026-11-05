@@ -23,5 +23,6 @@ a one-shot `glm-5.3` run. Details, caveats (n=1) and the next-step
 requirement for a hard corpus live in [the design doc](../docs/design/bench.md),
 section «Живые прогоны». The `hard` task (2026-11-05) answers that requirement: its oracle
 drives the built binary as separate processes (concurrent writers, lock
-timeout and staleness, a simulated crash before rename); it has no live
-runs yet.
+timeout and staleness, a simulated crash before rename). Its first run
+(2026-11-05) did not separate the arms either: single on `gpt-6.1-sol`
+and docflow on the flash stack both passed 16/16.
