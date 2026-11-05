@@ -25,4 +25,7 @@ section «Живые прогоны». The `hard` task (2026-11-05) answers that
 drives the built binary as separate processes (concurrent writers, lock
 timeout and staleness, a simulated crash before rename). Its first run
 (2026-11-05) did not separate the arms either: single on `gpt-6.1-sol`
-and docflow on the flash stack both passed 16/16.
+and docflow on the flash stack both passed 16/16, and so did a one-shot
+run on the same flash route ($0.15 vs $0.16 for docflow, 1.75× faster).
+On tasks of this size the cycle adds neither quality nor savings; the
+saving against `gpt-6.1-sol` comes from the model choice.
