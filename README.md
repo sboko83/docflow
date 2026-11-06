@@ -37,11 +37,12 @@ state in the repository instead of the agent's memory.
   flash" into a chain per role, a read budget and the reason behind the
   choice, and `roster apply` writes the plan header
   ([details](docs/usage.md#автозапуск), in Russian).
-- **Or watch and steer it in a terminal.** `docflow tui` opens the same
-  queue and plans full screen: phases and units, a live history of
-  messages, tools, file changes and checks, the effective models and
-  executors before a start, and Pause, Stop after unit and recovery of a
-  saved run ([details](docs/usage.md#терминальное-приложение), in Russian).
+- **Or do everything in a terminal.** `docflow tui` is a four-screen
+  workspace: Проект keeps the queue, plans, Backlog and project settings;
+  Ростер edits accesses, conditions and variants and writes a plan header;
+  Прогон streams the agent's messages and reasoning with pause, stop and
+  recovery; История replays a finished run
+  ([details](docs/usage.md#терминальное-приложение), in Russian).
 - **Sessions hand off.** A finished unit leaves Handoff lines and
   Decisions, and the next unit's prompt already carries the handoff of
   its dependencies and the plan's decisions. Work spans sessions without
@@ -77,8 +78,8 @@ subject. A unit that cannot proceed is marked `[!]` by `block`: a stale
 plan goes to replanning, a human-only step waits for
 `docflow unblock <id> --note "…"`. `lint` checks the structure and the
 `Read:` budget; `docflow run` drives the same commands unit after unit.
-`docflow tui` shows the same plans and runner in a full-screen terminal
-workspace: one command, the same binary
+`docflow tui` does the same work from a full-screen terminal workspace —
+queue, roster, live run and past runs: one command, the same binary
 ([usage](docs/usage.md#терминальное-приложение), in Russian).
 
 ## See it run

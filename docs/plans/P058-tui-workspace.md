@@ -153,6 +153,8 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - Enter вставляет новую строку, Ctrl+S сохраняет — нужен многострочный редактор — отвергнуто сохранение по Enter.
 - Изменившийся после открытия docflow.md требует переоткрыть Backlog — защита от потери параллельных правок — отвергнута перезапись устаревшей копией.
 - Повтор хранится отдельно от живого потока — просмотр не должен подменять события текущего прогона — отвергнута общая история.
+- usage.md documents each screen's keys in its own table and keeps only shared keys in the common table — a reader finds a key on the screen they are looking at — rejected one 25-key global list, the reason the P052 controls were hard to learn.
+- The stale 'История пока не принимает собственных клавиш' line in docs/design/tui.md is corrected in this change — the spec contradicted its own История section and historyKey code — rejected leaving it for a follow-up.
 
 ## Phase 1: Workspace shell
 
@@ -503,7 +505,7 @@ Handoff:
 
 ## Phase 6: Documentation and acceptance
 
-### [ ] P058.6.1 Document the workspace for users
+### [x] P058.6.1 Document the workspace for users
 Read:
 - docs/usage.md#терминальное-приложение
 - docs/usage.md#ростер
@@ -519,6 +521,12 @@ Verify: `go test -timeout 20m ./cmd/docflow/ && grep -q 'roster.variants.toml' d
 Depends: P058.5.4
 Role: cheap
 Commit: P058.6.1: document the TUI workspace
+Handoff:
+- docs/design/tui.md's key section claimed История takes no own keys; it now names arrows/PgUp/PgDn/Home/End, Tab, Enter, r and Esc — do not reintroduce the stale sentence.
+- docs/usage.md now carries per-screen key tables including N/e/c/o/b/A on Проект and n/D on Ростер; P058.6.2 should drive these keys as written there.
+- CHANGELOG [Unreleased] already had history, Backlog and roster entries; this unit added project-screen, reasoning and variants bullets without duplicating them.
+- Unverified: The key tables match internal/tui by reading keys.go, roster.go and historyscreen.go; no test or doc lint compares docs/usage.md with the key map, so a later key change can silently stale them.
+- Unverified: No live TUI session was opened by this docs unit: the 32x10 and narrow-terminal claims for the four screens rely on earlier units' model tests, not on a fresh terminal run.
 
 ### [ ] P058.6.2 Accept the workspace end to end
 Read:

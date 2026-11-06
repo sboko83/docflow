@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `D`; `P` opens the roster's planning agent in its interactive CLI and
   reloads the workspace on return. An unavailable CLI leaves a copyable
   planning prompt.
+- The Проект screen of `docflow tui` creates a plan with `N`, opens the
+  selected plan in `$VISUAL`/`$EDITOR` with `e`, commits only the docflow
+  files with `c`, and edits the project, plan and next-session parameters
+  with `o`; a disk change is linted and rolled back on refusal, and the
+  session limits apply to the next start only.
+- The Прогон screen of `docflow tui` shows the reasoning of an agent in
+  full and dimmed, merges the streaming deltas of one message into one
+  block and pages a large block from the call log; `t` folds every
+  reasoning block to its first line.
 - The Ростер screen of `docflow tui` shows the roster workspace of the
   project and edits it without the CLI: the variants of the three preset
   layers with the active one marked, the accesses with their switch,
@@ -27,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its `.bak` from the screen.
   `docflow tui --roster PATH` names the roster file, `roster.DefaultPath()`
   otherwise.
+- The variants created on the Ростер screen live in machine-owned files:
+  the global `roster.variants.toml` next to `roster.toml` and the committed
+  project `docs/roster.variants.toml`. A name is unique across the three
+  preset layers, `A` writes the selected plan header through
+  `roster apply` after showing the difference, and `roster.toml` stays
+  hand-edited.
 
 ### Changed
 - `docflow tui` is a four-screen workspace: `1`–`4` switch Проект (the tree

@@ -412,16 +412,19 @@ options:
 `,
 	"tui": `usage: docflow tui [-h] [--attempts N] [--replans N] [--roster PATH]
 
-open the interactive terminal workspace for the queue and plans
+open the interactive terminal workspace for the project
 
-The workspace reads docs/docflow.md and the plans it names with the docflow
-parser. It shows the tree of phases and units, the selected unit card and the
-live agent activity. s starts the current Queue run, R resumes its checkpoint,
+The workspace has four screens. 1 Проект keeps the Queue tree, the selected
+unit card, the Backlog and the project, plan and session parameters. 2 Ростер
+shows the accesses, conditions and variants of the roster and writes a variant
+into the selected plan header. 3 Прогон streams the messages, reasoning, tool
+calls and checks of the selected unit. 4 История lists past runs and replays
+their streams. The workspace reads docs/docflow.md and the plans it names with
+the docflow parser. s starts the current Queue run, R resumes its checkpoint,
 p pauses, S stops after the current unit and x stops now. a, F, T and C run
-the same activate, freeze, thaw and close checks as the CLI. The roster screen
-reads roster.LoadWorkspace and edits the conditions of it; --roster names the
-file it reads. Without a terminal it refuses and points at the ordinary CLI
-commands.
+the same activate, freeze, thaw and close checks as the CLI. --roster names the
+file the roster screen reads (roster.DefaultPath() otherwise). Without a
+terminal it refuses and points at the ordinary CLI commands.
 
 options:
   -h, --help    show this help message and exit
