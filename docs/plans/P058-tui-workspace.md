@@ -155,6 +155,7 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - Повтор хранится отдельно от живого потока — просмотр не должен подменять события текущего прогона — отвергнута общая история.
 - usage.md documents each screen's keys in its own table and keeps only shared keys in the common table — a reader finds a key on the screen they are looking at — rejected one 25-key global list, the reason the P052 controls were hard to learn.
 - The stale 'История пока не принимает собственных клавиш' line in docs/design/tui.md is corrected in this change — the spec contradicted its own История section and historyKey code — rejected leaving it for a follow-up.
+- Activity.Message сохраняет идентификатор первой дельты — финальное событие Claude должно закрывать существующий блок — отвергнута смена идентификатора после получения message id.
 
 ## Phase 1: Workspace shell
 
@@ -528,7 +529,7 @@ Handoff:
 - Unverified: The key tables match internal/tui by reading keys.go, roster.go and historyscreen.go; no test or doc lint compares docs/usage.md with the key map, so a later key change can silently stale them.
 - Unverified: No live TUI session was opened by this docs unit: the 32x10 and narrow-terminal claims for the four screens rely on earlier units' model tests, not on a fresh terminal run.
 
-### [ ] P058.6.2 Accept the workspace end to end
+### [x] P058.6.2 Accept the workspace end to end
 Read:
 - internal/tui/acceptance_test.go:L1-200
 - internal/tui/terminal_test.go:L1-200
@@ -545,3 +546,18 @@ Traps: падающий сценарий чини в этом же юните, �
 Depends: P058.1.1, P058.2.1, P058.2.2, P058.3.1, P058.3.2, P058.3.3, P058.3.4, P058.4.1, P058.4.2, P058.5.1, P058.5.2, P058.5.3, P058.5.4, P058.6.1
 Role: acceptance
 Commit: P058.6.2: accept the TUI workspace end to end
+Handoff:
+- Полный docflow-dev verify P058.6.2 прошёл на macOS: Verify 30m и gate 20m. git diff --check прошёл. План не редактировал, done и commit оставлены runner.
+- Добавлены шесть общих сценариев для PTY/ConPTY. На macOS прошли ростер → вариант → применение → коммит через c; рассуждение → t → p → R → verify → история; Backlog → интерактивный агент; минимальные экраны; проектная миграция; скан каталога.
+- Исправлен обнаруженный пустой дубль рассуждения Claude. Причина воспроизведена отдельным регрессионным тестом; повтор дополнительно проверяет единственный блок с полным текстом. Обновлены оба design-документа и CHANGELOG.
+- Accepted: P058.1.1 — выделение вкладки проверено со стилями в терминале; P058.3.1 — панели проверены на 100, 110 и 119 колонках; P058.6.1 — все четыре экрана и доступность помощи проверены свежим PTY-сеансом на 32×10.
+- Accepted: P058.2.1 — SaveVariants вызван из настоящего интерфейса с проверкой проектного файла; P058.2.2 — потребитель Workspace проверен сквозным сценарием, сохранение вне git проверяет ошибку git rev-parse и отсутствие записанного файла.
+- Accepted: P058.3.2 — u вызывает настоящий ScanCatalog с внешними подменёнными CLI, записью кэша и сводкой; миграция проверена через проектный --roster. Усечение сводки на 32 колонках принято: это краткое уведомление, доступы и предупреждения читаются в панелях.
+- Accepted: P058.3.3 — Shift+A доставлен терминальным слоем; отказ проверен одновременно с настоящим controller и его run.lock. Личный roster не требуется для проверки фоновой загрузки: фикстура использует настоящий загрузчик, стандартный XDG-путь и файл каталога.
+- Accepted: P058.3.4 — журнал настоящего executor-прогона содержит effective с маршрутом роли heavy, отличающимся от executor шапки.
+- Accepted: P058.5.1 — существующие PTY-сценарии создания N и редактора e прошли в полном verify; P058.5.3 — сводка истории и повтор теперь проверены настоящим терминалом; P058.6.1 — текущие клавиши проверены сценариями, отсутствие автоматического сравнения всей таблицы документации не добавляет риска при неизменной карте клавиш.
+- Unverified: P058.1.1, P058.2.1, P058.3.1, P058.4.1, P058.4.2, P058.5.2–5.4 — нативные проверки Linux/Windows остаются открыты: выполнить полный gate, включая rename/SameFile, PTY/ConPTY, интерактивное планирование, историю и изменение параметров через o. Здесь тестовые бинарники Linux amd64 и Windows amd64 собраны с CGO_ENABLED=0.
+- Unverified: P058.3.2 и P058.5.2 — реальные авторизованные CLI не запускались. Проверить u с установленными CLI и P с настоящим интерактивным агентом, включая поддержку его модельных флагов; проверить копирование промпта через OSC 52 в поддерживающем терминале.
+- Unverified: P058.3.4 — открыть tier-прогон, поставить паузу, изменить внешний agents.toml и переоткрыть TUI: проверить предупреждение о новой сессии и фактический Resume без прежней сессии.
+- Unverified: P058.5.1 — на Windows без VISUAL/EDITOR открыть план через e и подтвердить запуск Notepad с правильным файлом.
+- Unverified: Новая обвязка workspaceConsole скомпилирована для Windows, но её обработка Esc и завершение процесса ещё не проверены нативным запуском TestWorkspaceTerminal* через ConPTY.

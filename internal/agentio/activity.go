@@ -99,6 +99,9 @@ type Activity struct {
 
 type messageState struct {
 	emitted string
+	// identity survives promotion from a provisional streaming key to the
+	// message ID supplied by the final assistant event.
+	identity string
 }
 
 type toolState struct {
@@ -213,18 +216,18 @@ func (p *ActivityParser) message(key, role, text string, final bool, ref Activit
 		return nil
 	}
 	if state == nil {
-		state = &messageState{}
+		state = &messageState{identity: key}
 		p.messages[key] = state
 	}
 	if !final {
 		state.emitted += text
-		return []Activity{{Kind: kindForRole(role), State: ActivityStateRunning, Delta: true, Role: role, Message: key, Text: clipActivity(text), Ref: ref}}
+		return []Activity{{Kind: kindForRole(role), State: ActivityStateRunning, Delta: true, Role: role, Message: state.identity, Text: clipActivity(text), Ref: ref}}
 	}
 	text = strings.TrimPrefix(text, state.emitted)
 	delete(p.messages, key)
 	// Keep the final observation even when all of its text was already
 	// emitted as deltas. The history uses it to close the message block.
-	return []Activity{{Kind: kindForRole(role), State: ActivityStateSucceeded, Role: role, Message: key, Text: clipActivity(text), Ref: ref}}
+	return []Activity{{Kind: kindForRole(role), State: ActivityStateSucceeded, Role: role, Message: state.identity, Text: clipActivity(text), Ref: ref}}
 }
 
 func kindForRole(role string) ActivityKind {

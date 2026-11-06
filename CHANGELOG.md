@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   form `v: 1` without the `configured_*` fields.
 
 ### Fixed
+- `docflow tui` keeps Claude's streamed reasoning in one block when the
+  final message supplies its ID after the first delta, avoiding an empty
+  duplicate in the live stream and history replay.
 - `docflow roster on` refuses an access the roster does not declare instead
   of reporting a switch it never made; every condition command now checks
   the name before it writes `roster.state.toml`.

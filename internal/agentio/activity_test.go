@@ -254,6 +254,33 @@ func TestActivityParserDeltaAndFinalAreNotDuplicated(t *testing.T) {
 	}
 }
 
+// Claude may send deltas before the assistant message supplies its ID.
+// Giving the final observation a new identity leaves a second, empty block
+// in consumers that merge the stream by Activity.Message.
+func TestActivityClaudeDeltaKeepsIdentity(t *testing.T) {
+	parser := NewActivityParser(profile(t, "claude"))
+	lines := []string{
+		`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"first "}}}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"last"}}}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"thinking","thinking":"first last"}]}}`,
+	}
+	var observations []Activity
+	for _, line := range lines {
+		observations = append(observations, parser.Feed("stdout", line, ActivityRef{})...)
+	}
+	if len(observations) != 3 {
+		t.Fatalf("observations = %#v", observations)
+	}
+	for _, a := range observations {
+		if a.Message != observations[0].Message {
+			t.Fatalf("message identity changed from %q to %q", observations[0].Message, a.Message)
+		}
+	}
+	if a := observations[2]; a.Delta || a.Text != "" || a.State != ActivityStateSucceeded {
+		t.Fatalf("final = %#v", a)
+	}
+}
+
 func TestActivityParserUnknownTypeKeepsRaw(t *testing.T) {
 	parser := NewActivityParser(profile(t, "codex"))
 	line := `{"type":"brand_new_event","payload":{"n":1}}`

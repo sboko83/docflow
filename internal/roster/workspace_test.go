@@ -660,6 +660,20 @@ func TestWorkspaceSaveVariantProject(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSaveVariantProjectWithoutGit(t *testing.T) {
+	root := t.TempDir()
+	rosterPath := workspacePolicy(t)
+	workspaceCatalog(t)
+	workspace := loadWorkspaceOrFail(t, rosterPath, root)
+	err := workspace.SaveVariant("outside-git", true)
+	if err == nil || !strings.Contains(err.Error(), "git rev-parse") {
+		t.Fatalf("SaveVariant outside git = %v, want the checkout error", err)
+	}
+	if _, err := os.Stat(ProjectVariantsPath(root)); !os.IsNotExist(err) {
+		t.Fatalf("refused variant wrote a project file: %v", err)
+	}
+}
+
 // TestWorkspaceSaveVariantRefusesInexpressible: a condition a preset cannot
 // carry is an error, not a variant that means something else.
 func TestWorkspaceSaveVariantRefusesInexpressible(t *testing.T) {
