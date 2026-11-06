@@ -1,0 +1,20 @@
+docflow tui /project
+1 Проект  2 Ростер  [3 Прогон]  4 История           run:idle
+────────────────────────────────────────────────────────────
+P001 · 0:42 · юнит 2/4 · попытка 2/3 · токены 120 ·
+codex/model-a high
+> Поток
+  12:00:00 attempt 2 · codex/model-a high
+  12:00:00 ◇ Inspect the stream.
+            Keep the entire reasoning visible.
+            Verify the result.
+  12:00:00 The full agent message.
+            Its second line remains visible.
+  12:00:00 ⚙ bash · go test ./... · done · 0.0s
+            ✎ internal/tui/view.go
+  12:00:00 usage tokens in 100 out 20 cache read unknown ca…
+> 12:00:00 verify passed · exit 0 · log unknown
+    log unknown · press v to open
+────────────────────────────────────────────────────────────
+READY · queue:2 frozen:0 · selected:unit:P001.1.2 [doing] ·…
+↑↓ move · Enter expand · [ ] page · Tab panel · ? помощь

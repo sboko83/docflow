@@ -326,8 +326,12 @@ func (m Model) overlayOwnerLines() []string {
 // unit. Plan navigation stays local to the model: it never sends a command to
 // a live runner.
 func (m Model) handleActivityKey(key string) Model {
+	if next, ok := m.scrollActivityBlock(key); ok {
+		return next
+	}
 	unit := m.selectedUnit()
 	entries := m.activityEntries(unit)
+	groups := toolGroups(entries)
 	last := len(entries) - 1
 	switch key {
 	case "up", "k":
@@ -352,20 +356,22 @@ func (m Model) handleActivityKey(key string) Model {
 	case "end", "G", "f":
 		m.activityCursor = max(0, last)
 		m.followActivity = true
+	case "t":
+		m.foldReasoning = !m.foldReasoning
 	case "enter", "right", "l":
-		return m.toggleActivity(unit, entries)
+		return m.toggleActivity(unit, entries, groups)
 	case "left", "h":
-		if m.activityCursor >= 0 && m.activityCursor < len(entries) && m.entryExpanded(unit, entries[m.activityCursor]) {
-			delete(m.expandedActivity, entryKey(unit, entries[m.activityCursor]))
+		if m.activityCursor >= 0 && m.activityCursor < len(entries) && m.expandedActivity[entryGroupKey(unit, entries, m.activityCursor, groups)] {
+			delete(m.expandedActivity, entryGroupKey(unit, entries, m.activityCursor, groups))
 			return m.syncActivityScroll()
 		}
 		m.screen = screenProject
 		m.focus = focusTree
 		return m
 	case "[":
-		return m.pageActivity(unit, entries, -1)
+		return m.pageActivity(unit, entries, groups, -1)
 	case "]":
-		return m.pageActivity(unit, entries, 1)
+		return m.pageActivity(unit, entries, groups, 1)
 	case "d":
 		return m.openDiff()
 	case "v":
@@ -384,12 +390,44 @@ func (m Model) handleActivityKey(key string) Model {
 	return m.syncActivityScroll()
 }
 
-func (m Model) toggleActivity(unit string, entries []ActivityEntry) Model {
+// scrollActivityBlock lets the reader traverse a block taller than the pane
+// before moving the observation cursor to its neighbour.
+func (m Model) scrollActivityBlock(key string) (Model, bool) {
+	step := 0
+	switch key {
+	case "up", "k":
+		step = -1
+	case "down", "j":
+		step = 1
+	case "pgup":
+		step = -max(1, m.streamBodyHeight())
+	case "pgdown":
+		step = max(1, m.streamBodyHeight())
+	default:
+		return m, false
+	}
+	section := m.activitySection(m.streamWidth())
+	i := m.activityCursor - section.base
+	if i < 0 || i >= len(section.starts) {
+		return m, false
+	}
+	offset := len(m.streamHeaderLines(m.streamWidth())) + 1
+	start, end := offset+section.starts[i], offset+section.ends[i]
+	body := max(1, m.streamBodyHeight())
+	if end-start <= body || (step < 0 && m.streamTop <= start) || (step > 0 && m.streamTop+body >= end) {
+		return m, false
+	}
+	m.streamTop = max(start, min(end-body, m.streamTop+step))
+	m.followActivity = false
+	return m.clampStreamTop(), true
+}
+
+func (m Model) toggleActivity(unit string, entries []ActivityEntry, groups map[int]toolPair) Model {
 	if m.activityCursor < 0 || m.activityCursor >= len(entries) {
 		return m
 	}
 	entry := entries[m.activityCursor]
-	key := entryKey(unit, entry)
+	key := entryGroupKey(unit, entries, m.activityCursor, groups)
 	if m.expandedActivity[key] {
 		delete(m.expandedActivity, key)
 		return m.syncActivityScroll()
@@ -399,18 +437,29 @@ func (m Model) toggleActivity(unit string, entries []ActivityEntry) Model {
 	}
 	m.expandedActivity[key] = true
 	if entry.Type == "activity" {
-		m.loadActivityPage(entry, 0)
+		// A tool call pages the result of its completed half; every other
+		// activity pages its own reference. A running call keeps the live
+		// window that reads the call log to its current end.
+		if pair, ok := groups[m.activityCursor]; ok {
+			m.loadActivityPage(toolLoadEntry(entries, pair), 0)
+		} else {
+			m.loadActivityPage(entry, 0)
+		}
 	}
 	return m.syncActivityScroll()
 }
 
-func (m Model) pageActivity(unit string, entries []ActivityEntry, direction int) Model {
+func (m Model) pageActivity(unit string, entries []ActivityEntry, groups map[int]toolPair, direction int) Model {
 	if m.activityCursor < 0 || m.activityCursor >= len(entries) {
 		return m
 	}
-	entry := entries[m.activityCursor]
-	if !m.entryExpanded(unit, entry) || entry.Type != "activity" {
+	index := m.activityCursor
+	entry := entries[index]
+	if !m.expandedActivity[entryGroupKey(unit, entries, index, groups)] || entry.Type != "activity" {
 		return m
+	}
+	if pair, ok := groups[index]; ok {
+		entry = toolLoadEntry(entries, pair)
 	}
 	key := activityPageKey(unit, entry)
 	skip := 0
@@ -628,6 +677,15 @@ func (m Model) switchPanel() Model {
 			m.rosterPanel = panelRoles
 		default:
 			m.rosterPanel = panelVariants
+		}
+		return m
+	case screenRun:
+		// The stream keys keep working on either pane: the switch only says
+		// which panel a narrow terminal shows.
+		if m.focus == focusTree {
+			m.focus = focusDetails
+		} else {
+			m.focus = focusTree
 		}
 		return m
 	case screenProject:

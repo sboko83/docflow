@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -223,6 +224,12 @@ type Model struct {
 	expandedActivity map[string]bool
 	pages            map[string]*activityPage
 	pageOrder        []string
+	// foldReasoning collapses every reasoning block to its first line; the
+	// reader toggles it with t while reading the stream.
+	foldReasoning bool
+	// now is the workspace clock: elapsed run time and live durations come
+	// from it, and tests pin it.
+	now func() time.Time
 
 	overlay     overlayKind
 	diffText    string
@@ -293,6 +300,7 @@ func newModel(root string, load Loader, noColor bool) Model {
 		followActivity:   true,
 		expandedActivity: map[string]bool{},
 		pages:            map[string]*activityPage{},
+		now:              time.Now,
 		runLimits:        DefaultRunLimits(),
 		lifecycle:        cycle.Self,
 		lockCheck:        runner.CheckoutLockOwner,

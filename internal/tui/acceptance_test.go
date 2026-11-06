@@ -707,6 +707,9 @@ func (s *acceptTUI) quit() {
 
 func (s *acceptTUI) selectUnit(id string) {
 	s.t.Helper()
+	// Unit selection belongs to Project; Esc on the run screen may first
+	// close an expanded entry or clear a stream search.
+	s.send("1")
 	// Esc returns from the details pane to the tree; it is a no-op there.
 	s.send(keyEsc)
 	s.send("/")

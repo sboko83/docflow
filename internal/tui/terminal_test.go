@@ -67,7 +67,7 @@ func TestActivityTerminalFrames(t *testing.T) {
 			}
 		}
 		if size.w >= 100 {
-			for _, want := range []string{"red", "green", "answer", "claude text", "stderr"} {
+			for _, want := range []string{"red", "answer", "claude text", "stderr"} {
 				if !strings.Contains(rendered, want) {
 					t.Fatalf("%dx%d frame lost %q", size.w, size.h, want)
 				}
@@ -76,6 +76,25 @@ func TestActivityTerminalFrames(t *testing.T) {
 			if !strings.Contains(rendered, "in the stream") {
 				t.Fatalf("%dx%d frame lost the stream header", size.w, size.h)
 			}
+		}
+	}
+
+	// A tool call is one line; its result reads through Enter. The inline
+	// result of the completed call reaches the terminal sanitized.
+	model = resize(t, model, 120, 40)
+	model = send(t, model, keyMsg("/"))
+	for _, part := range []string{"g", "r", "e", "e", "n"} {
+		model = send(t, model, keyMsg(part))
+	}
+	model = send(t, model, keyMsg("enter"))
+	model = send(t, model, keyMsg("enter"))
+	rendered := model.String()
+	if !strings.Contains(rendered, "green") {
+		t.Fatalf("the completed tool result is not reachable:\n%s", rendered)
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.ContainsAny(line, "\x00\x07\x1b") {
+			t.Fatalf("expanded result contains a control sequence: %q", line)
 		}
 	}
 }

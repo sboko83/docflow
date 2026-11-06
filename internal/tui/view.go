@@ -124,7 +124,7 @@ func (m Model) screenBody(width, height int) []string {
 	case screenRoster:
 		return m.rosterBody(width, height)
 	case screenRun:
-		return m.pane(m.screen.title(), m.visibleStreamLines(width), 0, width, height, true)
+		return m.runBody(width, height)
 	}
 	if m.singlePanel() {
 		if m.focus == focusDetails {
@@ -709,10 +709,17 @@ func (m Model) statusLine() string {
 	}
 	if m.state == StateReady {
 		parts = append(parts, "screen:"+m.screen.String())
-		if m.screen == screenProject {
+		if m.screen == screenProject || m.screen == screenRun {
 			focusName := "tree"
+			if m.screen == screenRun {
+				focusName = "units"
+			}
 			if m.focus == focusDetails {
-				focusName = "details"
+				if m.screen == screenRun {
+					focusName = "stream"
+				} else {
+					focusName = "details"
+				}
 			}
 			parts = append(parts, "focus:"+focusName)
 		}

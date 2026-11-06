@@ -75,6 +75,9 @@ type ActivityHistory struct {
 }
 
 type unitHistory struct {
+	run          unitRunView
+	tokens       int64
+	hasTokens    bool
 	entries      []ActivityEntry
 	openMessages map[string]int
 	dropped      int
@@ -149,6 +152,12 @@ func (h *ActivityHistory) Add(event runner.Event) (ActivityEntry, bool) {
 		}
 		h.seq++
 		entry := ActivityEntry{Seq: h.seq, At: eventTime(event.Fields, h.now), Type: event.Type, Activity: activity}
+		if activity.Kind == agentio.ActivityKindUsage && activity.Usage != nil {
+			if tokens := usageTokens(activity.Usage); tokens > 0 {
+				unit.tokens += tokens
+				unit.hasTokens = true
+			}
+		}
 		if activity.Attempt > 0 {
 			entry.Log = unit.logs[activity.Attempt]
 		} else {
@@ -177,6 +186,7 @@ func (h *ActivityHistory) Add(event runner.Event) (ActivityEntry, bool) {
 		"recovery_conflict", "blocked":
 		h.seq++
 		entry := ActivityEntry{Seq: h.seq, At: eventTime(event.Fields, h.now), Type: event.Type, Fields: copyFields(event.Fields)}
+		collectUnitRun([]ActivityEntry{entry}, &unit.run)
 		unit.append(entry, h.limit)
 		unit.lastSeq = entry.Seq
 		return entry, true
@@ -392,6 +402,9 @@ type routeField struct {
 }
 
 func routeOf(value any) routeField {
+	if table, ok := value.(map[string]string); ok {
+		return routeField{Agent: table["agent"], Model: table["model"], Effort: table["effort"]}
+	}
 	table, _ := value.(map[string]any)
 	return routeField{Agent: strValue(table["agent"]), Model: strValue(table["model"]), Effort: strValue(table["effort"])}
 }
@@ -409,7 +422,7 @@ func (r routeField) String() string {
 	if effort == "" {
 		effort = "effort unknown"
 	}
-	return name + "/" + model + " " + effort
+	return Sanitize(name + "/" + model + " " + effort)
 }
 
 // activityKindLabel names an observation without implying a success.
@@ -451,22 +464,6 @@ func activityStateLabel(activity agentio.Activity) string {
 	default:
 		return "outcome unknown"
 	}
-}
-
-func activityStateGlyph(activity agentio.Activity) string {
-	switch activity.State {
-	case agentio.ActivityStateRunning:
-		return "·"
-	case agentio.ActivityStateSucceeded:
-		return "✓"
-	case agentio.ActivityStateFailed:
-		return "✗"
-	case agentio.ActivityStateCancelled:
-		return "⊘"
-	case agentio.ActivityStateUnknown:
-		return "?"
-	}
-	return " "
 }
 
 // Sanitize neutralizes terminal control sequences in text the agent produced.
@@ -923,19 +920,24 @@ func (m *Model) activitySection(width int) renderedActivity {
 		return renderedActivity{}
 	}
 	styles := newStyles(m.noColor)
+	groups := toolGroups(entries)
+	now := m.nowTime()
 	var out renderedActivity
 	add := func(text string) {
 		out.lines = append(out.lines, text)
 	}
-	highlight := func(text string, style lipglossStyle) string {
+	render := func(text string, style lipglossStyle) string {
 		if m.noColor {
 			return text
 		}
 		return style.Render(text)
 	}
+	dim := func(text string) string {
+		return render(text, styles.dim)
+	}
 	dropped := m.history.Dropped(unit)
 	if dropped > 0 {
-		add(styles.dim.Render(fmt.Sprintf("  %d older observations left the bounded history; original logs remain on disk", dropped)))
+		add(dim(fmt.Sprintf("  %d older observations left the bounded history; original logs remain on disk", dropped)))
 	}
 	first := 0
 	if len(entries) > activityRenderWindow {
@@ -950,48 +952,304 @@ func (m *Model) activitySection(width int) renderedActivity {
 	last := min(len(entries), first+activityRenderWindow)
 	out.base = first
 	if first > 0 {
-		add(styles.dim.Render(fmt.Sprintf("  … %d older observations above; scroll up to read them", first)))
+		add(dim(fmt.Sprintf("  … %d older observations above; scroll up to read them", first)))
 	}
+	// The gutter is the cursor marker, the time and a space: streamed text
+	// wraps into it, so one block reads as one paragraph.
+	const gutter = 12
 	for index := first; index < last; index++ {
 		entry := entries[index]
 		start := len(out.lines)
+		if pair, ok := groups[index]; ok && index != pair.head && pair.head >= first {
+			// The completed half of a tool call renders with its head; when
+			// the head left the window the completion falls through and
+			// renders alone.
+			head := pair.head - first
+			out.starts = append(out.starts, out.starts[head])
+			out.ends = append(out.ends, out.ends[head])
+			continue
+		}
+		cursor := index == m.activityCursor
+		if pair, ok := groups[index]; ok && pair.end == m.activityCursor {
+			cursor = true
+		}
 		marker := "  "
-		if index == m.activityCursor {
+		if cursor {
 			marker = "> "
 		}
-		header := marker + entryTimeText(entry) + " " + entryHeadline(entry)
-		if entry.Activity.Kind == agentio.ActivityKindTool || entry.Type == "activity" {
-			header = marker + entryTimeText(entry) + " " + activityStateGlyph(entry.Activity) + " " + entryHeadline(entry)
-		}
-		style := styles.unit
+		prefix := marker + entryTimeText(entry) + " "
+		groupKey := entryGroupKey(unit, entries, index, groups)
 		switch {
-		case entry.Activity.State == agentio.ActivityStateFailed || entryVerifyFailed(entry):
-			style = styles.blocked
-		case entry.Activity.State == agentio.ActivityStateRunning:
-			style = styles.doing
-		case entry.Activity.State == agentio.ActivityStateSucceeded:
-			style = styles.done
-		case entry.Type == "verify" || entry.Type == "commit":
-			style = styles.done
-		}
-		if index == m.activityCursor {
-			style = styles.picked
-		}
-		add(highlight(header, style))
-		out.starts = append(out.starts, start)
-		if m.entryExpanded(unit, entry) {
-			for _, line := range m.entryBody(unit, entry, width-4) {
-				add("    " + line)
+		case entry.Type == "activity" && entry.Activity.Kind == agentio.ActivityKindReasoning:
+			// Reasoning reads in full, dimmed; t folds every block to its
+			// first line.
+			lines := wrapLine(Sanitize(entry.Activity.Text), max(1, width-gutter-2))
+			if len(lines) == 0 {
+				lines = []string{""}
 			}
-		} else if preview := entryPreview(entry); preview != "" {
-			add("    " + truncate(preview, max(1, width-4)))
+			if m.foldReasoning {
+				lines = lines[:1]
+			}
+			head := prefix + "◇ " + lines[0]
+			if cursor {
+				add(render(head, styles.picked))
+			} else {
+				add(dim(head))
+			}
+			for _, line := range lines[1:] {
+				add(dim(strings.Repeat(" ", gutter) + line))
+			}
+			if entry.Truncated && !m.foldReasoning {
+				for _, line := range m.truncatedTailLines(unit, entry, max(1, width-4)) {
+					add("    " + line)
+				}
+			}
+		case entry.Type == "activity" && entry.Activity.Kind == agentio.ActivityKindMessage:
+			// Agent messages read in full; the pages of a clipped tail open
+			// with Enter as before.
+			role := ""
+			if entry.Activity.Role != "" && entry.Activity.Role != "assistant" {
+				role = "(" + Sanitize(entry.Activity.Role) + ") "
+			}
+			lines := wrapLine(Sanitize(entry.Activity.Text), max(1, width-gutter-len(role)))
+			if len(lines) == 0 {
+				lines = []string{""}
+			}
+			style := styles.unit
+			if cursor {
+				style = styles.picked
+			}
+			add(render(prefix+role+lines[0], style))
+			for _, line := range lines[1:] {
+				add(strings.Repeat(" ", gutter) + line)
+			}
+			if entry.Truncated {
+				for _, line := range m.truncatedTailLines(unit, entry, max(1, width-4)) {
+					add("    " + line)
+				}
+			}
+		case entry.Type == "activity" && entry.Activity.Kind == agentio.ActivityKindTool:
+			// A tool call is one line: the glyph, the name, the argument,
+			// the state and the duration. Enter opens the result pages of
+			// the completed half through the existing log paging.
+			pair := groups[index]
+			var end *ActivityEntry
+			if pair.end >= 0 {
+				end = &entries[pair.end]
+			}
+			style := styles.unit
+			switch toolStateOf(entry, end) {
+			case agentio.ActivityStateFailed:
+				style = styles.blocked
+			case agentio.ActivityStateRunning:
+				style = styles.doing
+			case agentio.ActivityStateSucceeded:
+				style = styles.done
+			}
+			if cursor {
+				style = styles.picked
+			}
+			add(render(prefix+toolLineText(entry, end, now), style))
+			for _, file := range toolFiles(entry, end) {
+				add("            ✎ " + Sanitize(file))
+			}
+			if m.expandedActivity[groupKey] {
+				for _, line := range m.entryBody(unit, toolLoadEntry(entries, pair), max(1, width-4)) {
+					add("    " + line)
+				}
+			}
+		default:
+			head := prefix + entryHeadline(entry)
+			style := styles.unit
+			switch {
+			case entry.Activity.State == agentio.ActivityStateFailed || entryVerifyFailed(entry):
+				style = styles.blocked
+			case entry.Activity.State == agentio.ActivityStateRunning:
+				style = styles.doing
+			case entry.Activity.State == agentio.ActivityStateSucceeded:
+				style = styles.done
+			case entry.Type == "verify" || entry.Type == "commit":
+				style = styles.done
+			}
+			if cursor {
+				style = styles.picked
+			}
+			add(render(head, style))
+			if m.expandedActivity[groupKey] {
+				for _, line := range m.entryBody(unit, entry, max(1, width-4)) {
+					add("    " + line)
+				}
+			} else if preview := entryPreview(entry); preview != "" {
+				add("    " + truncate(preview, max(1, width-4)))
+			}
 		}
+		out.starts = append(out.starts, start)
 		out.ends = append(out.ends, len(out.lines))
 	}
 	if last < len(entries) {
-		add(styles.dim.Render(fmt.Sprintf("  … %d newer observations below; scroll down or press G to follow", len(entries)-last)))
+		add(dim(fmt.Sprintf("  … %d newer observations below; scroll down or press G to follow", len(entries)-last)))
 	}
 	return out
+}
+
+// toolPair links a tool call's start observation with its completion: both
+// render as one line, and the completed half is where the result pages read.
+type toolPair struct {
+	head int
+	end  int // -1 while the call is still running
+}
+
+// toolGroups pairs the running and completed halves of every tool call of
+// the slice. A completion without an open start renders alone; calls that
+// share an empty tool id pair in arrival order.
+func toolGroups(entries []ActivityEntry) map[int]toolPair {
+	groups := map[int]toolPair{}
+	open := map[string]int{}
+	for i, entry := range entries {
+		if entry.Type != "activity" || entry.Activity.Kind != agentio.ActivityKindTool {
+			continue
+		}
+		key := fmt.Sprintf("%d/%s", entry.Activity.Attempt, entry.Activity.ToolID)
+		if entry.Activity.State == agentio.ActivityStateRunning {
+			open[key] = i
+			groups[i] = toolPair{head: i, end: -1}
+			continue
+		}
+		if head, ok := open[key]; ok {
+			groups[head] = toolPair{head: head, end: i}
+			groups[i] = toolPair{head: head, end: i}
+			delete(open, key)
+		} else {
+			groups[i] = toolPair{head: i, end: -1}
+		}
+	}
+	return groups
+}
+
+// entryGroupKey is the expansion key of an entry: a tool call shares its
+// head's key, whichever half the cursor sits on.
+func entryGroupKey(unit string, entries []ActivityEntry, index int, groups map[int]toolPair) string {
+	if pair, ok := groups[index]; ok {
+		return entryKey(unit, entries[pair.head])
+	}
+	return entryKey(unit, entries[index])
+}
+
+// toolLoadEntry is the entry whose result the pages of a tool call read: the
+// completion when it arrived, the running start while the call is open.
+func toolLoadEntry(entries []ActivityEntry, pair toolPair) ActivityEntry {
+	if pair.end >= 0 && pair.end < len(entries) {
+		return entries[pair.end]
+	}
+	return entries[pair.head]
+}
+
+// toolStateOf is the state of the whole call: the completion's state once
+// it arrived, the running start's state before that.
+func toolStateOf(head ActivityEntry, end *ActivityEntry) agentio.ActivityState {
+	if end != nil {
+		return end.Activity.State
+	}
+	return head.Activity.State
+}
+
+// toolFiles lists the files a tool call reported: the completion carries
+// them, a stream that reports them on the start keeps working.
+func toolFiles(head ActivityEntry, end *ActivityEntry) []string {
+	files := head.Activity.Files
+	if end != nil && len(end.Activity.Files) > 0 {
+		files = end.Activity.Files
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
+}
+
+// toolLineText is the one line a tool call renders as: the glyph, the name,
+// the argument, the state and the duration. The state comes from the
+// completion; without it the call reads as started and keeps a live age.
+func toolLineText(head ActivityEntry, end *ActivityEntry, now time.Time) string {
+	name := head.Activity.Tool
+	if name == "" && end != nil {
+		name = end.Activity.Tool
+	}
+	if name == "" {
+		name = "tool unknown"
+	}
+	state := head.Activity.State
+	if end != nil {
+		state = end.Activity.State
+	}
+	parts := []string{firstLine(Sanitize(name))}
+	if argument := toolArgument(head, end); argument != "" {
+		parts = append(parts, argument)
+	}
+	parts = append(parts, activityStateLabel(agentio.Activity{Kind: agentio.ActivityKindTool, State: state}))
+	parts = append(parts, toolDuration(head, end, now))
+	return "⚙ " + strings.Join(parts, " · ")
+}
+
+// toolArgument is the argument of the one-line summary: the command of the
+// call, or the notable input value a stream reports for other tools.
+func toolArgument(head ActivityEntry, end *ActivityEntry) string {
+	if head.Activity.Command != "" {
+		return firstLine(Sanitize(head.Activity.Command))
+	}
+	if end != nil && end.Activity.Command != "" {
+		return firstLine(Sanitize(end.Activity.Command))
+	}
+	input := head.Activity.Input
+	if len(input) == 0 && end != nil {
+		input = end.Activity.Input
+	}
+	for _, key := range []string{"file_path", "path", "command", "pattern", "query", "url"} {
+		if value := strValue(input[key]); value != "" {
+			return firstLine(Sanitize(value))
+		}
+	}
+	return ""
+}
+
+// toolDuration is the age of a tool call: from its start to its completion,
+// or to now while it runs. An unknown time reads as unknown, not as zero.
+func toolDuration(head ActivityEntry, end *ActivityEntry, now time.Time) string {
+	if head.At.IsZero() || (end == nil && head.Activity.State != agentio.ActivityStateRunning) {
+		return "?"
+	}
+	finish := now
+	if end != nil && !end.At.IsZero() {
+		finish = end.At
+	}
+	if finish.After(head.At) {
+		return formatUnitDuration(finish.Sub(head.At))
+	}
+	return "0.0s"
+}
+
+// truncatedTailLines names where a message clipped at the in-memory limit
+// continues, and shows the open page of its original call log.
+func (m Model) truncatedTailLines(unit string, entry ActivityEntry, width int) []string {
+	var lines []string
+	lines = append(lines, fmt.Sprintf("message text truncated at %d bytes; press ] to read the original call log", activityMessageLimit))
+	if page := m.pages[activityPageKey(unit, entry)]; page != nil {
+		if page.Err != "" {
+			lines = append(lines, "message log: "+page.Err)
+		} else if page.Text != "" {
+			lines = append(lines, "original call log (page):")
+			lines = append(lines, page.Text)
+			lines = append(lines, fmt.Sprintf("page %d-%d of %d bytes; [ and ] page; %s", page.Skip, page.End, page.Total, page.Path))
+		}
+	}
+	var wrapped []string
+	for _, line := range lines {
+		wrapped = append(wrapped, wrapLine(Sanitize(line), width)...)
+	}
+	return wrapped
 }
 
 func entryTimeText(entry ActivityEntry) string {
@@ -1272,18 +1530,6 @@ func (m Model) entryBody(unit string, entry ActivityEntry, width int) []string {
 	if activity.Text != "" {
 		add(Sanitize(activity.Text))
 	}
-	if entry.Truncated {
-		add(fmt.Sprintf("message text truncated at %d bytes; press ] to read the original call log", activityMessageLimit))
-		if page := m.pages[activityPageKey(unit, entry)]; page != nil {
-			if page.Err != "" {
-				add("message log: " + page.Err)
-			} else if page.Text != "" {
-				add("original call log (page):")
-				add(page.Text)
-				add(fmt.Sprintf("page %d-%d of %d bytes; [ and ] page; %s", page.Skip, page.End, page.Total, page.Path))
-			}
-		}
-	}
 	if activity.Raw != "" && activity.Kind == agentio.ActivityKindUnknown {
 		add("raw: " + Sanitize(activity.Raw))
 	}
@@ -1348,7 +1594,7 @@ func (m Model) syncActivityScroll() Model {
 	offset := len(m.streamHeaderLines(width)) + 1
 	start := offset + section.starts[cursor]
 	end := offset + section.ends[cursor]
-	body := m.paneContentHeight()
+	body := m.streamBodyHeight()
 	if m.followActivity {
 		m.streamTop = max(0, len(m.streamLines(width))-body)
 	} else {
@@ -1356,7 +1602,7 @@ func (m Model) syncActivityScroll() Model {
 			m.streamTop = start
 		}
 		if end > m.streamTop+body {
-			m.streamTop = end - body
+			m.streamTop = min(start, end-body)
 		}
 	}
 	return m.clampStreamTop()

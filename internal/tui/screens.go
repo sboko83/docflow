@@ -33,6 +33,9 @@ func (m Model) switchScreen(target screen) Model {
 	m.screen = target
 	switch target {
 	case screenRun:
+		// The stream is what the reader comes for: the units pane is the
+		// summary beside it, reached with Tab.
+		m.focus = focusDetails
 		return m.syncActivityScroll()
 	case screenProject:
 		// The tree is where a screen switch lands: the stream and the
@@ -117,7 +120,7 @@ func (m Model) keysLine(width int) string {
 			keys = []string{"↑↓ move", "Tab panel", "Space on/off", "←→ budget", "Enter models"}
 		}
 	case screenRun:
-		keys = []string{"↑↓ move", "Enter expand", "[ ] page", "d diff", "v verify"}
+		keys = []string{"↑↓ move", "Enter expand", "[ ] page", "Tab panel", "t fold"}
 	}
 	keys = append(keys, "? помощь")
 	// A narrow footer drops keys from the right but never the help: it is the
@@ -175,14 +178,22 @@ func (m Model) screenHelp() []string {
 			"PgUp/PgDn    move one page; Home/End first or last observation",
 			"Enter        expand or collapse an observation",
 			"[ ]          page a large result or message from its call log",
+			"t            fold every reasoning block to its first line and back",
 			"f, End, G    follow the newest observation; G jumps to the last",
 			"/            search the stream; Esc clears the search",
+			"Tab          the stream and the units pane; narrow: the one panel",
 			"d            show the actual git diff of the working tree",
 			"v            show the last verify log of the selected unit",
 			"Esc          close the overlay or return to the Проект screen",
 			"",
-			"The stream belongs to the unit selected on the Проект screen.",
-			"Press 1 to choose another unit, 3 to come back.",
+			"The line above the panes sums the run: the plan, the run time, the",
+			"unit n/m, the attempt k/N, the tokens of the usage observations",
+			"(unknown as ?, never a zero) and the current route. The left pane",
+			"lists the units with status, duration and route, and the stages of",
+			"the current unit the runner reached: prompt · work · verify · done ·",
+			"commit. Reasoning reads in full, dimmed; a tool call is one line and",
+			"Enter opens its result by pages; ✎ names a changed file. The stream",
+			"belongs to the unit selected on the Проект screen; press 1, then 3.",
 		}
 	}
 	return []string{
@@ -210,11 +221,22 @@ func (m Model) placeholderLines(width, height int) []string {
 	return m.messageLines(width, height, "пока пусто", hint, footer)
 }
 
-// streamWidth is the width of the run pane content. The run screen is one
-// full-width panel at every terminal size.
+// streamWidth is the width of the stream pane content. The run screen shows
+// the units of the plan beside the stream from 100 columns; below that the
+// stream is the one panel and Tab switches to the units.
 func (m Model) streamWidth() int {
 	width, _ := m.size()
-	return width
+	if m.singlePanel() {
+		return width
+	}
+	left := width * 2 / 5
+	if left < 24 {
+		left = 24
+	}
+	if width-left-1 < minWidth/2 {
+		left = width * 3 / 5
+	}
+	return width - left - 1
 }
 
 // streamHeaderLines is everything above the observation list on the run
@@ -269,10 +291,18 @@ func (m Model) visibleStreamLines(width int) []string {
 	return lines[offset:]
 }
 
+// streamBodyHeight is the height of the stream pane content on the run
+// screen: the pane title and the run summary line above the panes are not
+// stream lines, and every scroll step of the stream uses it.
+func (m Model) streamBodyHeight() int {
+	width, _ := m.size()
+	return max(0, m.paneContentHeight()-len(m.runHeaderLines(width, m.bodyHeight())))
+}
+
 // maxStreamTop is the last scroll offset that still leaves content in the
 // stream pane.
 func (m Model) maxStreamTop(lines []string) int {
-	maxTop := len(lines) - m.paneContentHeight()
+	maxTop := len(lines) - m.streamBodyHeight()
 	if maxTop < 0 {
 		maxTop = 0
 	}

@@ -43,7 +43,10 @@ func streamEvent(unit string, attempt int, log string) runner.Event {
 }
 
 func attemptEvent(unit string, n int, log string) runner.Event {
-	return runner.Event{Type: "attempt", Unit: unit, Fields: map[string]any{"n": float64(n), "log": log}}
+	return runner.Event{Type: "attempt", Unit: unit, Fields: map[string]any{
+		"n": float64(n), "log": log,
+		"route": map[string]any{"agent": "pi", "model": "glm-5.3", "effort": "max"},
+	}}
 }
 
 func activityEvent(unit string, activity agentio.Activity) runner.Event {
@@ -122,7 +125,7 @@ func TestActivityHistoryMixedCLIs(t *testing.T) {
 	})
 
 	unit := "P001.1.2"
-	events := []runner.Event{streamEvent(unit, 1, codexLog)}
+	events := []runner.Event{attemptEvent(unit, 1, codexLog)}
 	for _, activity := range codex {
 		events = append(events, activityEvent(unit, activity))
 	}
@@ -140,16 +143,24 @@ func TestActivityHistoryMixedCLIs(t *testing.T) {
 	model = openStream(t, model)
 	rendered := model.String()
 	for _, want := range []string{
-		"in the stream", "tool Bash started", "tool Bash done", "tool bash started", "tool bash done",
-		"message", "reasoning", "stderr", "usage", "unknown event", "pi/glm-5.3 max", "warning: red",
+		"in the stream", "attempt 1 · pi/glm-5.3 max",
+		"⚙ Bash", "go test ./...", "⚙ bash", "ls", "⚙ Bash · pwd",
+		"done", "thinking hard", "stderr", "usage", "unknown event", "warning: red",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered history lacks %q:\n%s", want, rendered)
 		}
 	}
-	// An unconfirmed outcome is never presented as success.
-	if strings.Contains(rendered, "tool Bash done · pi/glm-5.3 max") && strings.Count(rendered, "done") < 1 {
-		t.Fatalf("unexpected tool state in:\n%s", rendered)
+	// Every tool call is one line naming its final state; the started
+	// halves the stream reported are folded into it, and an unconfirmed
+	// outcome never reads as success.
+	if strings.Count(rendered, "⚙ ") != 3 {
+		t.Fatalf("tool calls did not fold into one line each:\n%s", rendered)
+	}
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, "⚙ ") && strings.Contains(line, "go test ./...") && !strings.Contains(line, " · done · ") {
+			t.Fatalf("the completed call does not read as done: %q", line)
+		}
 	}
 	for _, line := range strings.Split(rendered, "\n") {
 		if strings.Contains(line, "\x1b[") {
@@ -306,7 +317,7 @@ func TestTruncatedStreamingMessagePagesOriginalCallLog(t *testing.T) {
 	if !entry.Truncated || page == nil || page.Err != "" || page.Total != len(body) || page.Text != first[:activityPageSize] {
 		t.Fatalf("truncated message page: truncated=%v page=%#v", entry.Truncated, page)
 	}
-	if rendered := strings.Join(model.entryBody(unit, entry, 120), "\n"); !strings.Contains(rendered, "message text truncated at 65536 bytes") || !strings.Contains(rendered, "original call log (page)") {
+	if rendered := strings.Join(model.activitySection(model.streamWidth()).lines, "\n"); !strings.Contains(rendered, "message text truncated at 65536 bytes") || !strings.Contains(rendered, "original call log (page)") {
 		t.Fatalf("truncated message details are not visible:\n%s", rendered)
 	}
 }
