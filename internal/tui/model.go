@@ -154,13 +154,19 @@ const (
 
 // Model is the Bubble Tea model of the plan workspace.
 type Model struct {
-	root           string
-	load           Loader
-	backlog        *format.DocflowFile
-	backlogCursor  int
-	backlogEdit    int
-	backlogCaret   int
-	planningPrompt string
+	pastRuns            []PastRun
+	pastCursor, pastTop int
+	pastErr             string
+	replay              *PastRun
+	replayUnit          string
+	liveHistory         *ActivityHistory
+	root                string
+	load                Loader
+	backlog             *format.DocflowFile
+	backlogCursor       int
+	backlogEdit         int
+	backlogCaret        int
+	planningPrompt      string
 
 	state    State
 	snapshot Snapshot
@@ -339,6 +345,32 @@ func loadCmd(load Loader) tea.Cmd {
 // Update handles terminal size, loaded state, and key presses.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case pastRunsMsg:
+		m.pastRuns = msg.runs
+		m.pastCursor = min(m.pastCursor, max(0, len(msg.runs)-1))
+		m.pastErr = ""
+		if msg.err != nil {
+			m.pastErr = msg.err.Error()
+		}
+		return m, nil
+	case replayMsg:
+		if msg.err != nil {
+			m.notice = msg.err.Error()
+			return m, nil
+		}
+		m = m.leaveReplay()
+		m.liveHistory, m.history, m.replay = m.history, msg.history, &msg.run
+		m = m.resetStreamReading()
+		m.replayUnit = ""
+		if len(msg.run.Units) > 0 {
+			m.replayUnit = msg.run.Units[0]
+		}
+		m.activityCursor, m.streamTop = 0, 0
+		m.activityQuery = ""
+		m.followActivity = false
+		m.screen, m.focus = screenRun, focusDetails
+		m.notice = "Режим просмотра · Esc история"
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -395,6 +427,13 @@ func (m Model) ApplyEvent(event runner.Event) Model {
 }
 
 func (m Model) applyEvent(event runner.Event) Model {
+	if m.replay != nil {
+		if m.liveHistory == nil {
+			m.liveHistory = NewActivityHistory(activityHistoryLimit)
+		}
+		m.liveHistory.Add(event)
+		return m
+	}
 	if m.history == nil {
 		m.history = NewActivityHistory(activityHistoryLimit)
 	}
@@ -431,6 +470,9 @@ func (m Model) followView() Model {
 
 // selectedUnit returns the id of the selected unit row, or an empty string.
 func (m Model) selectedUnit() string {
+	if m.replay != nil {
+		return m.replayUnit
+	}
 	selected, ok := m.selectedRow()
 	if !ok || selected.kind != rowUnit {
 		return ""

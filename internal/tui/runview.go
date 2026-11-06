@@ -267,6 +267,9 @@ func formatUnitDuration(d time.Duration) string {
 // runOverviewNow is the overview of the current workspace state. Rendering
 // derives every line of the run screen from it.
 func (m Model) runOverviewNow() runOverview {
+	if m.replay != nil {
+		return m.replayOverview()
+	}
 	now := m.nowTime()
 	var plan *PlanView
 	if id := runPlanID(m.history); id != "" {
@@ -343,7 +346,7 @@ func (m Model) runSummaryLine() string {
 	if overview.HasRoute {
 		route = overview.Route.String()
 	}
-	return strings.Join([]string{plan, elapsed, unit, attempt, tokens, route}, " · ")
+	return Sanitize(strings.Join([]string{plan, elapsed, unit, attempt, tokens, route}, " · "))
 }
 
 // unitStatusGlyph is the run pane's status of one unit: the plan status
@@ -415,7 +418,7 @@ func (m Model) runUnitsLines(width, height int) []string {
 		if view.HasRoute {
 			route = view.Route.String()
 		}
-		line := fmt.Sprintf("%s%s %-10s %-7s %s", marker, unitStatusGlyph(view, current), view.ID, duration, route)
+		line := Sanitize(fmt.Sprintf("%s%s %-10s %-7s %s", marker, unitStatusGlyph(view, current), view.ID, duration, route))
 		style := styles.unit
 		switch {
 		case current || view.Status == "~":

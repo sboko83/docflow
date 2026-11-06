@@ -24,6 +24,9 @@ func (m Model) switchScreen(target screen) Model {
 	if m.screen == target {
 		return m
 	}
+	if target != screenRun {
+		m = m.leaveReplay()
+	}
 	if target != screenRoster && m.overlay == overlayRosterModels {
 		// The model list belongs to the roster screen: another screen has no
 		// pane that could show it.
@@ -40,6 +43,8 @@ func (m Model) switchScreen(target screen) Model {
 	case screenProject:
 		// The tree is where a screen switch lands: the stream and the
 		// placeholders have no panel of their own to keep focus on.
+		m.focus = focusTree
+	case screenHistory:
 		m.focus = focusTree
 	}
 	return m
@@ -121,6 +126,8 @@ func (m Model) keysLine(width int) string {
 		}
 	case screenRun:
 		keys = []string{"↑↓ move", "Enter expand", "[ ] page", "Tab panel", "t fold"}
+	case screenHistory:
+		keys = []string{"↑↓ move", "Enter replay", "Tab panel", "r reload"}
 	}
 	keys = append(keys, "? помощь")
 	// A narrow footer drops keys from the right but never the help: it is the
@@ -168,9 +175,10 @@ func (m Model) screenHelp() []string {
 		}
 	case screenHistory:
 		return []string{
-			"Past runs and their streams are not wired into the workspace yet.",
-			"The screen is a placeholder: run journals stay under <git-dir>/docflow/run.",
-			"Starting, pausing and stopping a run works from here as from any screen.",
+			"↑↓ / PgUp/PgDn / Home/End select a past run, newest first.",
+			"Tab switches the list and its scrollable summary; Enter replays the stream.",
+			"Replay: Tab then ↑↓ selects a unit; Esc returns to history.",
+			"Run controls refuse in replay; 1 returns to the live workspace. r reloads journals.",
 		}
 	case screenRun:
 		return []string{
@@ -246,6 +254,9 @@ func (m Model) streamWidth() int {
 // streamHeaderLines is everything above the observation list on the run
 // screen; the stream scroll offset counts from here.
 func (m Model) streamHeaderLines(width int) []string {
+	if m.replay != nil {
+		return m.replayHeader()
+	}
 	styles := newStyles(m.noColor)
 	selected, ok := m.selectedRow()
 	if !ok || selected.kind != rowUnit {

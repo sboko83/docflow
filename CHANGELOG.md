@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docflow tui` lists past runs with outcome, retries, route changes and
+  token summaries. Enter replays their agent streams without a live plan;
+  missing call logs leave an unavailable block and run controls are refused.
 - `docflow tui` edits multiline Backlog tasks with `b`, `+`, `Enter` and
   `D`; `P` opens the roster's planning agent in its interactive CLI and
   reloads the workspace on return. An unavailable CLI leaves a copyable
@@ -27,8 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `docflow tui` is a four-screen workspace: `1`–`4` switch Проект (the tree
-  and the unit card), Ростер (the roster workspace), История (a placeholder
-  for now) and Прогон (the live stream of the selected unit); the footer
+  and the unit card), Ростер (the roster workspace), Прогон (the live
+  stream of the selected unit) and История (past runs and replay); the footer
   names the keys of the current screen and `?` opens the help of that
   screen with the shared keys in their own block.
 

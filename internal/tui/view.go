@@ -102,6 +102,9 @@ func (m Model) render() string {
 		}
 	}
 	// Project actions remain usable with an empty queue or a broken plan.
+	if !m.help && m.dialog == dialogNone && (m.screen == screenHistory || m.replay != nil) {
+		body = m.screenBody(width, bodyHeight)
+	}
 	if m.dialog != dialogNone {
 		body = m.dialogLinesView(width, bodyHeight)
 	}
@@ -124,7 +127,7 @@ func tooSmall(width, height int) bool { return width < minWidth || height < minH
 func (m Model) screenBody(width, height int) []string {
 	switch m.screen {
 	case screenHistory:
-		return m.placeholderLines(width, height)
+		return m.historyBody(width, height)
 	case screenRoster:
 		return m.rosterBody(width, height)
 	case screenRun:

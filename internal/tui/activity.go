@@ -1575,8 +1575,7 @@ func sanitizePath(path string) string {
 // live run is doing.
 func (m Model) syncActivityScroll() Model {
 	m.syncActivityCursor()
-	selected, ok := m.selectedRow()
-	if !ok || selected.kind != rowUnit {
+	if m.selectedUnit() == "" {
 		return m.clampStreamTop()
 	}
 	width := m.streamWidth()

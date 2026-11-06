@@ -67,6 +67,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.searching {
 		return m.handleSearchKey(msg)
 	}
+	if m.replay != nil && replayControl(key) {
+		m.notice = "Режим просмотра: управление недоступно; 1 Проект для живого прогона"
+		return m, nil
+	}
+	if m.replay != nil && key == "esc" && m.overlay == overlayNone && m.activityQuery == "" {
+		return m.leaveReplay().switchScreen(screenHistory), nil
+	}
 	if key == "/" {
 		if m.screen == screenRun {
 			m.searching = true
@@ -89,6 +96,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if model.screen == screenRoster && model.rosterPhase == rosterIdle {
 			return model.startRoster()
 		}
+		if model.screen == screenHistory {
+			return model, pastRunsCmd(model.root)
+		}
 		return model, nil
 	}
 	if m.help {
@@ -105,6 +115,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.help = true
 		return m, nil
 	case "r":
+		if m.screen == screenHistory {
+			return m, pastRunsCmd(m.root)
+		}
 		m.state = StateLoading
 		m.errText = ""
 		m.notice = reloadingText
@@ -175,13 +188,18 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch m.screen {
 	case screenHistory:
-		// The history screen keeps its keys to the tabs, the run controls
-		// and the help.
-		return m, nil
+		return m.historyKey(key)
 	case screenRoster:
 		return m.handleRosterKey(key)
 	case screenRun:
-		return m.handleStreamKey(key), nil
+		if m.replay != nil && m.focus == focusTree {
+			return m.replayUnitKey(key), nil
+		}
+		model := m.handleStreamKey(key)
+		if model.screen != screenRun && model.replay != nil {
+			model = model.leaveReplay().switchScreen(screenHistory)
+		}
+		return model, nil
 	}
 	if key == "A" && m.overlay == overlayNone {
 		return m.openApplyDialog(), nil
@@ -685,6 +703,13 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) switchPanel() Model {
 	switch m.screen {
+	case screenHistory:
+		if m.focus == focusTree {
+			m.focus = focusDetails
+		} else {
+			m.focus = focusTree
+		}
+		return m
 	case screenRoster:
 		// The three panels cycle: variants, accesses, chains.
 		switch m.rosterPanel {
