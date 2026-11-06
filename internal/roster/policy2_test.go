@@ -140,6 +140,7 @@ func TestPolicyV2Fixture(t *testing.T) {
 	}
 	wantLow := Preset{
 		Name:    "low",
+		Source:  SourcePolicy,
 		Off:     []string{"claude", "local"},
 		Lean:    []string{"zai"},
 		Minimal: []string{"codex"},

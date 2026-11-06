@@ -78,8 +78,11 @@ type Access struct {
 // access carries at most one of them per preset. Order lists the accesses
 // the preset puts first; the rest keep the policy file order. Models
 // narrows an access to the globs it names; an empty list allows none.
+// Source names the layer that defines the preset: roster.toml, the global
+// variants file or the project variants file.
 type Preset struct {
 	Name    string
+	Source  string
 	Off     []string
 	Lean    []string
 	Minimal []string
@@ -126,7 +129,9 @@ func (p *Policy) PresetNames() []string {
 }
 
 // LoadPolicy reads and validates the v2 policy at path ("" means
-// DefaultPath); the v1 format is read by Migrate alone.
+// DefaultPath) and merges the preset variants over it: the global file
+// next to the policy and the project file of the current checkout. The v1
+// format is read by Migrate alone.
 func LoadPolicy(path string) (*Policy, error) {
 	if path == "" {
 		path = DefaultPath()
@@ -136,7 +141,11 @@ func LoadPolicy(path string) (*Policy, error) {
 	if err != nil {
 		return nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster file: %v", err), Code: clierrors.EXIT_FORMAT}
 	}
-	return ParsePolicy(path, string(text))
+	policy, err := ParsePolicy(path, string(text))
+	if err != nil {
+		return nil, err
+	}
+	return mergeVariants(policy)
 }
 
 // ParsePolicy parses and validates v2 policy text; path only locates the
@@ -401,34 +410,41 @@ func (p *Policy) parsePresets(index *lineIndex, value any) error {
 		if !ok {
 			return failAt(p.Path, index, "preset", name, "preset %s must be a [preset.%s] table", name, name)
 		}
-		preset, err := p.parsePreset(index, name, section)
+		preset, err := parsePresetSection(p, p.Path, index, name, section)
 		if err != nil {
 			return err
 		}
+		preset.Source = SourcePolicy
 		p.Presets = append(p.Presets, preset)
 	}
 	return nil
 }
 
-func (p *Policy) parsePreset(index *lineIndex, name string, section map[string]any) (Preset, error) {
+// parsePresetSection reads one [preset.NAME] section: the grammar is the
+// same in roster.toml and in a variants file. A nil policy parses the
+// grammar alone, without resolving access names: SaveVariants re-reads a
+// file it wrote and has no policy to resolve against.
+func parsePresetSection(policy *Policy, path string, index *lineIndex, name string, section map[string]any) (Preset, error) {
 	tablePath := "preset." + name
 	preset := Preset{Name: name}
-	conditions := make(map[string]string, len(p.Accesses))
+	conditions := make(map[string]string, len(section))
 	for _, key := range index.keysByLine(tablePath, section) {
 		value := section[key]
 		switch key {
 		case "off", "lean", "minimal", "prefer", "order":
 			items, ok := value.([]any)
 			if !ok {
-				return preset, failAt(p.Path, index, tablePath, key, "preset %s: %s must be an array of access names", name, key)
+				return preset, failAt(path, index, tablePath, key, "preset %s: %s must be an array of access names", name, key)
 			}
 			list, err := nameList(items)
 			if err != nil {
-				return preset, failAt(p.Path, index, tablePath, key, "preset %s: %s: %v", name, key, err)
+				return preset, failAt(path, index, tablePath, key, "preset %s: %s: %v", name, key, err)
 			}
-			for _, access := range list {
-				if _, ok := p.Access(access); !ok {
-					return preset, failAt(p.Path, index, tablePath, key, "preset %s: %s: unknown access '%s' (known: %s)", name, key, access, strings.Join(p.AccessNames(), ", "))
+			if policy != nil {
+				for _, access := range list {
+					if _, ok := policy.Access(access); !ok {
+						return preset, failAt(path, index, tablePath, key, "preset %s: %s: unknown access '%s' (known: %s)", name, key, access, strings.Join(policy.AccessNames(), ", "))
+					}
 				}
 			}
 			switch key {
@@ -448,21 +464,21 @@ func (p *Policy) parsePreset(index *lineIndex, name string, section map[string]a
 			}
 			for _, access := range list {
 				if previous, repeated := conditions[access]; repeated {
-					return preset, failAt(p.Path, index, tablePath, key, "preset %s: access '%s' is listed in both %s and %s", name, access, previous, key)
+					return preset, failAt(path, index, tablePath, key, "preset %s: access '%s' is listed in both %s and %s", name, access, previous, key)
 				}
 				conditions[access] = key
 			}
-			if key == "minimal" {
+			if key == "minimal" && policy != nil {
 				for _, access := range list {
-					if known, ok := p.Access(access); ok && !known.Trusted {
-						return preset, failAt(p.Path, index, tablePath, key, "preset %s: minimal access '%s' is not trusted", name, access)
+					if known, ok := policy.Access(access); ok && !known.Trusted {
+						return preset, failAt(path, index, tablePath, key, "preset %s: minimal access '%s' is not trusted", name, access)
 					}
 				}
 			}
 		case "models":
 			models, ok := value.(map[string]any)
 			if !ok {
-				return preset, failAt(p.Path, index, tablePath, key, "preset %s: models must be a table of access = [model globs]", name)
+				return preset, failAt(path, index, tablePath, key, "preset %s: models must be a table of access = [model globs]", name)
 			}
 			modelsPath := tablePath + ".models"
 			preset.Models = make(map[string][]string, len(models))
@@ -471,17 +487,19 @@ func (p *Policy) parsePreset(index *lineIndex, name string, section map[string]a
 				if line == 0 {
 					line = index.line(tablePath, "models")
 				}
-				if _, ok := p.Access(access); !ok {
-					return preset, failAtLine(p.Path, line, "preset %s: models: unknown access '%s'", name, access)
+				if policy != nil {
+					if _, ok := policy.Access(access); !ok {
+						return preset, failAtLine(path, line, "preset %s: models: unknown access '%s'", name, access)
+					}
 				}
 				globs, err := globList(models[access])
 				if err != nil {
-					return preset, failAtLine(p.Path, line, "preset %s: models.%s: %v", name, access, err)
+					return preset, failAtLine(path, line, "preset %s: models.%s: %v", name, access, err)
 				}
 				preset.Models[access] = globs
 			}
 		default:
-			return preset, failAt(p.Path, index, tablePath, key, "unknown key '%s' in [preset.%s]", key, name)
+			return preset, failAt(path, index, tablePath, key, "unknown key '%s' in [preset.%s]", key, name)
 		}
 	}
 	return preset, nil

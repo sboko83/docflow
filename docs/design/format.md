@@ -14,8 +14,9 @@
 
 ```
 docs/
-  docflow.md        # версия формата, очередь, backlog
-  architecture.md   # жанр bsv-docs
+  docflow.md            # версия формата, очередь, backlog
+  architecture.md       # жанр bsv-docs
+  roster.variants.toml  # необязательные пресеты ростера проекта, машинный файл
   plans/Pxxx-slug.md
   archive/Pxxx-slug.md
 ```

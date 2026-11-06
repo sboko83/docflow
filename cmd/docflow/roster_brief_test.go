@@ -102,6 +102,35 @@ func TestRosterBriefPresetChains(t *testing.T) {
 	}
 }
 
+// TestRosterBriefProjectVariant checks that a preset committed in
+// docs/roster.variants.toml is visible to --preset inside the checkout and
+// unknown outside it: the project layer is the current checkout, not a
+// global file.
+func TestRosterBriefProjectVariant(t *testing.T) {
+	rosterBriefEnv(t)
+	project := t.TempDir()
+	writeLifecycleFile(t, project, "docs/docflow.md", lifecycleDocflow(nil, nil))
+	writeLifecycleFile(t, project, "docs/roster.variants.toml", "version = 2\n\n[preset.project-low]\n"+
+		"off = [\"claude\", \"local\"]\nlean = [\"zai\"]\nminimal = [\"codex\"]\n"+
+		"prefer = [\"opencode-go\"]\norder = [\"opencode-go\", \"zai\", \"codex\"]\n"+
+		"models = { zai = [\"*flash*\"] }\n")
+
+	code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "brief", "--preset", "project-low")
+	if code != 2 || !strings.Contains(stderr, "unknown preset 'project-low'") {
+		t.Fatalf("brief outside the project = (%d, %q), want the unknown preset", code, stderr)
+	}
+	code, stdout, stderr := callLifecycleCLI(t, project, "roster", "brief", "--preset", "project-low")
+	if code != 0 || stderr != "" {
+		t.Fatalf("roster brief --preset project-low = (%d, %q, %q)", code, stdout, stderr)
+	}
+	got := briefChains(t, stdout)
+	for role, want := range scenarioChains {
+		if got[role] != want {
+			t.Errorf("%s chain = %q, want %q", role, got[role], want)
+		}
+	}
+}
+
 // TestRosterBriefOneShotFlags checks that the in-memory flags produce the
 // same chains as the preset they spell out and that they write no state.
 func TestRosterBriefOneShotFlags(t *testing.T) {
