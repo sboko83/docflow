@@ -12,6 +12,7 @@ import (
 
 // KeyMap is the keyboard contract shown by help and exercised by tests.
 type KeyMap struct {
+	Screens []string
 	Move    []string
 	Expand  []string
 	Panel   []string
@@ -29,6 +30,7 @@ type KeyMap struct {
 
 // Keys is the workspace key map.
 var Keys = KeyMap{
+	Screens: []string{"1", "2", "3", "4"},
 	Move:    []string{"up", "down", "k", "j", "pgup", "pgdown", "home", "end"},
 	Expand:  []string{"enter", "right", "left"},
 	Panel:   []string{"tab", "shift+tab"},
@@ -46,13 +48,8 @@ var Keys = KeyMap{
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
-	if m.help {
-		switch key {
-		case "?", "esc", "q", "enter":
-			m.help = false
-		}
-		return m, nil
-	}
+	// The model editor and the dialogs own the keyboard until they close:
+	// their text is not a screen switch.
 	if m.models != nil {
 		return m.handleModelsKey(msg)
 	}
@@ -66,7 +63,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSearchKey(msg)
 	}
 	if key == "/" {
-		if m.focus == focusDetails && m.hasActivity() {
+		if m.screen == screenRun {
 			m.searching = true
 			m.searchTarget = searchActivity
 			m.activityQuery = ""
@@ -78,6 +75,18 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.query = ""
 		m.recountMatches()
 		m.syncCursor()
+		return m, nil
+	}
+	// The screen keys work from anywhere the keyboard is not text, including
+	// an open help: the help then describes the screen just chosen.
+	if target, ok := screenForKey(key); ok {
+		return m.switchScreen(target), nil
+	}
+	if m.help {
+		switch key {
+		case "?", "esc", "q", "enter":
+			m.help = false
+		}
 		return m, nil
 	}
 	switch key {
@@ -93,15 +102,19 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.errText = ""
 		m.notice = reloadingText
 		return m, loadCmd(m.load)
-	case "tab":
-		return m.switchPanel(), nil
-	case "shift+tab":
+	case "tab", "shift+tab":
 		return m.switchPanel(), nil
 	case "s":
-		model, cmd, _ := m.startRun(false)
+		model, cmd, started := m.startRun(false)
+		if started && model.screen == screenProject {
+			model = model.switchScreen(screenRun)
+		}
 		return model, cmd
 	case "R":
-		model, cmd, _ := m.startRun(true)
+		model, cmd, started := m.startRun(true)
+		if started && model.screen == screenProject {
+			model = model.switchScreen(screenRun)
+		}
 		return model, cmd
 	case "p":
 		if m.controller == nil || m.controllerDone || m.runState != runner.StateRunning {
@@ -148,6 +161,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "C":
 		return m.lifecycleKey("close")
 	}
+	switch m.screen {
+	case screenRoster, screenHistory:
+		// Placeholder screens keep their keys to the tabs, the run controls
+		// and the help.
+		return m, nil
+	case screenRun:
+		return m.handleStreamKey(key), nil
+	}
 	if m.focus == focusDetails {
 		return m.handleDetailsKey(key), nil
 	}
@@ -174,41 +195,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleDetailsKey scrolls and opens the card of the project screen.
 func (m Model) handleDetailsKey(key string) Model {
 	if m.overlay != overlayNone {
-		switch key {
-		case "up", "k":
-			if m.detailTop > 0 {
-				m.detailTop--
-			}
-		case "down", "j":
-			m.detailTop++
-		case "pgup":
-			m.detailTop -= m.paneContentHeight()
-		case "pgdown":
-			m.detailTop += m.paneContentHeight()
-		case "home", "g":
-			m.detailTop = 0
-		case "end", "G":
-			m.detailTop = len(m.detailLines(m.detailWidth()))
-		case "[":
-			if m.overlay == overlayVerify {
-				return m.loadVerifyPage(m.verifySkip - activityPageSize)
-			}
-		case "]":
-			if m.overlay == overlayVerify {
-				return m.loadVerifyPage(m.verifySkip + activityPageSize)
-			}
-		case "esc", "enter", "d", "v":
-			m.overlay = overlayNone
-			m.diffText, m.diffErr, m.verifyText, m.verifyErr = "", "", "", ""
-			m.verifyLog, m.verifySkip, m.verifyTotal = "", 0, 0
-			m.detailTop = 0
-		}
-		return m.clampDetailTop()
-	}
-	if len(m.activityEntries(m.selectedUnit())) > 0 {
-		return m.handleActivityKey(key)
+		return m.handleOverlayKey(key)
 	}
 	switch key {
 	case "up", "k":
@@ -236,6 +226,83 @@ func (m Model) handleDetailsKey(key string) Model {
 		return m.switchPanel()
 	}
 	return m.clampDetailTop()
+}
+
+// handleStreamKey navigates the run screen: the diff and verify overlays and
+// the activity history of the selected unit.
+func (m Model) handleStreamKey(key string) Model {
+	if m.overlay != overlayNone {
+		return m.handleOverlayKey(key)
+	}
+	if len(m.activityEntries(m.selectedUnit())) > 0 {
+		return m.handleActivityKey(key)
+	}
+	// A unit without observations still answers the overlay keys and the way
+	// back to the project screen.
+	switch key {
+	case "esc":
+		m.screen = screenProject
+		m.focus = focusTree
+		return m
+	case "d":
+		return m.openDiff()
+	case "v":
+		return m.openVerify()
+	}
+	return m
+}
+
+// handleOverlayKey scrolls the open diff or verify overlay. The overlay owns
+// the pane it was opened in: the project card or the run stream.
+func (m Model) handleOverlayKey(key string) Model {
+	top := m.detailTop
+	if m.screen == screenRun {
+		top = m.streamTop
+	}
+	switch key {
+	case "up", "k":
+		top--
+	case "down", "j":
+		top++
+	case "pgup":
+		top -= m.paneContentHeight()
+	case "pgdown":
+		top += m.paneContentHeight()
+	case "home", "g":
+		top = 0
+	case "end", "G":
+		top = len(m.overlayOwnerLines())
+	case "[":
+		if m.overlay == overlayVerify {
+			m = m.loadVerifyPage(m.verifySkip - activityPageSize)
+		}
+	case "]":
+		if m.overlay == overlayVerify {
+			m = m.loadVerifyPage(m.verifySkip + activityPageSize)
+		}
+	case "esc", "enter", "d", "v":
+		m.overlay = overlayNone
+		m.diffText, m.diffErr, m.verifyText, m.verifyErr = "", "", "", ""
+		m.verifyLog, m.verifySkip, m.verifyTotal = "", 0, 0
+		top = 0
+	}
+	if top < 0 {
+		top = 0
+	}
+	if m.screen == screenRun {
+		m.streamTop = top
+		return m.clampStreamTop()
+	}
+	m.detailTop = top
+	return m.clampDetailTop()
+}
+
+// overlayOwnerLines is the overlay content in the pane that shows it.
+func (m Model) overlayOwnerLines() []string {
+	if m.screen == screenRun {
+		return m.streamLines(m.streamWidth())
+	}
+	return m.detailLines(m.detailWidth())
 }
 
 // handleActivityKey navigates the bounded activity history of the selected
@@ -275,7 +342,9 @@ func (m Model) handleActivityKey(key string) Model {
 			delete(m.expandedActivity, entryKey(unit, entries[m.activityCursor]))
 			return m.syncActivityScroll()
 		}
+		m.screen = screenProject
 		m.focus = focusTree
+		return m
 	case "[":
 		return m.pageActivity(unit, entries, -1)
 	case "]":
@@ -291,9 +360,9 @@ func (m Model) handleActivityKey(key string) Model {
 			m.followActivity = true
 			return m.syncActivityScroll()
 		}
+		m.screen = screenProject
 		m.focus = focusTree
-	case "tab", "shift+tab":
-		return m.switchPanel()
+		return m
 	}
 	return m.syncActivityScroll()
 }
@@ -353,7 +422,7 @@ func (m Model) pageActivity(unit string, entries []ActivityEntry, direction int)
 
 func (m Model) openDiff() Model {
 	m.overlay = overlayDiff
-	m.detailTop = 0
+	m.resetOverlayScroll()
 	text, err := ReadWorkingDiff(m.root)
 	if err != nil {
 		m.diffErr = err.Error()
@@ -366,7 +435,7 @@ func (m Model) openDiff() Model {
 
 func (m Model) openVerify() Model {
 	m.overlay = overlayVerify
-	m.detailTop = 0
+	m.resetOverlayScroll()
 	m.verifyText, m.verifyErr = "", ""
 	m.verifyLog, m.verifyRef, m.verifySkip, m.verifyTotal = "", agentio.ActivityRef{}, 0, 0
 	log, ref, problem := m.verifyReference(m.selectedUnit())
@@ -376,6 +445,16 @@ func (m Model) openVerify() Model {
 	}
 	m.verifyLog, m.verifyRef = log, ref
 	return m.loadVerifyPage(0)
+}
+
+// resetOverlayScroll puts an opened or closed overlay at its own start; the
+// other pane keeps the offset it had.
+func (m *Model) resetOverlayScroll() {
+	if m.screen == screenRun {
+		m.streamTop = 0
+		return
+	}
+	m.detailTop = 0
 }
 
 // verifyReference locates the last verify event of a unit and its bounded
@@ -522,6 +601,9 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) switchPanel() Model {
+	if m.screen != screenProject {
+		return m
+	}
 	if m.focus == focusTree {
 		m.focus = focusDetails
 	} else {

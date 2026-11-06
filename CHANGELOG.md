@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `docflow tui` is a four-screen workspace: `1`–`4` switch Проект (the tree
+  and the unit card), Ростер and История (placeholders for now) and Прогон
+  (the live stream of the selected unit); the footer names the keys of the
+  current screen and `?` opens the help of that screen with the shared keys
+  in their own block.
+
 ### Fixed
 - `docflow stats --runs` counts rework in the nested repositories of a plan
   with `repos:`, not only in the root repository, where such units change

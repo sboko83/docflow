@@ -990,8 +990,10 @@ func TestAcceptancePauseChildProcessAndChangedAssignment(t *testing.T) {
 	p.waitFakeCalls(1, 20*time.Second)
 
 	// The running tool is the newest entry; its page reads the live call log
-	// before the call has returned.
+	// before the call has returned. The stream of the selected unit is the
+	// Прогон screen.
 	tui.selectUnit("P001.1.1")
+	tui.send("3")
 	tui.waitFor("TOOL-RUNNING-MARKER", 20*time.Second)
 	// The incomplete line is on disk before the page is opened, so the live
 	// read sees the current tail rather than a finished result.
@@ -1132,6 +1134,7 @@ func TestAcceptancePauseChildProcessAndChangedAssignment(t *testing.T) {
 	// The finished unit keeps its call history, its verify result and the
 	// working-tree diff.
 	tui.selectUnit("P001.1.1")
+	tui.send("3")
 	tui.waitFor("work done", 10*time.Second)
 	tui.send("v")
 	tui.waitFor("VERIFY-MARKER-OK", 10*time.Second)
@@ -1359,6 +1362,7 @@ func TestAcceptanceAssignmentsFallbackAndLimits(t *testing.T) {
 	}
 
 	tui.selectUnit("P001.1.1")
+	tui.send("3")
 	tui.waitFor("claude | model-b | low", 10*time.Second)
 	tui.waitFor("tokens in unknown", 10*time.Second)
 	tui.quit()
@@ -1619,6 +1623,7 @@ func TestAcceptanceLargeStreamAndUnknownEvents(t *testing.T) {
 	}
 
 	tui.selectUnit("P001.1.1")
+	tui.send("3")
 	tui.send("/")
 	tui.send("unknown-1199")
 	tui.send(keyEnter)
@@ -1629,7 +1634,7 @@ func TestAcceptanceLargeStreamAndUnknownEvents(t *testing.T) {
 	tui.send("g")
 	tui.waitFor("paused: new events do not move the view", 10*time.Second)
 	tui.send("G")
-	tui.waitFor("following the newest event", 10*time.Second)
+	tui.waitFor("following the newest observation", 10*time.Second)
 	tui.send(keyEsc)
 	tui.quit()
 }

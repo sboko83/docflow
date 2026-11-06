@@ -19,10 +19,10 @@ func messageEvents(unit, prefix string, n int) []runner.Event {
 	return events
 }
 
-// TestFollowMovesDetailsWithoutFocus keeps the visible Details pane on the
-// newest observation while the tree has focus, and a switch to Details on a
+// TestFollowMovesTheStreamWithoutFocus keeps the stream on the newest
+// observation while the tree has focus, and a switch to the stream on a
 // narrow terminal shows the newest window at once.
-func TestFollowMovesDetailsWithoutFocus(t *testing.T) {
+func TestFollowMovesTheStreamWithoutFocus(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	root := writeTestProject(t)
 	model := resize(t, loadedModel(t, root), 120, 40)
@@ -30,19 +30,24 @@ func TestFollowMovesDetailsWithoutFocus(t *testing.T) {
 	if model.focus != focusTree {
 		t.Fatalf("focus = %v, want the tree", model.focus)
 	}
+	// Follow keeps the stream current while the reader is still on the
+	// project screen: switching to it must not show a stale window.
 	model = addEvents(model, messageEvents("P001.1.2", "entry", 60)...)
+	model = send(t, model, keyMsg("3"))
 	rendered := model.String()
 	if !strings.Contains(rendered, "entry-59") || strings.Contains(rendered, "entry-00") {
-		t.Fatalf("follow left the Details pane behind with the tree focused:\n%s", rendered)
+		t.Fatalf("follow left the stream behind while the tree had the focus:\n%s", rendered)
 	}
 
+	// The same holds on a narrow terminal, where the stream is the whole
+	// screen instead of the details pane.
 	narrow := resize(t, loadedModel(t, root), 80, 40)
 	narrow = selectRow(t, narrow, "unit:P001.1.2")
 	narrow = addEvents(narrow, messageEvents("P001.1.2", "entry", 60)...)
-	narrow = send(t, narrow, keyMsg("tab"))
+	narrow = send(t, narrow, keyMsg("3"))
 	rendered = narrow.String()
 	if !strings.Contains(rendered, "entry-59") || strings.Contains(rendered, "entry-00") {
-		t.Fatalf("Tab showed a stale Details window:\n%s", rendered)
+		t.Fatalf("the narrow stream opened a stale window:\n%s", rendered)
 	}
 }
 
@@ -82,6 +87,15 @@ func TestDialogKeysStayOnSmallScreen(t *testing.T) {
 	}
 
 	human, _ := humanBlockModel(t, newFakeController(runner.StateIdle))
+	// At the minimum size the notice leaves two body lines: the note the
+	// person types keeps one of them.
+	minimum := resize(t, human, 32, 10)
+	assertScreenFits(t, minimum.String(), 32, 10)
+	for _, want := range []string{"note: вошёл", "Enter unblocks"} {
+		if !strings.Contains(minimum.String(), want) {
+			t.Fatalf("human dialog lost %q at 32x10:\n%s", want, minimum.String())
+		}
+	}
 	human = resize(t, human, 40, 12)
 	rendered = human.String()
 	assertScreenFits(t, rendered, 40, 12)
@@ -135,7 +149,7 @@ func TestHistoryKeepsTheLogOfItsOwnCall(t *testing.T) {
 	if cursor < 0 {
 		t.Fatalf("pre-pause entry missing: %#v", entries)
 	}
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model.activityCursor = cursor
 	model.followActivity = false
 	model = send(t, model, keyMsg("enter"))
@@ -154,14 +168,14 @@ func TestFilteredSelectionFollowsTheNewUnit(t *testing.T) {
 	model = addEvents(model, messageEvents("P001.1.1", "one", 20)...)
 	model = selectRow(t, model, "unit:P001.1.2")
 	model = addEvents(model, messageEvents("P001.1.2", "two", 8)...)
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	for i := 0; i < 3; i++ {
 		model = send(t, model, keyMsg("up"))
 	}
 	if model.followActivity {
 		t.Fatal("reading older history did not pause follow")
 	}
-	model = send(t, model, keyMsg("tab"))
+	model = send(t, model, keyMsg("1"))
 	model = send(t, model, keyMsg("/"))
 	for _, r := range "Готовый" {
 		model = send(t, model, keyMsg(string(r)))
@@ -174,6 +188,7 @@ func TestFilteredSelectionFollowsTheNewUnit(t *testing.T) {
 		t.Fatalf("filtered selection kept the old reader: follow=%v cursor=%d", model.followActivity, model.activityCursor)
 	}
 	model = addEvents(model, activityEvent("P001.1.1", agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "one-LATE"}))
+	model = send(t, model, keyMsg("3"))
 	if model.activityCursor != 20 || !strings.Contains(model.String(), "one-LATE") {
 		t.Fatalf("new events did not move the filtered selection: cursor=%d\n%s", model.activityCursor, model.String())
 	}

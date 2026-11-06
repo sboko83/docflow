@@ -1220,19 +1220,19 @@ func sanitizePath(path string) string {
 }
 
 // syncActivityScroll keeps the cursor visible and, while following, keeps the
-// newest observation at the bottom of the details pane. The scroll position is
+// newest observation at the bottom of the run stream. The scroll position is
 // derived from the rendered section, so plan navigation never changes what a
 // live run is doing.
 func (m Model) syncActivityScroll() Model {
 	m.syncActivityCursor()
 	selected, ok := m.selectedRow()
 	if !ok || selected.kind != rowUnit {
-		return m.clampDetailTop()
+		return m.clampStreamTop()
 	}
-	width := m.detailWidth()
+	width := m.streamWidth()
 	section := m.activitySection(width)
 	if len(section.starts) == 0 {
-		return m.clampDetailTop()
+		return m.clampStreamTop()
 	}
 	cursor := m.activityCursor - section.base
 	if cursor < 0 {
@@ -1241,21 +1241,21 @@ func (m Model) syncActivityScroll() Model {
 	if cursor >= len(section.starts) {
 		cursor = len(section.starts) - 1
 	}
-	offset := len(m.unitCardLines(selected, width)) + 3
+	offset := len(m.streamHeaderLines(width)) + 1
 	start := offset + section.starts[cursor]
 	end := offset + section.ends[cursor]
 	body := m.paneContentHeight()
 	if m.followActivity {
-		m.detailTop = max(0, len(m.detailLines(width))-body)
+		m.streamTop = max(0, len(m.streamLines(width))-body)
 	} else {
-		if start < m.detailTop {
-			m.detailTop = start
+		if start < m.streamTop {
+			m.streamTop = start
 		}
-		if end > m.detailTop+body {
-			m.detailTop = end - body
+		if end > m.streamTop+body {
+			m.streamTop = end - body
 		}
 	}
-	return m.clampDetailTop()
+	return m.clampStreamTop()
 }
 
 // lipglossStyle is the small part of a Lip Gloss style the activity renderer

@@ -3,8 +3,13 @@ package tui
 import (
 	"strconv"
 	"strings"
+	"testing"
 	"unicode"
 	"unicode/utf8"
+
+	"charm.land/lipgloss/v2"
+
+	"bsv-docflow/internal/runner"
 )
 
 // acceptTerminal reconstructs the visible screen from the PTY byte stream.
@@ -502,4 +507,261 @@ func paramsValue(params []int) int {
 		return 0
 	}
 	return params[0]
+}
+
+// TestScreenKeysSwitchScreens covers the four tabs: 1-4 move between the
+// screens from the tree, from the unit card and from an open help, and a
+// switch back to the project lands on the tree.
+func TestScreenKeysSwitchScreens(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	if model.screen != screenProject {
+		t.Fatalf("initial screen = %v, want the project", model.screen)
+	}
+	for _, tc := range []struct {
+		key  string
+		want screen
+	}{
+		{"2", screenRoster},
+		{"3", screenRun},
+		{"4", screenHistory},
+		{"1", screenProject},
+	} {
+		model = send(t, model, keyMsg(tc.key))
+		if model.screen != tc.want {
+			t.Fatalf("%q selected screen %v, want %v", tc.key, model.screen, tc.want)
+		}
+	}
+
+	// The tabs work from the open unit card and land on the tree.
+	model = selectRow(t, model, "unit:P001.1.2")
+	model = send(t, model, keyMsg("enter"))
+	if model.focus != focusDetails {
+		t.Fatalf("focus after Enter = %v, want the card", model.focus)
+	}
+	model = send(t, model, keyMsg("3"))
+	if model.screen != screenRun {
+		t.Fatalf("3 from the card selected %v", model.screen)
+	}
+	model = send(t, model, keyMsg("1"))
+	if model.screen != screenProject || model.focus != focusTree {
+		t.Fatalf("1 from the stream selected %v with focus %v", model.screen, model.focus)
+	}
+
+	// An open help follows the screen switch instead of swallowing it.
+	model = send(t, model, keyMsg("?"))
+	model = send(t, model, keyMsg("2"))
+	if !model.help || model.screen != screenRoster {
+		t.Fatalf("help + 2 = help %v screen %v", model.help, model.screen)
+	}
+	if !strings.Contains(model.String(), "Keyboard and workspace · Ростер") {
+		t.Fatalf("the help did not describe the roster screen:\n%s", model.String())
+	}
+}
+
+// TestScreenTabsFitTheScreen keeps the tab row inside 32 columns and draws
+// the full labels when there is room, with the run host state on the right.
+func TestScreenTabsFitTheScreen(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := loadedModel(t, root)
+	for _, size := range []struct{ w, h int }{{32, 10}, {120, 40}} {
+		rendered := resize(t, model, size.w, size.h).String()
+		assertScreenFits(t, rendered, size.w, size.h)
+		lines := strings.Split(rendered, "\n")
+		tabs := lines[1]
+		if !strings.Contains(tabs, "[1 Проект]") || !strings.Contains(tabs, "run:idle") {
+			t.Fatalf("%dx%d tab row = %q", size.w, size.h, tabs)
+		}
+		if size.w > 32 {
+			for _, want := range []string{"2 Ростер", "3 Прогон", "4 История"} {
+				if !strings.Contains(tabs, want) {
+					t.Fatalf("%dx%d tab row lost %q: %q", size.w, size.h, want, tabs)
+				}
+			}
+			continue
+		}
+		// A narrow terminal keeps the numbers; the active title stays too.
+		for _, want := range []string{"2", "3", "4"} {
+			if !strings.Contains(tabs, want) {
+				t.Fatalf("%dx%d compact tab row lost %q: %q", size.w, size.h, want, tabs)
+			}
+		}
+	}
+
+	model = send(t, model, keyMsg("3"))
+	rendered := resize(t, model, 120, 40).String()
+	tabs := strings.Split(rendered, "\n")[1]
+	if !strings.Contains(tabs, "[3 Прогон]") || strings.Contains(tabs, "[1 Проект]") {
+		t.Fatalf("the active tab did not follow the screen: %q", tabs)
+	}
+
+	// The stream shows the host state, not a guessed one.
+	model.runState = "Paused"
+	tabs = strings.Split(resize(t, model, 120, 40).String(), "\n")[1]
+	if !strings.Contains(tabs, "run:Paused") {
+		t.Fatalf("tab row lost the run state: %q", tabs)
+	}
+}
+
+// TestScreenKeysAreTextInSearch keeps 1-4 out of the screen switch while a
+// search input owns the keyboard, on the tree and on the stream.
+func TestScreenKeysAreTextInSearch(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model = send(t, model, keyMsg("/"))
+	for _, part := range []string{"1", "2", "3", "4"} {
+		model = send(t, model, keyMsg(part))
+	}
+	if model.screen != screenProject {
+		t.Fatalf("typing 1-4 left the project screen: %v", model.screen)
+	}
+	if model.query != "1234" {
+		t.Fatalf("tree search query = %q, want 1234", model.query)
+	}
+
+	model = send(t, model, keyMsg("esc"))
+	model = openStream(t, model)
+	model = send(t, model, keyMsg("/"))
+	for _, part := range []string{"1", "2"} {
+		model = send(t, model, keyMsg(part))
+	}
+	if model.screen != screenRun || model.activityQuery != "12" {
+		t.Fatalf("stream search: screen %v query %q", model.screen, model.activityQuery)
+	}
+}
+
+// TestStartFromProjectOpensTheStream starts a run on the project screen and
+// checks the workspace moves to the stream, while a refused start leaves it
+// where the reader is.
+func TestStartFromProjectOpensTheStream(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 120, 40)
+	model = useControllers(t, model, newFakeController(runner.StateIdle))
+	updated, _ := model.Update(keyMsg("s"))
+	model = updated.(Model)
+	if model.screen != screenRun {
+		t.Fatalf("a start from the project selected screen %v, want the stream", model.screen)
+	}
+	if !strings.Contains(model.String(), "[3 Прогон]") {
+		t.Fatalf("the stream tab is not active after the start:\n%s", model.String())
+	}
+
+	// Without a Queue plan nothing starts, so the screen stays put.
+	empty := newModel(root, func() (Snapshot, error) { return Snapshot{Root: root}, nil }, true)
+	empty.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
+	empty = resize(t, empty, 120, 40)
+	empty = empty.applySnapshot(snapshotMsg{snapshot: Snapshot{Root: root}})
+	empty = useControllers(t, empty, newFakeController(runner.StateIdle))
+	updated, _ = empty.Update(keyMsg("s"))
+	empty = updated.(Model)
+	if empty.screen != screenProject {
+		t.Fatalf("a refused start moved the workspace to %v", empty.screen)
+	}
+	if !strings.Contains(empty.notice, "nothing to start") {
+		t.Fatalf("refused start notice = %q", empty.notice)
+	}
+}
+
+// TestFooterShowsTheScreenKeys keeps the bottom line short: the keys of the
+// current screen, never more than five, then the way to the help.
+func TestFooterShowsTheScreenKeys(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 80, 24)
+	footer := func() string {
+		lines := strings.Split(model.String(), "\n")
+		return strings.TrimRight(lines[len(lines)-1], " ")
+	}
+	project := footer()
+	parts := strings.Split(project, " · ")
+	if parts[len(parts)-1] != "? помощь" {
+		t.Fatalf("project footer does not end with the help: %q", project)
+	}
+	if len(parts)-1 > 5 {
+		t.Fatalf("project footer shows %d keys: %q", len(parts)-1, project)
+	}
+	for _, want := range []string{"Enter open", "s start"} {
+		if !strings.Contains(project, want) {
+			t.Fatalf("project footer lost %q: %q", want, project)
+		}
+	}
+
+	model = send(t, model, keyMsg("3"))
+	stream := footer()
+	for _, want := range []string{"Enter expand", "[ ] page"} {
+		if !strings.Contains(stream, want) {
+			t.Fatalf("stream footer lost %q: %q", want, stream)
+		}
+	}
+	if strings.Contains(stream, "s start") {
+		t.Fatalf("stream footer repeats the project keys: %q", stream)
+	}
+
+	model = send(t, model, keyMsg("2"))
+	if roster := footer(); roster != "? помощь" {
+		t.Fatalf("placeholder footer = %q, want only the help", roster)
+	}
+
+	// A narrow footer keeps the help reachable: keys go, "? помощь" stays.
+	narrow := resize(t, loadedModel(t, root), 32, 10)
+	narrow = send(t, narrow, keyMsg("3"))
+	lines := strings.Split(narrow.String(), "\n")
+	last := strings.TrimRight(lines[len(lines)-1], " ")
+	if !strings.HasSuffix(last, "? помощь") || lipgloss.Width(last) > 32 {
+		t.Fatalf("32x10 stream footer = %q", last)
+	}
+}
+
+// TestPlaceholderScreensSayWhatIsThere keeps the two screens without data
+// honest: they name themselves, say the data is not there yet and point at
+// where the work lives today.
+func TestPlaceholderScreensSayWhatIsThere(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 80, 24)
+	model = send(t, model, keyMsg("2"))
+	if rendered := model.String(); !strings.Contains(rendered, "пока пусто") || !strings.Contains(rendered, "Ростер") || !strings.Contains(rendered, "docflow roster") {
+		t.Fatalf("roster placeholder is not honest:\n%s", rendered)
+	}
+	model = send(t, model, keyMsg("4"))
+	if rendered := model.String(); !strings.Contains(rendered, "пока пусто") || !strings.Contains(rendered, "История") {
+		t.Fatalf("history placeholder is not honest:\n%s", rendered)
+	}
+}
+
+// TestHelpBlocksSeparateCommonAndScreenKeys keeps the common keys in their own
+// block, so each screen only documents what it adds.
+func TestHelpBlocksSeparateCommonAndScreenKeys(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := writeTestProject(t)
+	model := resize(t, loadedModel(t, root), 100, 30)
+	model = send(t, model, keyMsg("?"))
+	rendered := model.String()
+	lines := strings.Split(rendered, "\n")
+	heading := func(text string) int {
+		for i, line := range lines {
+			if strings.TrimSpace(line) == text {
+				return i
+			}
+		}
+		return -1
+	}
+	common := heading("Any screen")
+	project := heading("Проект")
+	if common < 0 || project < 0 || project < common {
+		t.Fatalf("help blocks are missing or out of order:\n%s", rendered)
+	}
+	block := strings.Join(lines[common:project], "\n")
+	for _, want := range []string{"1–4", "q, Ctrl+C", "reload", "pause"} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("common help block lost %q:\n%s", want, block)
+		}
+	}
+	if strings.Contains(block, "Enter details") {
+		t.Fatalf("common help block duplicates a screen key:\n%s", block)
+	}
 }

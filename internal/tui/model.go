@@ -90,6 +90,48 @@ const (
 	focusDetails
 )
 
+// screen is one of the four workspace screens. The tabs on the top line
+// switch between them; each screen owns the keys it shows in the footer.
+type screen int
+
+const (
+	screenProject screen = iota
+	screenRoster
+	screenRun
+	screenHistory
+)
+
+// screens is the tab order of the workspace.
+var screens = []screen{screenProject, screenRoster, screenRun, screenHistory}
+
+// String is the stable name the status line and tests use.
+func (s screen) String() string {
+	switch s {
+	case screenRoster:
+		return "roster"
+	case screenRun:
+		return "run"
+	case screenHistory:
+		return "history"
+	default:
+		return "project"
+	}
+}
+
+// title is the tab label of the screen.
+func (s screen) title() string {
+	switch s {
+	case screenRoster:
+		return "Ростер"
+	case screenRun:
+		return "Прогон"
+	case screenHistory:
+		return "История"
+	default:
+		return "Проект"
+	}
+}
+
 type searchTarget int
 
 const (
@@ -118,12 +160,14 @@ type Model struct {
 	height int
 	ready  bool
 
+	screen     screen
 	focus      focus
 	expanded   map[string]bool
 	selected   string
 	cursor     int
 	treeScroll int
 	detailTop  int
+	streamTop  int
 
 	searching    bool
 	searchTarget searchTarget
@@ -250,7 +294,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 		m.syncCursor()
-		if m.focus == focusDetails {
+		if m.screen == screenRun {
 			return m.syncActivityScroll(), nil
 		}
 		return m.followView(), nil
@@ -296,16 +340,18 @@ func (m Model) applyEvent(event runner.Event) Model {
 	return m
 }
 
-// followView keeps the newest observation in the Details pane while follow is
-// on, whichever pane has focus: the pane is on screen beside the tree, and a
-// switch to it must not show a stale window. An open diff or verify overlay
-// owns the pane and keeps its own scroll.
+// followView keeps the newest observation in the stream while follow is on,
+// whichever screen or pane has focus: a switch to the stream must not show a
+// stale window. An open diff or verify overlay owns the pane and keeps its own
+// scroll.
 func (m Model) followView() Model {
 	if !m.followActivity {
 		return m
 	}
 	m.syncActivityCursor()
-	if m.overlay != overlayNone {
+	if m.screen != screenRun || m.overlay != overlayNone {
+		// The stream is not on screen: the cursor is what a switch to it
+		// needs, and rendering the window there would cost on every event.
 		return m
 	}
 	return m.syncActivityScroll()
@@ -662,6 +708,7 @@ func (m Model) openSelection() Model {
 	// A pause belongs to the history of the unit the reader paused on:
 	// another unit opens following its own newest observation.
 	m.followActivity = true
+	m.streamTop = 0
 	return m.syncActivityScroll()
 }
 

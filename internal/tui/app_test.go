@@ -212,6 +212,9 @@ func rowKeys(model Model) []string {
 
 func selectRow(t *testing.T, model Model, key string) Model {
 	t.Helper()
+	// The tree lives on the Проект screen: a run started from here moves the
+	// workspace to the stream.
+	model = send(t, model, keyMsg("1"))
 	for i := 0; i < len(model.rows())*2; i++ {
 		if selected, ok := model.selectedRow(); ok && selected.key == key {
 			return model
@@ -396,7 +399,7 @@ func TestSearchAcceptsShiftedCharacters(t *testing.T) {
 	}
 
 	model = selectRow(t, model, "unit:P001.2.1")
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("/"))
 	for _, part := range []string{"T", "U", "I"} {
 		model = send(t, model, shiftKeyMsg(part))
@@ -616,6 +619,7 @@ func TestTreeAndDetailsFitTheRenderedBody(t *testing.T) {
 				t.Fatalf("the selected tree row %q is not on screen:\n%s", unit, rendered)
 			}
 			model = send(t, model, keyMsg("enter"))
+			model = send(t, model, keyMsg("3"))
 			rendered = model.String()
 			assertScreenFits(t, rendered, tc.width, tc.height)
 			if !strings.Contains(rendered, newest) {

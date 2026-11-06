@@ -2,7 +2,7 @@
 id: P058
 title: Turn the TUI into a project workspace
 type: feature
-status: draft
+status: active
 created: 2026-11-03
 permissions: auto
 timeout: 3600
@@ -115,10 +115,14 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
   interactive CLI with a prompt that names the Backlog line and the
   `bsv-docflow-plan` skill; the TUI writes no plan body itself — plans are
   written by an agent under the planning skill. Rejected plan-editing forms.
+- Enter на юните оставляет карточку на «Проекте», поток — отдельный экран — сценарии чтения переехали на 3; отвергнут переход Enter сразу в поток, потому что чтение контракта остаётся на «Проекте» и проверки карточки не должны меняться
+- Переключение на «Проект» ставит фокус на дерево — у заглушек и потока нет панели, которую надо сохранять, а возврат из потока с фокусом в карточке прятал дерево на узком экране; отвергнуто сохранение прежнего фокуса
+- Футер на узком терминале убирает клавиши справа, но никогда не ? помощь; вкладки уступают подписи номерам, сохраняя название активной — требование работы от 32x10; отвергнуто усечение строки, при котором исчезает вход в помощь
+- На минимальном размере диалог показывает первую строку keys (заметку человека), а не хвост подсказки, и маркер прокрутки уступает строке тела — третья строка шапки отняла строку у тела; отвергнуто сохранение маркера ценой невидимой заметки
 
 ## Phase 1: Workspace shell
 
-### [ ] P058.1.1 Split the workspace into four screens
+### [x] P058.1.1 Split the workspace into four screens
 Read:
 - internal/tui/model.go
 - internal/tui/view.go
@@ -138,6 +142,14 @@ Traps: `handleKey` разбирает клавиши одной цепочкой
 Depends: -
 Role: heavy
 Commit: P058.1.1: split the TUI into four screens
+Handoff:
+- Поток юнита теперь на экране 3; Enter на юните по-прежнему открывает карточку на «Проекте». В тестах поток открывают helper openStream (enter + 3), а selectRow сначала жмёт 1 — иначе дерево недоступно.
+- У экрана «Прогон» свой scroll streamTop (карточка по-прежнему на detailTop). syncActivityScroll считает смещение как len(streamHeaderLines)+1: если следующий юнит меняет шапку потока, этот offset надо править вместе с ней.
+- Шапка выросла до 3 строк (headerHeight). В dialogLayout окно тела теперь никогда не 0: маркер прокрутки уступает строке тела, а длинные keys обрезаются с начала (видна заметка человека).
+- Заглушки «Ростер»/«История» и их клавиши живут в internal/tui/screens.go (placeholderLines, keysLine, screenHelp) — их заменяют следующие юниты плана.
+- Редактор m и <git-dir>/docflow/tui/configuration.json ещё на месте: их удаление относится к юниту ростера.
+- Unverified: Шапка, вкладки, футер и диалог на 32x10 проверены только на darwin: Verify не гоняет Windows-консоль, а terminal_windows_test.go новых вкладок и футера не проверяет
+- Unverified: Цветное выделение активной вкладки (reverse в стиле) тестом не проверяется: при NO_COLOR тесты видят только скобки
 
 ## Phase 2: Roster variants and roster data
 

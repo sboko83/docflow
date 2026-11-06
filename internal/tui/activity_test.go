@@ -77,6 +77,15 @@ func historyModel(t *testing.T, events ...runner.Event) Model {
 	return addEvents(model, events...)
 }
 
+// openStream opens the stream of the selected unit. Enter on the unit opens
+// its card on the Проект screen; the live stream of that unit lives on the
+// Прогон screen, so the reading scenarios continue there.
+func openStream(t *testing.T, model Model) Model {
+	t.Helper()
+	model = send(t, model, keyMsg("enter"))
+	return send(t, model, keyMsg("3"))
+}
+
 func TestSanitizeNeutralizesTerminalControls(t *testing.T) {
 	input := "\x1b[31mred\x1b[0m \x1b]0;title\x07 keep\r\nnext\rline\x00\x07\x9bignored\u202eevil"
 	got := Sanitize(input)
@@ -128,10 +137,10 @@ func TestActivityHistoryMixedCLIs(t *testing.T) {
 	events = append(events, runner.Event{Type: "usage", Unit: unit})
 
 	model := historyModel(t, events...)
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	rendered := model.String()
 	for _, want := range []string{
-		"Activity", "tool Bash started", "tool Bash done", "tool bash started", "tool bash done",
+		"in the stream", "tool Bash started", "tool Bash done", "tool bash started", "tool bash done",
 		"message", "reasoning", "stderr", "usage", "unknown event", "pi/glm-5.3 max", "warning: red",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -172,7 +181,7 @@ func TestActivityHistoryBoundedAndPaged(t *testing.T) {
 		Ref: agentio.ActivityRef{Stream: "stdout", Offset: 0, Length: len(body)},
 	}
 	model := historyModel(t, streamEvent("P001.1.2", 1, log), activityEvent("P001.1.2", activity))
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("enter"))
 	page := model.pages[activityPageKey("P001.1.2", model.activityEntries("P001.1.2")[0])]
 	if page == nil || page.Err != "" || len(page.Text) > activityPageSize {
@@ -195,8 +204,8 @@ func TestActivityRenderWindowIsBounded(t *testing.T) {
 		events = append(events, activityEvent("P001.1.2", agentio.Activity{Kind: agentio.ActivityKindMessage, Text: "event " + strconv.Itoa(i)}))
 	}
 	model := historyModel(t, events...)
-	model = send(t, model, keyMsg("enter"))
-	section := model.activitySection(model.detailWidth())
+	model = openStream(t, model)
+	section := model.activitySection(model.streamWidth())
 	if len(section.starts) > activityRenderWindow {
 		t.Fatalf("rendered %d entries, want at most %d", len(section.starts), activityRenderWindow)
 	}
@@ -207,7 +216,7 @@ func TestActivityRenderWindowIsBounded(t *testing.T) {
 		t.Fatalf("the hidden older entries are not named:\n%s", strings.Join(section.lines, "\n"))
 	}
 	model = send(t, model, keyMsg("home"))
-	section = model.activitySection(model.detailWidth())
+	section = model.activitySection(model.streamWidth())
 	if section.base != 0 || !strings.Contains(strings.Join(section.lines, "\n"), "newer observations") {
 		t.Fatalf("home did not return to the oldest entries: base=%d", section.base)
 	}
@@ -227,7 +236,7 @@ func TestActivityStderrPage(t *testing.T) {
 		Ref: agentio.ActivityRef{Stream: "stderr", Offset: 0, Length: len(stderr)},
 	}
 	model := historyModel(t, streamEvent("P001.1.2", 1, log), activityEvent("P001.1.2", activity))
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("enter"))
 	entries := model.activityEntries("P001.1.2")
 	page := model.pages[activityPageKey("P001.1.2", entries[0])]
@@ -256,7 +265,7 @@ func TestActivityLogComesFromAttemptEvent(t *testing.T) {
 	}
 	openPage := func(model Model, entry ActivityEntry) *activityPage {
 		t.Helper()
-		model = send(t, model, keyMsg("enter"))
+		model = openStream(t, model)
 		model = send(t, model, keyMsg("enter"))
 		return model.pages[activityPageKey(unit, entry)]
 	}
@@ -324,7 +333,7 @@ func TestActivityFollowPauseSearchAndJump(t *testing.T) {
 	first := agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "first message"}
 	second := agentio.Activity{Kind: agentio.ActivityKindMessage, Role: "assistant", Text: "needle in the second message"}
 	model := historyModel(t, activityEvent("P001.1.2", first), activityEvent("P001.1.2", second))
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	if !model.followActivity || model.activityCursor != 1 {
 		t.Fatalf("follow=%v cursor=%d, want follow on the last event", model.followActivity, model.activityCursor)
 	}
@@ -377,7 +386,7 @@ func TestActivityUnknownValuesAndFallback(t *testing.T) {
 		"windows": []any{map[string]any{"label": "five_hour", "used": 0.08, "reset": nil}},
 	}}
 	model := historyModel(t, activityEvent("P001.1.2", usage), route, quota)
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	rendered := model.String()
 	for _, want := range []string{"out unknown", "fallback after limit"} {
 		if !strings.Contains(rendered, want) {
@@ -477,7 +486,7 @@ func TestVerifyResultView(t *testing.T) {
 		"stderr":    map[string]any{"path": log, "offset": len(body), "length": 0},
 	}}
 	model := historyModel(t, verify)
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	if rendered := model.String(); !strings.Contains(rendered, "gate failed · exit 1") {
 		t.Fatalf("verify header is wrong:\n%s", rendered)
 	}
@@ -619,7 +628,7 @@ func TestLogPathsResolveFromCheckoutRoot(t *testing.T) {
 	}
 	t.Chdir(sub)
 
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	// The verify event is newer than the call; move to the tool entry.
 	model = send(t, model, keyMsg("up"))
 	model = send(t, model, keyMsg("enter"))
@@ -656,7 +665,7 @@ func TestActivityTimestampUsesEventTime(t *testing.T) {
 	if len(entries) != 1 || entries[0].At.UTC().Unix() != stamp {
 		t.Fatalf("entry time = %v, want %v", entries[0].At, time.Unix(stamp, 0))
 	}
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	if !strings.Contains(model.String(), time.Unix(stamp, 0).Local().Format("15:04:05")) {
 		t.Fatalf("rendered history lacks the event time:\n%s", model.String())
 	}
@@ -695,7 +704,7 @@ func TestActivityLiveCallTail(t *testing.T) {
 	start := `{"type":"tool_execution_start","toolCallId":"live","toolName":"bash"}`
 	log, activity := runningToolLog(t, start)
 	model := historyModel(t, streamEvent(unit, 1, log), activityEvent(unit, activity))
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("enter"))
 	entries := model.activityEntries(unit)
 	key := activityPageKey(unit, entries[0])
@@ -750,7 +759,7 @@ func TestActivityRunningPageStopsAtCompletion(t *testing.T) {
 	log, activity := runningToolLog(t, start)
 	result := "full result\n"
 	model := historyModel(t, streamEvent(unit, 1, log), activityEvent(unit, activity))
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("enter"))
 	entries := model.activityEntries(unit)
 	key := activityPageKey(unit, entries[0])
@@ -794,7 +803,7 @@ func TestActivityLivePagingIsBounded(t *testing.T) {
 	start, activity := runningToolLog(t, "start line")
 	appendCallLog(t, start, strings.Repeat("live output\n", 10000))
 	model := historyModel(t, streamEvent(unit, 1, start), activityEvent(unit, activity))
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("enter"))
 	for i := 0; i < 20; i++ {
 		model = send(t, model, keyMsg("]"))
@@ -815,7 +824,7 @@ func TestActivityMissingOrEmptyLogIsExplicit(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			_, activity := runningToolLog(t, "start line")
 			model := historyModel(t, streamEvent(unit, 1, scenario.log), activityEvent(unit, activity))
-			model = send(t, model, keyMsg("enter"))
+			model = openStream(t, model)
 			model = send(t, model, keyMsg("enter"))
 			entries := model.activityEntries(unit)
 			page := model.pages[activityPageKey(unit, entries[0])]
@@ -835,7 +844,7 @@ func TestActivityMissingOrEmptyLogIsExplicit(t *testing.T) {
 			t.Fatal(err)
 		}
 		model := historyModel(t, streamEvent(unit, 1, log), activityEvent(unit, activity))
-		model = send(t, model, keyMsg("enter"))
+		model = openStream(t, model)
 		model = send(t, model, keyMsg("enter"))
 		entries := model.activityEntries(unit)
 		page := model.pages[activityPageKey(unit, entries[0])]
@@ -868,20 +877,21 @@ func TestSelectingAnotherUnitFollowsItsOwnHistory(t *testing.T) {
 	model = addEvents(model, events...)
 
 	// Read older history of A: follow pauses on A only.
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("up"))
 	if rendered := model.String(); !strings.Contains(rendered, "paused") {
 		t.Fatalf("reading older history of A did not report a paused reader:\n%s", rendered)
 	}
 
 	// Select B through the tree: B opens following its own newest entry.
-	model = send(t, model, keyMsg("tab"))
+	model = send(t, model, keyMsg("1"))
 	model = send(t, model, keyMsg("up"))
 	if model.selected != "unit:P001.1.1" {
 		t.Fatalf("selected %q after moving up from P001.1.2", model.selected)
 	}
+	model = send(t, model, keyMsg("3"))
 	rendered := model.String()
-	for _, want := range []string{"B-ONLY-NEWEST", "following the newest event", "activity:2/2 follow"} {
+	for _, want := range []string{"B-ONLY-NEWEST", "following the newest observation", "activity:2/2 follow"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("selection of B did not follow its newest entry (%q missing):\n%s", want, rendered)
 		}
@@ -891,7 +901,6 @@ func TestSelectingAnotherUnitFollowsItsOwnHistory(t *testing.T) {
 	}
 
 	// Pausing on B is local to B as well.
-	model = send(t, model, keyMsg("tab"))
 	model = send(t, model, keyMsg("up"))
 	if !strings.Contains(model.String(), "activity:1/2 paused") {
 		t.Fatalf("reading older history of B did not pause it:\n%s", model.String())
@@ -902,8 +911,9 @@ func TestSelectingAnotherUnitFollowsItsOwnHistory(t *testing.T) {
 	}
 
 	// A unit without history neither panics nor shows A.
-	model = send(t, model, keyMsg("tab"))
+	model = send(t, model, keyMsg("1"))
 	model = selectRow(t, model, "unit:P001.2.2")
+	model = send(t, model, keyMsg("3"))
 	rendered = model.String()
 	for _, unwanted := range []string{"A-ONLY-NEWEST", "B-ONLY-NEWEST", "B-LATE"} {
 		if strings.Contains(rendered, unwanted) {

@@ -67,6 +67,7 @@ func (m Model) render() string {
 	styles := newStyles(m.noColor)
 	header := []string{
 		padLine(styles.title.Render("docflow tui")+"  "+styles.dim.Render(truncate(m.root, max(0, width-14))), width),
+		m.tabsLine(width),
 		strings.Repeat("─", width),
 	}
 	// The outcome notice owns its own wrapped lines above the status line: a
@@ -79,7 +80,7 @@ func (m Model) render() string {
 	}
 	footer = append(footer,
 		padLine(styles.dim.Render(m.statusLine()), width),
-		padLine(styles.dim.Render(keysLine()), width),
+		padLine(styles.dim.Render(m.keysLine(width)), width),
 	)
 	bodyHeight := bodyHeightFor(height, notice)
 	var body []string
@@ -91,33 +92,15 @@ func (m Model) render() string {
 	case StateError:
 		body = m.messageLines(width, bodyHeight, "Cannot load the plan workspace.", m.errText, "r retry · ? help · q quit")
 	default:
-		if m.models != nil {
+		switch {
+		case m.models != nil:
 			body = m.modelsLines(width, bodyHeight)
-		} else if m.help {
+		case m.help:
 			body = m.helpLines(width, bodyHeight)
-		} else if m.dialog != dialogNone {
+		case m.dialog != dialogNone:
 			body = m.dialogLinesView(width, bodyHeight)
-		} else if m.singlePanel() {
-			if m.focus == focusDetails {
-				body = m.pane("Details", m.visibleDetailLines(width), 0, width, bodyHeight, true)
-			} else {
-				body = m.pane("Tree", m.treeLines(width), 0, width, bodyHeight, true)
-			}
-		} else {
-			leftWidth := width * 2 / 5
-			if leftWidth < 24 {
-				leftWidth = 24
-			}
-			if width-leftWidth-1 < minWidth/2 {
-				leftWidth = width * 3 / 5
-			}
-			rightWidth := width - leftWidth - 1
-			left := m.pane("Tree", m.treeLines(leftWidth), 0, leftWidth, bodyHeight, m.focus == focusTree)
-			right := m.pane("Details", m.visibleDetailLines(rightWidth), 0, rightWidth, bodyHeight, m.focus == focusDetails)
-			body = make([]string, bodyHeight)
-			for i := 0; i < bodyHeight; i++ {
-				body[i] = left[i] + "│" + right[i]
-			}
+		default:
+			body = m.screenBody(width, bodyHeight)
 		}
 	}
 	lines := append(header, body...)
@@ -132,6 +115,39 @@ func (m Model) render() string {
 }
 
 func tooSmall(width, height int) bool { return width < minWidth || height < minHeight }
+
+// screenBody renders the content of the current screen. The status states
+// (loading, empty, error, dialogs, help and overlays) are drawn by render
+// itself and keep the same body on every screen.
+func (m Model) screenBody(width, height int) []string {
+	switch m.screen {
+	case screenRoster, screenHistory:
+		return m.placeholderLines(width, height)
+	case screenRun:
+		return m.pane(m.screen.title(), m.visibleStreamLines(width), 0, width, height, true)
+	}
+	if m.singlePanel() {
+		if m.focus == focusDetails {
+			return m.pane("Details", m.visibleDetailLines(width), 0, width, height, true)
+		}
+		return m.pane("Tree", m.treeLines(width), 0, width, height, true)
+	}
+	leftWidth := width * 2 / 5
+	if leftWidth < 24 {
+		leftWidth = 24
+	}
+	if width-leftWidth-1 < minWidth/2 {
+		leftWidth = width * 3 / 5
+	}
+	rightWidth := width - leftWidth - 1
+	left := m.pane("Tree", m.treeLines(leftWidth), 0, leftWidth, height, m.focus == focusTree)
+	right := m.pane("Details", m.visibleDetailLines(rightWidth), 0, rightWidth, height, m.focus == focusDetails)
+	body := make([]string, height)
+	for i := 0; i < height; i++ {
+		body[i] = left[i] + "│" + right[i]
+	}
+	return body
+}
 
 func (m Model) renderTooSmall(width, height int) string {
 	styles := newStyles(m.noColor)
@@ -196,7 +212,9 @@ func (m Model) dialogLayout(width, height int) (head, body, keys []string, windo
 		head = head[:1]
 	}
 	if len(keys) >= height {
-		head, keys = nil, keys[len(keys)-height:]
+		// The first key lines are the ones that matter: the note the person
+		// is typing and the start of the answer, not the tail of the hint.
+		head, keys = nil, keys[:height]
 	}
 	room := max(0, height-len(head)-len(keys))
 	if len(body) > room && room < 2 && len(head) > 0 {
@@ -207,7 +225,14 @@ func (m Model) dialogLayout(width, height int) (head, body, keys []string, windo
 	if len(body) <= room {
 		return head, body, keys, room
 	}
-	return head, body, keys, max(0, room-1)
+	// The scroll marker takes a line only when a body line still fits beside
+	// it: on the smallest screen one visible line of the body beats the
+	// marker.
+	window = room - 1
+	if window < 1 {
+		window = min(1, room)
+	}
+	return head, body, keys, window
 }
 
 // dialogOffset clamps the scroll offset to the body that is out of view.
@@ -237,35 +262,24 @@ func (m Model) messageLines(width, height int, lines ...string) []string {
 func (m Model) helpLines(width, height int) []string {
 	styles := newStyles(m.noColor)
 	lines := []string{
-		styles.title.Render("Keyboard and workspace"),
+		styles.title.Render("Keyboard and workspace · " + m.screen.title()),
 		"",
-		"↑/k, ↓/j     move the selection",
-		"PgUp/PgDn    move one page",
-		"Home/End     first or last item",
-		"Enter        expand or collapse; open details of a unit",
-		"←/h, →/l     collapse or expand the selected plan, phase or unit",
-		"Tab          switch focus; on a narrow terminal switch panel",
-		"/            search plans, phases and units; in details search activity",
-		"Enter        expand an activity entry in details",
-		"[ ]          page a large result or message from its call log",
-		"f, End       follow the newest activity; G jumps to the last event",
-		"d            show the actual git diff of the working tree",
-		"v            show the last verify log of the selected unit",
-		"m            edit models and executors for the next run",
-		"s            start the current Queue run",
-		"R            resume the saved checkpoint; the recovery dialog opens on start",
-		"s            start a new run with the plan's settings",
-		"p, S, x      pause · stop after unit · stop now",
-		"a, F, T, C   activate · freeze · thaw · close the plan",
-		"Esc          close search, dialog, overlay, help or return to the tree",
-		"r            reload the workspace from disk",
-		"?            this help",
+		styles.section.Render("Any screen"),
+		"1–4          switch screen: 1 Проект · 2 Ростер · 3 Прогон · 4 История",
 		"q, Ctrl+C    quit; a live run asks before it stops",
+		"r            reload the workspace from disk",
+		"p, S, x      pause · stop after unit · stop now",
+		"?/Esc        this help · close it",
+		"",
+		styles.section.Render(m.screen.title()),
+	}
+	lines = append(lines, m.screenHelp()...)
+	lines = append(lines,
 		"",
 		"The workspace reads plans with the docflow parser. Starting a run",
 		"uses the shared runner and its checkout lock; lifecycle actions run",
 		"the same checks as the CLI commands.",
-	}
+	)
 	var out []string
 	for _, line := range lines {
 		for _, wrapped := range wrapLine(line, max(1, width-2)) {
@@ -410,18 +424,8 @@ func (m Model) detailLines(width int) []string {
 				add("%s", line)
 			}
 		}
-		section := m.activitySection(width)
-		if len(section.lines) == 0 {
-			break
-		}
 		addBlank()
-		follow := "paused: new events do not move the view"
-		if m.followActivity {
-			follow = "following the newest event"
-		}
-		addHeading(fmt.Sprintf("Activity (%d) · %s", len(m.activityEntries(selected.unit.ID)), follow))
-		add("Enter expands an entry · [ ] page a large result · / search · G newest · d diff · v verify")
-		lines = append(lines, section.lines...)
+		add("The live stream of this unit is on the Прогон screen: press 3.")
 	}
 	if len(lines) == 0 {
 		return []string{"Nothing selected."}
@@ -584,7 +588,7 @@ func (m Model) size() (int, int) {
 }
 
 const (
-	headerHeight = 2 // title and rule
+	headerHeight = 3 // title, screen tabs and rule
 	footerHeight = 3 // rule, status and keys
 )
 
@@ -694,11 +698,14 @@ func (m Model) statusLine() string {
 		}
 	}
 	if m.state == StateReady {
-		focusName := "tree"
-		if m.focus == focusDetails {
-			focusName = "details"
+		parts = append(parts, "screen:"+m.screen.String())
+		if m.screen == screenProject {
+			focusName := "tree"
+			if m.focus == focusDetails {
+				focusName = "details"
+			}
+			parts = append(parts, "focus:"+focusName)
 		}
-		parts = append(parts, "focus:"+focusName)
 		if strings.TrimSpace(m.activityQuery) != "" {
 			parts = append(parts, fmt.Sprintf("activity-search:%q matches:%d", strings.TrimSpace(m.activityQuery), m.activityMatches))
 		}
@@ -739,10 +746,6 @@ func (m Model) noticeLines(width int) []string {
 		lines = []string{lines[0], truncate(strings.Join(lines[1:], " "), width)}
 	}
 	return lines
-}
-
-func keysLine() string {
-	return "↑↓ move · Enter expand · Tab panel · / search · m models · s start · R resume · p pause · S stop after · x stop now · a/F/T/C lifecycle · ? help · q quit"
 }
 
 func goalText(plan *format.Plan) string {

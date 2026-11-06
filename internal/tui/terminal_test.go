@@ -52,7 +52,7 @@ func TestActivityTerminalFrames(t *testing.T) {
 		Kind: agentio.ActivityKindStderr, Raw: "stderr \u001b[31mred\u001b[0m",
 	}))
 	model := historyModel(t, events...)
-	model = send(t, model, keyMsg("enter"))
+	model = openStream(t, model)
 	model = send(t, model, keyMsg("end"))
 
 	for _, size := range []struct{ w, h int }{{120, 40}, {80, 24}, {40, 12}} {
@@ -73,8 +73,8 @@ func TestActivityTerminalFrames(t *testing.T) {
 				}
 			}
 		} else if size.w >= 80 {
-			if !strings.Contains(rendered, "Activity") {
-				t.Fatalf("%dx%d frame lost the activity section", size.w, size.h)
+			if !strings.Contains(rendered, "in the stream") {
+				t.Fatalf("%dx%d frame lost the stream header", size.w, size.h)
 			}
 		}
 	}
@@ -629,7 +629,9 @@ func TestTerminalVerifyFromSubdirectory(t *testing.T) {
 	waitFile(filepath.Join(project, ".git", "docflow", "run", "run.lock"), false, 30*time.Second)
 	time.Sleep(300 * time.Millisecond)
 
-	// Select the finished unit and open its verify result.
+	// Select the finished unit in the tree and open its verify result. The
+	// start moved the workspace to the stream screen, so the tree needs 1.
+	sendKey("1")
 	for i := 0; i < 3; i++ {
 		sendKey("\x1b[B")
 	}
