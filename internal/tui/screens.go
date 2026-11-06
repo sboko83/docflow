@@ -207,6 +207,7 @@ func (m Model) screenHelp() []string {
 		"R            resume the saved checkpoint",
 		"a, F, T, C   activate · freeze · thaw · close the plan",
 		"N            create a draft with docflow new <slug>",
+		"b            Backlog: + add · Enter edit · D delete · P plan with agent",
 		"e            open the selected plan in VISUAL or EDITOR",
 		"c            commit only docflow files with the latest Commit hint",
 		"A            apply the active roster variant to the plan header:",

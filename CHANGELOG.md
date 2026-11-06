@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docflow tui` edits multiline Backlog tasks with `b`, `+`, `Enter` and
+  `D`; `P` opens the roster's planning agent in its interactive CLI and
+  reloads the workspace on return. An unavailable CLI leaves a copyable
+  planning prompt.
 - The Ростер screen of `docflow tui` shows the roster workspace of the
   project and edits it without the CLI: the variants of the three preset
   layers with the active one marked, the accesses with their switch,

@@ -19,6 +19,8 @@ import (
 	"unicode/utf8"
 
 	"bsv-docflow/internal/agentio"
+	"bsv-docflow/internal/agents"
+	"bsv-docflow/internal/roster"
 	"bsv-docflow/internal/runner"
 	"bsv-docflow/internal/testshim"
 )
@@ -1050,6 +1052,57 @@ func TestAcceptanceProjectCreateAndEditor(t *testing.T) {
 			ui.quit()
 		})
 	}
+}
+
+// The fixture CLI is interactive (not a batch profile), receives the whole
+// multiline task as one argv value, and creates a plan while Tea is suspended.
+func TestAcceptanceBacklogPlanning(t *testing.T) {
+	p := newAcceptProject(t, []acceptPlan{{ID: "P001", Title: "Existing", Status: "active", Units: []acceptUnit{{ID: "P001.1.1", Title: "Unit"}}}})
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	p.Env = envWith(p.Env, "XDG_CACHE_HOME", cache)
+	policyPath := filepath.Join(p.Home, ".config", "docflow", "roster.toml")
+	writeRosterTestFile(t, policyPath, testRosterPolicy)
+	writeRosterTestCatalog(t)
+	workspace, err := roster.LoadWorkspace(policyPath, p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, err := workspace.PlanningRoute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const task = "Проверить Backlog\nс продолжением; $(literal)"
+	path := p.path("docs/docflow.md")
+	before := mustRead(path)
+	writeRosterTestFile(t, path, before+"- Проверить Backlog\n  с продолжением; $(literal)\n")
+	received := filepath.Join(t.TempDir(), "argv")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shellSingle(received) + "\n" + shellSingle(acceptanceCLI) + " new from-backlog\n"
+	if err := os.WriteFile(filepath.Join(p.Bin, route.Agent), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ui := startAcceptTUI(t, p, 80, 24)
+	ui.waitFor("Queue (1)", 20*time.Second)
+	ui.send("b")
+	ui.waitFor("P plan with agent", 5*time.Second)
+	ui.send(keyEnd)
+	ui.send("P")
+	ui.waitFor("Queue (2)", 20*time.Second)
+	got := mustRead(received)
+	argv, err := agents.InteractiveArgv(route, "возьми строку Backlog в план по скиллу `bsv-docflow-plan`: "+task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != strings.Join(argv[1:], "\n")+"\n" {
+		t.Fatalf("received argv = %q, want %q", got, argv[1:])
+	}
+	if !strings.Contains(mustRead(path), "- P002") {
+		t.Fatal("new plan absent from Queue")
+	}
+	if _, err := os.Stat(p.path("docs/plans/P002-from-backlog.md")); err != nil {
+		t.Fatal(err)
+	}
+	ui.quit()
 }
 
 // TestAcceptancePauseChildProcessAndResume drives the core interactive path:

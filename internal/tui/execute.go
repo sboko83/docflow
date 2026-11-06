@@ -34,6 +34,10 @@ const (
 	dialogApply
 	dialogNewPlan
 	dialogProjectCommit
+	dialogBacklog
+	dialogBacklogEdit
+	dialogBacklogDelete
+	dialogPlanningPrompt
 )
 
 type hostPollMsg struct{}
@@ -437,6 +441,9 @@ func (m Model) answerPrompt(confirmed bool, note string) Model {
 
 func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	key := msg.String()
+	if m.dialog == dialogBacklog || m.dialog == dialogBacklogEdit || m.dialog == dialogBacklogDelete || m.dialog == dialogPlanningPrompt {
+		return m.handleBacklogKey(msg)
+	}
 	if scrolled, ok := m.scrollDialog(key); ok {
 		return scrolled, nil
 	}

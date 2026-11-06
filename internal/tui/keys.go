@@ -188,6 +188,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenProject {
 		switch key {
+		case "b":
+			return m.openBacklog(), nil
 		case "N":
 			m.dialog = dialogNewPlan
 			m.dialogTitle = "New plan"

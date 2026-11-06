@@ -73,7 +73,7 @@ func (m Model) render() string {
 	// The outcome notice owns its own wrapped lines above the status line: a
 	// long archive path or run error at the end of the status line was cut by
 	// padLine before the reader could see it.
-	notice := fitNotice(m.noticeLines(width), height)
+	notice := m.fittedNotice(width, height)
 	footer := []string{strings.Repeat("─", width)}
 	for _, line := range notice {
 		footer = append(footer, padLine(line, width))
@@ -100,6 +100,10 @@ func (m Model) render() string {
 		default:
 			body = m.screenBody(width, bodyHeight)
 		}
+	}
+	// Project actions remain usable with an empty queue or a broken plan.
+	if m.dialog != dialogNone {
+		body = m.dialogLinesView(width, bodyHeight)
 	}
 	lines := append(header, body...)
 	lines = append(lines, footer...)
@@ -619,7 +623,20 @@ func (m Model) pane(title string, content []string, _ int, width, height int, fo
 // footer, with the notice lines that actually fit already subtracted.
 func (m Model) bodyHeight() int {
 	width, height := m.size()
-	return bodyHeightFor(height, fitNotice(m.noticeLines(width), height))
+	return bodyHeightFor(height, m.fittedNotice(width, height))
+}
+
+// Backlog dialogs need two key lines and at least one content line. A
+// lingering save notice must not hide the selected task or the input caret.
+func (m Model) fittedNotice(width, height int) []string {
+	notice := fitNotice(m.noticeLines(width), height)
+	switch m.dialog {
+	case dialogBacklog, dialogBacklogEdit, dialogBacklogDelete, dialogPlanningPrompt:
+		for len(notice) > 0 && bodyHeightFor(height, notice) < 3 {
+			notice = notice[:len(notice)-1]
+		}
+	}
+	return notice
 }
 
 // paneContentHeight is how many content lines a pane renders: the body minus

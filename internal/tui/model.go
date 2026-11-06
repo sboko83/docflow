@@ -154,8 +154,13 @@ const (
 
 // Model is the Bubble Tea model of the plan workspace.
 type Model struct {
-	root string
-	load Loader
+	root           string
+	load           Loader
+	backlog        *format.DocflowFile
+	backlogCursor  int
+	backlogEdit    int
+	backlogCaret   int
+	planningPrompt string
 
 	state    State
 	snapshot Snapshot
@@ -338,6 +343,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		if m.dialog == dialogBacklogEdit {
+			return m.backlogEditorLines(), nil
+		}
+		if m.dialog == dialogBacklog {
+			return m.showBacklog(), nil
+		}
 		m.syncCursor()
 		if m.screen == screenRun {
 			return m.syncActivityScroll(), nil
@@ -346,6 +357,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapshotMsg:
 		m = m.applySnapshot(msg)
 		return m, m.rosterWarmup()
+	case planningDoneMsg:
+		m = m.applySnapshot(msg.snapshot).applyRoster(msg.roster)
+		m.notice = "planning returned; workspace reloaded"
+		if msg.err != nil {
+			return m.planningRefused(fmt.Errorf("planning agent: %w", msg.err), msg.prompt), nil
+		}
+		return m, nil
+	case tea.PasteMsg:
+		if m.dialog == dialogBacklogEdit {
+			return m.insertBacklogText(msg.Content), nil
+		}
 	case rosterMsg:
 		return m.applyRoster(msg), nil
 	case rosterScanMsg:
