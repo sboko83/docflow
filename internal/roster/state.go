@@ -412,6 +412,32 @@ func (s *State) Reset() {
 	s.Preset = ""
 }
 
+// clone returns a copy of the state: a mutation runs on the copy, so a
+// condition refused by Validate never leaves the loaded state half-changed.
+func (s *State) clone() *State {
+	copied := *s
+	copied.Off = append([]string(nil), s.Off...)
+	copied.Until = maps.Clone(s.Until)
+	copied.Budget = maps.Clone(s.Budget)
+	copied.Expires = maps.Clone(s.Expires)
+	copied.Models = cloneGlobs(s.Models)
+	copied.Exclude = cloneGlobs(s.Exclude)
+	if copied.Off == nil {
+		copied.Off = []string{}
+	}
+	return &copied
+}
+
+// cloneGlobs copies a table of model glob lists, so the copy shares no
+// slice with the original.
+func cloneGlobs(table map[string][]string) map[string][]string {
+	copied := make(map[string][]string, len(table))
+	for access, globs := range table {
+		copied[access] = append([]string(nil), globs...)
+	}
+	return copied
+}
+
 // Save writes the state to path ("" means the path it was loaded from,
 // then DefaultStatePath) atomically: a temporary file next to it is
 // renamed over the target, so a reader never sees a half-written state.

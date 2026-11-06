@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"bsv-docflow/internal/roster"
 )
 
 // The brief and explain tests drive the in-process CLI against the v2
@@ -334,11 +336,11 @@ func TestRosterExplainJSON(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("roster explain --json = (%d, %q, %q)", code, stdout, stderr)
 	}
-	var report ExplainReport
+	var report roster.ExplainReport
 	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 		t.Fatalf("explain JSON: %v\n%s", err, stdout)
 	}
-	changes := map[string]ExplainChange{}
+	changes := map[string]roster.ExplainChange{}
 	for _, change := range report.Changes {
 		changes[change.Key] = change
 	}

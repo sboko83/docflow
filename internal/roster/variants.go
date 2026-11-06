@@ -47,10 +47,10 @@ func ProjectVariantsPath(root string) string {
 	return filepath.Join(root, "docs", "roster.variants.toml")
 }
 
-// projectRoot returns the docflow project that holds the current
+// ProjectRoot returns the docflow checkout that holds the working
 // directory, or "" outside one: the project variants layer belongs to a
 // checkout, and a command started outside it sees no project presets.
-func projectRoot() string {
+func ProjectRoot() string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return ""
@@ -64,10 +64,11 @@ func projectRoot() string {
 
 // mergeVariants merges the preset variants into a loaded policy: the
 // global file next to the policy first, then the project file of the
-// checkout. A missing file is an empty layer. A name an earlier layer
-// already defines is a policy error naming both files, not a silent
-// shadowing: --preset NAME must mean one preset everywhere.
-func mergeVariants(policy *Policy) (*Policy, error) {
+// given checkout root ("" means no project layer). A missing file is an
+// empty layer. A name an earlier layer already defines is a policy error
+// naming both files, not a silent shadowing: --preset NAME must mean one
+// preset everywhere.
+func mergeVariants(policy *Policy, root string) (*Policy, error) {
 	origins := make(map[string]string, len(policy.Presets))
 	for _, preset := range policy.Presets {
 		origins[preset.Name] = policy.Path
@@ -77,7 +78,7 @@ func mergeVariants(policy *Policy) (*Policy, error) {
 		source string
 	}{
 		{VariantsPath(policy.Path), SourceVariants},
-		{ProjectVariantsPath(projectRoot()), SourceProject},
+		{ProjectVariantsPath(root), SourceProject},
 	}
 	layerPaths := make([]string, 0, len(layers))
 	for _, layer := range layers {

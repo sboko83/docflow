@@ -6,46 +6,18 @@ import (
 	"time"
 
 	"bsv-docflow/internal/clierrors"
-	"bsv-docflow/internal/cycle"
-	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/roster"
 )
-
-// planHeaderKeys is the plan-header order `roster explain` compares: the
-// same keys `roster apply` writes, so an explain line is a change apply
-// would make.
-var planHeaderKeys = []string{"executor", "fallback", "cheap", "heavy", "review", "acceptance", "replan"}
-
-// ExplainChange is one header key where the plan and the brief disagree:
-// the value in the plan and the value the brief gives now. An empty Old
-// means the key is absent, an empty New means apply would remove it.
-type ExplainChange struct {
-	Key string `json:"key"`
-	Old string `json:"old"`
-	New string `json:"new"`
-}
-
-// ExplainReport is the JSON of `roster explain`.
-type ExplainReport struct {
-	Plan     string          `json:"plan"`
-	Path     string          `json:"path"`
-	Changes  []ExplainChange `json:"changes"`
-	Warnings []string        `json:"warnings"`
-}
 
 // rosterApply resolves the policy with the conditions of the call and
 // writes the brief header into the plan. apply reads the version 2 policy
 // itself, so a v1 file fails here with the migration hint.
 func rosterApply(parsed *parsedArgs, root, planID string) error {
-	policy, state, err := rosterConditionPolicy(parsed)
+	workspace, err := rosterWorkspace(parsed, root)
 	if err != nil {
 		return err
 	}
-	catalog, err := roster.LoadCatalog("")
-	if err != nil {
-		return err
-	}
-	result, report, err := roster.Apply(root, planID, policy, state, catalog, rosterFlag(parsed, "--dry-run"))
+	result, report, err := workspace.ApplyPlan(planID, rosterFlag(parsed, "--dry-run"))
 	if err != nil {
 		return err
 	}
@@ -97,32 +69,34 @@ func rosterExplain(parsed *parsedArgs) error {
 	if err != nil {
 		return err
 	}
-	plan, err := cycle.FindPlan(root, planID)
+	workspace, err := rosterWorkspace(parsed, root)
 	if err != nil {
 		return err
 	}
-	policy, state, err := rosterConditionPolicy(parsed)
+	report, err := workspace.ExplainPlan(planID)
 	if err != nil {
 		return err
-	}
-	catalog, err := roster.LoadCatalog("")
-	if err != nil {
-		return err
-	}
-	brief, err := roster.BuildBrief(policy, state, catalog, planRoles(plan))
-	if err != nil {
-		return err
-	}
-	report := ExplainReport{
-		Plan:     plan.Meta["id"],
-		Path:     plan.Path,
-		Changes:  headerChanges(plan, brief.Header()),
-		Warnings: append([]string{}, brief.Warnings...),
 	}
 	if rosterFlag(parsed, "--json") {
 		return rosterJSON(report, "")
 	}
 	return commandResult{code: clierrors.EXIT_OK, stdout: explainText(report)}
+}
+
+// rosterWorkspace builds the roster model of one call: the policy and its
+// state with the condition flags of the call merged in memory, and the
+// catalog cache. The state file is never written here: a flag is a
+// question, not a condition.
+func rosterWorkspace(parsed *parsedArgs, root string) (*roster.Workspace, error) {
+	policy, state, err := rosterConditionPolicy(parsed)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := roster.LoadCatalog("")
+	if err != nil {
+		return nil, err
+	}
+	return &roster.Workspace{Root: root, Policy: policy, State: state, Catalog: catalog}, nil
 }
 
 // rosterConditionPolicy loads the v2 policy and its condition state with
@@ -240,36 +214,9 @@ func briefFlagError(flag, want string) error {
 	return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster: %s wants %s", flag, want), Code: clierrors.EXIT_FORMAT}
 }
 
-// planRoles names the roles a plan uses: every Role: of a unit, executor
-// for units without one and replan for the runner's replanning. The brief
-// is cut to these roles, so a warning about a role the plan never runs
-// stays out of the explain output.
-func planRoles(plan *format.Plan) []string {
-	return roster.PlanRoles(plan)
-}
-
-// headerChanges compares the header of the plan with the brief: one entry
-// per key that differs. A key the plan holds but the brief leaves empty is
-// a removal; a key both miss is not a change.
-func headerChanges(plan *format.Plan, header map[string]string) []ExplainChange {
-	changes := make([]ExplainChange, 0)
-	for _, key := range planHeaderKeys {
-		wanted, has := header[key]
-		old, exists := plan.Meta[key]
-		if !has && !exists {
-			continue
-		}
-		if has && exists && old == wanted {
-			continue
-		}
-		changes = append(changes, ExplainChange{Key: key, Old: old, New: wanted})
-	}
-	return changes
-}
-
 // explainText renders the explain report: the plan, one "key: old → new"
 // line per change and the warnings of the roles the plan uses.
-func explainText(report ExplainReport) string {
+func explainText(report roster.ExplainReport) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "plan: %s\n", report.Plan)
 	if len(report.Changes) == 0 {

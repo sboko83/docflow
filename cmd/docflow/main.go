@@ -500,13 +500,15 @@ func rosterStatus(parsed *parsedArgs) error {
 	if len(catalog.Accesses) == 0 {
 		stderr = "docflow: roster: the catalog cache is empty; run docflow roster scan\n"
 	}
-	policy, state, err := rosterConditions(rosterString(parsed, "--roster"))
+	// A missing roster has no conditions: the catalog commands keep
+	// working without one. A v1 file fails here with the migration hint.
+	workspace, err := roster.LoadPolicyState(rosterString(parsed, "--roster"), roster.ProjectRoot())
 	if err != nil {
 		return err
 	}
 	var conditions []roster.Condition
-	if policy != nil {
-		conditions = roster.Conditions(policy, state)
+	if workspace.Policy != nil {
+		conditions = workspace.Conditions
 	}
 	if rosterFlag(parsed, "--json") {
 		report := catalog.Report()
@@ -514,8 +516,8 @@ func rosterStatus(parsed *parsedArgs) error {
 		return rosterJSON(report, stderr)
 	}
 	stdout := catalog.StatusHeader() + "\n" + catalog.AccessTable()
-	if policy != nil {
-		stdout += rosterConditionsText(policy, state, conditions)
+	if workspace.Policy != nil {
+		stdout += rosterConditionsText(workspace, conditions)
 	}
 	return commandResult{code: clierrors.EXIT_OK, stdout: stdout, stderr: stderr}
 }
@@ -523,62 +525,36 @@ func rosterStatus(parsed *parsedArgs) error {
 // rosterConditionsText renders the conditions section of the status: the
 // two files conditions come from, then one row per condition; no
 // conditions stay one line instead of an empty table.
-func rosterConditionsText(policy *roster.Policy, state *roster.State, conditions []roster.Condition) string {
+func rosterConditionsText(workspace *roster.Workspace, conditions []roster.Condition) string {
 	if len(conditions) == 0 {
 		return "conditions: none\n"
 	}
-	return fmt.Sprintf("conditions (roster %s, state %s):\n", policy.Path, state.Path) + roster.ConditionTable(conditions)
-}
-
-// rosterConditions loads the policy of the roster file and its condition
-// state. A missing roster has no conditions: the catalog commands keep
-// working without one. A v1 file fails here with the migration hint.
-func rosterConditions(path string) (*roster.Policy, *roster.State, error) {
-	policyPath := roster.PolicyPath(path)
-	if _, err := os.Stat(policyPath); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster file: %v", err), Code: clierrors.EXIT_FORMAT}
-		}
-		return nil, nil, nil
-	}
-	policy, err := roster.LoadPolicy(policyPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	state, err := roster.LoadState(roster.StatePath(policyPath))
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := state.Validate(policy); err != nil {
-		return nil, nil, err
-	}
-	return policy, state, nil
+	return fmt.Sprintf("conditions (roster %s, state %s):\n", workspace.PolicyPath, workspace.StatePath) + roster.ConditionTable(conditions)
 }
 
 // rosterCondition runs the commands that write the condition state:
 // off, on, budget, expire, allow, deny and reset write only
-// roster.state.toml, never roster.toml. Every other name is checked
-// against the policy before the file is written, so a typo fails instead
-// of sitting dead in the file.
+// roster.state.toml, never roster.toml. Every condition goes through the
+// workspace operations, which check the access against the policy and save
+// through State.Save, so a typo fails instead of sitting dead in the file.
 func rosterCondition(parsed *parsedArgs) error {
 	subcommand, _ := parsed.values["subcommand"].(string)
 	access, _ := parsed.values["id"].(string)
 	rest, _ := parsed.values["args"].([]string)
 	statePath := roster.StatePath(rosterString(parsed, "--roster"))
 	if subcommand == "reset" {
-		if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
-			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster state: %v", err), Code: clierrors.EXIT_FORMAT}
+		// Reset reads no policy: dropping the conditions is the way out of a
+		// broken or a version 1 roster too.
+		workspace := &roster.Workspace{StatePath: statePath}
+		if err := workspace.Reset(); err != nil {
+			return err
 		}
 		if rosterFlag(parsed, "--json") {
 			return rosterJSON(roster.ConditionsReport{State: statePath, Conditions: []roster.Condition{}}, "")
 		}
 		return commandResult{code: clierrors.EXIT_OK, stdout: "conditions: reset\n"}
 	}
-	policy, err := roster.LoadPolicy(rosterString(parsed, "--roster"))
-	if err != nil {
-		return err
-	}
-	state, err := roster.LoadState(statePath)
+	workspace, err := roster.LoadPolicyState(rosterString(parsed, "--roster"), roster.ProjectRoot())
 	if err != nil {
 		return err
 	}
@@ -594,20 +570,24 @@ func rosterCondition(parsed *parsedArgs) error {
 				return err
 			}
 		}
-		state.SetOff(access, until)
+		if err := workspace.SetOff(access, until); err != nil {
+			return err
+		}
 		line = access + ": off"
 		if !until.IsZero() {
 			line += " until " + until.Format("2006-01-02")
 		}
 	case "on":
-		state.SetOn(access)
+		if err := workspace.SetOn(access); err != nil {
+			return err
+		}
 		line = access + ": on"
 	case "budget":
 		level, err := rosterFirstArgument(subcommand, rest, "LEVEL")
 		if err != nil {
 			return err
 		}
-		if err := state.SetBudget(access, level); err != nil {
+		if err := workspace.SetBudget(access, level); err != nil {
 			return err
 		}
 		line = access + ": budget " + level
@@ -620,30 +600,26 @@ func rosterCondition(parsed *parsedArgs) error {
 		if err != nil {
 			return err
 		}
-		state.SetExpires(access, day)
+		if err := workspace.SetExpires(access, day); err != nil {
+			return err
+		}
 		line = access + ": expires " + day.Format("2006-01-02")
 	case "allow", "deny":
 		if len(rest) == 0 {
 			return rosterArgumentError(subcommand, "PATTERN")
 		}
 		if subcommand == "allow" {
-			err = state.Allow(access, rest)
+			err = workspace.Allow(access, rest)
 		} else {
-			err = state.Deny(access, rest)
+			err = workspace.Deny(access, rest)
 		}
 		if err != nil {
 			return err
 		}
 		line = access + ": " + subcommand + " " + strings.Join(rest, " ")
 	}
-	if err := state.Validate(policy); err != nil {
-		return err
-	}
-	if err := state.Save(""); err != nil {
-		return err
-	}
 	if rosterFlag(parsed, "--json") {
-		return rosterJSON(roster.NewConditionsReport(policy, state), "")
+		return rosterJSON(roster.NewConditionsReport(workspace.Policy, workspace.State), "")
 	}
 	return commandResult{code: clierrors.EXIT_OK, stdout: line + "\n"}
 }

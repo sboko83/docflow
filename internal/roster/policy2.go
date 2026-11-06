@@ -132,7 +132,12 @@ func (p *Policy) PresetNames() []string {
 // DefaultPath) and merges the preset variants over it: the global file
 // next to the policy and the project file of the current checkout. The v1
 // format is read by Migrate alone.
-func LoadPolicy(path string) (*Policy, error) {
+func LoadPolicy(path string) (*Policy, error) { return loadPolicyAt(path, ProjectRoot()) }
+
+// loadPolicyAt is LoadPolicy with the project variants layer of an
+// explicit checkout root: the workspace reads the layer of the project it
+// shows, not of the working directory. An empty root has no project layer.
+func loadPolicyAt(path, root string) (*Policy, error) {
 	if path == "" {
 		path = DefaultPath()
 	}
@@ -145,7 +150,7 @@ func LoadPolicy(path string) (*Policy, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mergeVariants(policy)
+	return mergeVariants(policy, root)
 }
 
 // ParsePolicy parses and validates v2 policy text; path only locates the

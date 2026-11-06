@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in their own block.
 
 ### Fixed
+- `docflow roster on` refuses an access the roster does not declare instead
+  of reporting a switch it never made; every condition command now checks
+  the name before it writes `roster.state.toml`.
 - `docflow stats --runs` counts rework in the nested repositories of a plan
   with `repos:`, not only in the root repository, where such units change
   little more than the plan.

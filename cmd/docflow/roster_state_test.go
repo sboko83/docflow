@@ -150,6 +150,9 @@ func TestRosterStateBudgetExpireAllowDeny(t *testing.T) {
 		{[]string{"roster", "allow", "zai"}, "PATTERN is required"},
 		{[]string{"roster", "off"}, "ACCESS is required"},
 		{[]string{"roster", "off", "nope"}, "unknown access 'nope'"},
+		// `on` names an access too: a typo fails before the file is
+		// rewritten, instead of writing a condition that does nothing.
+		{[]string{"roster", "on", "nope"}, "unknown access 'nope'"},
 	} {
 		code, stdout, stderr := callLifecycleCLI(t, root, tc.args...)
 		if code != 2 || !strings.Contains(stderr, tc.message) {
