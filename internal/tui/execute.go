@@ -38,6 +38,8 @@ const (
 	dialogBacklogEdit
 	dialogBacklogDelete
 	dialogPlanningPrompt
+	dialogParameters
+	dialogParameterConfirm
 )
 
 type hostPollMsg struct{}
@@ -441,6 +443,65 @@ func (m Model) answerPrompt(confirmed bool, note string) Model {
 
 func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	key := msg.String()
+	if m.dialog == dialogParameterConfirm {
+		switch key {
+		case "enter", "y":
+			m.dialog = dialogParameters
+			m.parameterEditing = false
+			m = m.saveCurrentParameter("full")
+			m.dialog = dialogParameters
+			m.renderParameters()
+		case "esc", "n":
+			m.dialog = dialogParameters
+			m.parameterEditing = false
+			m.notice = "permissions unchanged"
+			m.renderParameters()
+		}
+		return m, nil
+	}
+	if m.dialog == dialogParameters {
+		if m.parameterEditing {
+			switch key {
+			case "esc":
+				m.parameterEditing = false
+			case "enter":
+				p := m.parameters[m.parameterCursor]
+				if p.Key == "permissions" && strings.TrimSpace(m.dialogInput) == "full" {
+					m.dialog = dialogParameterConfirm
+					m.dialogLines = []string{"permissions: full removes the agent sandbox.", "Confirm that agent commands may access the host freely."}
+					m.dialogKeys = []string{"Enter/y confirm · Esc/n cancel"}
+					return m, nil
+				}
+				m = m.saveCurrentParameter(m.dialogInput)
+				m.parameterEditing = false
+			case "backspace":
+				runes := []rune(m.dialogInput)
+				if len(runes) > 0 {
+					m.dialogInput = string(runes[:len(runes)-1])
+				}
+			default:
+				m.dialogInput += typedText(msg)
+			}
+		} else {
+			switch key {
+			case "esc":
+				m.dialog = dialogNone
+			case "up", "k":
+				if m.parameterCursor > 0 {
+					m.parameterCursor--
+				}
+			case "down", "j":
+				if m.parameterCursor+1 < len(m.parameters) {
+					m.parameterCursor++
+				}
+			case "enter":
+				m.parameterEditing = true
+				m.dialogInput = m.parameters[m.parameterCursor].Value
+			}
+		}
+		m.renderParameters()
+		return m, nil
+	}
 	if m.dialog == dialogBacklog || m.dialog == dialogBacklogEdit || m.dialog == dialogBacklogDelete || m.dialog == dialogPlanningPrompt {
 		return m.handleBacklogKey(msg)
 	}

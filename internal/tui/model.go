@@ -166,6 +166,9 @@ type Model struct {
 	backlogCursor       int
 	backlogEdit         int
 	backlogCaret        int
+	parameters          []Parameter
+	parameterCursor     int
+	parameterEditing    bool
 	planningPrompt      string
 
 	state    State
@@ -380,6 +383,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.dialog == dialogBacklog {
 			return m.showBacklog(), nil
+		}
+		if m.dialog == dialogParameters {
+			m.renderParameters()
+			return m, nil
 		}
 		m.syncCursor()
 		if m.screen == screenRun {

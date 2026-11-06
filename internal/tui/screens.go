@@ -108,7 +108,7 @@ func (m Model) keysLine(width int) string {
 	var keys []string
 	switch m.screen {
 	case screenProject:
-		keys = []string{"↑↓ move", "Enter open", "Tab panel", "/ search", "s start"}
+		keys = []string{"↑↓ move", "Enter open", "o settings", "Tab panel", "s start"}
 	case screenRoster:
 		if m.overlay == overlayRosterModels {
 			keys = []string{"↑↓ move", "a allow", "x deny", "Backspace unset", "Esc close"}
@@ -215,6 +215,7 @@ func (m Model) screenHelp() []string {
 		"R            resume the saved checkpoint",
 		"a, F, T, C   activate · freeze · thaw · close the plan",
 		"N            create a draft with docflow new <slug>",
+		"o            edit project, selected plan and next-session parameters",
 		"b            Backlog: + add · Enter edit · D delete · P plan with agent",
 		"e            open the selected plan in VISUAL or EDITOR",
 		"c            commit only docflow files with the latest Commit hint",

@@ -480,7 +480,7 @@ Handoff:
 - На macOS прошли полный verify P058.5.3 и gate go test -timeout 20m ./.... После проверки дерево не менялось; завершение и коммит оставлены runner.
 - Unverified: Отдельный живой PTY-сеанс нового экрана и запуск на Linux/Windows не проверялись; раскладка и клавиши проверены тестами модели.
 
-### [ ] P058.5.4 Edit project and plan parameters
+### [x] P058.5.4 Edit project and plan parameters
 Read:
 - docs/design/format.md#docflowmd
 - docs/design/format.md#план
@@ -497,6 +497,9 @@ Do:
 Verify: `go test -timeout 20m ./internal/tui/ ./cmd/docflow/`
 Depends: P058.5.1
 Commit: P058.5.4: edit project and plan parameters
+Handoff:
+- Поля плана показываются для выбранной строки плана; лимиты сессии действуют со следующего старта и хранятся только в памяти TUI.
+- Unverified: Отдельный интерактивный запуск новой формы на Linux и Windows не выполнялся; проверены тесты модели на macOS, включая размер 32×10.
 
 ## Phase 6: Documentation and acceptance
 

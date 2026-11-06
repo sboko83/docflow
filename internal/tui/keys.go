@@ -206,6 +206,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.screen == screenProject {
 		switch key {
+		case "o":
+			return m.openParameters(), nil
 		case "b":
 			return m.openBacklog(), nil
 		case "N":
