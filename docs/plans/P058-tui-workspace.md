@@ -145,6 +145,8 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - effectiveUnitRoutes снова решает режим по lint.ExecutorMode(plan), а не по args.Executors — TUI-диалоги зовут EffectiveAssignments с пустыми RunArgs, и executor-план обязан показать шапку, а не дефолтный tier; отвергнуто выставление Executors каждым вызывающим.
 - Acceptance-сценарий переоткрытия продолжает ту же сессию по шапке плана — смена плана между паузой и переоткрытием это recovery conflict, поэтому смену маршрута проверяют юнит-тесты (recovery_test.go) и тест раннера; отвергнут tier-режим с подменой личного agents.toml в PTY-сценарии.
 - usage.md и CHANGELOG обновлены вместе с design-доками — удаление редактора делало user-facing раздел ложным; отвергнуто отложить до закрывающего юнита.
+- Объединять дельты по Activity.Message и считать историю по блокам — отдельные дельты быстро вытесняли бы историю — отвергнуто увеличение лимита истории.
+- Хранить до 64 KiB текста и читать продолжение от ссылки первой дельты — полный поток остаётся доступен без роста памяти — отвергнуто хранение текста без ограничения.
 
 ## Phase 1: Workspace shell
 
@@ -353,7 +355,7 @@ Handoff:
 
 ## Phase 4: Run screen
 
-### [ ] P058.4.1 Merge streaming deltas into message blocks
+### [x] P058.4.1 Merge streaming deltas into message blocks
 Read:
 - internal/tui/activity.go:L1-330
 - internal/agentio/activity.go:L1-240
@@ -367,6 +369,11 @@ Verify: `go test -timeout 20m ./internal/tui/ ./internal/agentio/`
 Traps: парсер уже вычитает отправленные дельты из финального текста (`messageState.emitted`) — не дублируй текст при закрытии блока.
 Depends: P058.1.1
 Commit: P058.4.1: merge streaming deltas into message blocks
+Handoff:
+- В docs/plans/P058-tui-workspace.md уже было постороннее изменение до начала юнита; оно сохранено.
+- Для следующего юнита: ActivityEntry.Seq остаётся идентификатором блока от первой дельты; Activity.Seq обновляется финальным событием.
+- Коммит и закрытие юнита оставлены runner согласно Cycle.
+- Unverified: Полный verify выполнен на macOS; Windows и Linux в этом юните не запускались.
 
 ### [ ] P058.4.2 Render the live run screen
 Read:

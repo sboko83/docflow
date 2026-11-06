@@ -238,13 +238,16 @@ func TestActivityParserDeltaAndFinalAreNotDuplicated(t *testing.T) {
 	for i, line := range lines {
 		activities = append(activities, parser.Feed("stdout", line, ActivityRef{Stream: "stdout", Offset: int64(i), Length: len(line)})...)
 	}
-	if len(activities) != 2 {
-		t.Fatalf("activities = %#v", activities)
+	if len(activities) != 3 {
+		t.Fatalf("activities = %#v, want two deltas and a final observation", activities)
 	}
-	for _, activity := range activities {
+	for _, activity := range activities[:2] {
 		if !activity.Delta || activity.State != ActivityStateRunning {
 			t.Fatalf("delta = %#v", activity)
 		}
+	}
+	if activities[2].Delta || activities[2].State != ActivityStateSucceeded || activities[2].Text != "" {
+		t.Fatalf("final observation = %#v", activities[2])
 	}
 	if activities[0].Text+activities[1].Text != "Hello" {
 		t.Fatalf("text = %q", activities[0].Text+activities[1].Text)

@@ -205,10 +205,13 @@ func (p *ActivityParser) next(list ...Activity) []Activity {
 }
 
 func (p *ActivityParser) message(key, role, text string, final bool, ref ActivityRef) []Activity {
-	if text == "" {
+	if text == "" && !final {
 		return nil
 	}
 	state := p.messages[key]
+	if text == "" && final && state == nil {
+		return nil
+	}
 	if state == nil {
 		state = &messageState{}
 		p.messages[key] = state
@@ -219,11 +222,8 @@ func (p *ActivityParser) message(key, role, text string, final bool, ref Activit
 	}
 	text = strings.TrimPrefix(text, state.emitted)
 	delete(p.messages, key)
-	if text == "" {
-		// The deltas already carried the whole message: emitting it again
-		// would duplicate it.
-		return nil
-	}
+	// Keep the final observation even when all of its text was already
+	// emitted as deltas. The history uses it to close the message block.
 	return []Activity{{Kind: kindForRole(role), State: ActivityStateSucceeded, Role: role, Message: key, Text: clipActivity(text), Ref: ref}}
 }
 

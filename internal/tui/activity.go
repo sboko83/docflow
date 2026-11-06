@@ -22,6 +22,8 @@ const (
 	// memory. Older entries are dropped first; the original bytes stay in the
 	// call logs and are read back through activityPageSize.
 	activityHistoryLimit = 1000
+	// activityMessageLimit bounds the text of one streaming message in memory.
+	activityMessageLimit = 64 * 1024
 	// activityPageSize is how many bytes one page of a large result reads.
 	activityPageSize = 4096
 	// activityPagesPerEntry bounds the paged windows the details pane holds
@@ -52,7 +54,10 @@ type ActivityEntry struct {
 	At       time.Time
 	Type     string
 	Activity agentio.Activity
-	Fields   map[string]any
+	// Truncated means a streaming message exceeded activityMessageLimit; its
+	// complete source remains available in the call log through Activity.Ref.
+	Truncated bool
+	Fields    map[string]any
 	// Log is the call log the observation was written to, taken when it
 	// arrived. A resumed or re-run call reuses the attempt number, so a later
 	// lookup by attempt would read the newer call's bytes.
@@ -70,12 +75,13 @@ type ActivityHistory struct {
 }
 
 type unitHistory struct {
-	entries  []ActivityEntry
-	dropped  int
-	lastSeq  int64
-	lastLog  string
-	logs     map[int]string
-	logMoved time.Time
+	entries      []ActivityEntry
+	openMessages map[string]int
+	dropped      int
+	lastSeq      int64
+	lastLog      string
+	logs         map[int]string
+	logMoved     time.Time
 }
 
 // NewActivityHistory returns an empty history with the given per-unit limit.
@@ -106,6 +112,8 @@ func (h *ActivityHistory) Add(event runner.Event) (ActivityEntry, bool) {
 		h.units[event.Unit] = unit
 	}
 	if event.Type == "attempt" {
+		// Message ids are scoped to one agent call.
+		unit.openMessages = nil
 		// The attempt names the call log before CallAgent starts, while the
 		// stream link only exists once the call returned.
 		if log := strValue(event.Fields["log"]); log != "" {
@@ -149,7 +157,19 @@ func (h *ActivityHistory) Add(event runner.Event) (ActivityEntry, bool) {
 		if entry.Activity.Seq == 0 {
 			entry.Activity.Seq = h.seq
 		}
+		if entry.Activity.Kind == agentio.ActivityKindMessage || entry.Activity.Kind == agentio.ActivityKindReasoning {
+			if mergeStreamingMessage(unit, entry) {
+				unit.lastSeq = h.seq
+				return entry, true
+			}
+		}
 		unit.append(entry, h.limit)
+		if entry.Activity.Delta && entry.Activity.Message != "" {
+			if unit.openMessages == nil {
+				unit.openMessages = map[string]int{}
+			}
+			unit.openMessages[entry.Activity.Message] = len(unit.entries) - 1
+		}
 		unit.lastSeq = entry.Seq
 		return entry, true
 	case "attempt", "route_switch", "quota", "verify", "commit", "state",
@@ -164,6 +184,71 @@ func (h *ActivityHistory) Add(event runner.Event) (ActivityEntry, bool) {
 	return ActivityEntry{}, false
 }
 
+// mergeStreamingMessage folds deltas and their final observation into the
+// open history entry for that message. The entry keeps the first delta's
+// reference so the complete original stream can be paged from its call log.
+func mergeStreamingMessage(unit *unitHistory, incoming ActivityEntry) bool {
+	activity := incoming.Activity
+	if activity.Message == "" || unit.openMessages == nil {
+		return false
+	}
+	index, ok := unit.openMessages[activity.Message]
+	if !ok || index < 0 || index >= len(unit.entries) {
+		delete(unit.openMessages, activity.Message)
+		return false
+	}
+	entry := &unit.entries[index]
+	if activity.Delta {
+		appendMessageText(entry, activity.Text)
+		includeMessageRef(entry, activity.Ref)
+		return true
+	}
+	// Parsers remove already-emitted text from the final observation. Append
+	// only its remaining suffix, then close the block with the final state.
+	appendMessageText(entry, activity.Text)
+	includeMessageRef(entry, activity.Ref)
+	entry.Activity.State = activity.State
+	entry.Activity.Delta = false
+	entry.Activity.Seq = activity.Seq
+	entry.At = incoming.At
+	delete(unit.openMessages, activity.Message)
+	return true
+}
+
+func appendMessageText(entry *ActivityEntry, text string) {
+	if text == "" {
+		return
+	}
+	current := len(entry.Activity.Text)
+	remaining := activityMessageLimit - current
+	if remaining <= 0 {
+		entry.Truncated = true
+		return
+	}
+	if len(text) > remaining {
+		text = text[:remaining]
+		for !utf8.ValidString(text) && len(text) > 0 {
+			text = text[:len(text)-1]
+		}
+		entry.Truncated = true
+	}
+	entry.Activity.Text += text
+}
+
+func includeMessageRef(entry *ActivityEntry, ref agentio.ActivityRef) {
+	if entry.Activity.Ref.Stream == "" {
+		entry.Activity.Ref = ref
+		return
+	}
+	if ref.Stream == entry.Activity.Ref.Stream && ref.Offset >= entry.Activity.Ref.Offset {
+		end := ref.Offset + int64(ref.Length)
+		length := end - entry.Activity.Ref.Offset
+		if ref.Length < 0 || length > int64(entry.Activity.Ref.Length) {
+			entry.Activity.Ref.Length = int(length)
+		}
+	}
+}
+
 func (u *unitHistory) append(entry ActivityEntry, limit int) {
 	u.entries = append(u.entries, entry)
 	if len(u.entries) <= limit {
@@ -175,6 +260,13 @@ func (u *unitHistory) append(entry ActivityEntry, limit int) {
 	}
 	u.entries = append([]ActivityEntry{}, u.entries[drop:]...)
 	u.dropped += drop
+	for message, index := range u.openMessages {
+		if index < drop {
+			delete(u.openMessages, message)
+		} else {
+			u.openMessages[message] = index - drop
+		}
+	}
 }
 
 // Entries returns a copy of the unit's history in arrival order.
@@ -1179,6 +1271,18 @@ func (m Model) entryBody(unit string, entry ActivityEntry, width int) []string {
 	}
 	if activity.Text != "" {
 		add(Sanitize(activity.Text))
+	}
+	if entry.Truncated {
+		add(fmt.Sprintf("message text truncated at %d bytes; press ] to read the original call log", activityMessageLimit))
+		if page := m.pages[activityPageKey(unit, entry)]; page != nil {
+			if page.Err != "" {
+				add("message log: " + page.Err)
+			} else if page.Text != "" {
+				add("original call log (page):")
+				add(page.Text)
+				add(fmt.Sprintf("page %d-%d of %d bytes; [ and ] page; %s", page.Skip, page.End, page.Total, page.Path))
+			}
+		}
 	}
 	if activity.Raw != "" && activity.Kind == agentio.ActivityKindUnknown {
 		add("raw: " + Sanitize(activity.Raw))

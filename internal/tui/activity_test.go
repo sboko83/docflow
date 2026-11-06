@@ -198,6 +198,119 @@ func TestActivityHistoryBoundedAndPaged(t *testing.T) {
 	}
 }
 
+func TestActivityHistoryMergesStreamingMessageDeltas(t *testing.T) {
+	history := NewActivityHistory(3)
+	unit := "P001.1.2"
+	history.Add(activityEvent(unit, agentio.Activity{Kind: agentio.ActivityKindTool, State: agentio.ActivityStateSucceeded, Tool: "first"}))
+	history.Add(activityEvent(unit, agentio.Activity{Kind: agentio.ActivityKindTool, State: agentio.ActivityStateSucceeded, Tool: "second"}))
+	for i := 0; i < 5000; i++ {
+		history.Add(activityEvent(unit, agentio.Activity{
+			Kind: agentio.ActivityKindReasoning, State: agentio.ActivityStateRunning,
+			Delta: true, Message: "reasoning-1", Text: "think ",
+			Ref: agentio.ActivityRef{Stream: "stdout", Offset: int64(i * 10), Length: 6},
+		}))
+	}
+	entries := history.Entries(unit)
+	if len(entries) != 3 || entries[0].Activity.Tool != "first" || entries[1].Activity.Tool != "second" {
+		t.Fatalf("history after 5000 deltas = %#v", entries)
+	}
+	message := entries[2]
+	if message.Activity.Kind != agentio.ActivityKindReasoning || message.Activity.Message != "reasoning-1" || len(message.Activity.Text) != 6*5000 {
+		t.Fatalf("merged message = %#v", message)
+	}
+	if message.Activity.Ref.Offset != 0 || message.Activity.Ref.Length != 4999*10+6 {
+		t.Fatalf("merged message ref = %#v", message.Activity.Ref)
+	}
+}
+
+func TestActivityHistoryKeepsInterleavedMessagesSeparateAndClosesFinals(t *testing.T) {
+	history := NewActivityHistory(10)
+	unit := "P001.1.2"
+	for _, activity := range []agentio.Activity{
+		{Kind: agentio.ActivityKindReasoning, State: agentio.ActivityStateRunning, Delta: true, Message: "reasoning", Text: "think"},
+		{Kind: agentio.ActivityKindMessage, State: agentio.ActivityStateRunning, Delta: true, Message: "assistant", Text: "hello"},
+		{Kind: agentio.ActivityKindReasoning, State: agentio.ActivityStateSucceeded, Message: "reasoning"},
+		{Kind: agentio.ActivityKindMessage, State: agentio.ActivityStateSucceeded, Message: "assistant"},
+	} {
+		history.Add(activityEvent(unit, activity))
+	}
+	entries := history.Entries(unit)
+	if len(entries) != 2 {
+		t.Fatalf("entries = %#v, want two message blocks", entries)
+	}
+	if entries[0].Activity.Text != "think" || entries[0].Activity.State != agentio.ActivityStateSucceeded || entries[0].Activity.Delta {
+		t.Fatalf("reasoning block = %#v", entries[0])
+	}
+	if entries[1].Activity.Text != "hello" || entries[1].Activity.State != agentio.ActivityStateSucceeded || entries[1].Activity.Delta {
+		t.Fatalf("assistant block = %#v", entries[1])
+	}
+
+	noDeltas := NewActivityHistory(10)
+	noDeltas.Add(activityEvent(unit, agentio.Activity{Kind: agentio.ActivityKindMessage, State: agentio.ActivityStateSucceeded, Message: "final-only", Text: "complete"}))
+	entries = noDeltas.Entries(unit)
+	if len(entries) != 1 || entries[0].Activity.Text != "complete" {
+		t.Fatalf("final without deltas = %#v", entries)
+	}
+}
+
+func TestActivityHistoryTruncatesStreamingMessageAt64KiB(t *testing.T) {
+	history := NewActivityHistory(10)
+	unit := "P001.1.2"
+	history.Add(activityEvent(unit, agentio.Activity{
+		Kind: agentio.ActivityKindMessage, State: agentio.ActivityStateRunning,
+		Delta: true, Message: "large", Text: strings.Repeat("a", activityMessageLimit-2),
+		Ref: agentio.ActivityRef{Stream: "stdout", Offset: 20, Length: 10},
+	}))
+	history.Add(activityEvent(unit, agentio.Activity{
+		Kind: agentio.ActivityKindMessage, State: agentio.ActivityStateRunning,
+		Delta: true, Message: "large", Text: "bcdef", Ref: agentio.ActivityRef{Stream: "stdout", Offset: 40, Length: 5},
+	}))
+	entries := history.Entries(unit)
+	if len(entries) != 1 || len(entries[0].Activity.Text) != activityMessageLimit || !entries[0].Truncated {
+		if len(entries) == 0 {
+			t.Fatalf("truncated message has no entry")
+		}
+		t.Fatalf("truncated message = len %d, truncated %v; entries=%#v", len(entries[0].Activity.Text), entries[0].Truncated, entries)
+	}
+	if entries[0].Activity.Ref.Offset != 20 || entries[0].Activity.Ref.Length != 25 {
+		t.Fatalf("truncated message ref = %#v", entries[0].Activity.Ref)
+	}
+}
+
+func TestTruncatedStreamingMessagePagesOriginalCallLog(t *testing.T) {
+	unit := "P001.1.2"
+	log := filepath.Join(t.TempDir(), "message.out")
+	first := strings.Repeat("a", activityMessageLimit)
+	second := strings.Repeat("b", activityPageSize)
+	body := first + second
+	if err := os.WriteFile(log, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := historyModel(t,
+		streamEvent(unit, 1, log),
+		activityEvent(unit, agentio.Activity{
+			Kind: agentio.ActivityKindReasoning, State: agentio.ActivityStateRunning,
+			Delta: true, Message: "reasoning", Text: first,
+			Ref: agentio.ActivityRef{Stream: "stdout", Offset: 0, Length: len(first)},
+		}),
+		activityEvent(unit, agentio.Activity{
+			Kind: agentio.ActivityKindReasoning, State: agentio.ActivityStateRunning,
+			Delta: true, Message: "reasoning", Text: second,
+			Ref: agentio.ActivityRef{Stream: "stdout", Offset: int64(len(first)), Length: len(second)},
+		}),
+	)
+	model = openStream(t, model)
+	model = send(t, model, keyMsg("enter"))
+	entry := model.activityEntries(unit)[0]
+	page := model.pages[activityPageKey(unit, entry)]
+	if !entry.Truncated || page == nil || page.Err != "" || page.Total != len(body) || page.Text != first[:activityPageSize] {
+		t.Fatalf("truncated message page: truncated=%v page=%#v", entry.Truncated, page)
+	}
+	if rendered := strings.Join(model.entryBody(unit, entry, 120), "\n"); !strings.Contains(rendered, "message text truncated at 65536 bytes") || !strings.Contains(rendered, "original call log (page)") {
+		t.Fatalf("truncated message details are not visible:\n%s", rendered)
+	}
+}
+
 func TestActivityRenderWindowIsBounded(t *testing.T) {
 	var events []runner.Event
 	for i := 0; i < activityRenderWindow+80; i++ {
