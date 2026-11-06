@@ -14,6 +14,7 @@ import (
 	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
+	"bsv-docflow/internal/roster"
 	"bsv-docflow/internal/runner"
 )
 
@@ -145,6 +146,9 @@ const (
 	overlayNone overlayKind = iota
 	overlayDiff
 	overlayVerify
+	// overlayRosterModels is the model list of one access on the roster
+	// screen: it owns the body but not the tabs, so Esc closes it.
+	overlayRosterModels
 )
 
 // Model is the Bubble Tea model of the plan workspace.
@@ -233,6 +237,25 @@ type Model struct {
 	models       *modelsScreen
 	modelsConfig func(plan *format.Plan, args agents.RunArgs) (map[string]any, error)
 	modelsRoster func(plan *format.Plan) (map[string][]agents.Route, error)
+
+	// rosterPath is the roster file the screen reads: --roster of the
+	// command, roster.DefaultPath() otherwise.
+	rosterPath  string
+	rosterLoad  func(rosterPath, root string) (*roster.Workspace, error)
+	roster      *roster.Workspace
+	rosterErr   string
+	rosterPhase rosterPhase
+	rosterPanel rosterPanel
+	variants    int
+	accesses    int
+	roleTop     int
+	rmodels     *rosterModelList
+	// variantProject is the target of the variant name dialog: the global
+	// variants file or the project one; accessTarget and variantTarget are
+	// the access and the variant a dialog answers about.
+	variantProject bool
+	accessTarget   string
+	variantTarget  string
 }
 
 // New builds the workspace model for the project at root.
@@ -264,6 +287,8 @@ func newModel(root string, load Loader, noColor bool) Model {
 		modelsConfig:     loadModelsConfig,
 		modelsRoster:     loadModelsRoster,
 		recoveryLoad:     runner.LoadRecovery,
+		rosterPath:       roster.DefaultPath(),
+		rosterLoad:       roster.LoadWorkspace,
 	}
 }
 
@@ -300,6 +325,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.followView(), nil
 	case snapshotMsg:
 		return m.applySnapshot(msg), nil
+	case rosterMsg:
+		return m.applyRoster(msg), nil
 	case ActivityMsg:
 		m = m.applyEvent(msg.Event)
 		if eventReloadsPlan(msg.Event.Type) {

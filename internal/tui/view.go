@@ -121,8 +121,10 @@ func tooSmall(width, height int) bool { return width < minWidth || height < minH
 // itself and keep the same body on every screen.
 func (m Model) screenBody(width, height int) []string {
 	switch m.screen {
-	case screenRoster, screenHistory:
+	case screenHistory:
 		return m.placeholderLines(width, height)
+	case screenRoster:
+		return m.rosterBody(width, height)
 	case screenRun:
 		return m.pane(m.screen.title(), m.visibleStreamLines(width), 0, width, height, true)
 	}
@@ -203,8 +205,13 @@ func (m Model) dialogLayout(width, height int) (head, body, keys []string, windo
 	}
 	head = wrap(styles.title.Render(m.dialogTitle), strings.Repeat("─", max(1, width-2)))
 	var keyTexts []string
-	if m.dialog == dialogHuman {
+	switch m.dialog {
+	case dialogHuman:
 		keyTexts = append(keyTexts, "note: "+m.dialogInput+"▏")
+	case dialogOff:
+		keyTexts = append(keyTexts, "until: "+m.dialogInput+"▏")
+	case dialogVariant:
+		keyTexts = append(keyTexts, "name: "+m.dialogInput+"▏", "target: "+m.variantTargetText())
 	}
 	keys = wrap(append(keyTexts, m.dialogKeys...)...)
 	body = wrap(m.dialogLines...)
@@ -706,6 +713,12 @@ func (m Model) statusLine() string {
 			}
 			parts = append(parts, "focus:"+focusName)
 		}
+		if m.screen == screenRoster {
+			parts = append(parts, "panel:"+m.rosterPanel.String())
+			if m.rosterPhase == rosterReady && m.roster != nil {
+				parts = append(parts, fmt.Sprintf("roster:%d accesses", len(m.roster.Accesses)))
+			}
+		}
 		if strings.TrimSpace(m.activityQuery) != "" {
 			parts = append(parts, fmt.Sprintf("activity-search:%q matches:%d", strings.TrimSpace(m.activityQuery), m.activityMatches))
 		}
@@ -724,8 +737,11 @@ func (m Model) statusLine() string {
 	}
 	if m.overlay != overlayNone {
 		name := "diff"
-		if m.overlay == overlayVerify {
+		switch m.overlay {
+		case overlayVerify:
 			name = "verify"
+		case overlayRosterModels:
+			name = "models"
 		}
 		parts = append(parts, "overlay:"+name)
 	}

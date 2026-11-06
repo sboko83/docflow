@@ -127,6 +127,12 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - Кроме полного `LoadWorkspace` есть `LoadPolicyState` без каталога и брифа — `roster off`/`status` не должны начать падать на политике без независимого ревьюера или неполного `[role]`, где они работали раньше — отвергнут единый загрузчик для всех команд.
 - Сохранённый вариант — это разница, которую условия и активный пресет дают против roster.toml, и она обязана выражаться грамматикой пресета; невыразимое условие — ошибка, а не вариант с другим смыслом — отвергнуто молчаливое отбрасывание дат и запретов.
 - Типы `ExplainReport`/`ExplainChange` и построение разницы переехали в `internal/roster`, а CLI подаёт в `Workspace` политику со своим in-memory оверлеем — TUI не может импортировать `cmd`, второй реализации разницы быть не должно — отвергнуто оставить explain в cmd и написать копию для экрана.
+- Экран перечитывает рабочее место синхронно после каждой удачной операции, а не правит строки на месте — производные строки строит только загрузчик, а State/Preset меняют операции; отвергнуто точечное обновление модели.
+- Добавлена операция Workspace.UnsetGlob — правка allow/deny должна быть обратимой, иначе случайный a лечится только roster reset; отвергнуты редактор «только добавление» и запись state в обход операций.
+- Список моделей сделан overlay'ем, а не диалогом — нужен курсор по строкам каталога и повторный показ после правки; отвергнут диалог с текстовым вводом glob'ов.
+- Цель варианта переключается Tab в диалоге имени, а не буквой — буквы уже принадлежат имени; отвергнуты p/g как команды диалога.
+- Панель цепочек прокручивается roleTop без курсора — она только для чтения, а шесть ролей не влезают в 32x10; отвергнут четвёртый курсор выбора.
+- Строка доступа стала трёхстрочной, и даты идут раньше globs: в трёхпанельной раскладке центр ~47 колонок, и дата обрезалась; отвергнут перенос дат в головную строку.
 
 ## Phase 1: Workspace shell
 
@@ -221,7 +227,7 @@ Handoff:
 
 ## Phase 3: Roster screen
 
-### [ ] P058.3.1 Show and edit accesses on the roster screen
+### [x] P058.3.1 Show and edit accesses on the roster screen
 Read:
 - internal/roster/workspace.go
 - internal/tui/model.go
@@ -238,6 +244,15 @@ Verify: `go test -timeout 20m ./internal/tui/ ./cmd/docflow/`
 Traps: на проектный файл вариантов действует lock-проверка (он в рабочем дереве); глобальные файлы lock не требуют.
 Depends: P058.2.2
 Commit: P058.3.1: show and edit accesses on the roster screen
+Handoff:
+- Экран «Ростер» живёт в internal/tui/roster.go: состояние в Model (rosterPhase, rosterPanel, курсоры variants/accesses/roleTop), загрузка через шов rosterLoad (по умолчанию roster.LoadWorkspace); первое открытие экрана 2 — команда загрузки, r и каждая удачная правка — синхронное перечитывание. P058.3.2 расширяет rosterBody: ветки Missing/Legacy/CatalogEmpty сейчас только подсказки, туда же u и диалог миграции.
+- В internal/roster/workspace.go добавлены WorkspaceAccess.Allow/Deny/Until/Expires (строятся из Merge в accessRows) и операция UnsetGlob(access, glob): она снимает glob из state.Models и state.Exclude, пустые таблицы удаляет, roster.toml не переписывает — тест закрепляет, что после снятия возвращаются globs политики.
+- Список моделей — overlay overlayRosterModels, а не диалог: он забирает a/x/Backspace, но пропускает 1–4, q и ?; switchScreen закрывает его при уходе с экрана. Клавиша n работает на любом панели экрана, D на варианте roster.toml открывает не диалог, а notice с «by hand».
+- Флаг --roster идёт через tuiterm.WithRosterPath, пустое значение оставляет roster.DefaultPath() из newModel; handleTUI читает его тем же rosterString(parsed, "--roster").
+- Фикстура тестов rosterFixture пишет политику под временный XDG_CONFIG_HOME, каталог под XDG_CACHE_HOME и делает git init в проекте: проектный файл вариантов пишется под checkout lock. Хелперы rosterScreenModel (загружает планы, ставит rosterPath, жмёт 2 и выполняет команду) и rosterPanelModel.
+- Панель цепочек прокручивается полем roleTop (up/down/pgup/pgdown/g/G), курсора по ролям нет. Строка доступа трёхстрочная: канал и каталог / переключатель с бюджетом и флагами / даты и globs.
+- Unverified: Экран «Ростер» не входит в PTY-сценарии (terminal_*_test.go, acceptance_test.go): рендер и клавиши проверены вызовом Update напрямую, реальный терминал — в первую очередь консоль Windows — не прогонялся.
+- Unverified: Три панели на 100–119 колонках проверены только на 120x40: ширина центральной панели в этом диапазоне и обрезка длинных glob'ов тестом не покрыты.
 
 ### [ ] P058.3.2 Scan the catalog and migrate the roster from the TUI
 Read:

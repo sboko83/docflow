@@ -702,8 +702,14 @@ func TestFooterShowsTheScreenKeys(t *testing.T) {
 	}
 
 	model = send(t, model, keyMsg("2"))
-	if roster := footer(); roster != "? помощь" {
-		t.Fatalf("placeholder footer = %q, want only the help", roster)
+	roster := footer()
+	for _, want := range []string{"Tab panel", "Space on/off", "←→ budget"} {
+		if !strings.Contains(roster, want) {
+			t.Fatalf("roster footer lost %q: %q", want, roster)
+		}
+	}
+	if strings.Contains(roster, "s start") {
+		t.Fatalf("roster footer repeats the project keys: %q", roster)
 	}
 
 	// A narrow footer keeps the help reachable: keys go, "? помощь" stays.
@@ -716,16 +722,16 @@ func TestFooterShowsTheScreenKeys(t *testing.T) {
 	}
 }
 
-// TestPlaceholderScreensSayWhatIsThere keeps the two screens without data
-// honest: they name themselves, say the data is not there yet and point at
-// where the work lives today.
+// TestPlaceholderScreensSayWhatIsThere keeps the screens without data
+// honest: the history names itself and says where the runs live today, and
+// the roster screen names the file it reads before the load completes.
 func TestPlaceholderScreensSayWhatIsThere(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	root := writeTestProject(t)
 	model := resize(t, loadedModel(t, root), 80, 24)
 	model = send(t, model, keyMsg("2"))
-	if rendered := model.String(); !strings.Contains(rendered, "пока пусто") || !strings.Contains(rendered, "Ростер") || !strings.Contains(rendered, "docflow roster") {
-		t.Fatalf("roster placeholder is not honest:\n%s", rendered)
+	if rendered := model.String(); !strings.Contains(rendered, "Читаю ростер") || !strings.Contains(rendered, "roster.toml") {
+		t.Fatalf("the roster screen does not name the file it reads:\n%s", rendered)
 	}
 	model = send(t, model, keyMsg("4"))
 	if rendered := model.String(); !strings.Contains(rendered, "пока пусто") || !strings.Contains(rendered, "История") {

@@ -22,6 +22,11 @@ const (
 	dialogExit
 	dialogHuman
 	dialogRecover
+	// The roster dialogs: the end date of an off condition, the name and
+	// target of a new variant, and the confirmation of a delete.
+	dialogOff
+	dialogVariant
+	dialogVariantDelete
 )
 
 type hostPollMsg struct{}
@@ -511,6 +516,55 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.dialogInput += typedText(msg)
 			return m, nil
 		}
+	case dialogOff:
+		switch key {
+		case "enter":
+			return m.applyOffDialog(), nil
+		case "esc":
+			m.dialog = dialogNone
+			m.notice = "switch cancelled"
+			return m, nil
+		case "backspace":
+			runes := []rune(m.dialogInput)
+			if len(runes) > 0 {
+				m.dialogInput = string(runes[:len(runes)-1])
+			}
+			return m, nil
+		default:
+			m.dialogInput += typedText(msg)
+			return m, nil
+		}
+	case dialogVariant:
+		switch key {
+		case "enter":
+			return m.saveVariant(), nil
+		case "tab":
+			m.variantProject = !m.variantProject
+			return m.openVariantDialog(""), nil
+		case "esc":
+			m.dialog = dialogNone
+			m.notice = "variant not saved"
+			return m, nil
+		case "backspace":
+			runes := []rune(m.dialogInput)
+			if len(runes) > 0 {
+				m.dialogInput = string(runes[:len(runes)-1])
+			}
+			return m, nil
+		default:
+			m.dialogInput += typedText(msg)
+			return m, nil
+		}
+	case dialogVariantDelete:
+		switch key {
+		case "enter", "y":
+			return m.deleteVariant(), nil
+		case "esc", "n":
+			m.dialog = dialogNone
+			m.notice = "variant kept"
+			return m, nil
+		}
+		return m, nil
 	}
 	return m, nil
 }

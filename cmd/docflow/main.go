@@ -144,6 +144,7 @@ func tuiArguments() []argument {
 	return []argument{
 		integer("--attempts", "N", "agent calls per unit (default 3)", intValue(3)),
 		integer("--replans", "N", "auto-replan calls per phase (default 3; 0 disables)", intValue(3)),
+		option("--roster", "PATH", "roster.toml path of the roster screen (default ~/.config/docflow/roster.toml)"),
 	}
 }
 
@@ -378,7 +379,7 @@ func handleTUI(parsed *parsedArgs, stdout io.Writer) error {
 	}
 	// A missing checkout only disables the advisory skill check.
 	source, _ := currentSkillDirectory()
-	return tuiterm.Run(root, os.Stdin, stdout, tuiterm.WithSkillDirectory(source), tuiterm.WithRunLimits(attempts, replans))
+	return tuiterm.Run(root, os.Stdin, stdout, tuiterm.WithSkillDirectory(source), tuiterm.WithRunLimits(attempts, replans), tuiterm.WithRosterPath(rosterString(parsed, "--roster")))
 }
 
 func handleRoster(parsed *parsedArgs) error {

@@ -59,6 +59,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key == "ctrl+c" {
 		return m.requestQuit()
 	}
+	// The model list of the roster screen owns its letters: a and x edit the
+	// globs there, they do not activate or freeze a plan. The tabs, the help
+	// and the quit key stay reachable, so the list never traps the keyboard.
+	if m.overlay == overlayRosterModels {
+		if _, isScreen := screenForKey(key); !isScreen && key != "?" && key != "q" {
+			return m.handleRosterModelsKey(key), nil
+		}
+	}
 	if m.searching {
 		return m.handleSearchKey(msg)
 	}
@@ -80,7 +88,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// The screen keys work from anywhere the keyboard is not text, including
 	// an open help: the help then describes the screen just chosen.
 	if target, ok := screenForKey(key); ok {
-		return m.switchScreen(target), nil
+		model := m.switchScreen(target)
+		if model.screen == screenRoster && model.rosterPhase == rosterIdle {
+			return model.startRoster()
+		}
+		return model, nil
 	}
 	if m.help {
 		switch key {
@@ -101,6 +113,11 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.state = StateLoading
 		m.errText = ""
 		m.notice = reloadingText
+		// The roster screen keeps its own data: reload it with the plans so
+		// a file edited outside the workspace shows up too.
+		if m.rosterPhase != rosterIdle {
+			m = m.refreshRoster()
+		}
 		return m, loadCmd(m.load)
 	case "tab", "shift+tab":
 		return m.switchPanel(), nil
@@ -162,10 +179,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.lifecycleKey("close")
 	}
 	switch m.screen {
-	case screenRoster, screenHistory:
-		// Placeholder screens keep their keys to the tabs, the run controls
+	case screenHistory:
+		// The history screen keeps its keys to the tabs, the run controls
 		// and the help.
 		return m, nil
+	case screenRoster:
+		return m.handleRosterKey(key)
 	case screenRun:
 		return m.handleStreamKey(key), nil
 	}
@@ -601,15 +620,27 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) switchPanel() Model {
-	if m.screen != screenProject {
+	switch m.screen {
+	case screenRoster:
+		// The three panels cycle: variants, accesses, chains.
+		switch m.rosterPanel {
+		case panelVariants:
+			m.rosterPanel = panelAccesses
+		case panelAccesses:
+			m.rosterPanel = panelRoles
+		default:
+			m.rosterPanel = panelVariants
+		}
 		return m
+	case screenProject:
+		if m.focus == focusTree {
+			m.focus = focusDetails
+		} else {
+			m.focus = focusTree
+		}
+		return m.followView()
 	}
-	if m.focus == focusTree {
-		m.focus = focusDetails
-	} else {
-		m.focus = focusTree
-	}
-	return m.followView()
+	return m
 }
 
 func (m Model) activateRow() Model {

@@ -17,6 +17,7 @@ type Option func(*options)
 
 type options struct {
 	skillDirectory string
+	rosterPath     string
 	runLimits      RunLimits
 	runLimitsSet   bool
 }
@@ -24,6 +25,12 @@ type options struct {
 // WithSkillDirectory names the installed docflow skills for the start check.
 func WithSkillDirectory(path string) Option {
 	return func(o *options) { o.skillDirectory = path }
+}
+
+// WithRosterPath names the roster file of the roster screen: --roster of
+// the command, roster.DefaultPath() when it is empty.
+func WithRosterPath(path string) Option {
+	return func(o *options) { o.rosterPath = path }
 }
 
 // WithRunLimits sets the attempts per unit and replans per phase of the
@@ -38,6 +45,9 @@ func WithRunLimits(attempts, replans int) Option {
 // applyOptions copies the command-line options into the workspace model.
 func applyOptions(model Model, o options) Model {
 	model.skillDirectory = o.skillDirectory
+	if o.rosterPath != "" {
+		model.rosterPath = o.rosterPath
+	}
 	if o.runLimitsSet {
 		model.runLimits = o.runLimits
 	}

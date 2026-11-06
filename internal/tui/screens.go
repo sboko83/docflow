@@ -24,6 +24,12 @@ func (m Model) switchScreen(target screen) Model {
 	if m.screen == target {
 		return m
 	}
+	if target != screenRoster && m.overlay == overlayRosterModels {
+		// The model list belongs to the roster screen: another screen has no
+		// pane that could show it.
+		m.overlay = overlayNone
+		m.rmodels = nil
+	}
 	m.screen = target
 	switch target {
 	case screenRun:
@@ -95,6 +101,12 @@ func (m Model) keysLine(width int) string {
 	switch m.screen {
 	case screenProject:
 		keys = []string{"↑↓ move", "Enter open", "Tab panel", "/ search", "s start"}
+	case screenRoster:
+		if m.overlay == overlayRosterModels {
+			keys = []string{"↑↓ move", "a allow", "x deny", "Backspace unset", "Esc close"}
+			break
+		}
+		keys = []string{"↑↓ move", "Tab panel", "Space on/off", "←→ budget", "Enter models"}
 	case screenRun:
 		keys = []string{"↑↓ move", "Enter expand", "[ ] page", "d diff", "v verify"}
 	}
@@ -112,9 +124,27 @@ func (m Model) screenHelp() []string {
 	switch m.screen {
 	case screenRoster:
 		return []string{
-			"Roster, conditions and variants are not wired into the workspace yet.",
-			"The screen is a placeholder: use docflow roster in the CLI for now.",
-			"Starting, pausing and stopping a run works from here as from any screen.",
+			"↑/k, ↓/j     строка вариантов или доступа; на цепочках — прокрутка",
+			"PgUp/PgDn, Home/End  страница и края списка или цепочек",
+			"Tab          панель: варианты · доступы · цепочки",
+			"",
+			"На доступе:",
+			"Space        включить или выключить; диалог спрашивает дату",
+			"             «off --until»: пусто — бессрочно",
+			"←/h, →/l     бюджет prefer · normal · lean · minimal · off",
+			"Enter        модели доступа из каталога: a разрешить, x запретить,",
+			"             Backspace снять условие, Esc закрыть",
+			"",
+			"На варианте:",
+			"Enter        сделать активным пресетом",
+			"Backspace    снять пресет",
+			"n            сохранить условия как новый вариант",
+			"D            удалить вариант машинного файла",
+			"Esc          вернуться на «Проект»",
+			"",
+			"Экран читает roster.LoadWorkspace: политика, варианты и условия",
+			"проекта. Правка пишет roster.state.toml или файл вариантов и",
+			"перечитывает модель; отказ показывается в notice, файл остаётся.",
 		}
 	case screenHistory:
 		return []string{
@@ -156,12 +186,8 @@ func (m Model) screenHelp() []string {
 // placeholderLines renders a screen that has no data yet: the empty state and
 // where the same work lives today.
 func (m Model) placeholderLines(width, height int) []string {
-	hint := "Ростер пока пуст: доступы, условия, варианты и применение к плану появятся здесь."
-	footer := "Пока настройка — docflow roster в CLI; ? помощь"
-	if m.screen == screenHistory {
-		hint = "История пока пуста: прошлые прогоны и повтор потока появятся здесь."
-		footer = "Журналы прогонов лежат в <git-dir>/docflow/run; ? помощь"
-	}
+	hint := "История пока пуста: прошлые прогоны и повтор потока появятся здесь."
+	footer := "Журналы прогонов лежат в <git-dir>/docflow/run; ? помощь"
 	return m.messageLines(width, height, "пока пусто", hint, footer)
 }
 

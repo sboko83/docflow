@@ -140,6 +140,14 @@ func TestLoadWorkspaceModel(t *testing.T) {
 	if opencode.Budget != BudgetPrefer || !opencode.Trusted || opencode.Check || opencode.Off {
 		t.Errorf("opencode-go flags = %+v, want prefer, trusted and on", opencode)
 	}
+	// The condition allowlist replaces the policy one: the row shows the
+	// effective globs a run would use, not the wider policy list.
+	if want := []string{"deepseek-v4.1"}; !reflect.DeepEqual(opencode.Allow, want) {
+		t.Errorf("opencode-go allow = %v, want the condition list %v", opencode.Allow, want)
+	}
+	if len(opencode.Deny) != 0 || opencode.Until != "" || opencode.Expires != "" {
+		t.Errorf("opencode-go conditions = %+v, want no deny and no dates", opencode)
+	}
 	want := []string{"budget prefer roster", "models deepseek-* roster", "models deepseek-v4.1 state"}
 	if got := conditionNames(opencode.Conditions); !reflect.DeepEqual(got, want) {
 		t.Errorf("opencode-go conditions = %v, want %v", got, want)
@@ -148,6 +156,19 @@ func TestLoadWorkspaceModel(t *testing.T) {
 	zai := accessRow(t, workspace, "zai")
 	if zai.Budget != BudgetLean || !zai.Check || zai.Trusted {
 		t.Errorf("zai flags = %+v, want lean and check", zai)
+	}
+	// The dates and globs the screen shows come from the same merge: the
+	// expiry of the policy and the denials over both layers.
+	if zai.Expires != "2099-01-01" {
+		t.Errorf("zai expires = %q, want the policy date the fixture patches", zai.Expires)
+	}
+	// The active preset narrows the allowlist, so the row carries the
+	// effective globs, not the wider policy ones.
+	if want := []string{"*flash*"}; !reflect.DeepEqual(zai.Allow, want) {
+		t.Errorf("zai allow = %v, want %v", zai.Allow, want)
+	}
+	if want := []string{"glm-5.3-thinking"}; !reflect.DeepEqual(zai.Deny, want) {
+		t.Errorf("zai deny = %v, want %v", zai.Deny, want)
 	}
 	want = []string{"budget lean roster", "expires 2099-01-01 roster", "models glm-5.3* roster", "exclude glm-5.3-thinking roster"}
 	if got := conditionNames(zai.Conditions); !reflect.DeepEqual(got, want) {
@@ -471,6 +492,54 @@ func TestWorkspaceConditionOperations(t *testing.T) {
 
 // TestWorkspaceResetWithoutPolicy: reset reads no policy, so a version 1
 // roster can be dropped from its conditions too.
+// TestWorkspaceRowDatesAndGlobs: the off date and the model globs of the
+// conditions reach the row a screen renders, and UnsetGlob drops one
+// pattern from both condition tables without touching the policy.
+func TestWorkspaceRowDatesAndGlobs(t *testing.T) {
+	rosterPath := workspacePolicy(t)
+	writeRosterFile(t, StatePath(rosterPath), "version = 2\n\noff = [\"codex\"]\n\n[until]\ncodex = \"2099-12-31\"\n\n[models]\ncodex = [\"gpt-6*\", \"gpt-6-luna\"]\n\n[exclude]\ncodex = [\"gpt-6-luna\"]\n")
+	workspaceCatalog(t)
+	workspace := loadWorkspaceOrFail(t, rosterPath, "")
+
+	row := accessRow(t, workspace, "codex")
+	if !row.Off || row.Until != "2099-12-31" {
+		t.Errorf("codex row = %+v, want it off until the condition date", row)
+	}
+	if want := []string{"gpt-6*", "gpt-6-luna"}; !reflect.DeepEqual(row.Allow, want) {
+		t.Errorf("codex allow = %v, want %v", row.Allow, want)
+	}
+	if want := []string{"gpt-6-luna"}; !reflect.DeepEqual(row.Deny, want) {
+		t.Errorf("codex deny = %v, want %v", row.Deny, want)
+	}
+
+	if err := workspace.UnsetGlob("codex", "gpt-6-luna"); err != nil {
+		t.Fatalf("UnsetGlob(gpt-6-luna) error = %v", err)
+	}
+	state, err := LoadState(StatePath(rosterPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"gpt-6*"}; !reflect.DeepEqual(state.Models["codex"], want) {
+		t.Errorf("conditions allow = %v, want %v", state.Models["codex"], want)
+	}
+	if len(state.Exclude["codex"]) != 0 {
+		t.Errorf("conditions deny = %v, want the pattern gone", state.Exclude["codex"])
+	}
+	if err := workspace.UnsetGlob("codex", "gpt-6*"); err != nil {
+		t.Fatalf("UnsetGlob(gpt-6*) error = %v", err)
+	}
+	state, err = LoadState(StatePath(rosterPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state.Models["codex"]; ok {
+		t.Errorf("an empty allowlist stayed in the file: %v", state.Models)
+	}
+	if err := workspace.UnsetGlob("nope", "gpt-6*"); err == nil || !strings.Contains(err.Error(), "unknown access") {
+		t.Errorf("UnsetGlob(unknown) error = %v, want the unknown access", err)
+	}
+}
+
 func TestWorkspaceResetWithoutPolicy(t *testing.T) {
 	rosterPath := filepath.Join(t.TempDir(), "roster.toml")
 	writeRosterFile(t, rosterPath, "spend = [\"zai\"]\n")

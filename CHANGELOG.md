@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The Ростер screen of `docflow tui` shows the roster workspace of the
+  project and edits it without the CLI: the variants of the three preset
+  layers with the active one marked, the accesses with their switch,
+  budget, allowlist, `check`/`trusted` and dates, and the role chains with
+  their read budget and warnings. `Space`, `←/→`, `Enter`, `n` and `D`
+  write `roster.state.toml` or a variants file and reload the workspace; a
+  refused condition keeps the file and shows its reason.
+  `docflow tui --roster PATH` names the roster file, `roster.DefaultPath()`
+  otherwise.
+
 ### Changed
 - `docflow tui` is a four-screen workspace: `1`–`4` switch Проект (the tree
-  and the unit card), Ростер and История (placeholders for now) and Прогон
-  (the live stream of the selected unit); the footer names the keys of the
-  current screen and `?` opens the help of that screen with the shared keys
-  in their own block.
+  and the unit card), Ростер (the roster workspace), История (a placeholder
+  for now) and Прогон (the live stream of the selected unit); the footer
+  names the keys of the current screen and `?` opens the help of that
+  screen with the shared keys in their own block.
 
 ### Fixed
 - `docflow roster on` refuses an access the roster does not declare instead

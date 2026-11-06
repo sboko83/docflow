@@ -297,6 +297,25 @@ func TestTUIRunLimitsFlags(t *testing.T) {
 	}
 }
 
+func TestTUIRosterFlag(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	parsed, code := parseArgs([]string{"tui", "--roster", "/tmp/bench/roster.toml"}, &stdout, &stderr)
+	if parsed == nil || code != 0 {
+		t.Fatalf("tui --roster parse = (%v, %d), stderr=%q", parsed, code, stderr.String())
+	}
+	if got := parsed.values["--roster"]; got != "/tmp/bench/roster.toml" {
+		t.Fatalf("tui --roster = %#v", got)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"tui", "--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("tui --help = %d", code)
+	}
+	if !strings.Contains(stdout.String(), "--roster PATH") {
+		t.Fatalf("tui help does not describe --roster: %q", stdout.String())
+	}
+}
+
 func TestEveryCommandHasHandler(t *testing.T) {
 	for _, spec := range commands {
 		if handlers[spec.name] == nil {

@@ -73,6 +73,10 @@ type WorkspaceAccess struct {
 	Check      bool        `json:"check,omitempty"`
 	Trusted    bool        `json:"trusted,omitempty"`
 	Off        bool        `json:"off,omitempty"`
+	Allow      []string    `json:"allow,omitempty"`
+	Deny       []string    `json:"deny,omitempty"`
+	Until      string      `json:"until,omitempty"`
+	Expires    string      `json:"expires,omitempty"`
 	Conditions []Condition `json:"conditions,omitempty"`
 }
 
@@ -223,6 +227,21 @@ func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 		}
 		if effective, ok := merged.Access(access.Name); ok {
 			row.Budget = effective.Budget
+			// The allowlist is the effective one: a condition replaces the
+			// policy list instead of widening it, and the screen must show
+			// what a run would use. Denials add up over both layers.
+			if effective.ModelsSet {
+				row.Allow = append([]string{}, effective.Models...)
+			}
+			row.Deny = append([]string{}, effective.Exclude...)
+			if !effective.Expires.IsZero() {
+				row.Expires = dayText(effective.Expires)
+			}
+		}
+		if w.State != nil {
+			if until, dated := w.State.Until[access.Name]; dated {
+				row.Until = dayText(until)
+			}
 		}
 		row.Off = row.Budget == BudgetOff
 		for _, condition := range w.Conditions {
@@ -393,6 +412,30 @@ func (w *Workspace) Deny(access string, globs []string) error {
 		return err
 	}
 	return w.mutate(func(state *State) error { return state.Deny(access, globs) })
+}
+
+// UnsetGlob removes one pattern from the condition allowlist and the
+// condition denylist of an access: the screen edits the temporary layer,
+// and the hand-edited policy keeps the globs it declares. An empty list
+// is dropped instead of written, so the state file stays readable.
+func (w *Workspace) UnsetGlob(access, glob string) error {
+	if err := w.ready(); err != nil {
+		return err
+	}
+	if err := w.checkAccess("allow", access); err != nil {
+		return err
+	}
+	return w.mutate(func(state *State) error {
+		for _, table := range []map[string][]string{state.Models, state.Exclude} {
+			kept := removeItem(table[access], glob)
+			if len(kept) == 0 {
+				delete(table, access)
+				continue
+			}
+			table[access] = kept
+		}
+		return nil
+	})
 }
 
 // SetPreset makes a preset of any layer the active one: --preset NAME must

@@ -410,7 +410,7 @@ options:
                         skill directory set (default: claude)
   --target DIR          personal skills directory override
 `,
-	"tui": `usage: docflow tui [-h] [--attempts N] [--replans N]
+	"tui": `usage: docflow tui [-h] [--attempts N] [--replans N] [--roster PATH]
 
 open the interactive terminal workspace for the queue and plans
 
@@ -418,13 +418,17 @@ The workspace reads docs/docflow.md and the plans it names with the docflow
 parser. It shows the tree of phases and units, the selected unit card and the
 live agent activity. s starts the current Queue run, R resumes its checkpoint,
 p pauses, S stops after the current unit and x stops now. a, F, T and C run
-the same activate, freeze, thaw and close checks as the CLI. Without a
-terminal it refuses and points at the ordinary CLI commands.
+the same activate, freeze, thaw and close checks as the CLI. The roster screen
+reads roster.LoadWorkspace and edits the conditions of it; --roster names the
+file it reads. Without a terminal it refuses and points at the ordinary CLI
+commands.
 
 options:
   -h, --help    show this help message and exit
   --attempts N  agent calls per unit (default 3)
   --replans N   auto-replan calls per phase (default 3; 0 disables)
+  --roster PATH roster.toml path of the roster screen (default
+                ~/.config/docflow/roster.toml)
 `,
 	"run": `usage: docflow run [-h] [--config PATH] [--agent NAME] [--model M]
                    [--effort E] [--attempts N] [--replans N] [--max-units N]
