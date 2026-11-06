@@ -29,6 +29,9 @@ const (
 	dialogVariant
 	dialogVariantDelete
 	dialogMigrate
+	// dialogApply previews the header roster apply would write into the
+	// selected plan and writes it on Enter.
+	dialogApply
 )
 
 type hostPollMsg struct{}
@@ -574,6 +577,17 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		case "esc", "n":
 			m.dialog = dialogNone
 			m.notice = "миграция отменена: файл не изменён"
+			return m, nil
+		}
+		return m, nil
+	case dialogApply:
+		switch key {
+		case "enter":
+			return m.applyPlanHeader()
+		case "esc":
+			m.dialog = dialogNone
+			m.applyPlan = ""
+			m.notice = "шапка не изменена: применение отменено"
 			return m, nil
 		}
 		return m, nil

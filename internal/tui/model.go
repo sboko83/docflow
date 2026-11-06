@@ -256,6 +256,14 @@ type Model struct {
 	// cache keeps no warnings, so the screen holds them until the next scan.
 	rosterScanning     bool
 	rosterScanWarnings []string
+	// rosterPending marks the background roster load of the plan card; the
+	// roster screen starts its own load when it has no rows yet.
+	rosterPending bool
+	// drift is the difference between the active variant and the selected
+	// plan header the card warns about.
+	drift planDrift
+	// applyPlan is the plan whose header the apply dialog writes.
+	applyPlan string
 	// variantProject is the target of the variant name dialog: the global
 	// variants file or the project one; accessTarget and variantTarget are
 	// the access and the variant a dialog answers about.
@@ -331,7 +339,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m.followView(), nil
 	case snapshotMsg:
-		return m.applySnapshot(msg), nil
+		m = m.applySnapshot(msg)
+		return m, m.rosterWarmup()
 	case rosterMsg:
 		return m.applyRoster(msg), nil
 	case rosterScanMsg:
@@ -441,6 +450,9 @@ func (m Model) applySnapshot(msg snapshotMsg) Model {
 	// The reloaded card can change height (a status, a Handoff), which moves
 	// where the newest observation is.
 	m = m.followView()
+	// A written header or a changed plan list moves the drift the card warns
+	// about; the selection itself need not have changed.
+	m = m.refreshDrift()
 	if m.blockedPending {
 		// The snapshot loaded before the run stopped cannot see the `[!]` that
 		// `docflow block` writes while the runner is still stopping. This
@@ -745,7 +757,8 @@ func (m Model) openSelection() Model {
 	// another unit opens following its own newest observation.
 	m.followActivity = true
 	m.streamTop = 0
-	return m.syncActivityScroll()
+	m = m.syncActivityScroll()
+	return m.refreshDrift()
 }
 
 func (m Model) moveCursor(delta int) Model {

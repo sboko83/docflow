@@ -406,6 +406,11 @@ func (m Model) detailLines(width int) []string {
 		plan := selected.plan
 		addHeading(fmt.Sprintf("%s %s", plan.ID, plan.Title))
 		add("Status: %s", plan.Status)
+		if m.drift.plan == plan.ID {
+			// The active variant would rewrite the header: the dialog behind
+			// A shows which keys, the card only says the plan is stale.
+			add("⚠ вариант %s меняет %d ключей", m.drift.variant, m.drift.keys)
+		}
 		add("Path: %s", plan.Path)
 		add("Progress: %d/%d units done", plan.done(), plan.total())
 		add("Phases: %d", len(plan.Doc.Phases))

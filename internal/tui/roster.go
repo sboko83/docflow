@@ -115,16 +115,17 @@ func (m Model) startRoster() (Model, tea.Cmd) {
 // applyRoster records a load: the rows of the screen are the loader's, and
 // the cursors stay on a row that still exists.
 func (m Model) applyRoster(msg rosterMsg) Model {
+	m.rosterPending = false
 	if msg.err != nil {
 		m.rosterPhase = rosterFailed
 		m.rosterErr = msg.err.Error()
 		m.roster = nil
-		return m
+		return m.refreshDrift()
 	}
 	m.roster = msg.workspace
 	m.rosterErr = ""
 	m.rosterPhase = rosterReady
-	return m.clampRosterCursors()
+	return m.clampRosterCursors().refreshDrift()
 }
 
 // refreshRoster reloads the workspace synchronously after a write. The
@@ -236,6 +237,11 @@ func (m Model) handleRosterKey(key string) (Model, tea.Cmd) {
 	// roster and on a missing one too, when there are no rows to edit.
 	if key == "u" {
 		return m.startRosterScan()
+	}
+	// A writes the header of the plan selected in the project tree: the
+	// roster screen has no plan list, and the dialog names the plan.
+	if key == "A" {
+		return m.openApplyDialog(), nil
 	}
 	if m.roster.Missing || m.roster.Legacy {
 		return m.rosterAccessKey(key)

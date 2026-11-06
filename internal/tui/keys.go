@@ -188,6 +188,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case screenRun:
 		return m.handleStreamKey(key), nil
 	}
+	if key == "A" && m.overlay == overlayNone {
+		return m.openApplyDialog(), nil
+	}
 	if m.focus == focusDetails {
 		return m.handleDetailsKey(key), nil
 	}

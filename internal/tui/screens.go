@@ -150,6 +150,8 @@ func (m Model) screenHelp() []string {
 			"Backspace    снять пресет",
 			"n            сохранить условия как новый вариант",
 			"D            удалить вариант машинного файла",
+			"A            применить вариант к выбранному на «Проекте» плану:",
+			"             разница шапки, Enter пишет её как roster apply",
 			"Esc          вернуться на «Проект»",
 			"",
 			"Без каталога панель цепочек зовёт `u — собрать каталог`; пустой",
@@ -193,6 +195,8 @@ func (m Model) screenHelp() []string {
 		"s            start the current Queue run and open Прогон",
 		"R            resume the saved checkpoint",
 		"a, F, T, C   activate · freeze · thaw · close the plan",
+		"A            apply the active roster variant to the plan header:",
+		"             the difference is shown first, Enter writes it",
 		"d, v         in the card: git diff · the last verify log of the unit",
 		"Esc          close search, dialog, overlay or help; return to the tree",
 	}
