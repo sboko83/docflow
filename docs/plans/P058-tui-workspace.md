@@ -7,12 +7,12 @@ created: 2026-11-03
 permissions: auto
 timeout: 3600
 gate: go test -timeout 20m ./...
-executor: pi | zai/glm-5.3-flash | high
-fallback: codex | gpt-6-luna | high
-cheap: pi | zai/glm-5.3-flash | high; codex | gpt-6-luna | high
-heavy: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium
-acceptance: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium
-replan: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | medium
+executor: pi | opencode-go/deepseek-v4.1-flash | max
+fallback: codex | gpt-6-luna | medium; pi | zai/glm-5.3-flash | high
+cheap: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6-luna | medium; pi | zai/glm-5.3-flash | high
+heavy: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | medium; pi | zai/glm-5.3 | high
+acceptance: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
+replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 ---
 ## Goal
 
@@ -330,6 +330,7 @@ Do:
 - Опиши Backlog и планирование в `docs/design/tui.md`, таблицу интерактивного запуска — в `docs/design/runner.md#профили-агентов`.
 Verify: `go test -timeout 20m ./internal/tui/ ./internal/agents/ ./internal/format/`
 Traps: Backlog-строка бывает многострочной (продолжение с отступом) — правка заменяет весь пункт, а не первую строку.
+Role: heavy
 Commit: P058.5.2: edit the Backlog and plan a line with an agent
 
 ### [ ] P058.5.3 Show past runs and replay their stream
@@ -348,6 +349,7 @@ Do:
 Verify: `go test -timeout 20m ./internal/tui/ ./internal/runner/ -run 'History|Replay|Summary'`
 Traps: пути логов в журнале относительны корню checkout — разрешай их тем же помощником, что страница активности (`resolveLogPath`).
 Depends: P058.4.2
+Role: heavy
 Commit: P058.5.3: show past runs and replay their stream
 
 ### [ ] P058.5.4 Edit project and plan parameters
