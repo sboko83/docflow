@@ -106,7 +106,16 @@ func (m Model) keysLine(width int) string {
 			keys = []string{"↑↓ move", "a allow", "x deny", "Backspace unset", "Esc close"}
 			break
 		}
-		keys = []string{"↑↓ move", "Tab panel", "Space on/off", "←→ budget", "Enter models"}
+		// A roster without a policy or a catalog has no panels to navigate:
+		// its footer names the action the body asks for.
+		switch {
+		case m.roster != nil && m.roster.Legacy:
+			keys = []string{"Enter migrate", "u scan"}
+		case m.roster != nil && (m.roster.Missing || m.roster.CatalogEmpty):
+			keys = []string{"u scan"}
+		default:
+			keys = []string{"↑↓ move", "Tab panel", "Space on/off", "←→ budget", "Enter models"}
+		}
 	case screenRun:
 		keys = []string{"↑↓ move", "Enter expand", "[ ] page", "d diff", "v verify"}
 	}
@@ -127,6 +136,7 @@ func (m Model) screenHelp() []string {
 			"↑/k, ↓/j     строка вариантов или доступа; на цепочках — прокрутка",
 			"PgUp/PgDn, Home/End  страница и края списка или цепочек",
 			"Tab          панель: варианты · доступы · цепочки",
+			"u            собрать каталог: roster scan без --online, в фоне",
 			"",
 			"На доступе:",
 			"Space        включить или выключить; диалог спрашивает дату",
@@ -141,6 +151,11 @@ func (m Model) screenHelp() []string {
 			"n            сохранить условия как новый вариант",
 			"D            удалить вариант машинного файла",
 			"Esc          вернуться на «Проект»",
+			"",
+			"Без каталога панель цепочек зовёт `u — собрать каталог`; пустой",
+			"roster.toml экран не создаёт — он называет файл и пример из",
+			"docs/design/roster.md. v1-ростер открывает Enter: предпросмотр",
+			"v2-текста, Enter пишет файл с бэкапом roster.toml.bak, Esc — нет.",
 			"",
 			"Экран читает roster.LoadWorkspace: политика, варианты и условия",
 			"проекта. Правка пишет roster.state.toml или файл вариантов и",

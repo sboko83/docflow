@@ -576,3 +576,287 @@ func TestRosterScreenShowsLoadRefusal(t *testing.T) {
 		t.Fatalf("the refusal is not shown:\n%s", rendered)
 	}
 }
+
+// testLegacyRoster is a version 1 roster: the TUI offers the migration on
+// the screen instead of reading it as a broken v2 policy.
+const testLegacyRoster = `spend = ["zai", "codex"]
+
+[provider.zai]
+check = true
+
+[provider.codex]
+trusted = true
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "strong"
+acceptance = "trusted"
+replan     = "trusted"
+
+[route.glm-flash-high]
+run  = "pi | zai/glm-5.3-flash | high"
+tier = "cheap"
+
+[route.glm-flash-max]
+run  = "pi | zai/glm-5.3-flash | max"
+tier = "standard"
+
+[route.glm-max]
+run  = "pi | zai/glm-5.3 | max"
+tier = "strong"
+
+[route.luna-high]
+run  = "codex | gpt-6-luna | high"
+tier = "cheap"
+
+[route.luna-max]
+run  = "codex | gpt-6-luna | max"
+tier = "standard"
+
+[route.sol-high]
+run  = "codex | gpt-6.1-sol | high"
+tier = "strong"
+`
+
+// flatScreen is the rendered screen with all whitespace removed: a path
+// longer than the terminal is wrapped, and a wrapped path is still one name.
+func flatScreen(model Model) string {
+	return strings.Join(strings.Fields(model.String()), "")
+}
+
+// rosterFooter is the last line of the rendered screen.
+func rosterFooter(t *testing.T, model Model) string {
+	t.Helper()
+	lines := strings.Split(model.String(), "\n")
+	return strings.TrimRight(lines[len(lines)-1], " ")
+}
+
+// TestRosterScanBuildsTheCatalogInTheBackground: an empty catalog replaces
+// the chains with the scan hint; u runs the scan in the background, keeps
+// the screen usable and finishes with the access summary and the source
+// warnings.
+func TestRosterScanBuildsTheCatalogInTheBackground(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root, rosterPath := rosterFixture(t)
+	if err := os.Remove(roster.DefaultCachePath()); err != nil {
+		t.Fatalf("removing the catalog cache: %v", err)
+	}
+	model := rosterPanelModel(t, root, rosterPath, panelRoles)
+	if model.roster == nil || !model.roster.CatalogEmpty {
+		t.Fatalf("the fixture catalog is still loaded: %+v", model.roster)
+	}
+	model = resize(t, model, 120, 40)
+	rendered := model.String()
+	if !strings.Contains(rendered, "u — собрать каталог") {
+		t.Fatalf("an empty catalog does not offer the scan:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "executor") {
+		t.Fatalf("chains were built without a catalog:\n%s", rendered)
+	}
+	if footer := rosterFooter(t, model); !strings.Contains(footer, "u scan") {
+		t.Fatalf("the empty-catalog footer lost the scan: %q", footer)
+	}
+
+	model.rosterScan = func(roster.ScanOptions) (*roster.Catalog, []string, error) {
+		writeRosterTestCatalog(t)
+		catalog, err := roster.LoadCatalog("")
+		return catalog, []string{"pi-store: unreadable JSON"}, err
+	}
+	updated, cmd := model.Update(keyMsg("u"))
+	model = updated.(Model)
+	if cmd == nil || !model.rosterScanning {
+		t.Fatalf("u did not start the scan: scanning=%t cmd=%v", model.rosterScanning, cmd)
+	}
+	if model.notice != "scanning…" {
+		t.Fatalf("notice = %q, want the scanning placeholder", model.notice)
+	}
+	// The screen keeps its rows and its keys while the scanners run.
+	if model.dialog != dialogNone {
+		t.Fatalf("the scan opened a dialog")
+	}
+	if rendered := model.String(); !strings.Contains(rendered, "Доступы") {
+		t.Fatalf("the scan took the screen:\n%s", rendered)
+	}
+	if again, more := model.Update(keyMsg("u")); more != nil {
+		t.Fatalf("a second u started another scan")
+	} else if !again.(Model).rosterScanning {
+		t.Fatalf("the second u stopped the running scan")
+	}
+
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if model.rosterScanning || model.roster == nil || model.roster.CatalogEmpty {
+		t.Fatalf("the finished scan did not reload the catalog: %+v", model.roster)
+	}
+	if !strings.Contains(model.notice, "каталог:") || !strings.Contains(model.notice, "предупреждений: 1") {
+		t.Fatalf("scan notice = %q", model.notice)
+	}
+	rendered = model.String()
+	if !strings.Contains(rendered, "executor") || !strings.Contains(rendered, "2 мод.") {
+		t.Fatalf("the reloaded rows are not shown:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "⚠ pi-store: unreadable JSON") {
+		t.Fatalf("the source warning is not shown in the chains panel:\n%s", rendered)
+	}
+	// The warning stays reachable on the smallest screen: G scrolls the
+	// chains pane to the end of the block.
+	tiny := resize(t, model, 32, 10)
+	tiny.rosterPanel = panelRoles
+	tiny = send(t, tiny, keyMsg("G"))
+	if rendered := tiny.String(); !strings.Contains(rendered, "pi-store") {
+		t.Fatalf("32x10 lost the scan warning:\n%s", rendered)
+	}
+	assertScreenFits(t, tiny.String(), 32, 10)
+}
+
+// TestRosterLegacyRosterPreviewsAndWritesTheMigration: the version 1
+// screen explains itself and Enter opens the preview; Enter writes the v2
+// policy with its .bak, Esc leaves the file untouched.
+func TestRosterLegacyRosterPreviewsAndWritesTheMigration(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root, rosterPath := rosterFixture(t)
+	writeRosterTestFile(t, rosterPath, testLegacyRoster)
+	model := rosterScreenModel(t, root, rosterPath)
+	if model.roster == nil || !model.roster.Legacy {
+		t.Fatalf("the v1 roster is not flagged for migration: %+v", model.roster)
+	}
+	model = resize(t, model, 120, 40)
+	rendered := model.String()
+	for _, want := range []string{"Ростер версии 1", "Enter — миграция", "u — собрать каталог"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the v1 screen lost %q:\n%s", want, rendered)
+		}
+	}
+	if !strings.Contains(flatScreen(model), rosterPath) {
+		t.Fatalf("the v1 screen does not name %s:\n%s", rosterPath, rendered)
+	}
+	if footer := rosterFooter(t, model); !strings.Contains(footer, "Enter migrate") {
+		t.Fatalf("the v1 footer lost the migration: %q", footer)
+	}
+
+	// Enter previews the v2 text and writes nothing.
+	model = send(t, model, keyMsg("enter"))
+	if model.dialog != dialogMigrate {
+		t.Fatalf("Enter opened dialog %v, want the migration preview", model.dialog)
+	}
+	if got := readRosterTestFile(t, rosterPath); got != testLegacyRoster {
+		t.Fatalf("the preview rewrote the roster:\n%s", got)
+	}
+	if _, err := os.Stat(rosterPath + ".bak"); !os.IsNotExist(err) {
+		t.Fatalf("the preview wrote a backup: %v", err)
+	}
+	rendered = model.String()
+	for _, want := range []string{"version = 2", "roster.toml.bak", "Enter — записать"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the preview lost %q:\n%s", want, rendered)
+		}
+	}
+
+	// Esc cancels: the file and its backup stay as they were.
+	model = send(t, model, keyMsg("esc"))
+	if model.dialog != dialogNone || !strings.Contains(model.notice, "отменена") {
+		t.Fatalf("Esc did not cancel the migration: dialog=%v notice=%q", model.dialog, model.notice)
+	}
+	if got := readRosterTestFile(t, rosterPath); got != testLegacyRoster {
+		t.Fatalf("a cancelled migration rewrote the roster:\n%s", got)
+	}
+	if _, err := os.Stat(rosterPath + ".bak"); !os.IsNotExist(err) {
+		t.Fatalf("a cancelled migration wrote a backup: %v", err)
+	}
+
+	// A live foreign run refuses the write and keeps the preview open.
+	model.lockCheck = func(string) (int, bool, error) { return 4242, true, nil }
+	model = send(t, model, keyMsg("enter"))
+	model = send(t, model, keyMsg("enter"))
+	if model.dialog != dialogMigrate || !strings.Contains(model.notice, "another runner") {
+		t.Fatalf("a live run did not refuse the migration: dialog=%v notice=%q", model.dialog, model.notice)
+	}
+	if got := readRosterTestFile(t, rosterPath); got != testLegacyRoster {
+		t.Fatalf("a refused migration rewrote the roster:\n%s", got)
+	}
+	model.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
+
+	// Enter writes the v2 policy the preview shows: the v1 text moves to the
+	// backup and the screen reads the migrated roster.
+	model = send(t, model, keyMsg("enter"))
+	if model.dialog != dialogNone {
+		t.Fatalf("the confirmed migration kept the dialog open")
+	}
+	if model.roster == nil || model.roster.Legacy || model.rosterPhase != rosterReady {
+		t.Fatalf("the migrated roster is not loaded: phase=%v roster=%+v", model.rosterPhase, model.roster)
+	}
+	if migrated := readRosterTestFile(t, rosterPath); !strings.Contains(migrated, "version = 2") {
+		t.Fatalf("the roster was not migrated:\n%s", migrated)
+	}
+	if backup := readRosterTestFile(t, rosterPath+".bak"); backup != testLegacyRoster {
+		t.Fatalf("the backup does not keep the v1 text:\n%s", backup)
+	}
+	if !strings.Contains(model.notice, "мигрирован") || !strings.Contains(model.notice, "бэкап") {
+		t.Fatalf("migration notice = %q", model.notice)
+	}
+	rendered = model.String()
+	for _, want := range []string{"Доступы", "zai", "codex"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the migrated screen lost %q:\n%s", want, rendered)
+		}
+	}
+}
+
+// TestRosterMissingFileIsNamedNotCreated: without a roster.toml the screen
+// names the file to create and the example to copy; it never writes a
+// policy of its own, and the scan still works.
+func TestRosterMissingFileIsNamedNotCreated(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root, rosterPath := rosterFixture(t)
+	if err := os.Remove(rosterPath); err != nil {
+		t.Fatalf("removing the roster: %v", err)
+	}
+	model := rosterScreenModel(t, root, rosterPath)
+	if model.roster == nil || !model.roster.Missing {
+		t.Fatalf("the missing roster is not flagged: %+v", model.roster)
+	}
+	model = resize(t, model, 120, 40)
+	rendered := model.String()
+	for _, want := range []string{"Нет ростера:", "docs/design/roster.md", "u — собрать каталог"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the missing-roster screen lost %q:\n%s", want, rendered)
+		}
+	}
+	if !strings.Contains(flatScreen(model), rosterPath) {
+		t.Fatalf("the missing-roster screen does not name %s:\n%s", rosterPath, rendered)
+	}
+	if footer := rosterFooter(t, model); !strings.Contains(footer, "u scan") {
+		t.Fatalf("the missing-roster footer lost the scan: %q", footer)
+	}
+	if _, err := os.Stat(rosterPath); !os.IsNotExist(err) {
+		t.Fatalf("the screen created the policy: %v", err)
+	}
+	// n saves a variant from the conditions; a missing policy has none.
+	model = send(t, model, keyMsg("n"))
+	if model.dialog != dialogNone {
+		t.Fatalf("n opened the variant dialog without a policy")
+	}
+	if _, err := os.Stat(rosterPath); !os.IsNotExist(err) {
+		t.Fatalf("the screen wrote a roster after n: %v", err)
+	}
+
+	model.rosterScan = func(roster.ScanOptions) (*roster.Catalog, []string, error) {
+		catalog, err := roster.LoadCatalog("")
+		return catalog, nil, err
+	}
+	updated, cmd := model.Update(keyMsg("u"))
+	model = updated.(Model)
+	if cmd == nil || !model.rosterScanning {
+		t.Fatalf("u did not scan without a policy")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	if !strings.Contains(model.notice, "каталог:") {
+		t.Fatalf("scan notice without a policy = %q", model.notice)
+	}
+	if _, err := os.Stat(rosterPath); !os.IsNotExist(err) {
+		t.Fatalf("the scan created the policy: %v", err)
+	}
+}

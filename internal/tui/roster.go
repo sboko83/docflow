@@ -70,6 +70,23 @@ type rosterMsg struct {
 	err       error
 }
 
+// rosterScanMsg is the answer of a catalog scan running in the background.
+type rosterScanMsg struct {
+	catalog  *roster.Catalog
+	warnings []string
+	err      error
+}
+
+// scanRosterCmd runs one offline scan of the catalog, the work of
+// `docflow roster scan` without --online. The scanners call external CLIs
+// with their own timeout, so the scan never runs inside Update.
+func scanRosterCmd(scan func(roster.ScanOptions) (*roster.Catalog, []string, error)) tea.Cmd {
+	return func() tea.Msg {
+		catalog, warnings, err := scan(roster.ScanOptions{})
+		return rosterScanMsg{catalog: catalog, warnings: warnings, err: err}
+	}
+}
+
 // rosterModelList is the open model list of one access: the catalog models
 // of the access and the cursor over them.
 type rosterModelList struct {
@@ -215,6 +232,14 @@ func (m Model) handleRosterKey(key string) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// The catalog is independent of the policy: the scan works on a v1
+	// roster and on a missing one too, when there are no rows to edit.
+	if key == "u" {
+		return m.startRosterScan()
+	}
+	if m.roster.Missing || m.roster.Legacy {
+		return m.rosterAccessKey(key)
+	}
 	if key == "n" {
 		// n belongs to the screen, not to a panel: the saved variant is the
 		// conditions in force, whichever panel has the cursor.
@@ -306,6 +331,128 @@ func (m Model) handleRosterKey(key string) (Model, tea.Cmd) {
 			m.focus = focusTree
 			return m, nil
 		}
+	}
+	return m, nil
+}
+
+// startRosterScan starts a catalog scan in the background. The screen keeps
+// its rows and its keys while the scanners run: only the status line says
+// `scanning…`, and a second scan is refused instead of queued.
+func (m Model) startRosterScan() (Model, tea.Cmd) {
+	if m.rosterScanning {
+		m.notice = "scanning…"
+		return m, nil
+	}
+	if m.rosterScan == nil {
+		m.rosterScan = roster.ScanCatalog
+	}
+	m.rosterScanning = true
+	m.notice = "scanning…"
+	return m, scanRosterCmd(m.rosterScan)
+}
+
+// applyRosterScan records a finished scan. The scanner wrote the catalog
+// cache, so the rows come back from the loader: the access rows gain the
+// model counts and the chains follow the new catalog. The access summary
+// goes to the status line, the source warnings to the chains panel, which
+// is where the brief warnings already live.
+func (m Model) applyRosterScan(msg rosterScanMsg) Model {
+	m.rosterScanning = false
+	m.rosterScanWarnings = msg.warnings
+	m = m.refreshRoster()
+	if msg.err != nil {
+		m.notice = "скан не удался: " + msg.err.Error()
+		return m
+	}
+	m.notice = scanSummary(msg.catalog, msg.warnings)
+	return m
+}
+
+// scanSummary is the status line of a finished scan: the accesses with
+// their model counts. The source warnings stay in the chains panel in full
+// and are counted here, because the status line never shows more than two
+// wrapped lines and the whole summary has to fit them on a 32-column
+// terminal.
+func scanSummary(catalog *roster.Catalog, warnings []string) string {
+	summary := "каталог пуст: ни один источник не дал доступов"
+	if catalog != nil && len(catalog.Accesses) > 0 {
+		rows := catalog.StatusRows()
+		parts := make([]string, 0, len(rows))
+		for _, row := range rows {
+			parts = append(parts, fmt.Sprintf("%s %d", row.Access, row.Models))
+		}
+		summary = "каталог: " + strings.Join(parts, " · ")
+	}
+	if len(warnings) > 0 {
+		summary += fmt.Sprintf(" · предупреждений: %d", len(warnings))
+	}
+	return summary
+}
+
+// openMigrateDialog previews the version 2 policy of a version 1 roster.
+// Nothing is written until the dialog is answered: the preview is a read.
+func (m Model) openMigrateDialog() Model {
+	path := m.roster.PolicyPath
+	result, err := roster.MigrateFile(path, false)
+	if err != nil {
+		m.notice = "миграция: " + err.Error()
+		return m
+	}
+	lines := []string{
+		"Файл: " + result.Path,
+		"Версия 1 остаётся рядом как " + result.Path + ".bak.",
+		"",
+	}
+	lines = append(lines, strings.Split(strings.TrimRight(result.Text, "\n"), "\n")...)
+	return m.openDialog(dialogMigrate, fmt.Sprintf("Миграция ростера на версию %d", roster.PolicyVersion), lines,
+		[]string{"Enter — записать · Esc — отмена"})
+}
+
+// applyMigrateDialog writes the previewed policy: the v1 text stays as
+// roster.toml.bak and the screen reloads the migrated roster. The checkout
+// lock is read at the write, as the lifecycle keys do: a live foreign run
+// keeps the preview open and the file untouched.
+func (m Model) applyMigrateDialog() Model {
+	if m.roster == nil {
+		m.dialog = dialogNone
+		m.notice = "ростер не прочитан: нажмите r"
+		return m
+	}
+	path := m.roster.PolicyPath
+	m.refreshLock()
+	if notice, refused := m.lockRefusal("the migration is refused"); refused {
+		m.notice = notice
+		return m
+	}
+	result, err := roster.MigrateFile(path, true)
+	m.dialog = dialogNone
+	if err != nil {
+		m.notice = "миграция не удалась: " + err.Error()
+		return m
+	}
+	m = m.refreshRoster()
+	if m.rosterPhase == rosterFailed {
+		m.notice = "ростер мигрирован; перечитывание не удалось: " + m.rosterErr
+		return m
+	}
+	m.notice = fmt.Sprintf("ростер мигрирован на версию %d: %s (бэкап %s)", roster.PolicyVersion, result.Path, result.Backup)
+	return m
+}
+
+// rosterAccessKey handles the keys of a roster screen that has no panels:
+// a missing roster file and a version 1 one. The scan works in both, the
+// migration only on the version 1 screen.
+func (m Model) rosterAccessKey(key string) (Model, tea.Cmd) {
+	if key == "esc" {
+		m.screen = screenProject
+		m.focus = focusTree
+		return m, nil
+	}
+	if m.roster == nil {
+		return m, nil
+	}
+	if m.roster.Legacy && key == "enter" {
+		return m.openMigrateDialog(), nil
 	}
 	return m, nil
 }
@@ -640,11 +787,11 @@ func (m Model) rosterBody(width, height int) []string {
 	switch {
 	case workspace.Missing:
 		return m.messageLines(width, height, "Нет ростера: "+workspace.PolicyPath,
-			"Политика не создана. Соберите каталог: docflow roster scan",
-			"и опишите доступы по docs/design/roster.md.")
+			"Файл политики не создан, и TUI его не пишет: пример — в docs/design/roster.md.",
+			"u — собрать каталог · Esc — вернуться на «Проект»")
 	case workspace.Legacy:
 		return m.messageLines(width, height, "Ростер версии 1: "+workspace.PolicyPath,
-			workspace.Problem, "Обновите: docflow roster migrate --write")
+			workspace.Problem, "Enter — миграция на версию 2 · u — собрать каталог")
 	}
 	if m.singlePanel() {
 		var content []string
@@ -809,28 +956,38 @@ func (m Model) maxRoleTop() int {
 	return max(0, len(m.allRoleLines())-m.paneContentHeight())
 }
 
-// allRoleLines builds the chains block the pane scrolls through.
+// allRoleLines builds the chains block the pane scrolls through. An empty
+// catalog has no chains to show and offers the scan instead; the source
+// warnings of the last scan go under the brief warnings, which is where a
+// reader of the screen already looks for them.
 func (m Model) allRoleLines() []string {
 	workspace := m.roster
 	if workspace == nil {
 		return nil
 	}
-	lines := make([]string, 0, len(workspace.Roles)*3)
-	for _, role := range workspace.Roles {
-		head := role.Role + " · " + role.Scope
-		if role.Budget != nil && role.Budget.Target > 0 {
-			head += fmt.Sprintf(" · бюджет %d", role.Budget.Target)
+	var lines []string
+	if workspace.CatalogEmpty {
+		lines = append(lines, "каталог пуст", "", "u — собрать каталог")
+	} else {
+		for _, role := range workspace.Roles {
+			head := role.Role + " · " + role.Scope
+			if role.Budget != nil && role.Budget.Target > 0 {
+				head += fmt.Sprintf(" · бюджет %d", role.Budget.Target)
+			}
+			lines = append(lines, head, "  "+chainText(role))
 		}
-		lines = append(lines, head, "  "+chainText(role))
-	}
-	if len(lines) == 0 {
-		lines = append(lines, "цепочек нет")
-	}
-	if len(workspace.Warnings) > 0 {
-		lines = append(lines, "", "⚠ "+strings.Join(workspace.Warnings, " · "))
+		if len(lines) == 0 {
+			lines = append(lines, "цепочек нет")
+		}
+		if len(workspace.Warnings) > 0 {
+			lines = append(lines, "", "⚠ "+strings.Join(workspace.Warnings, " · "))
+		}
 	}
 	if workspace.Problem != "" {
 		lines = append(lines, "", "✗ "+workspace.Problem)
+	}
+	for _, warning := range m.rosterScanWarnings {
+		lines = append(lines, "", "⚠ "+warning)
 	}
 	return lines
 }

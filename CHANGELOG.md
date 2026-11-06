@@ -14,7 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   budget, allowlist, `check`/`trusted` and dates, and the role chains with
   their read budget and warnings. `Space`, `←/→`, `Enter`, `n` and `D`
   write `roster.state.toml` or a variants file and reload the workspace; a
-  refused condition keeps the file and shows its reason.
+  refused condition keeps the file and shows its reason. `u` scans the
+  catalog in the background and shows the access summary with the source
+  warnings; a version 1 roster is previewed and migrated to version 2 with
+  its `.bak` from the screen.
   `docflow tui --roster PATH` names the roster file, `roster.DefaultPath()`
   otherwise.
 

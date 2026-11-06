@@ -242,6 +242,7 @@ type Model struct {
 	// command, roster.DefaultPath() otherwise.
 	rosterPath  string
 	rosterLoad  func(rosterPath, root string) (*roster.Workspace, error)
+	rosterScan  func(options roster.ScanOptions) (*roster.Catalog, []string, error)
 	roster      *roster.Workspace
 	rosterErr   string
 	rosterPhase rosterPhase
@@ -250,6 +251,11 @@ type Model struct {
 	accesses    int
 	roleTop     int
 	rmodels     *rosterModelList
+	// rosterScanning is a scan running in the background and
+	// rosterScanWarnings are the source problems it reported: the catalog
+	// cache keeps no warnings, so the screen holds them until the next scan.
+	rosterScanning     bool
+	rosterScanWarnings []string
 	// variantProject is the target of the variant name dialog: the global
 	// variants file or the project one; accessTarget and variantTarget are
 	// the access and the variant a dialog answers about.
@@ -289,6 +295,7 @@ func newModel(root string, load Loader, noColor bool) Model {
 		recoveryLoad:     runner.LoadRecovery,
 		rosterPath:       roster.DefaultPath(),
 		rosterLoad:       roster.LoadWorkspace,
+		rosterScan:       roster.ScanCatalog,
 	}
 }
 
@@ -327,6 +334,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applySnapshot(msg), nil
 	case rosterMsg:
 		return m.applyRoster(msg), nil
+	case rosterScanMsg:
+		return m.applyRosterScan(msg), nil
 	case ActivityMsg:
 		m = m.applyEvent(msg.Event)
 		if eventReloadsPlan(msg.Event.Type) {

@@ -23,10 +23,12 @@ const (
 	dialogHuman
 	dialogRecover
 	// The roster dialogs: the end date of an off condition, the name and
-	// target of a new variant, and the confirmation of a delete.
+	// target of a new variant, the confirmation of a delete and the write
+	// of a migrated version 2 policy.
 	dialogOff
 	dialogVariant
 	dialogVariantDelete
+	dialogMigrate
 )
 
 type hostPollMsg struct{}
@@ -562,6 +564,16 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		case "esc", "n":
 			m.dialog = dialogNone
 			m.notice = "variant kept"
+			return m, nil
+		}
+		return m, nil
+	case dialogMigrate:
+		switch key {
+		case "enter", "y":
+			return m.applyMigrateDialog(), nil
+		case "esc", "n":
+			m.dialog = dialogNone
+			m.notice = "миграция отменена: файл не изменён"
 			return m, nil
 		}
 		return m, nil
