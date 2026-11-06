@@ -65,8 +65,10 @@ replan: pi | zai/glm-5.3 | max; codex | gpt-6.1-sol | medium
   `terminal_test.go`) и сверяют строки экрана. Смена клавиши или раскладки
   требует правки ожиданий, а не удаления сценария: сценарий остаётся и
   проверяет то же поведение на новом месте.
-- `go test ./...` на Windows идёт ~7 минут. Сначала прогоняй тесты своего
-  пакета, полный прогон — gate.
+- Полный `go test -timeout 20m ./...` на Windows идёт больше 10 минут
+  (интеграционные тесты `internal/runner`). Во время работы прогоняй тесты
+  своего пакета или `go test -short`: он пропускает тесты дольше 2 с;
+  полный прогон — gate.
 - Импорты Bubble Tea — `charm.land/bubbletea/v2` и `charm.land/lipgloss/v2`,
   не v1-пути `github.com/charmbracelet/...`.
 - Просмотр не берёт checkout lock. Любая запись (план, `docflow.md`,
@@ -252,8 +254,8 @@ Do:
 - Предупреждение «Resume начнёт новую сессию» переносится в диалог восстановления: если шапка плана после паузы дала пойманному юниту другой маршрут.
 - Обнови тесты `internal/runner` и `internal/tui`, которые проверяли оверлей: сценарии старта и восстановления остаются, источник назначений — шапка плана.
 - Перепиши «Конфигурацию прогона» в `docs/design/tui.md` (назначения только из шапки, лимиты `--attempts/--replans`) и упоминания оверлея в `docs/design/runner.md`.
-Verify: `go test -timeout 20m ./internal/runner/ ./internal/tui/`
-Traps: `internal/runner` тесты идут ~7 минут — запускай с `-run` по затронутым тестам, затем пакет целиком. `grep -rn RunConfiguration internal/` после правки должен остаться пустым.
+Verify: `go test -short -timeout 20m ./internal/runner/ ./internal/tui/`
+Traps: `internal/runner` целиком идёт больше 10 минут — запускай с `-run` по затронутым тестам, затем `-short`; медленные интеграционные тесты раннера проверяет gate. `grep -rn RunConfiguration internal/` после правки должен остаться пустым.
 Role: heavy
 Commit: P058.3.4: remove the TUI route overlay
 
