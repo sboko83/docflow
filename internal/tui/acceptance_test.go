@@ -346,6 +346,17 @@ func (p *acceptProject) git(args ...string) string {
 
 func (p *acceptProject) clean() bool { return p.git("status", "--porcelain") == "" }
 
+func envWith(values []string, key, value string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(values)+1)
+	for _, entry := range values {
+		if !strings.HasPrefix(entry, prefix) {
+			out = append(out, entry)
+		}
+	}
+	return append(out, prefix+value)
+}
+
 func shellText(lines ...string) []string {
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -961,6 +972,84 @@ func TestAcceptanceWorkspaceNavigation(t *testing.T) {
 	tui.resize(40, 12)
 	tui.waitForAfter("Queue", "P001", 10*time.Second)
 	tui.quit()
+}
+
+// TestAcceptanceProjectCreateAndEditor drives N through the built CLI (so
+// createPlan's os.Executable resolves to docflow) and e through tea.ExecProcess
+// with a fixture editor. The editor writes its received path and changes Goal.
+func TestAcceptanceProjectCreateAndEditor(t *testing.T) {
+	t.Run("create plan from project screen", func(t *testing.T) {
+		p := newAcceptProject(t, []acceptPlan{{
+			ID: "P001", Title: "Existing", Status: "active",
+			Units: []acceptUnit{{ID: "P001.1.1", Title: "Existing unit"}},
+		}})
+		ui := startAcceptTUI(t, p, 120, 36)
+		ui.waitFor("Queue (1)", 20*time.Second)
+		ui.send(keyDown) // The selected plan card carries its progress bar.
+		ui.waitFor("Progress: 0/1", 5*time.Second)
+		ui.send("N")
+		ui.waitFor("Enter a slug for docflow new", 5*time.Second)
+		ui.send("terminal-created")
+		ui.send(keyEnter)
+		ui.waitFor("P002", 20*time.Second)
+		created := p.path("docs/plans/P002-terminal-created.md")
+		if _, err := os.Stat(created); err != nil {
+			t.Fatalf("new plan was not created: %v", err)
+		}
+		queue, err := os.ReadFile(p.path("docs/docflow.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Count(string(queue), "- P002"); got != 1 {
+			t.Fatalf("Queue contains P002 %d times:\n%s", got, queue)
+		}
+		ui.quit()
+	})
+
+	for _, useVisual := range []bool{true, false} {
+		name := "EDITOR fallback"
+		if useVisual {
+			name = "VISUAL priority"
+		}
+		t.Run(name, func(t *testing.T) {
+			p := newAcceptProject(t, []acceptPlan{{
+				ID: "P001", Title: "Editable", Status: "active",
+				Units: []acceptUnit{{ID: "P001.1.1", Title: "Unit"}},
+			}})
+			fixture := filepath.Join(t.TempDir(), "fixture-editor")
+			calledPath := filepath.Join(t.TempDir(), "received-path")
+			script := "#!/bin/sh\nprintf '%s' \"$1\" > " + shellSingle(calledPath) +
+				"\nsed 's/Terminal acceptance goal./Edited by fixture./' \"$1\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"\n"
+			if err := os.WriteFile(fixture, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			p.Env = envWith(p.Env, "VISUAL", "")
+			p.Env = envWith(p.Env, "EDITOR", fixture)
+			if useVisual {
+				p.Env = envWith(p.Env, "VISUAL", fixture)
+			}
+			ui := startAcceptTUI(t, p, 120, 36)
+			ui.waitFor("Queue (1)", 20*time.Second)
+			ui.send(keyDown) // Move from the Queue heading to P001.
+			ui.send("e")
+			ui.waitFor("Edited by fixture", 20*time.Second)
+			gotPath, err := os.ReadFile(calledPath)
+			if err != nil {
+				t.Fatalf("editor did not record its argument: %v", err)
+			}
+			wantPath := p.path("docs/plans/P001-accept.md")
+			if resolved, resolveErr := filepath.EvalSymlinks(wantPath); resolveErr == nil {
+				wantPath = resolved
+			}
+			if string(gotPath) != wantPath {
+				t.Fatalf("editor path = %q, want %q", gotPath, wantPath)
+			}
+			if !strings.Contains(p.planText("P001"), "Edited by fixture.") {
+				t.Fatal("editor change was not written to the plan")
+			}
+			ui.quit()
+		})
+	}
 }
 
 // TestAcceptancePauseChildProcessAndResume drives the core interactive path:

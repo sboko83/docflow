@@ -32,6 +32,8 @@ const (
 	// dialogApply previews the header roster apply would write into the
 	// selected plan and writes it on Enter.
 	dialogApply
+	dialogNewPlan
+	dialogProjectCommit
 )
 
 type hostPollMsg struct{}
@@ -589,6 +591,38 @@ func (m Model) handleDialogKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.applyPlan = ""
 			m.notice = "шапка не изменена: применение отменено"
 			return m, nil
+		}
+		return m, nil
+	case dialogNewPlan:
+		switch key {
+		case "enter":
+			return m.createPlan()
+		case "esc":
+			m.dialog = dialogNone
+			m.notice = "new plan cancelled"
+		case "backspace":
+			runes := []rune(m.dialogInput)
+			if len(runes) > 0 {
+				m.dialogInput = string(runes[:len(runes)-1])
+			}
+		default:
+			m.dialogInput += typedText(msg)
+		}
+		return m, nil
+	case dialogProjectCommit:
+		switch key {
+		case "enter":
+			return m.commitProjectFiles(), nil
+		case "esc":
+			m.dialog = dialogNone
+			m.notice = "commit cancelled"
+		case "backspace":
+			runes := []rune(m.dialogInput)
+			if len(runes) > 0 {
+				m.dialogInput = string(runes[:len(runes)-1])
+			}
+		default:
+			m.dialogInput += typedText(msg)
 		}
 		return m, nil
 	}

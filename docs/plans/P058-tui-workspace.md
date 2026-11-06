@@ -402,7 +402,7 @@ Handoff:
 
 ## Phase 5: Project and history
 
-### [~] P058.5.1 Manage plans and commits on the project screen
+### [x] P058.5.1 Manage plans and commits on the project screen
 Read:
 - docs/design/tui.md#lock-и-lifecycle
 - docs/design/cli.md
@@ -426,6 +426,8 @@ Depends: P058.3.3
 Commit: P058.5.1: manage plans and commits on the project screen
 Handoff:
 - Blocked (plan): В `Do` отдельно требуются тесты: создание плана и строки Queue клавишей `N`, а также открытие редактора через подменённую команду. Эти сценарии не покрыты, поэтому юнит нельзя завершить без корректировки или выполнения этого шага.
+- Полный `docflow-dev verify P058.5.1` прошёл. По циклу `done` и commit выполняет runner; вручную план не менял и коммит не создавал.
+- Unverified: Проверен PTY на macOS; Windows-ветка редактора с Notepad в этой проверке не запускалась.
 
 ### [ ] P058.5.2 Edit the Backlog and plan a line with an agent
 Read:

@@ -210,6 +210,10 @@ func (m Model) dialogLayout(width, height int) (head, body, keys []string, windo
 		keyTexts = append(keyTexts, "until: "+m.dialogInput+"▏")
 	case dialogVariant:
 		keyTexts = append(keyTexts, "name: "+m.dialogInput+"▏", "target: "+m.variantTargetText())
+	case dialogNewPlan:
+		keyTexts = append(keyTexts, "slug: "+m.dialogInput+"▏")
+	case dialogProjectCommit:
+		keyTexts = append(keyTexts, "message: "+m.dialogInput+"▏")
 	}
 	keys = wrap(append(keyTexts, m.dialogKeys...)...)
 	body = wrap(m.dialogLines...)
@@ -396,6 +400,19 @@ func (m Model) detailLines(width int) []string {
 	switch selected.kind {
 	case rowSection:
 		addHeading(selected.label)
+		if selected.key == "Queue" {
+			var done, total int
+			for _, p := range m.snapshot.Queue {
+				done += p.done()
+				total += p.total()
+			}
+			add("Plans: %d · Progress: %d/%d", len(m.snapshot.Queue), done, total)
+			add("[%s]", progressBar(done, total, 18))
+		} else if selected.key == "Frozen" {
+			add("Frozen plans: %d", len(m.snapshot.Frozen))
+		} else if selected.key == "Backlog" {
+			add("Backlog: %d", m.snapshot.Backlog)
+		}
 		add("")
 		add("This section lists plans in Queue order.")
 		add("")
@@ -404,6 +421,18 @@ func (m Model) detailLines(width int) []string {
 		plan := selected.plan
 		addHeading(fmt.Sprintf("%s %s", plan.ID, plan.Title))
 		add("Status: %s", plan.Status)
+		var routes []string
+		for _, key := range []string{"executor", "model", "effort", "role"} {
+			if value := strings.TrimSpace(plan.Doc.Meta[key]); value != "" {
+				routes = append(routes, key+"="+value)
+			}
+		}
+		if len(routes) > 0 {
+			add("Routes: %s", strings.Join(routes, " · "))
+		}
+		if m.recovery != nil && m.recovery.LastRun != nil {
+			add("%s", lastRunText(*m.recovery.LastRun))
+		}
 		if m.drift.plan == plan.ID {
 			// The active variant would rewrite the header: the dialog behind
 			// A shows which keys, the card only says the plan is stale.
@@ -411,6 +440,7 @@ func (m Model) detailLines(width int) []string {
 		}
 		add("Path: %s", plan.Path)
 		add("Progress: %d/%d units done", plan.done(), plan.total())
+		add("[%s]", progressBar(plan.done(), plan.total(), 18))
 		add("Phases: %d", len(plan.Doc.Phases))
 		addBlank()
 		addHeading("Goal")
@@ -441,6 +471,20 @@ func (m Model) detailLines(width int) []string {
 		return []string{"Nothing selected."}
 	}
 	return lines
+}
+
+func progressBar(done, total, width int) string {
+	if width < 1 {
+		return ""
+	}
+	if total < 1 {
+		return strings.Repeat("░", width)
+	}
+	filled := done * width / total
+	if filled > width {
+		filled = width
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
 }
 
 // unitCardLines renders the plan, Goal and contract of the selected unit.

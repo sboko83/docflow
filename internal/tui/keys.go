@@ -186,6 +186,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key == "A" && m.overlay == overlayNone {
 		return m.openApplyDialog(), nil
 	}
+	if m.screen == screenProject {
+		switch key {
+		case "N":
+			m.dialog = dialogNewPlan
+			m.dialogTitle = "New plan"
+			m.dialogInput = ""
+			m.dialogLines = []string{"Enter a slug for docflow new <slug>."}
+			m.dialogKeys = []string{"Enter create · Esc cancel"}
+			return m, nil
+		case "e":
+			return m.openPlanEditor()
+		case "c":
+			return m.openProjectCommitDialog()
+		}
+	}
 	if m.focus == focusDetails {
 		return m.handleDetailsKey(key), nil
 	}
