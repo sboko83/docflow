@@ -7,10 +7,10 @@ created: 2026-11-03
 permissions: auto
 timeout: 3600
 gate: go test -timeout 20m ./...
-executor: pi | opencode-go/deepseek-v4.1-flash | max
-fallback: codex | gpt-6-luna | medium; pi | zai/glm-5.3-flash | high
+executor: codex | gpt-6-luna | high
+fallback: pi | opencode-go/deepseek-v4.1-flash | medium; pi | zai/glm-5.3-flash | high
 cheap: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6-luna | medium; pi | zai/glm-5.3-flash | high
-heavy: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | medium; pi | zai/glm-5.3 | high
+heavy: pi | zai/glm-5.3 | high; codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 acceptance: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 ---
