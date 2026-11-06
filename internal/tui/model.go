@@ -234,9 +234,7 @@ type Model struct {
 	verifySkip  int
 	verifyTotal int
 
-	models       *modelsScreen
-	modelsConfig func(plan *format.Plan, args agents.RunArgs) (map[string]any, error)
-	modelsRoster func(plan *format.Plan) (map[string][]agents.Route, error)
+	agentConfig func(plan *format.Plan, args agents.RunArgs) (map[string]any, error)
 
 	// rosterPath is the roster file the screen reads: --roster of the
 	// command, roster.DefaultPath() otherwise.
@@ -298,8 +296,7 @@ func newModel(root string, load Loader, noColor bool) Model {
 		runLimits:        DefaultRunLimits(),
 		lifecycle:        cycle.Self,
 		lockCheck:        runner.CheckoutLockOwner,
-		modelsConfig:     loadModelsConfig,
-		modelsRoster:     loadModelsRoster,
+		agentConfig:      loadAgentConfig,
 		recoveryLoad:     runner.LoadRecovery,
 		rosterPath:       roster.DefaultPath(),
 		rosterLoad:       roster.LoadWorkspace,

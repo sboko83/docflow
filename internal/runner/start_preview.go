@@ -63,17 +63,7 @@ func StartPreview(root string, args Args) (StartReview, error) {
 	preview.Permissions = format.PlanPermissions(sel.Plan)
 	preview.Full = preview.Permissions == "full"
 	if agentConfig, configErr := agents.RunConfig(sel.Plan, &args.RunArgs); configErr == nil {
-		configuration, loadErr := LoadConfiguration(root)
-		if loadErr != nil {
-			return StartReview{}, loadErr
-		}
-		// The preview never rewrites the file: it only drops the overrides
-		// that no longer apply, so a stale entry cannot refuse the dialog.
-		configuration.PruneToPlan(sel.Plan)
-		if err := ValidateConfiguration(configuration, sel.Plan, agentConfig); err != nil {
-			return StartReview{}, err
-		}
-		effective, err := EffectiveAssignments(sel.Plan, args.RunArgs, agentConfig, configuration)
+		effective, err := EffectiveAssignments(sel.Plan, args.RunArgs, agentConfig)
 		if err != nil {
 			return StartReview{}, err
 		}

@@ -93,8 +93,6 @@ func (m Model) render() string {
 		body = m.messageLines(width, bodyHeight, "Cannot load the plan workspace.", m.errText, "r retry · ? help · q quit")
 	default:
 		switch {
-		case m.models != nil:
-			body = m.modelsLines(width, bodyHeight)
 		case m.help:
 			body = m.helpLines(width, bodyHeight)
 		case m.dialog != dialogNone:
@@ -736,9 +734,6 @@ func (m Model) statusLine() string {
 				parts = append(parts, fmt.Sprintf("activity:%d/%d %s", m.activityCursor+1, len(entries), follow))
 			}
 		}
-	}
-	if m.models != nil {
-		parts = append(parts, "models")
 	}
 	if m.overlay != overlayNone {
 		name := "diff"

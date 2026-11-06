@@ -218,13 +218,6 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 	if err != nil {
 		return 2, err
 	}
-	var configuration *RunConfiguration
-	if options.control != nil && sel.Plan != nil {
-		configuration, err = loadControlledConfiguration(root, sel.Plan, args.RunArgs, config)
-		if err != nil {
-			return 2, err
-		}
-	}
 	if args.DryRun {
 		return dryRun(root, args, config, sel, stdout, stderr)
 	}
@@ -338,7 +331,7 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 	}
 	totals.events.emit("run_start", "", fields)
 	if sel.Plan != nil {
-		totals.events.emit("config", "", eventConfiguration(sel.Plan, configuration))
+		totals.events.emit("config", "", eventConfig(sel.Plan, args.RunArgs, config))
 	}
 	defer func() {
 		fields := map[string]any{}
@@ -374,7 +367,7 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 		go watchKeys(root, input.stream, p, nil, func() string { totals.mu.Lock(); defer totals.mu.Unlock(); return totals.unit })
 	}
 	defer os.Remove(stop)
-	code, err = runLoop(ctx, root, args, config, configuration, p, totals, options.resume)
+	code, err = runLoop(ctx, root, args, config, p, totals, options.resume)
 	if code := signalStopCode(p, totals, &signalMu, &stopped, "the current unit stays [~]"); code != 0 {
 		return code, nil
 	}
@@ -406,7 +399,7 @@ func signalStopCode(p *Progress, totals *runTotals, signalMu *sync.Mutex, stoppe
 	return 128 + signalNumber(s)
 }
 
-func runLoop(ctx context.Context, root string, args Args, config map[string]any, configuration *RunConfiguration, p *Progress, totals *runTotals, resume *Checkpoint) (int, error) {
+func runLoop(ctx context.Context, root string, args Args, config map[string]any, p *Progress, totals *runTotals, resume *Checkpoint) (int, error) {
 	planID, done := "", 0
 	replans := map[string]int{}
 	unavailable := make(map[string]time.Time)
@@ -466,7 +459,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 			planID = sel.Plan.Meta["id"]
 			totals.planID = planID
 			p.start(planID, sel.Plan.Meta["title"], totals.wall, format.PlanPermissions(sel.Plan) == "full")
-			if err := startQuota(config, sel.Plan, args, configuration, p, totals, unavailable); err != nil {
+			if err := startQuota(config, sel.Plan, args, p, totals, unavailable); err != nil {
 				return 2, err
 			}
 			code, stopped, err := baselineGate(ctx, root, sel, p, totals)
@@ -484,7 +477,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 		totals.mu.Lock()
 		totals.unit = sel.Unit.ID
 		totals.mu.Unlock()
-		chain, err := unitExecutorChain(config, sel.Plan, sel.Unit, args.RunArgs, unavailable, configuration)
+		chain, err := unitExecutorChain(config, sel.Plan, sel.Unit, args.RunArgs, unavailable)
 		if err != nil {
 			return 2, err
 		}
@@ -529,7 +522,7 @@ func runLoop(ctx context.Context, root string, args Args, config map[string]any,
 	}
 }
 
-func startQuota(config map[string]any, plan *format.Plan, args Args, configuration *RunConfiguration, p *Progress, totals *runTotals, unavailable map[string]time.Time) error {
+func startQuota(config map[string]any, plan *format.Plan, args Args, p *Progress, totals *runTotals, unavailable map[string]time.Time) error {
 	units := make([]*format.Unit, 0)
 	for _, u := range plan.Units {
 		if !doneStatus(u.Status) {
@@ -567,7 +560,7 @@ func startQuota(config map[string]any, plan *format.Plan, args Args, configurati
 		names = append(names, name)
 	}
 	for _, unit := range units {
-		chain, err := unitExecutorChain(config, plan, unit, args.RunArgs, unavailable, configuration)
+		chain, err := unitExecutorChain(config, plan, unit, args.RunArgs, unavailable)
 		if err != nil {
 			return err
 		}

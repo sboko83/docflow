@@ -19,7 +19,6 @@ import (
 	"unicode/utf8"
 
 	"bsv-docflow/internal/agentio"
-	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/runner"
 	"bsv-docflow/internal/testshim"
 )
@@ -902,7 +901,7 @@ func (p *acceptProject) removeRunState() {
 }
 
 // TestAcceptanceWorkspaceNavigation covers the read-only part of the workflow:
-// the tree and expanded unit card, the assignment editor before a start, a
+// the tree and expanded unit card, the start dialog before a start, a
 // narrow terminal, a resize, Unicode text and NO_COLOR, and terminal restore.
 func TestAcceptanceWorkspaceNavigation(t *testing.T) {
 	plans := []acceptPlan{
@@ -935,29 +934,38 @@ func TestAcceptanceWorkspaceNavigation(t *testing.T) {
 	tui.waitFor("stop after unit", 5*time.Second)
 	tui.send(keyEsc)
 
-	tui.send("m")
-	tui.waitFor("Models and executors", 10*time.Second)
+	tui.send("s")
+	tui.waitFor("Start the current Queue run?", 10*time.Second)
 	for _, want := range []string{"P001.1.1", "P001.1.2", "codex | model-a | high"} {
 		tui.waitFor(want, 10*time.Second)
 	}
 	tui.send(keyEsc)
+	tui.waitFor("start declined; nothing ran", 10*time.Second)
+	// `s` switches to Прогон before the confirmation and a decline keeps
+	// that screen: return to the tree before the resize checks.
+	tui.send("1")
+	tui.waitFor("Queue (2)", 10*time.Second)
 
 	tui.resize(20, 6)
 	tui.waitFor("Terminal too small", 10*time.Second)
 	tui.waitFor("Need at least 32x10", 5*time.Second)
 	tui.resize(100, 30)
 	tui.waitForAfter("Terminal too small", "Queue", 10*time.Second)
+	// At a narrow width the focused pane is the one that stays: put the
+	// focus on the card so the resize check sees the unit, not the tree.
+	tui.send("\t")
+	tui.waitFor("Second unit", 10*time.Second)
 	tui.resize(40, 12)
 	tui.waitForAfter("Queue", "P001", 10*time.Second)
 	tui.quit()
 }
 
-// TestAcceptancePauseChildProcessAndChangedAssignment drives the core
-// interactive path: a running tool is read from its live call log, Pause kills
-// the child process group and leaves no activity behind, the assignment is
-// changed while paused, Resume starts a new session without spending an
-// attempt, and the finished unit exposes its verify log and diff.
-func TestAcceptancePauseChildProcessAndChangedAssignment(t *testing.T) {
+// TestAcceptancePauseChildProcessAndResume drives the core interactive path:
+// a running tool is read from its live call log, Pause kills the child process
+// group and leaves no activity behind, Resume continues the same session
+// without spending an attempt, and the finished unit exposes its verify log
+// and diff.
+func TestAcceptancePauseChildProcessAndResume(t *testing.T) {
 	plans := []acceptPlan{{
 		ID: "P001", Title: "Interactive run", Status: "active",
 		Meta: map[string]string{"executor": "codex | model-a | high"},
@@ -1051,45 +1059,9 @@ func TestAcceptancePauseChildProcessAndChangedAssignment(t *testing.T) {
 		t.Fatalf("paused run_end = %v", end)
 	}
 
-	// Change the paused unit's assignment through the editor and resume. The
-	// workspace does not replace the pause notice with a recovery dialog for
-	// its own run; R uses the checkpoint already on disk.
-	tui.send("m")
-	tui.waitFor("Models and executors", 10*time.Second)
-	tui.send(keyEnter)
-	tui.waitFor("Enter confirms and saves", 5*time.Second)
-	tui.send("\x15")
-	tui.send("codex | model-a2 | low")
-	tui.send(keyEnter)
-	tui.waitFor("saved", 10*time.Second)
-	tui.waitFor("Resume will start a new session", 10*time.Second)
-	tui.send(keyEsc)
-	configPath, err := runner.ConfigurationPath(p.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(configPath); err != nil {
-		t.Fatalf("the editor did not save the overlay: %v", err)
-	}
-	status := p.git("status", "--porcelain")
-	if strings.Contains(status, "configuration") || strings.Contains(status, "docflow/tui") {
-		t.Fatalf("the model edit left a file in the working tree:\n%s", status)
-	}
-	for _, line := range strings.Split(status, "\n") {
-		if line == "" {
-			continue
-		}
-		if !strings.HasSuffix(line, "docs/plans/P001-accept.md") {
-			t.Fatalf("the paused run changed an unexpected file: %q", line)
-		}
-	}
-	if strings.Contains(p.planText("P001"), "model-a2") {
-		t.Fatal("the model edit rewrote the plan")
-	}
-	if _, err := os.Stat(filepath.Join(p.Home, ".config", "docflow", "roster.toml")); !os.IsNotExist(err) {
-		t.Fatalf("the model edit wrote a personal roster: %v", err)
-	}
-
+	// The plan header assigns the paused unit its only route, so R resumes the
+	// same session; the workspace does not replace the pause notice with a
+	// recovery dialog for its own run.
 	tui.send("R")
 	// The resumed run is short: on a fast machine the whole run lock window
 	// can close before the first poll, so the run is observed through its
@@ -1107,15 +1079,15 @@ func TestAcceptancePauseChildProcessAndChangedAssignment(t *testing.T) {
 		argvText = append(argvText, fmt.Sprint(arg))
 	}
 	joined := strings.Join(argvText, " ")
-	if !strings.Contains(joined, "-m model-a2") || !strings.Contains(joined, "model_reasoning_effort=low") {
-		t.Fatalf("resumed call did not use the changed assignment: %v", argvText)
+	if !strings.Contains(joined, "-m model-a") || !strings.Contains(joined, "model_reasoning_effort=high") {
+		t.Fatalf("resumed call did not use the plan assignment: %v", argvText)
 	}
-	if strings.Contains(joined, "sess-a") {
-		t.Fatalf("a changed assignment resumed the old session: %v", argvText)
+	if !strings.Contains(joined, "sess-a") || !strings.Contains(joined, "resume sess-a") {
+		t.Fatalf("the resume did not continue the paused session: %v", argvText)
 	}
 	stdin, _ := calls[1]["stdin"].(string)
-	if !strings.Contains(stdin, "## Recovery") || !strings.Contains(stdin, "A new session starts with the current tree") {
-		t.Fatalf("the new session prompt does not explain the lost session:\n%s", stdin)
+	if strings.Contains(stdin, "## Recovery") {
+		t.Fatalf("a same-route resume started a new session:\n%s", stdin)
 	}
 	// The paused attempt is continued, not spent: the resumed journal has one
 	// attempt with n=1 and no n=2.
@@ -1300,7 +1272,7 @@ func TestAcceptanceAssignmentsFallbackAndLimits(t *testing.T) {
 			`{"type":"error","message":"usage limit reached"}`,
 		), "exit 1\n")...,
 	)
-	// The claude result carries zero usage: the editor must show it as
+	// The claude result carries zero usage: the stream must show it as
 	// unknown rather than as a measured zero.
 	p.writeStep(1, claudeStep(claudeStepOptions{Session: "sess-fallback", Write: "alpha", WritePath: "a.txt"})...)
 
@@ -1309,7 +1281,7 @@ func TestAcceptanceAssignmentsFallbackAndLimits(t *testing.T) {
 	tui.send("s")
 	tui.waitFor("Start the current Queue run?", 20*time.Second)
 	tui.waitFor("attempts 2 · auto-replan off", 5*time.Second)
-	tui.waitFor("P001.1.1: codex | model-a | high ; claude | model-b | low", 5*time.Second)
+	tui.waitFor("P001.1.1: codex | model-a | high; claude | model-b | low", 5*time.Second)
 	tui.send(keyEnter)
 	p.waitPlanStatus("P001.1.1", "x", 40*time.Second)
 	waitFile(t, p.path(".git/docflow/run/run.lock"), false, 30*time.Second)
@@ -1639,9 +1611,10 @@ func TestAcceptanceLargeStreamAndUnknownEvents(t *testing.T) {
 	tui.quit()
 }
 
-// TestAcceptanceOrdinaryRunUnaffected runs the plain CLI next to a saved
-// interactive configuration: the ordinary run keeps its assignment rules, its
-// journal, its exit code and never reads or writes the TUI state.
+// TestAcceptanceOrdinaryRunUnaffected runs the plain CLI next to a leftover
+// TUI configuration.json of the removed overlay: the ordinary run keeps its
+// assignment rules, its journal, its exit code and never reads or rewrites
+// the stale file.
 func TestAcceptanceOrdinaryRunUnaffected(t *testing.T) {
 	plans := []acceptPlan{{
 		ID: "P001", Title: "Ordinary run", Status: "active",
@@ -1655,13 +1628,12 @@ func TestAcceptanceOrdinaryRunUnaffected(t *testing.T) {
 	p.writeStep(0, codexStep(codexStepOptions{
 		Session: "sess-plain", WriteAfterSleep: "alpha", WritePath: "a.txt",
 	})...)
-	configuration := runner.NewRunConfiguration()
-	configuration.Units["P001.1.1"] = []agents.Route{{Agent: "codex", Model: "ignored-model", Effort: "low"}}
-	if err := runner.WriteConfiguration(p.Root, configuration); err != nil {
+	staleConfig := `{"version":1,"units":{"P001.1.1":[{"agent":"codex","model":"ignored-model","effort":"low"}]}}`
+	configPath := p.path(".git/docflow/tui/configuration.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	configPath, err := runner.ConfigurationPath(p.Root)
-	if err != nil {
+	if err := os.WriteFile(configPath, []byte(staleConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(configPath)
@@ -1718,8 +1690,8 @@ func TestAcceptanceOrdinaryRunUnaffected(t *testing.T) {
 }
 
 // TestAcceptanceReopenPausedRun reopens the workspace on a saved pause. The
-// recovery dialog shows the assignment table from a real configuration.json,
-// Resume continues with a new session after a changed assignment, and a plan
+// recovery dialog shows the assignment table from the plan header, Resume
+// continues the paused session without spending an attempt, and a plan
 // that moved since the pause is refused as a conflict.
 func TestAcceptanceReopenPausedRun(t *testing.T) {
 	pauseAndQuit := func(t *testing.T, title string) (*acceptProject, *acceptTUI) {
@@ -1753,17 +1725,15 @@ func TestAcceptanceReopenPausedRun(t *testing.T) {
 		return p, tui
 	}
 
-	t.Run("continue with saved assignment", func(t *testing.T) {
+	t.Run("continue the paused session", func(t *testing.T) {
 		p, _ := pauseAndQuit(t, "Reopen pausing")
-		configuration := runner.NewRunConfiguration()
-		configuration.Units["P001.1.1"] = []agents.Route{{Agent: "codex", Model: "model-a2", Effort: "low"}}
-		if err := runner.WriteConfiguration(p.Root, configuration); err != nil {
-			t.Fatal(err)
-		}
 		tui := startAcceptTUI(t, p, 120, 40)
 		tui.waitFor("Recover the saved run", 20*time.Second)
 		tui.waitFor("an agent call", 10*time.Second)
-		tui.waitFor("P001.1.1: codex | model-a2 | low", 10*time.Second)
+		tui.waitFor("P001.1.1: codex | model-a | high", 10*time.Second)
+		if strings.Contains(tui.screen(), "new session") {
+			t.Fatalf("the plan assignment still warns about a new session:\n%s", tui.screen())
+		}
 		tui.send("R")
 		// The resumed run is short: on a fast machine the whole run lock
 		// window can close before the first poll, so the run is observed
@@ -1775,8 +1745,12 @@ func TestAcceptanceReopenPausedRun(t *testing.T) {
 			t.Fatalf("reopened run calls = %d, want the paused call and one resume", len(calls))
 		}
 		argv := fmt.Sprint(calls[1]["argv"])
-		if !strings.Contains(argv, "-m model-a2") || !strings.Contains(argv, "model_reasoning_effort=low") || strings.Contains(argv, "sess-paused") {
+		if !strings.Contains(argv, "-m model-a") || !strings.Contains(argv, "model_reasoning_effort=high") || !strings.Contains(argv, "resume sess-paused") {
 			t.Fatalf("resumed argv = %s", argv)
+		}
+		stdin, _ := calls[1]["stdin"].(string)
+		if strings.Contains(stdin, "## Recovery") {
+			t.Fatalf("a same-route resume started a new session:\n%s", stdin)
 		}
 		if subject := p.git("log", "-1", "--format=%s"); subject != "P001.1.1: reopened" {
 			t.Fatalf("resumed commit = %q", subject)

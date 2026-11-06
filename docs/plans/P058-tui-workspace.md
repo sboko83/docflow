@@ -142,6 +142,9 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - Ростер читается фоном на первой загрузке планов — карточка должна предупреждать о расхождении активного варианта до первого захода на «Ростер», а чтение не берёт lock — отвергнуты ленивая загрузка только с экрана (карточка пропустила бы готовый пресет) и синхронное чтение в рендере карточки.
 - Drift считается только для выбранной строки плана — ExplainPlan парсит план и строит бриф, и расчёт по всем строкам читал бы каждый план на каждом движении курсора — отвергнут кэш drift по всем планам.
 - Replan P058.3.4 (2026-11-06): `internal/tui/models.go` и `internal/tui/models_test.go` уже удалены незакоммиченными правками этого юнита; устаревший Read заменён на существующие `internal/tui/keys.go` и `internal/tui/recovery_test.go`. Статус `[~]` сохранён для продолжения на текущем дереве без отката; Do и Verify не меняются — удаление редактора не завершает оставшиеся проверки и документацию. Отвергнуты восстановление удалённых файлов ради Read и отметка юнита выполненным без его проверок.
+- effectiveUnitRoutes снова решает режим по lint.ExecutorMode(plan), а не по args.Executors — TUI-диалоги зовут EffectiveAssignments с пустыми RunArgs, и executor-план обязан показать шапку, а не дефолтный tier; отвергнуто выставление Executors каждым вызывающим.
+- Acceptance-сценарий переоткрытия продолжает ту же сессию по шапке плана — смена плана между паузой и переоткрытием это recovery conflict, поэтому смену маршрута проверяют юнит-тесты (recovery_test.go) и тест раннера; отвергнут tier-режим с подменой личного agents.toml в PTY-сценарии.
+- usage.md и CHANGELOG обновлены вместе с design-доками — удаление редактора делало user-facing раздел ложным; отвергнуто отложить до закрывающего юнита.
 
 ## Phase 1: Workspace shell
 
@@ -316,7 +319,7 @@ Handoff:
 - Unverified: Фоновая загрузка ростера с настоящим путём личного roster.toml и живым каталогом на машине не прогонялась — тесты подставляют фикстуру через XDG_CONFIG_HOME.
 - Unverified: Отказ «живой прогон» проверен выставлением runState без настоящего controller, а отказ run.lock — файлом блокировки по отдельности; совместный сценарий своего живого прогона с реальным lock не прогонялся.
 
-### [~] P058.3.4 Remove the TUI route overlay
+### [x] P058.3.4 Remove the TUI route overlay
 Read:
 - docs/design/tui.md#конфигурация-прогона
 - docs/design/runner.md#поток-событий
@@ -338,6 +341,15 @@ Verify: `go test -short -timeout 20m ./internal/runner/ ./internal/tui/`
 Traps: `internal/runner` целиком идёт больше 10 минут — запускай с `-run` по затронутым тестам, затем `-short`; медленные интеграционные тесты раннера проверяет gate. `grep -rn RunConfiguration internal/` после правки должен остаться пустым. `models.go` и `models_test.go` из Do уже удалены в текущем дереве: не пересоздавай их; продолжай оставшуюся работу на существующих правках раннера, клавиш и восстановления, включая новый `recovery_test.go`.
 Role: heavy
 Commit: P058.3.4: remove the TUI route overlay
+Handoff:
+- Диалоги старта и восстановления зовут runner.EffectiveAssignments; режим executor решается внутри по lint.ExecutorMode(plan), а не по args.Executors — вызовы с пустыми agents.RunArgs (TUI) показывают шапку плана, не tier'ы; не возвращайте проверку к args.Executors.
+- Клавиша s переключает на «Прогон» до подтверждения диалога старта; Esc оставляет экран на «Прогоне» — тесты навигации возвращаются на «Проект» через 1 и переводят фокус в карточку байтом \t (tui.send("\t")), не строкой "tab".
+- Codex возобновляет сессию подкомандой `resume <session>` в argv, не флагом --resume; ассерты resume-сценариев проверяют `resume sess-…`.
+- Сценарий «Resume после смены назначения» из шапки плана в PTY невоспроизводим (смена плана = recovery conflict): acceptance TestAcceptanceReopenPausedRun продолжает ту же сессию, смену маршрута проверяют recovery_test.go (план-таблица) и TestResumeIgnoresStaleConfigurationFile (раннер).
+- docs/usage.md: раздел «Исполнители» переписан этим юнитом, но строка «„Ростер“ и „История“ пока заглушки» устарела с P058.3.1–3.3 (экран ростера уже не заглушка) — долг предыдущих юнитов, следующему юниту планa P058 стоит обновить её.
+- Test changes: acceptance_test.go — ожидание цепочки приведено к формату AssignmentLines («; » без пробелов до точки с запятой), комментарий «the editor must show» заменён на «the stream must show»; других правок ожиданий нет.
+- Unverified: Предупреждение «Resume начнёт новую сессию» в живом tier-режиме: смена личного agents.toml между паузой и переоткрытием не прогонялась end-to-end — юнит-тест подставляет agentConfig стабом, acceptance идёт в executor-режиме, где маршрут шапки не меняется.
+- Unverified: Поле effective события config в живом журнале executor-плана: TestControlledRunUsesEffectiveAssignments ассертит effective на tier-плане; связка UnitRoleRoutes → событие config в PTY-прогоне отдельно не проверена.
 
 ## Phase 4: Run screen
 

@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names the keys of the current screen and `?` opens the help of that
   screen with the shared keys in their own block.
 
+### Removed
+- The per-run route overlay of the terminal workspace: the `m` editor and
+  `<git-dir>/docflow/tui/configuration.json` no longer exist, and run
+  assignments come from the plan header only — the Ростер screen's apply
+  key or a plan edit change them. A leftover old configuration file is
+  ignored without an error; the `config` event of the run journal keeps
+  form `v: 1` without the `configured_*` fields.
+
 ### Fixed
 - `docflow roster on` refuses an access the roster does not declare instead
   of reporting a switch it never made; every condition command now checks

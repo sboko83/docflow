@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"bsv-docflow/internal/agents"
+	"bsv-docflow/internal/format"
 	"bsv-docflow/internal/runner"
 )
 
@@ -80,6 +81,9 @@ func (m Model) recoveryDialogLines(recovery runner.Recovery) ([]string, []string
 	if recovery.LastRun != nil {
 		lines = append(lines, lastRunText(*recovery.LastRun))
 	}
+	if warning := m.recoveryRouteWarning(recovery); warning != "" {
+		lines = append(lines, "", warning)
+	}
 	var keys []string
 	switch {
 	case recovery.Completed:
@@ -99,30 +103,66 @@ func (m Model) recoveryDialogLines(recovery runner.Recovery) ([]string, []string
 	return lines, keys
 }
 
-// recoveryAssignments renders the effective assignment table of the saved
-// plan. The saved overlay is re-resolved against the plan on disk, so the
-// dialog shows what the next start will actually use.
-func (m Model) recoveryAssignments(planID string) []string {
-	configuration, err := runner.LoadConfiguration(m.root)
-	if err != nil {
-		return nil
+// loadAgentConfig reads the agent profiles and tiers the plan's routes name.
+func loadAgentConfig(plan *format.Plan, args agents.RunArgs) (map[string]any, error) {
+	return agents.RunConfig(plan, &args)
+}
+
+// effectiveAssignments resolves the plan header's assignment table.
+func (m Model) effectiveAssignments(plan *PlanView) (*runner.EffectiveConfiguration, error) {
+	var agentConfig map[string]any
+	if loader := m.agentConfig; loader != nil {
+		var err error
+		agentConfig, err = loader(plan.Doc, agents.RunArgs{})
+		if err != nil {
+			return nil, err
+		}
 	}
+	return runner.EffectiveAssignments(plan.Doc, agents.RunArgs{}, agentConfig)
+}
+
+// recoveryAssignments renders the effective assignment table of the saved
+// plan from the plan header on disk, so the dialog shows what the next start
+// will actually use.
+func (m Model) recoveryAssignments(planID string) []string {
 	plan := m.planByID(planID)
 	if plan == nil {
-		if configuration.Effective != nil && configuration.Effective.Plan == planID {
-			return runner.AssignmentLines(configuration.Effective)
-		}
 		return nil
 	}
-	var agentConfig map[string]any
-	if loader := m.modelsConfig; loader != nil {
-		agentConfig, _ = loader(plan.Doc, agents.RunArgs{})
-	}
-	effective, err := runner.EffectiveAssignments(plan.Doc, agents.RunArgs{}, agentConfig, configuration)
+	effective, err := m.effectiveAssignments(plan)
 	if err != nil {
 		return nil
 	}
 	return runner.AssignmentLines(effective)
+}
+
+// recoveryRouteWarning explains that Resume cannot reuse the paused session
+// once the plan header no longer assigns the checkpoint's route to the unit.
+func (m Model) recoveryRouteWarning(recovery runner.Recovery) string {
+	checkpoint := recovery.Checkpoint
+	if checkpoint == nil || checkpoint.Unit == "" || recovery.PendingCommit || recovery.Problem != "" || recovery.Completed {
+		return ""
+	}
+	plan := m.planByID(checkpoint.Plan)
+	if plan == nil {
+		return ""
+	}
+	effective, err := m.effectiveAssignments(plan)
+	if err != nil {
+		return ""
+	}
+	for _, unit := range effective.Units {
+		if unit.Unit != checkpoint.Unit {
+			continue
+		}
+		for _, route := range unit.Routes {
+			if route.Agent == checkpoint.Agent && route.Model == checkpoint.Model && route.Effort == checkpoint.Effort {
+				return ""
+			}
+		}
+		return fmt.Sprintf("Resume will start a new session for %s because its assignment changed", checkpoint.Unit)
+	}
+	return ""
 }
 
 // planByID finds a loaded plan in either Queue or Frozen.

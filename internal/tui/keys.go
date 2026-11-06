@@ -48,11 +48,8 @@ var Keys = KeyMap{
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
-	// The model editor and the dialogs own the keyboard until they close:
-	// their text is not a screen switch.
-	if m.models != nil {
-		return m.handleModelsKey(msg)
-	}
+	// The dialogs own the keyboard until they close: their text is not a
+	// screen switch.
 	if m.dialog != dialogNone {
 		return m.handleDialogKey(msg)
 	}
@@ -107,8 +104,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "m":
-		return m.openModels(), nil
 	case "r":
 		m.state = StateLoading
 		m.errText = ""
