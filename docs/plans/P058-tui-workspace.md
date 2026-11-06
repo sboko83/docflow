@@ -141,6 +141,7 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - Диалог перепроверяет живой прогон и checkout lock в момент Enter, а не только при открытии — прогон может появиться между открытием и записью, а roster apply обязан отказать в момент действия — отвергнута проверка только на открытии.
 - Ростер читается фоном на первой загрузке планов — карточка должна предупреждать о расхождении активного варианта до первого захода на «Ростер», а чтение не берёт lock — отвергнуты ленивая загрузка только с экрана (карточка пропустила бы готовый пресет) и синхронное чтение в рендере карточки.
 - Drift считается только для выбранной строки плана — ExplainPlan парсит план и строит бриф, и расчёт по всем строкам читал бы каждый план на каждом движении курсора — отвергнут кэш drift по всем планам.
+- Replan P058.3.4 (2026-11-06): `internal/tui/models.go` и `internal/tui/models_test.go` уже удалены незакоммиченными правками этого юнита; устаревший Read заменён на существующие `internal/tui/keys.go` и `internal/tui/recovery_test.go`. Статус `[~]` сохранён для продолжения на текущем дереве без отката; Do и Verify не меняются — удаление редактора не завершает оставшиеся проверки и документацию. Отвергнуты восстановление удалённых файлов ради Read и отметка юнита выполненным без его проверок.
 
 ## Phase 1: Workspace shell
 
@@ -315,7 +316,7 @@ Handoff:
 - Unverified: Фоновая загрузка ростера с настоящим путём личного roster.toml и живым каталогом на машине не прогонялась — тесты подставляют фикстуру через XDG_CONFIG_HOME.
 - Unverified: Отказ «живой прогон» проверен выставлением runState без настоящего controller, а отказ run.lock — файлом блокировки по отдельности; совместный сценарий своего живого прогона с реальным lock не прогонялся.
 
-### [ ] P058.3.4 Remove the TUI route overlay
+### [~] P058.3.4 Remove the TUI route overlay
 Read:
 - docs/design/tui.md#конфигурация-прогона
 - docs/design/runner.md#поток-событий
@@ -323,8 +324,9 @@ Read:
 - internal/runner/chain.go
 - internal/runner/start_preview.go
 - internal/runner/events.go
-- internal/tui/models.go
+- internal/tui/keys.go:L49-215
 - internal/tui/recovery.go
+- internal/tui/recovery_test.go
 Do:
 - Удали редактор `m` (`internal/tui/models.go`, `internal/tui/models_test.go`) и чтение/запись `<git-dir>/docflow/tui/configuration.json` в TUI.
 - Удали из раннера оверлей `RunConfiguration` (`overrides` в `unitExecutorChain`, `LoadConfiguration`, `SaveConfiguration`, `ValidateConfiguration`); `EffectiveAssignments` и `AssignmentLines` считают назначения только из плана и остаются для диалогов старта и восстановления.
@@ -333,7 +335,7 @@ Do:
 - Обнови тесты `internal/runner` и `internal/tui`, которые проверяли оверлей: сценарии старта и восстановления остаются, источник назначений — шапка плана.
 - Перепиши «Конфигурацию прогона» в `docs/design/tui.md` (назначения только из шапки, лимиты `--attempts/--replans`) и упоминания оверлея в `docs/design/runner.md`.
 Verify: `go test -short -timeout 20m ./internal/runner/ ./internal/tui/`
-Traps: `internal/runner` целиком идёт больше 10 минут — запускай с `-run` по затронутым тестам, затем `-short`; медленные интеграционные тесты раннера проверяет gate. `grep -rn RunConfiguration internal/` после правки должен остаться пустым.
+Traps: `internal/runner` целиком идёт больше 10 минут — запускай с `-run` по затронутым тестам, затем `-short`; медленные интеграционные тесты раннера проверяет gate. `grep -rn RunConfiguration internal/` после правки должен остаться пустым. `models.go` и `models_test.go` из Do уже удалены в текущем дереве: не пересоздавай их; продолжай оставшуюся работу на существующих правках раннера, клавиш и восстановления, включая новый `recovery_test.go`.
 Role: heavy
 Commit: P058.3.4: remove the TUI route overlay
 
