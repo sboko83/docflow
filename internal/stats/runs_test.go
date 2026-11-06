@@ -177,3 +177,55 @@ func TestRunsCommandRework(t *testing.T) {
 		t.Fatalf("rework = %v, want %v", got, want)
 	}
 }
+
+// A unit of a plan with `repos:` counts rework in each nested repository its
+// root commit names in `Repo:` lines; a named repository that is gone adds
+// nothing.
+func TestRunsCommandReworkNestedRepo(t *testing.T) {
+	root, _ := statsProject(t)
+	mod := filepath.Join(root, "mod")
+	write := func(name, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	day := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	write(filepath.Join(root, ".gitignore"), "/mod/\n")
+	gitAt(t, root, "base", day)
+	write(filepath.Join(mod, "b.go"), "package b\n")
+	command := exec.Command("git", "init", "-q")
+	command.Dir = mod
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	gitAt(t, mod, "base", day)
+	write(filepath.Join(mod, "b.go"), "package b\n\nfunc B() int { return 1 }\n")
+	nested := gitAt(t, mod, "P001.1.1: add B", day)
+	write(filepath.Join(root, "docs", "plans", "P001-x.md"), "plan\n")
+	unit := gitAt(t, root, "P001.1.1: add B\n\nRepo: mod "+nested+"\nRepo: gone 1234567", day)
+	write(filepath.Join(mod, "b.go"), "package b\n\nfunc B() int { return 2 }\n")
+	gitAt(t, mod, "Fix B by hand", day.Add(24*time.Hour)) // rework in the nested repo
+
+	runs := filepath.Join(root, ".git", "docflow", "run")
+	write(filepath.Join(runs, "20261101T000000Z.events.jsonl"), strings.Join([]string{
+		`{"event":"attempt","unit":"P001.1.1","n":1}`,
+		`{"event":"commit","unit":"P001.1.1","sha":"` + unit + `"}`,
+		`{"event":"unit_end","unit":"P001.1.1","status":"done"}`,
+		"",
+	}, "\n"))
+	result, err := RunsCommand(root, "P001", true)
+	if err != nil || result.Code != 0 {
+		t.Fatalf("RunsCommand = %#v, %v", result, err)
+	}
+	var report RunsReport
+	if err := json.Unmarshal([]byte(result.Stdout), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Units) != 1 || report.Units[0].Rework == nil || *report.Units[0].Rework != 1 {
+		t.Fatalf("units = %#v, want P001.1.1 with rework 1", report.Units)
+	}
+}

@@ -131,7 +131,7 @@ diff; при `repos:` блоки строятся для корневого и �
   затирает.
 - Раннер после каждого вызова агента дописывает `sessions` (id сессий),
   `tokens` (сумма путей профиля `tokens`), `cost`, `calls`.
-- `stats --runs [Pxxx]` — строка на юнит из потоков событий раннера: `unit version attempts verify_fails replans blocked test_changes seconds cost unverified rework done` (попытки без replan-вызовов; `rework` — коммиты без префикса `Pxxx` за 7 дней после коммита юнита, которые меняют или удаляют внесённые им строки (по `git blame`, без файлов планов и `docs/docflow.md`), `-`, если коммита юнита нет; без `docflow run` — `no runs`). `--json` печатает те же строки объектом `{"units": [...]}`. Заменяет ручной разбор `*.events.jsonl`.
+- `stats --runs [Pxxx]` — строка на юнит из потоков событий раннера: `unit version attempts verify_fails replans blocked test_changes seconds cost unverified rework done` (попытки без replan-вызовов; `rework` — коммиты без префикса `Pxxx` за 7 дней после коммита юнита, которые меняют или удаляют внесённые им строки (по `git blame`, без файлов планов и `docs/docflow.md`; при `repos:` — и во вложенных репо из строк `Repo:` корневого коммита), `-`, если коммита юнита нет; без `docflow run` — `no runs`). `--json` печатает те же строки объектом `{"units": [...]}`. Заменяет ручной разбор `*.events.jsonl`.
 - `stats [Pxxx]` — строка на юнит: `unit proxy reqs sum_ctx base_ctx
   peak_ctx peak/proxy grow/proxy source`; внизу — медианы `peak/proxy` и
   `grow/proxy`. `base_ctx` — первый запрос первой сессии в порядке записи;

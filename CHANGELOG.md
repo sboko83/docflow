@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `docflow stats --runs` counts rework in the nested repositories of a plan
+  with `repos:`, not only in the root repository, where such units change
+  little more than the plan.
+
 ## [0.25.0] - 2026-11-06
 
 ### Added

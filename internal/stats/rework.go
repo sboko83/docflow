@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,13 +21,40 @@ var docflowSubject = regexp.MustCompile(`^P\d+[.:]`)
 // hunkOld matches the old-side range of a `-U0` hunk header.
 var hunkOld = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? `)
 
+// repoLine matches a `Repo: <path> <sha>` line that `docflow commit` writes
+// into the root commit body for each nested repository of the unit.
+var repoLine = regexp.MustCompile(`(?m)^Repo: (.+) ([0-9a-f]{7,40})[ \t\r]*$`)
+
 // reworkCommits counts the commits within ReworkWindow after sha, outside
 // docflow (no `Pxxx` subject, no merges), that change or delete a line the
 // unit's commit wrote. A shared file every change touches (CHANGELOG, an
 // index) does not count by itself: only the unit's own lines do. Plan
-// bookkeeping (docs/plans, docs/archive, docs/docflow.md) never counts. ok is
-// false when sha is not in this repository any more (a rewritten history).
+// bookkeeping (docs/plans, docs/archive, docs/docflow.md) never counts. A unit
+// of a plan with `repos:` also counts in each nested repository its root
+// commit names in `Repo:` lines; a nested repository that is gone or lost the
+// commit adds nothing. ok is false when sha is not in this repository any more
+// (a rewritten history).
 func reworkCommits(root, sha string) (count int, ok bool) {
+	count, ok = reworkIn(root, sha, true)
+	if !ok {
+		return 0, false
+	}
+	body, err := gitx.Git(root, "show", "-s", "--format=%B", sha+"^{commit}")
+	if err != nil {
+		return count, true
+	}
+	for _, m := range repoLine.FindAllStringSubmatch(string(body), -1) {
+		dir := filepath.Join(root, filepath.FromSlash(m[1]))
+		if n, ok := reworkIn(dir, m[2], false); ok {
+			count += n
+		}
+	}
+	return count, true
+}
+
+// reworkIn counts rework of the unit commit sha inside one repository;
+// bookkeeping skips the plan files of the root repository.
+func reworkIn(root, sha string, bookkeeping bool) (count int, ok bool) {
 	head, err := gitx.Git(root, "show", "-s", "--format=%H%x00%ct", sha+"^{commit}")
 	if err != nil {
 		return 0, false
@@ -42,7 +70,7 @@ func reworkCommits(root, sha string) (count int, ok bool) {
 	}
 	var files []string
 	for _, name := range strings.Split(string(names), "\x00") {
-		if name == "" || strings.HasPrefix(name, "docs/plans/") || strings.HasPrefix(name, "docs/archive/") || name == "docs/docflow.md" {
+		if name == "" || bookkeeping && (strings.HasPrefix(name, "docs/plans/") || strings.HasPrefix(name, "docs/archive/") || name == "docs/docflow.md") {
 			continue
 		}
 		files = append(files, name)
