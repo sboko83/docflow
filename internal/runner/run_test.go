@@ -585,6 +585,25 @@ func TestRunPendingCommit(t *testing.T) {
 	}
 }
 
+func TestRunCommitsActivationTraces(t *testing.T) {
+	skipSlow(t)
+	f := newRunFixture(t)
+	// Rewind to a committed draft outside the Queue, then apply the
+	// uncommitted writes `docflow activate` leaves: status flip and Queue
+	// append.
+	f.write(planFile, strings.Replace(f.read(planFile), "status: active", "status: draft", 1))
+	f.write("docs/docflow.md", strings.Replace(f.read("docs/docflow.md"), "\n- P001\n", "\n", 1))
+	f.commit("draft plan")
+	f.write(planFile, strings.Replace(f.read(planFile), "status: draft", "status: active", 1))
+	f.write("docs/docflow.md", loopDoc)
+	f.steps(writeReply("a.txt"))
+	r := f.run(nil, "--max-units", "1")
+	f.check(r, 0, "activation: committed P001: activate plan", "run: 1 unit,")
+	if !strings.Contains(f.git("log", "--format=%s"), "P001: activate plan") {
+		t.Fatal(f.git("log", "--format=%s"))
+	}
+}
+
 func TestRunResumesAfterMigrate(t *testing.T) {
 	skipSlow(t)
 	f := newRunFixture(t)

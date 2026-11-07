@@ -316,6 +316,16 @@ func runWithOptions(root string, args Args, stdout, stderr io.Writer, skillDirec
 		if code := confirmRunStartWithIO(sel.Plan, args.Yes, p, input, stdout); code != 0 {
 			return code, nil
 		}
+		// Commit pending activation traces before the first prompt: their
+		// dirty tree would otherwise skip the baseline gate and stop the
+		// first unit on the dirty-tree refusal.
+		committed, err := cycle.CommitActivation(root, sel.Plan)
+		if err != nil {
+			return 2, err
+		}
+		if committed {
+			p.line("activation: committed "+sel.Plan.Meta["id"]+": activate plan", false, "")
+		}
 	}
 	var observe func(Event)
 	if options.control != nil {

@@ -521,7 +521,13 @@ func Prompt(root, unitID string, projectRepos func(string) ([]string, error)) (R
 		refBytes += size
 	}
 	resumed := unit.Status == "~"
+	activated := false
 	if unit.Status == " " {
+		var err error
+		activated, err = CommitActivation(root, plan)
+		if err != nil {
+			return Result{}, err
+		}
 		dirty, err := gitx.DirtyFiles(root, plan.Path, repos)
 		if err != nil {
 			return Result{}, err
@@ -561,6 +567,10 @@ func Prompt(root, unitID string, projectRepos func(string) ([]string, error)) (R
 	if resumed {
 		mark = " (resumed)"
 	}
-	stderr := fmt.Sprintf("%s%s: ~%d tokens of context (prompt + Context + Read), read_budget %s\n", unit.ID, mark, tokens, budget)
+	stderr := ""
+	if activated {
+		stderr = plan.Meta["id"] + ": activate plan committed\n"
+	}
+	stderr += fmt.Sprintf("%s%s: ~%d tokens of context (prompt + Context + Read), read_budget %s\n", unit.ID, mark, tokens, budget)
 	return Result{Code: clierrors.EXIT_OK, Stdout: text, Stderr: stderr}, nil
 }

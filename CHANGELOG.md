@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `docflow run` and `docflow prompt` no longer stop the first unit on the
+  uncommitted traces of `docflow activate` (the plan's `status: active`
+  and its Queue line): while the tree is dirty with exactly those traces,
+  they are committed as `Pxxx: activate plan` and the unit starts.
 - A unit commit no longer fails when another Git process, such as an
   editor polling `git status`, holds `index.lock` for a moment: `git add`
   and `git commit` are repeated for about three seconds before the run
