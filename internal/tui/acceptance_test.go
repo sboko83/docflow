@@ -1018,7 +1018,7 @@ func TestAcceptanceProjectCreateAndEditor(t *testing.T) {
 				ID: "P001", Title: "Editable", Status: "active",
 				Units: []acceptUnit{{ID: "P001.1.1", Title: "Unit"}},
 			}})
-			fixture := filepath.Join(t.TempDir(), "fixture-editor")
+			fixture := filepath.Join(t.TempDir(), "fixture editor")
 			calledPath := filepath.Join(t.TempDir(), "received-path")
 			script := "#!/bin/sh\nprintf '%s' \"$1\" > " + shellSingle(calledPath) +
 				"\nsed 's/Terminal acceptance goal./Edited by fixture./' \"$1\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"\n"
@@ -1026,9 +1026,9 @@ func TestAcceptanceProjectCreateAndEditor(t *testing.T) {
 				t.Fatal(err)
 			}
 			p.Env = envWith(p.Env, "VISUAL", "")
-			p.Env = envWith(p.Env, "EDITOR", fixture)
+			p.Env = envWith(p.Env, "EDITOR", shellSingle(fixture))
 			if useVisual {
-				p.Env = envWith(p.Env, "VISUAL", fixture)
+				p.Env = envWith(p.Env, "VISUAL", shellSingle(fixture))
 			}
 			ui := startAcceptTUI(t, p, 120, 36)
 			ui.waitFor("Queue (1)", 20*time.Second)

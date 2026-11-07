@@ -156,6 +156,7 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - usage.md documents each screen's keys in its own table and keeps only shared keys in the common table — a reader finds a key on the screen they are looking at — rejected one 25-key global list, the reason the P052 controls were hard to learn.
 - The stale 'История пока не принимает собственных клавиш' line in docs/design/tui.md is corrected in this change — the spec contradicted its own История section and historyKey code — rejected leaving it for a follow-up.
 - Activity.Message сохраняет идентификатор первой дельты — финальное событие Claude должно закрывать существующий блок — отвергнута смена идентификатора после получения message id.
+- Новый старт TUI сбрасывает историю активности и состояние чтения, Resume сохраняет их — сводка и поток должны описывать текущий прогон; отвергнуто смешивание независимых прогонов в истории одного терминального сеанса.
 
 ## Phase 1: Workspace shell
 

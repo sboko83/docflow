@@ -37,6 +37,28 @@ func liveRunFixture(t *testing.T) Model {
 	return openStream(t, m)
 }
 
+func TestFreshRunClearsPreviousActivity(t *testing.T) {
+	m := liveRunFixture(t)
+	m.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
+	m.runState = runner.StateIdle
+	m = useControllers(t, m, newFakeController(runner.StateIdle))
+	m.activityQuery = "previous run"
+	m.followActivity = false
+	m, _, started := m.startRun(false)
+	if !started {
+		t.Fatalf("start refused: %s", m.notice)
+	}
+	if got := len(m.history.Entries("P001.1.2")); got != 0 {
+		t.Fatalf("fresh run retained %d activity blocks", got)
+	}
+	if got := len(m.history.Entries("")); got != 0 {
+		t.Fatalf("fresh run retained %d run events", got)
+	}
+	if m.activityQuery != "" || !m.followActivity {
+		t.Fatal("fresh run retained previous stream reading state")
+	}
+}
+
 func TestLiveRunFrames(t *testing.T) {
 	m := liveRunFixture(t)
 	for _, size := range []struct{ w, h int }{{120, 40}, {60, 20}, {32, 10}} {

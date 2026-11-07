@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -75,7 +76,11 @@ func (m Model) openPlanEditor() (Model, tea.Cmd) {
 			return m, nil
 		}
 	} else {
-		parts := strings.Fields(editor)
+		parts, err := splitEditorCommand(editor)
+		if err != nil {
+			m.notice = err.Error()
+			return m, nil
+		}
 		if len(parts) == 0 {
 			m.notice = "editor command is empty"
 			return m, nil
@@ -91,6 +96,53 @@ func (m Model) openPlanEditor() (Model, tea.Cmd) {
 		}
 		return snapshotMsg{snapshot: snap, err: loadErr}
 	})
+}
+
+// splitEditorCommand accepts quoted executable paths and arguments without
+// invoking a shell. Backslashes in Windows paths remain literal.
+func splitEditorCommand(command string) ([]string, error) {
+	var args []string
+	var word strings.Builder
+	var quote rune
+	started := false
+	runes := []rune(command)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r == '\\' && quote != '\'' && i+1 < len(runes) {
+			next := runes[i+1]
+			if (quote == 0 && (unicode.IsSpace(next) || next == '\'' || next == '"')) || (quote != 0 && next == quote) {
+				word.WriteRune(next)
+				started = true
+				i++
+				continue
+			}
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				word.WriteRune(r)
+			}
+		} else if r == '\'' || r == '"' {
+			quote, started = r, true
+		} else if unicode.IsSpace(r) {
+			if started {
+				args = append(args, word.String())
+				word.Reset()
+				started = false
+			}
+		} else {
+			word.WriteRune(r)
+			started = true
+		}
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("editor command has an unclosed quote")
+	}
+	if started {
+		args = append(args, word.String())
+	}
+	return args, nil
 }
 
 func (m Model) openProjectCommitDialog() (Model, tea.Cmd) {
@@ -138,11 +190,25 @@ func (m Model) commitProjectFiles() Model {
 		m.notice = "commit message is empty"
 		return m
 	}
-	add := exec.Command("git", append([]string{"add", "--"}, files...)...)
-	add.Dir = m.root
-	if out, err := add.CombinedOutput(); err != nil {
-		m.notice = fmt.Sprintf("git add: %v: %s", err, strings.TrimSpace(string(out)))
-		return m
+	var present []string
+	for _, path := range files {
+		if _, err := os.Lstat(filepath.Join(m.root, path)); os.IsNotExist(err) {
+			// commit --only also stages deletions from HEAD. A deletion
+			// already staged has no index entry for git add to match.
+			continue
+		} else if err != nil {
+			m.notice = err.Error()
+			return m
+		}
+		present = append(present, path)
+	}
+	if len(present) > 0 {
+		add := exec.Command("git", append([]string{"add", "--"}, present...)...)
+		add.Dir = m.root
+		if out, err := add.CombinedOutput(); err != nil {
+			m.notice = fmt.Sprintf("git add: %v: %s", err, strings.TrimSpace(string(out)))
+			return m
+		}
 	}
 	args := append([]string{"commit", "-m", message, "--"}, files...)
 	cmd := exec.Command("git", args...)
@@ -157,23 +223,28 @@ func (m Model) commitProjectFiles() Model {
 }
 
 func projectFiles(root string) ([]string, error) {
-	cmd := exec.Command("git", "status", "--porcelain", "--untracked-files=all", "--", "docs/docflow.md", "docs/plans", "docs/archive", "docs/roster.variants.toml")
+	// NUL-delimited paths are never quoted. Show renames as separate adds
+	// and deletions so both paths stay within the docflow pathspec.
+	cmd := exec.Command("git", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", "docs/docflow.md", "docs/plans", "docs/archive", "docs/roster.variants.toml")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 	var files []string
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(string(out), "\x00") {
 		if len(line) < 4 {
 			continue
 		}
-		files = append(files, strings.TrimSpace(line[3:]))
+		files = append(files, line[3:])
 	}
 	return files, nil
 }
 
 func lastCommitMessage(m Model) string {
+	if message, ok := strings.CutPrefix(m.notice, "commit: "); ok && strings.TrimSpace(message) != "" {
+		return strings.TrimSpace(message)
+	}
 	if plan := m.selectedPlan(); plan != nil {
 		for i := len(plan.Doc.Units) - 1; i >= 0; i-- {
 			if f := plan.Doc.Units[i].Field("Commit"); f != nil && strings.TrimSpace(f.Value) != "" {

@@ -173,6 +173,14 @@ func (m Model) startRun(resume bool) (Model, tea.Cmd, bool) {
 		m.notice = err.Error()
 		return m, nil, false
 	}
+	if !resume {
+		m.history = NewActivityHistory(activityHistoryLimit)
+		m = m.resetStreamReading()
+		m.activityCursor, m.streamTop = 0, 0
+		m.activityQuery = ""
+		m.followActivity = true
+		m.overlay = overlayNone
+	}
 	m.controller = controller
 	m.controllerDone = false
 	m.runState = controller.State()

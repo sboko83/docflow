@@ -76,6 +76,30 @@ func TestInvalidTimeoutRestoresOriginalFile(t *testing.T) {
 	}
 }
 
+func TestSavedPlanParameterRefreshesWorkspace(t *testing.T) {
+	root := parameterTestProject(t)
+	m := loadedModel(t, root)
+	m = selectRow(t, m, "plan:P001")
+	m = m.openParameters()
+	for i, parameter := range m.parameters {
+		if parameter.Key == "timeout" {
+			m.parameterCursor = i
+			break
+		}
+	}
+	m = m.saveCurrentParameter("120")
+	if got := m.parameters[m.parameterCursor].Value; got != "120" {
+		t.Fatalf("saved timeout row = %q, want 120", got)
+	}
+	if got := m.selectedPlan().Doc.Meta["timeout"]; got != "120" {
+		t.Fatalf("plan card timeout = %q, want 120", got)
+	}
+	m = m.openParameters()
+	if got := m.parameters[m.parameterCursor].Value; got != "120" {
+		t.Fatalf("reopened timeout = %q, want 120", got)
+	}
+}
+
 func TestEditedSessionLimitsReachNextRunnerArgs(t *testing.T) {
 	root := parameterTestProject(t)
 	model := New(root)

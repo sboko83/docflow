@@ -97,6 +97,12 @@ func (m Model) saveCurrentParameter(value string) Model {
 		return m
 	}
 	m.notice = "parameters updated · commit: " + filepath.ToSlash(strings.TrimPrefix(p.Path, m.root+string(filepath.Separator)))
+	snapshot, err := m.load()
+	if err != nil {
+		m.notice += " · reload failed: " + err.Error()
+		return m
+	}
+	m = m.applySnapshot(snapshotMsg{snapshot: snapshot})
 	rows, err := CollectParameters(m.root, m.selectedPlan(), m.runLimits)
 	if err != nil {
 		m.notice += " · reload failed: " + err.Error()

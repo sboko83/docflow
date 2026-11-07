@@ -59,6 +59,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   form `v: 1` without the `configured_*` fields.
 
 ### Fixed
+- `docflow tui` opens editors whose configured executable path or arguments
+  contain quoted spaces, including paths under Windows Program Files.
+- `docflow tui` project commits use the suggested message and handle renamed
+  files and paths with non-ASCII characters; unrelated staged changes stay
+  outside the commit.
+- `docflow tui` refreshes the plan card and parameter values after saving
+  a plan setting, so reopening the editor shows the saved value.
+- A fresh run in `docflow tui` clears the previous run's activity and
+  usage instead of mixing two runs in the stream and summary.
 - `docflow tui` keeps Claude's streamed reasoning in one block when the
   final message supplies its ID after the first delta, avoiding an empty
   duplicate in the live stream and history replay.
