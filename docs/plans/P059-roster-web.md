@@ -2,7 +2,7 @@
 id: P059
 title: roster web
 type: feature
-status: draft
+status: active
 created: 2026-11-07
 permissions: full
 gate: go test -short -timeout 20m ./...
