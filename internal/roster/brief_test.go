@@ -114,7 +114,7 @@ func TestBriefJSON(t *testing.T) {
 	if len(cheap.Routes) != 2 || cheap.Routes[1].Access != "zai" {
 		t.Errorf("cheap routes = %+v, want the fallback zai", cheap.Routes)
 	}
-	if cheap.Budget == nil || cheap.Budget.Target != 152371 || cheap.Budget.Route != "opencode-go/deepseek-v4.1-flash" {
+	if cheap.Budget == nil || cheap.Budget.Target != 152371 || cheap.Budget.Route != "opencode-go/deepseek-v4.1-flash@high" {
 		t.Errorf("cheap budget = %+v, want 152371 on the primary route", cheap.Budget)
 	}
 	if !strings.Contains(string(text), `"scope":"diff/test"`) {
@@ -211,11 +211,11 @@ high = "strong"
 		t.Fatalf("buildBriefAt() error = %v", err)
 	}
 	role := brief.Roles[0]
-	if got, want := briefChain(role.Routes), "prefer/m > lean/m"; got != want {
+	if got, want := briefChain(role.Routes), "prefer/m@high > lean/m@high"; got != want {
 		t.Fatalf("chain = %q, want %q", got, want)
 	}
-	if role.Budget == nil || role.Budget.Route != "prefer/m" {
-		t.Fatalf("budget = %+v, want it computed from the primary route prefer/m", role.Budget)
+	if role.Budget == nil || role.Budget.Route != "prefer/m@high" {
+		t.Fatalf("budget = %+v, want it computed from the primary route prefer/m@high", role.Budget)
 	}
 	if got, want := role.Budget.Target, 29313; got != want {
 		t.Errorf("budget = %d, want %d", got, want)
@@ -223,10 +223,10 @@ high = "strong"
 	if len(role.Why) != 3 {
 		t.Fatalf("why = %q, want a primary line, a fallback line and a budget line", role.Why)
 	}
-	if !strings.Contains(role.Why[0], "primary prefer/m via pi") {
+	if !strings.Contains(role.Why[0], "primary prefer/m@high via pi") {
 		t.Errorf("why = %q, want the primary route first", role.Why)
 	}
-	if !strings.Contains(role.Why[1], "fallback lean/m via pi") {
+	if !strings.Contains(role.Why[1], "fallback lean/m@high via pi") {
 		t.Errorf("why = %q, want the fallback next", role.Why)
 	}
 	if len(brief.Warnings) != 0 {

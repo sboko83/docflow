@@ -135,7 +135,7 @@ Handoff:
 - context-audit start-reads row fails on the clean tree too (pre-existing, README size at 200 plans) — owned by P059.2.4, not this unit
 - Unverified: TUI model list now prints 'effort→class' route summaries (was a single class) — no test asserts the new format string
 
-### [ ] P059.1.2 Резолвер и бриф по маршрутам
+### [x] P059.1.2 Резолвер и бриф по маршрутам
 
 Read:
 - internal/roster/resolve.go
@@ -163,6 +163,10 @@ Traps: порядок кандидатов внутри цепочки не ме
 `check`/`trusted` без изменений.
 
 Commit: P059.1.2: resolve role candidates through the route table
+Handoff:
+- chains and why print 'access/model@effort' (suffix omitted when no effort), the same format the mockup uses; UnitBudget.Route carries it too
+- a route key snaps to the model's declared levels (low on a model without low shows @high); the brief shows the effective effort, not the key
+- test golden testdata/brief-scenario.txt regenerated — chain strings carry @effort now
 
 ### [ ] P059.1.3 Операции рабочего места и SavePolicy
 

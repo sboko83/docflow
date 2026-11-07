@@ -795,3 +795,47 @@ func TestResolveCandidatesMigration(t *testing.T) {
 		t.Fatalf("cheap candidates = %q, want %q", got, want)
 	}
 }
+
+// TestResolvePicksMinimalSuitableRoute pins the route as the candidate: a
+// model routed cheap@low and standard@high serves a cheap role through
+// low and an executor role through high, and the unit budget follows the
+// class of the selected route. No route meets a strong minimum, so the
+// model drops out of the heavy role entirely.
+func TestResolvePicksMinimalSuitableRoute(t *testing.T) {
+	policy := resolvePolicy(t, `
+[access.a]
+agents = ["pi"]
+
+[route."a/m"]
+low  = "cheap"
+high = "standard"
+`)
+	model := resolveModel("a", "m", 100000, nil)
+	model.Efforts = []string{"low", "high"}
+	resolution, err := resolveAt(policy, nil, resolveCatalog(model), resolveDay)
+	if err != nil {
+		t.Fatalf("resolveAt() error = %v", err)
+	}
+	cheap := resolution.Candidates("cheap")
+	if len(cheap) != 1 || cheap[0].Class != "cheap" || cheap[0].Effort != "low" {
+		t.Fatalf("cheap candidate = %v, want m@low at cheap", cheap)
+	}
+	executor := resolution.Candidates("executor")
+	if len(executor) != 1 || executor[0].Class != "standard" || executor[0].Effort != "high" {
+		t.Fatalf("executor candidate = %v, want m@high at standard", executor)
+	}
+	if heavy := resolution.Candidates("heavy"); len(heavy) != 0 {
+		t.Fatalf("heavy candidates = %v, want none: no route reaches strong", heavy)
+	}
+	cheapBudget := unitBudget("cheap", cheap[0])
+	executorBudget := unitBudget("executor", executor[0])
+	if cheapBudget.Route != "a/m@low" || cheapBudget.Class != "cheap" {
+		t.Fatalf("cheap budget route = %q class %q, want a/m@low at cheap", cheapBudget.Route, cheapBudget.Class)
+	}
+	if executorBudget.Route != "a/m@high" || executorBudget.Class != "standard" {
+		t.Fatalf("executor budget route = %q class %q, want a/m@high at standard", executorBudget.Route, executorBudget.Class)
+	}
+	if executorBudget.Target <= cheapBudget.Target {
+		t.Fatalf("executor budget %d = cheap budget %d, want the stronger class to raise it", executorBudget.Target, cheapBudget.Target)
+	}
+}

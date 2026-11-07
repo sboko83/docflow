@@ -307,9 +307,17 @@ zai = ["*-thinking"]       # запреты накапливаются
 - Для `heavy` нужен известный контекст: модель с `context unknown` не
   ставится в тяжёлую роль.
 
-Выбор модели внутри доступа: минимальный подходящий класс, затем цена
-`input + output`, затем больший контекст, затем id. Неизвестная цена идёт
-после известной — `nil` не выглядит бесплатным.
+Кандидат роли — маршрут из `[route]`: модель без записи в `[route]`
+отдаётся с автоматическим классом по семейству и усилием по лестнице
+классов, модель с записью — только своими маршрутами. Внутри модели
+берётся маршрут с минимальным подходящим классом (роль `cheap` идёт через
+`low = "cheap"`, не через `high = "standard"`; при равном классе побеждает
+маршрут, стоящий в файле раньше). Выбор между моделями доступа: затем цена
+`input + output`, затем больший контекст, затем id; неизвестная цена идёт
+после известной — `nil` не выглядит бесплатным. Усилие кандидата — ключ
+выбранного маршрута (`"-"` — усилие не передавать), притёртое к уровням,
+которые модель объявляет; строка брифа и `why:` печатают
+`access/model@effort`, чтобы маршрут читался целиком.
 
 Цепочка роли — по одному маршруту с разных доступов; fallback повторяет
 доступ, а не агента. Строка матрицы `review:` — только `check`-доступы,
@@ -518,13 +526,13 @@ opencode     budget     off               roster
 local        budget     off               roster
 -            preset     low               state
 chains:
-role        chain                                                budget  scope
-executor    opencode-go/deepseek-v4.1                            250000  read
-cheap       opencode-go/deepseek-v4.1-flash > zai/glm-5.3-flash  152371  read
-heavy       -                                                    -       read
-review      opencode-go/deepseek-v4.1                            -       diff/test
-acceptance  codex/gpt-6.1-sol                                    -       diff/test
-replan      codex/gpt-6.1-sol                                    -       diff/test
+role        chain                                                         budget  scope
+executor    opencode-go/deepseek-v4.1@high                                250000  read
+cheap       opencode-go/deepseek-v4.1-flash@high > zai/glm-5.3-flash@low  152371  read
+heavy       -                                                             -       read
+review      opencode-go/deepseek-v4.1@high                                -       diff/test
+acceptance  codex/gpt-6.1-sol@medium                                      -       diff/test
+replan      codex/gpt-6.1-sol@medium                                      -       diff/test
 ```
 
 `zai` с `check = true` не судит и остаётся в матрице `review:` как

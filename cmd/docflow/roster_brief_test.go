@@ -73,12 +73,12 @@ func briefChains(t *testing.T, text string) map[string]string {
 // scenarioChains is the acceptance scenario under the low preset, the
 // chains the brief of the fixture must print.
 var scenarioChains = map[string]string{
-	"executor":   "opencode-go/deepseek-v4.1",
-	"cheap":      "opencode-go/deepseek-v4.1-flash > zai/glm-5.3-flash",
+	"executor":   "opencode-go/deepseek-v4.1@high",
+	"cheap":      "opencode-go/deepseek-v4.1-flash@high > zai/glm-5.3-flash@low",
 	"heavy":      "-",
-	"review":     "opencode-go/deepseek-v4.1",
-	"acceptance": "codex/gpt-6.1-sol",
-	"replan":     "codex/gpt-6.1-sol",
+	"review":     "opencode-go/deepseek-v4.1@high",
+	"acceptance": "codex/gpt-6.1-sol@medium",
+	"replan":     "codex/gpt-6.1-sol@medium",
 }
 
 func TestRosterBriefPresetChains(t *testing.T) {

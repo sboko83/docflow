@@ -180,15 +180,23 @@ func roleWhy(role string, routes []Candidate, budget *UnitBudget) []string {
 }
 
 // routeWhy explains one route of a chain: the access it spends, the
-// channel that reaches it, its budget level, the model class and the
-// effort the planner must pass.
+// channel that reaches it, its budget level and the model class. The
+// effort is part of the model reference — in v3 the route is the pair of
+// a model and an effort.
 func routeWhy(kind string, route Candidate) string {
-	effort := route.Effort
-	if effort == "" {
-		effort = "-"
+	return fmt.Sprintf("%s %s via %s: %s budget, %s class",
+		kind, modelAtEffort(route), route.Agent, route.Budget, route.Class)
+}
+
+// modelAtEffort renders "ACCESS/MODEL@EFFORT", the reference of the route
+// the resolver picked: in v3 the effort belongs to the route, so the
+// brief names the pair. A route without an effort renders without the
+// suffix.
+func modelAtEffort(route Candidate) string {
+	if route.Effort == "" {
+		return route.Access + "/" + route.ID
 	}
-	return fmt.Sprintf("%s %s via %s: %s budget, %s class, effort %s",
-		kind, route.Access+"/"+route.ID, route.Agent, route.Budget, route.Class, effort)
+	return route.Access + "/" + route.ID + "@" + route.Effort
 }
 
 // filterWarnings keeps the chain warnings of the selected roles: a plan
@@ -270,14 +278,16 @@ func (b *Brief) Text() string {
 }
 
 // briefChain renders the chain one route per " > ", the primary first;
-// an empty chain prints a dash so the row keeps its place.
+// an empty chain prints a dash so the row keeps its place. Every route
+// reads ACCESS/MODEL@EFFORT: the chain names the route, not just the
+// model.
 func briefChain(routes []Candidate) string {
 	if len(routes) == 0 {
 		return "-"
 	}
 	parts := make([]string, 0, len(routes))
 	for _, route := range routes {
-		parts = append(parts, route.Access+"/"+route.ID)
+		parts = append(parts, modelAtEffort(route))
 	}
 	return strings.Join(parts, " > ")
 }

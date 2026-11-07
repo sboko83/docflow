@@ -998,14 +998,19 @@ func (m Model) allRoleLines() []string {
 	return lines
 }
 
-// chainText renders the routes of a role in use order.
+// chainText renders the routes of a role in use order, the same
+// "access/model@effort" the brief prints.
 func chainText(role roster.RoleBrief) string {
 	if len(role.Routes) == 0 {
 		return "нет маршрута"
 	}
 	parts := make([]string, 0, len(role.Routes))
 	for _, route := range role.Routes {
-		parts = append(parts, route.Access+"/"+route.ID)
+		text := route.Access + "/" + route.ID
+		if route.Effort != "" {
+			text += "@" + route.Effort
+		}
+		parts = append(parts, text)
 	}
 	return strings.Join(parts, " > ")
 }

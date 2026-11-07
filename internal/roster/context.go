@@ -86,7 +86,7 @@ func unitBudget(role string, route Candidate) *UnitBudget {
 	}
 	budget := &UnitBudget{
 		Role:    role,
-		Route:   route.Access + "/" + route.ID,
+		Route:   modelAtEffort(route),
 		Class:   route.Class,
 		Context: route.Context,
 		MaxOut:  route.MaxOut,
