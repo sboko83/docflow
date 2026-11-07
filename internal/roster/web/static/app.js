@@ -281,7 +281,9 @@
               opts = opts.concat(effs.map(function(e){ return '<option value="' + e + '"' + (r.eff===e ? ' selected' : '') + '>' + e + '</option>'; }));
               effSel = '<select class="rw-sel" data-reff="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(key) + '" aria-label="Ризонинг">' + opts.join('') + '</select>';
             } else {
-              effSel = '<span class="rw-arrow">без усилия</span>';
+              // The catalog does not know the model's levels, so the effort
+              // select is not offered; still show the route's real key.
+              effSel = '<span class="rw-arrow">' + (key === '-' ? 'без усилия' : esc(key)) + '</span>';
             }
             var clsSel = '<select class="rw-sel cls-' + r.cls + '" data-rcls="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(key) + '" aria-label="Класс">' +
               ['cheap','standard','strong'].map(function(c){ return '<option value="' + c + '"' + (r.cls===c ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select>';
