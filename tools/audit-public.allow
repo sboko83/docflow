@@ -24,6 +24,9 @@ internal/cycle/testchanges_test.go:email
 internal/cycle/verify_test.go:email
 internal/roster/apply_test.go:email
 internal/runner/run_test.go:email
+internal/tui/applyroster_test.go:email
+internal/tui/project_test.go:email
+internal/tui/roster_test.go:email
 internal/runner/verify_guard_acceptance_test.go:email
 tools/test-context-audits.py:email
 tools/parity/driver.sh:email
