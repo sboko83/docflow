@@ -205,7 +205,7 @@ Handoff:
 - SavePolicy renders only the presets of the policy layer — a merged policy saves the base file; variants files stay owned by SaveVariants
 - Workspace gained CatalogAccesses and CatalogModels (json: catalog_accesses, catalog_models) for the pickers; LoadWorkspace signature unchanged
 
-### [ ] P059.1.4 Ревью фазы 1
+### [x] P059.1.4 Ревью фазы 1
 
 Read:
 - docs/plans/P059-roster-web.md
@@ -221,6 +221,9 @@ Verify: `go test -short -timeout 20m ./...`
 Role: review
 
 Commit: P059.1.4: review phase 1 route format and resolver
+Handoff:
+- reviewed 2082a65..HEAD against Goal, Constraints, Decisions: no [model]/[effort] parsing remains (only migration comments and the migrate hint), v1 and v2 migrations re-parse through the v3 parser, briefs print model@effort, LoadWorkspace keeps its signature, go.mod and the plan format are untouched
+- observation: RemoveAccess writes variants and state before the policy file; the policy change is validated first, so a failure between the writes is limited to write errors, not validation
 
 ## Phase 2: Веб-редактор
 
