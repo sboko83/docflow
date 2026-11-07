@@ -262,7 +262,7 @@ Handoff:
 - the static/index.html is a placeholder; P059.2.2 replaces the directory contents
 - Unverified: roster web was smoke-tested by hand (bind, URL, workspace JSON, one op writes the file) — the auto tests cover the handler via httptest, not the Run/signal loop
 
-### [ ] P059.2.2 Фронтенд редактора из макета
+### [x] P059.2.2 Фронтенд редактора из макета
 
 Read:
 - docs/design/roster-web-mockup.html
@@ -288,6 +288,10 @@ Traps: файлы статики — `//go:embed static/*` в `server.go`; им�
 те же, что в P059.1.3, без синонимов.
 
 Commit: P059.2.2: port the roster editor mockup to the embedded web UI
+Handoff:
+- the editor renders the role matrix from the brief (ws.roles candidates), so its rows follow the resolver, not a recomputation; the class of a route is r.class (Route JSON tags added in policy2.go)
+- the file panel is a sketch the front end renders from its view (mockup parity) — it can show models = [...] for an access that only carries routes; the authoritative file is on disk
+- Unverified: pixel layout not checked — in-app browser screenshot timed out twice; the DOM flow (budget toggle, route add, class change, variant modal) was verified click-by-click and the files matched
 
 ### [ ] P059.2.3 Ревью фазы 2
 

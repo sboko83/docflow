@@ -2,9 +2,73 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>docflow roster web</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>docflow · ростер</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<p>Редактор ростера доставляется юнитом P059.2.2.</p>
+<div id="rwe" class="rw">
+  <div class="rw-window">
+    <div class="rw-titlebar">
+      <span class="rw-dots"><i></i><i></i><i></i></span>
+      <span class="rw-ttitle">docflow · ростер — редактор ростера и вариантов</span>
+      <span class="rw-tspacer"></span>
+    </div>
+
+    <div class="rw-toolbar">
+      <div class="rw-switch" id="rwe-switch"></div>
+      <div class="rw-actions">
+        <button type="button" class="rw-btn" id="rwe-reload" title="Перечитать ростер с сервера">Перечитать</button>
+        <button type="button" class="rw-btn" id="rwe-file">Файл</button>
+      </div>
+    </div>
+
+    <div class="rw-body">
+      <div class="rw-val" id="rwe-val" role="alert" aria-live="polite"></div>
+      <div class="rw-problem" id="rwe-problem" hidden></div>
+
+      <div id="rwe-base">
+        <div class="rw-sectitle">Ассистенты и доступы <span class="rw-sechint">модель с разным ризонингом — разные маршруты: у каждого своя роль и класс</span></div>
+        <div class="rw-cards" id="rwe-cards"></div>
+        <div class="rw-addrow">
+          <button type="button" class="rw-btn" id="rwe-add-access">+ доступ из каталога</button>
+          <span class="rw-cond-none" id="rwe-catalog-left"></span>
+        </div>
+
+        <div class="rw-sectitle" style="margin-top:22px">Роли плана <span class="rw-sechint">слева — требование роли, справа — какие маршруты его закроют</span></div>
+        <div class="rw-matrix" id="rwe-matrix"></div>
+      </div>
+
+      <div id="rwe-variant" hidden>
+        <div class="rw-vhead">
+          <input class="rw-vname" id="rwe-vname-input" aria-label="Имя варианта">
+          <span class="rw-badge-src" id="rwe-vsrc"></span>
+          <span class="rw-gap"></span>
+          <button type="button" class="rw-btn rw-btn-sm" id="rwe-vdelete">Удалить вариант</button>
+        </div>
+        <p class="rw-hint">Вариант — набор отклонений от базового ростера: бюджет доступа, порядок fallback и сужение моделей. Пишется в файл вариантов, базовый ростер не трогает.</p>
+        <div id="rwe-vrows"></div>
+      </div>
+    </div>
+
+    <div class="rw-sheet" id="rwe-sheet">
+      <div class="rw-sheet-head">
+        <div>
+          <div class="rw-sheet-title"><code id="rwe-sheet-path"></code></div>
+          <div class="rw-sheet-sub">эскиз записи; класс по паре «модель + ризонинг»</div>
+        </div>
+        <button type="button" class="rw-x" id="rwe-close-sheet" aria-label="Закрыть">×</button>
+      </div>
+      <pre class="rw-toml" id="rwe-toml"></pre>
+    </div>
+
+    <div class="rw-overlay" id="rwe-overlay">
+      <div class="rw-modal" id="rwe-modal" role="dialog" aria-modal="true"></div>
+    </div>
+
+    <div class="rw-toasts" id="rwe-toasts"></div>
+  </div>
+</div>
+<script src="app.js"></script>
 </body>
 </html>

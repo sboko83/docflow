@@ -106,19 +106,27 @@ type WorkspaceAccess struct {
 	Until      string      `json:"until,omitempty"`
 	Expires    string      `json:"expires,omitempty"`
 	Conditions []Condition `json:"conditions,omitempty"`
-	// PolicyModels is the allowlist the policy itself declares (the exact
-	// ids of roster.toml), as opposed to Allow — the effective list the
-	// conditions put in force.
+	// PolicyModels and PolicyBudget are what the policy itself declares
+	// (the exact ids and the base budget of roster.toml), as opposed to
+	// Allow and Budget — the effective lists the conditions put in force.
 	PolicyModels []string `json:"policy_models,omitempty"`
+	PolicyBudget string   `json:"policy_budget,omitempty"`
 }
 
 // WorkspaceVariant is one preset of the roster with the layer it comes
-// from: roster.toml is hand-edited and read-only for the workspace, the
-// global and the project variants files are machine-owned.
+// from and the conditions it carries: roster.toml is hand-edited and
+// read-only for the variant operations, the global and the project
+// variants files are machine-owned.
 type WorkspaceVariant struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
-	Path   string `json:"path,omitempty"`
+	Name    string              `json:"name"`
+	Source  string              `json:"source"`
+	Path    string              `json:"path,omitempty"`
+	Off     []string            `json:"off,omitempty"`
+	Lean    []string            `json:"lean,omitempty"`
+	Minimal []string            `json:"minimal,omitempty"`
+	Prefer  []string            `json:"prefer,omitempty"`
+	Order   []string            `json:"order,omitempty"`
+	Models  map[string][]string `json:"models,omitempty"`
 }
 
 // WorkspaceCatalogAccess is one access the catalog knows: what the
@@ -323,6 +331,7 @@ func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 			// The policy allowlist: the ids the editor's model list names,
 			// next to the effective Allow the conditions put in force.
 			PolicyModels: append([]string(nil), access.Models...),
+			PolicyBudget: access.Budget,
 		}
 		if entry, ok := known[access.Name]; ok {
 			row.Kind = entry.Kind
@@ -363,9 +372,15 @@ func (w *Workspace) variantRows() []WorkspaceVariant {
 	rows := make([]WorkspaceVariant, 0, len(w.Policy.Presets))
 	for _, preset := range w.Policy.Presets {
 		rows = append(rows, WorkspaceVariant{
-			Name:   preset.Name,
-			Source: preset.Source,
-			Path:   w.variantPath(preset.Source),
+			Name:    preset.Name,
+			Source:  preset.Source,
+			Path:    w.variantPath(preset.Source),
+			Off:     append([]string(nil), preset.Off...),
+			Lean:    append([]string(nil), preset.Lean...),
+			Minimal: append([]string(nil), preset.Minimal...),
+			Prefer:  append([]string(nil), preset.Prefer...),
+			Order:   append([]string(nil), preset.Order...),
+			Models:  cloneGlobs(preset.Models),
 		})
 	}
 	return rows

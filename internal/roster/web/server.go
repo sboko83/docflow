@@ -199,6 +199,8 @@ func (s *Server) apply(workspace *roster.Workspace, req *Request) error {
 		return workspace.CreateVariant(req.Name, req.Project, req.CopyOf)
 	case "RenameVariant":
 		return workspace.RenameVariant(req.Name, req.Next)
+	case "DeleteVariant":
+		return workspace.DeleteVariant(req.Name)
 	case "SetVariantBudget":
 		return workspace.SetVariantBudget(req.Name, req.Access, req.Level)
 	case "ToggleVariantModel":

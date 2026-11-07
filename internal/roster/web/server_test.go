@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -182,5 +183,87 @@ func TestIndexPage(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET / = %d, want 200", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Ассистенты и доступы", "app.js", "style.css"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("GET / lost %q", want)
+		}
+	}
+}
+
+// TestEditorScenario walks the editor's basic path end to end: a route at
+// a new effort, its class changed to cheap, then a variant — with the
+// files on disk carrying both afterwards.
+func TestEditorScenario(t *testing.T) {
+	installCatalog(t)
+	server, path := testServer(t)
+	variantsPath := roster.VariantsPath(path)
+
+	// The fixture routes zai/glm-5.3 at high only; the first unused
+	// declared effort of the catalog is low, at the first route's class.
+	status, body := postOp(t, server, `{"op":"AddRouteLevel","access":"zai","model":"glm-5.3"}`)
+	if status != http.StatusOK || !body.OK {
+		t.Fatalf("AddRouteLevel = (%d, %+v), want 200", status, body)
+	}
+	status, body = postOp(t, server, `{"op":"SetRouteClass","access":"zai","model":"glm-5.3","effort":"low","class":"cheap"}`)
+	if status != http.StatusOK || !body.OK {
+		t.Fatalf("SetRouteClass = (%d, %+v), want 200", status, body)
+	}
+	status, body = postOp(t, server, `{"op":"CreateVariant","name":"editor-test"}`)
+	if status != http.StatusOK || !body.OK {
+		t.Fatalf("CreateVariant = (%d, %+v), want 200", status, body)
+	}
+
+	// The returned workspace carries the new route and the variant.
+	found := false
+	for _, route := range body.Workspace.Routes {
+		if route.Access == "zai" && route.Model == "glm-5.3" && route.Eff == "low" && route.Class == "cheap" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the workspace lost the low→cheap route: %+v", body.Workspace.Routes)
+	}
+	variantFound := false
+	for _, entry := range body.Workspace.Variants {
+		if entry.Name == "editor-test" {
+			variantFound = true
+		}
+	}
+	if !variantFound {
+		t.Fatalf("the workspace lost the variant: %+v", body.Workspace.Variants)
+	}
+	policy, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(policy), `"low" = "cheap"`) {
+		t.Fatalf("the policy file lost the low→cheap route:\n%s", policy)
+	}
+	variants, err := os.ReadFile(variantsPath)
+	if err != nil {
+		t.Fatalf("the variants file was not created: %v", err)
+	}
+	if !strings.Contains(string(variants), "[preset.editor-test]") {
+		t.Fatalf("the variants file lost the preset:\n%s", variants)
+	}
+}
+
+// installCatalog puts the scenario catalog where LoadCatalog reads it, so
+// the route operations find the declared efforts.
+func installCatalog(t *testing.T) {
+	t.Helper()
+	catalog, err := roster.LoadCatalog("../../roster/testdata/catalog-scenario.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	if err := catalog.Save(filepath.Join(cache, "docflow", "roster", "catalog.json")); err != nil {
+		t.Fatal(err)
 	}
 }

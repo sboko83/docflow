@@ -183,9 +183,13 @@ func TestLoadWorkspaceModel(t *testing.T) {
 	}
 
 	wantVariants := []WorkspaceVariant{
-		{Name: "low", Source: SourcePolicy, Path: rosterPath},
-		{Name: "machine", Source: SourceVariants, Path: filepath.Join(config, "roster.variants.toml")},
-		{Name: "project", Source: SourceProject, Path: ProjectVariantsPath(root)},
+		{Name: "low", Source: SourcePolicy, Path: rosterPath,
+			Off: []string{"claude", "local"}, Lean: []string{"zai"}, Minimal: []string{"codex"}, Prefer: []string{"opencode-go"},
+			Order: []string{"opencode-go", "zai", "codex"}, Models: map[string][]string{"zai": {"*flash*"}}},
+		{Name: "machine", Source: SourceVariants, Path: filepath.Join(config, "roster.variants.toml"),
+			Lean: []string{"zai"}, Models: map[string][]string{}},
+		{Name: "project", Source: SourceProject, Path: ProjectVariantsPath(root),
+			Minimal: []string{"codex"}, Models: map[string][]string{}},
 	}
 	if !reflect.DeepEqual(workspace.Variants, wantVariants) {
 		t.Errorf("variants = %+v, want %+v", workspace.Variants, wantVariants)

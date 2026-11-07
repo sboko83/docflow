@@ -64,10 +64,10 @@ type Policy struct {
 // without a route in the policy is served at its automatic class with the
 // class ladder effort.
 type Route struct {
-	Access string
-	Model  string
-	Eff    string // the effort key: "-" or a level such as "high"
-	Class  string // cheap | standard | strong
+	Access string `json:"access"`
+	Model  string `json:"model"`
+	Eff    string `json:"eff"`   // the effort key: "-" or a level such as "high"
+	Class  string `json:"class"` // cheap | standard | strong
 }
 
 // routesOf returns the routes of one model in file order.
