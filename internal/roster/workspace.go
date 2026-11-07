@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,6 +50,14 @@ type Workspace struct {
 	Roles      []RoleBrief        `json:"roles"`
 	Warnings   []string           `json:"warnings,omitempty"`
 	Conditions []Condition        `json:"conditions"`
+
+	// CatalogAccesses and CatalogModels are the catalog's own view: the
+	// accesses the machine knows with their channels, and the models of
+	// every access with context, price and reasoning levels — what the
+	// editor's pickers offer. They are read-only input; the policy
+	// operations write the roster files.
+	CatalogAccesses []WorkspaceCatalogAccess    `json:"catalog_accesses,omitempty"`
+	CatalogModels   map[string][]WorkspaceModel `json:"catalog_models,omitempty"`
 
 	Policy  *Policy  `json:"-"`
 	State   *State   `json:"-"`
@@ -102,6 +111,28 @@ type WorkspaceVariant struct {
 	Path   string `json:"path,omitempty"`
 }
 
+// WorkspaceCatalogAccess is one access the catalog knows: what the
+// add-access picker offers and shows.
+type WorkspaceCatalogAccess struct {
+	Access string   `json:"access"`
+	Agents []string `json:"agents,omitempty"`
+	Kind   string   `json:"kind,omitempty"`
+	Models int      `json:"models"`
+}
+
+// WorkspaceModel is one catalog model of an access: what the add-model
+// picker offers and shows. A price of zero is omitted, so an unknown
+// price never reads as free.
+type WorkspaceModel struct {
+	ID        string   `json:"id"`
+	Context   int      `json:"context,omitempty"`
+	MaxOut    int      `json:"max_out,omitempty"`
+	Reasoning bool     `json:"reasoning,omitempty"`
+	Efforts   []string `json:"efforts,omitempty"`
+	Input     float64  `json:"input,omitempty"`
+	Output    float64  `json:"output,omitempty"`
+}
+
 // LoadWorkspace reads the whole roster as a screen shows it: the policy
 // with the global and project presets, the condition state (an expired off
 // is dropped on the way in and the file is left for the next mutation),
@@ -119,6 +150,7 @@ func LoadWorkspace(rosterPath, root string) (*Workspace, error) {
 	}
 	workspace.Catalog = catalog
 	workspace.CatalogEmpty = len(catalog.Accesses) == 0
+	workspace.fillCatalogRows(catalog)
 	if workspace.Policy == nil {
 		return workspace, nil
 	}
@@ -133,6 +165,46 @@ func LoadWorkspace(rosterPath, root string) (*Workspace, error) {
 	workspace.Roles = brief.Roles
 	workspace.Warnings = brief.Warnings
 	return workspace, nil
+}
+
+// fillCatalogRows copies the catalog into the picker rows: the accesses
+// the machine knows with their channels and model counts, and the models
+// of every access sorted by id, so a picker renders the same list a scan
+// produced.
+func (w *Workspace) fillCatalogRows(catalog *Catalog) {
+	for _, info := range catalog.Accesses {
+		count := 0
+		for _, model := range catalog.Models {
+			if model.Access == info.Access {
+				count++
+			}
+		}
+		w.CatalogAccesses = append(w.CatalogAccesses, WorkspaceCatalogAccess{
+			Access: info.Access,
+			Agents: append([]string(nil), info.Agents...),
+			Kind:   info.Kind,
+			Models: count,
+		})
+	}
+	for _, model := range catalog.Models {
+		if w.CatalogModels == nil {
+			w.CatalogModels = make(map[string][]WorkspaceModel, len(catalog.Accesses))
+		}
+		entry := WorkspaceModel{
+			ID:        model.ID,
+			Context:   model.Context,
+			MaxOut:    model.MaxOut,
+			Reasoning: model.Reasoning,
+			Efforts:   append([]string(nil), model.Efforts...),
+		}
+		if model.Cost != nil {
+			entry.Input, entry.Output = model.Cost.Input, model.Cost.Output
+		}
+		w.CatalogModels[model.Access] = append(w.CatalogModels[model.Access], entry)
+	}
+	for _, models := range w.CatalogModels {
+		sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
+	}
 }
 
 // LoadPolicyState reads the policy and its condition state alone: the pair

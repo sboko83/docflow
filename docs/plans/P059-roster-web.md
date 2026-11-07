@@ -168,7 +168,7 @@ Handoff:
 - a route key snaps to the model's declared levels (low on a model without low shows @high); the brief shows the effective effort, not the key
 - test golden testdata/brief-scenario.txt regenerated — chain strings carry @effort now
 
-### [ ] P059.1.3 Операции рабочего места и SavePolicy
+### [x] P059.1.3 Операции рабочего места и SavePolicy
 
 Read:
 - internal/roster/workspace.go:L100-180
@@ -199,6 +199,11 @@ Traps: операция, называющая неизвестный досту�
 по всем трём слоям.
 
 Commit: P059.1.3: add workspace write operations and atomic policy save
+Handoff:
+- op names the web server (P059.2.1) must expose as {op}: AddAccess, RemoveAccess, SetAccessFlags, SetAccessBudget, AddAccessModel, RemoveAccessModel, AddRouteLevel, RemoveRoute, SetRouteClass, SetRouteEffort, SetRole, CreateVariant, RenameVariant, SetVariantBudget, ToggleVariantModel, MoveVariantAccess
+- AddAccessModel refuses a model the allowlist glob already covers and creates a first route only when the model has none; RemoveAccess sweeps the variants files and the state, so no layer keeps a dead name
+- SavePolicy renders only the presets of the policy layer — a merged policy saves the base file; variants files stay owned by SaveVariants
+- Workspace gained CatalogAccesses and CatalogModels (json: catalog_accesses, catalog_models) for the pickers; LoadWorkspace signature unchanged
 
 ### [ ] P059.1.4 Ревью фазы 1
 

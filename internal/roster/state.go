@@ -679,17 +679,21 @@ func (p *Policy) reorder(order []string) {
 }
 
 // clone returns a deep copy of the policy: the resolver mutates the
-// accesses of the merged copy, and the loaded policy stays untouched.
+// accesses of the merged copy, and the loaded policy stays untouched. The
+// presets are copied deeply too — an operation that edits a preset list
+// must not write through the slice the loaded policy shares.
 func (p *Policy) clone() *Policy {
 	copied := &Policy{
 		Path:    p.Path,
 		Version: p.Version,
 		Routes:  append([]Route(nil), p.Routes...),
 		Roles:   make(map[string]string, len(p.Roles)),
-		Presets: append([]Preset(nil), p.Presets...),
 		index:   make(map[string]int, len(p.Accesses)),
 	}
 	maps.Copy(copied.Roles, p.Roles)
+	for _, preset := range p.Presets {
+		copied.Presets = append(copied.Presets, preset.clone())
+	}
 	for i, access := range p.Accesses {
 		copiedAccess := access
 		copiedAccess.Agents = append([]string(nil), access.Agents...)
