@@ -22,6 +22,7 @@ internal/cycle/cycle_test.go:email
 internal/cycle/testchanges_prompt_test.go:email
 internal/cycle/testchanges_test.go:email
 internal/cycle/verify_test.go:email
+internal/gitx/lock_test.go:email
 internal/roster/apply_test.go:email
 internal/runner/run_test.go:email
 internal/tui/applyroster_test.go:email

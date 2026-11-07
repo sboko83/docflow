@@ -235,7 +235,8 @@ publish() {
     assets=$(gh release view -R "$slug" "$tag" --json assets --jq '.assets[].name')
     for want in checksums.txt VERSION docflow_darwin_amd64.tar.gz \
         docflow_darwin_arm64.tar.gz docflow_linux_amd64.tar.gz \
-        docflow_linux_arm64.tar.gz; do
+        docflow_linux_arm64.tar.gz docflow_windows_amd64.tar.gz \
+        docflow_windows_arm64.tar.gz; do
         printf '%s\n' "$assets" | grep -qx "$want" || fail "release $tag lacks $want"
     done
     local latest
