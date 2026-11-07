@@ -256,15 +256,24 @@ func TestWorkspaceTerminalRunHistory(t *testing.T) {
 	workspaceScreen(t, ui, "WORKSPACE-VERIFY", "")
 	ui.send("\x1b")
 	// Completion is established from the committed plan, not a transient notice.
+	// A loaded Windows CI runner needs more than 30 s for verify, done and
+	// commit through Git Bash.
 	completed := false
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(90 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if strings.Contains(workspaceRead(t, planPath), "[x] P001.1.1") && workspaceGit(t, f.root, "status", "--porcelain") == "" {
 			completed = true
 			break
 		}
 	}
 	if !completed {
-		t.Fatal("resumed unit was not completed and committed")
+		unitLine := ""
+		for _, line := range strings.Split(workspaceRead(t, planPath), "\n") {
+			if strings.Contains(line, "P001.1.1 ") && strings.HasPrefix(line, "###") {
+				unitLine = line
+			}
+		}
+		t.Fatalf("resumed unit was not completed and committed\nplan: %s\ngit status:\n%s\nscreen:\n%s",
+			unitLine, workspaceGit(t, f.root, "status", "--porcelain"), ui.output())
 	}
 	// The executor header must also reach the config journal, independently
 	// of the assignment table shown by the start dialog.
