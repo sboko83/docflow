@@ -227,7 +227,7 @@ Handoff:
 
 ## Phase 2: Веб-редактор
 
-### [ ] P059.2.1 Сервер `roster web` с JSON API
+### [x] P059.2.1 Сервер `roster web` с JSON API
 
 Read:
 - cmd/docflow/main.go:L50-70
@@ -256,6 +256,11 @@ Traps: `internal/roster/web` импортирует только `internal/roste
 `roster.toml` одновременно.
 
 Commit: P059.2.1: serve roster workspace and operations over localhost HTTP
+Handoff:
+- POST /api/op dispatches exactly the P059.1.3 op names; the JSON body fields are op, name, next, access, id, model, effort, class, level, role, requirement, agents, kind, dir, trusted, check, project, copy_of
+- Workspace JSON gained routes and role_requirements, and access rows gained policy_models — the Policy struct itself stays unserialized, the editor renders from the mirrors
+- the static/index.html is a placeholder; P059.2.2 replaces the directory contents
+- Unverified: roster web was smoke-tested by hand (bind, URL, workspace JSON, one op writes the file) — the auto tests cover the handler via httptest, not the Run/signal loop
 
 ### [ ] P059.2.2 Фронтенд редактора из макета
 

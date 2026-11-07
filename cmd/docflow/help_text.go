@@ -286,12 +286,12 @@ options:
   --target DIR          personal skills directory override
   --project             copy skills/* into the project
 `,
-	"roster": `usage: docflow roster [-h] [--roster PATH] [--until DATE]
-                      [--preset NAME] [--off A,B] [--minimal A,B]
-                      [--lean A,B] [--prefer A,B] [--expires A=DATE]
-                      [--only A=GLOB] [--json] [--dry-run] [--refresh]
-                      [--online] [--all] [--write]
-                      {show,brief,explain,apply,scan,models,status,off,on,budget,expire,allow,deny,reset,migrate}
+	"roster": `usage: docflow roster [-h] [--roster PATH] [--addr ADDR]
+                      [--until DATE] [--preset NAME] [--off A,B]
+                      [--minimal A,B] [--lean A,B] [--prefer A,B]
+                      [--expires A=DATE] [--only A=GLOB] [--json]
+                      [--dry-run] [--refresh] [--online] [--all] [--write]
+                      {show,brief,explain,apply,scan,models,status,off,on,budget,expire,allow,deny,reset,migrate,web}
                       [ACCESS] [ARG ...]
 
 scan model access catalogs, show the route chains per plan role from the
@@ -367,6 +367,10 @@ command in the hint, and --profile is gone — the flag was v1 and
 subcommands:
   show             print the brief (alias of brief)
   brief            print the conditions, chains, budgets and warnings
+  web [--addr ADDR]
+                   serve the workspace and its operations on 127.0.0.1
+                   for the browser editor; the project variants layer
+                   follows the working directory, Ctrl-C stops it
   explain PLAN     compare the plan header with the brief
   apply ID         write the chains into the plan header
   scan             collect the catalog and write the cache

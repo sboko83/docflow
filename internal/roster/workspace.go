@@ -59,6 +59,12 @@ type Workspace struct {
 	CatalogAccesses []WorkspaceCatalogAccess    `json:"catalog_accesses,omitempty"`
 	CatalogModels   map[string][]WorkspaceModel `json:"catalog_models,omitempty"`
 
+	// Routes and RoleRequirements mirror the policy model for the editor:
+	// the Policy struct itself is not serialized, and a browser cannot
+	// resolve Go fields.
+	Routes           []Route           `json:"routes"`
+	RoleRequirements map[string]string `json:"role_requirements"`
+
 	Policy  *Policy  `json:"-"`
 	State   *State   `json:"-"`
 	Catalog *Catalog `json:"-"`
@@ -100,6 +106,10 @@ type WorkspaceAccess struct {
 	Until      string      `json:"until,omitempty"`
 	Expires    string      `json:"expires,omitempty"`
 	Conditions []Condition `json:"conditions,omitempty"`
+	// PolicyModels is the allowlist the policy itself declares (the exact
+	// ids of roster.toml), as opposed to Allow — the effective list the
+	// conditions put in force.
+	PolicyModels []string `json:"policy_models,omitempty"`
 }
 
 // WorkspaceVariant is one preset of the roster with the layer it comes
@@ -265,6 +275,11 @@ func loadWorkspace(rosterPath, root string) (*Workspace, error) {
 	workspace.Preset = state.Preset
 	workspace.Conditions = Conditions(policy, state)
 	workspace.Variants = workspace.variantRows()
+	workspace.Routes = append([]Route(nil), policy.Routes...)
+	workspace.RoleRequirements = make(map[string]string, len(policy.Roles))
+	for role, requirement := range policy.Roles {
+		workspace.RoleRequirements[role] = requirement
+	}
 	return workspace, nil
 }
 
@@ -305,6 +320,9 @@ func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 			Check:   access.Check,
 			Trusted: access.Trusted,
 			Models:  w.Catalog.modelCount(access.Name),
+			// The policy allowlist: the ids the editor's model list names,
+			// next to the effective Allow the conditions put in force.
+			PolicyModels: append([]string(nil), access.Models...),
 		}
 		if entry, ok := known[access.Name]; ok {
 			row.Kind = entry.Kind
