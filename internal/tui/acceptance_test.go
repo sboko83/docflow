@@ -339,6 +339,9 @@ func (p *acceptProject) planText(id string) string {
 func (p *acceptProject) git(args ...string) string {
 	p.t.Helper()
 	command := exec.Command("git", append([]string{"-C", p.Root}, args...)...)
+	// A status poll must not take index.lock while the runner commits: on
+	// Windows the commit then fails on the existing lock.
+	command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := command.CombinedOutput()
 	if err != nil {
 		p.t.Fatalf("git %v: %v\n%s", args, err, out)
