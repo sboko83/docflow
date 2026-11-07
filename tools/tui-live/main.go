@@ -610,22 +610,18 @@ func runScenario(opts *options, spec scenarioSpec, checkout, bin string) (rec sc
 	term.Send("R")
 	stopped := false
 	deadline := time.Now().Add(30 * time.Second)
-	// The screen is read, not a log: once S is accepted, a repeated S
-	// replaces its notice with "needs a running run". Give each S a second
-	// to render, and accept the Stopping state in the header too, which
-	// stays until the unit ends.
+	// S is refused until the resumed run is running, and the fake agent
+	// finishes the unit quickly, so S is repeated without delay. The screen
+	// is read, not a log: a repeated S can replace the accepted notice with
+	// "needs a running run", so the Stopping state in the header counts too.
 	accepted := func() bool {
 		screen := term.Output()
 		return strings.Contains(screen, "stopping after the current unit") || strings.Contains(screen, "run:"+string(runner.StateStopping))
 	}
 	for time.Now().Before(deadline) && !stopped {
 		term.Send("S")
-		for wait := time.Now().Add(time.Second); time.Now().Before(wait); time.Sleep(20 * time.Millisecond) {
-			if accepted() {
-				stopped = true
-				break
-			}
-		}
+		time.Sleep(60 * time.Millisecond)
+		stopped = accepted()
 	}
 	if !stopped {
 		return rec, errors.New("Stop after unit was not accepted")
