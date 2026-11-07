@@ -241,16 +241,17 @@ func projectFiles(root string) ([]string, error) {
 	return files, nil
 }
 
+// lastCommitMessage proposes the message of the c dialog: the last commit:
+// hint a write left in the notice, otherwise a subject naming the selected
+// plan. A unit's Commit subject is not reused: it names that unit's work.
 func lastCommitMessage(m Model) string {
-	if message, ok := strings.CutPrefix(m.notice, "commit: "); ok && strings.TrimSpace(message) != "" {
-		return strings.TrimSpace(message)
-	}
-	if plan := m.selectedPlan(); plan != nil {
-		for i := len(plan.Doc.Units) - 1; i >= 0; i-- {
-			if f := plan.Doc.Units[i].Field("Commit"); f != nil && strings.TrimSpace(f.Value) != "" {
-				return strings.TrimSpace(f.Value)
-			}
+	if at := strings.LastIndex(m.notice, "commit: "); at >= 0 {
+		if message := strings.TrimSpace(m.notice[at+len("commit: "):]); message != "" {
+			return message
 		}
 	}
-	return "Update project plans"
+	if plan := m.selectedPlan(); plan != nil {
+		return plan.ID + ": update plan"
+	}
+	return "docflow: update project files"
 }

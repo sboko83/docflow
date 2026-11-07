@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"bsv-docflow/internal/agentio"
@@ -43,7 +44,7 @@ func LoadPastRuns(root string) ([]PastRun, error) {
 	}
 	var runs []PastRun
 	for _, path := range paths {
-		run, _, err := ReplayRun(root, path)
+		run, err := cachedSummary(root, path)
 		if err != nil {
 			return nil, err
 		}
@@ -58,14 +59,60 @@ func LoadPastRuns(root string) ([]PastRun, error) {
 	return runs, nil
 }
 
+// summaryCache keeps the summaries of journals that have not changed since
+// they were read: a summary parses every call log of the run, and the
+// History screen reloads the list on every visit.
+var summaryCache = struct {
+	sync.Mutex
+	entries map[string]cachedRun
+}{entries: map[string]cachedRun{}}
+
+type cachedRun struct {
+	size    int64
+	modTime time.Time
+	run     PastRun
+}
+
+// cachedSummary returns the summary of one journal, parsing it again only
+// when its size or modification time changed. A journal of a live run grows,
+// so its summary is read afresh until the run ends.
+func cachedSummary(root, path string) (PastRun, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return PastRun{}, err
+	}
+	key := root + "|" + path
+	summaryCache.Lock()
+	entry, ok := summaryCache.entries[key]
+	summaryCache.Unlock()
+	if ok && entry.size == info.Size() && entry.modTime.Equal(info.ModTime()) {
+		return entry.run, nil
+	}
+	run, err := replayRun(root, path, nil)
+	if err != nil {
+		return run, err
+	}
+	summaryCache.Lock()
+	summaryCache.entries[key] = cachedRun{size: info.Size(), modTime: info.ModTime(), run: run}
+	summaryCache.Unlock()
+	return run, nil
+}
+
 // ReplayRun rebuilds activity with the same parser and block collector as a
 // live run. Malformed journal lines and missing call logs are local damage.
 func ReplayRun(root, path string) (PastRun, *ActivityHistory, error) {
-	run := PastRun{Path: path, ID: strings.TrimSuffix(filepath.Base(path), ".events.jsonl")}
 	history := NewActivityHistory(activityHistoryLimit)
+	run, err := replayRun(root, path, history)
+	return run, history, err
+}
+
+// replayRun reads one journal and its call logs; a nil history only
+// summarizes the run and keeps no stream.
+func replayRun(root, path string, history *ActivityHistory) (PastRun, error) {
+	run := PastRun{Path: path, ID: strings.TrimSuffix(filepath.Base(path), ".events.jsonl")}
 	f, err := os.Open(path)
 	if err != nil {
-		return run, history, err
+		return run, err
 	}
 	defer f.Close()
 	var events []runner.Event
@@ -84,7 +131,7 @@ func ReplayRun(root, path string) (PastRun, *ActivityHistory, error) {
 			break
 		}
 		if readErr != nil {
-			return run, history, readErr
+			return run, readErr
 		}
 	}
 	seenUnits := map[string]bool{}
@@ -94,7 +141,9 @@ func ReplayRun(root, path string) (PastRun, *ActivityHistory, error) {
 		if event.Unit == "" && (event.Type == "attempt" || event.Type == "stream") {
 			event.Unit = "Прогон"
 		}
-		history.Add(event)
+		if history != nil {
+			history.Add(event)
+		}
 		at := eventTime(event.Fields, func() time.Time { return time.Time{} })
 		if event.Unit != "" && !seenUnits[event.Unit] {
 			seenUnits[event.Unit] = true
@@ -144,7 +193,7 @@ func ReplayRun(root, path string) (PastRun, *ActivityHistory, error) {
 	if !run.Started.IsZero() && !run.Ended.IsZero() && !run.Ended.Before(run.Started) {
 		run.Duration, run.DurationKnown = run.Ended.Sub(run.Started), true
 	}
-	return run, history, nil
+	return run, nil
 }
 
 func replayCall(root, id string, event runner.Event, stream map[string]any, history *ActivityHistory, run *PastRun) {
@@ -161,7 +210,9 @@ func replayCall(root, id string, event runner.Event, stream map[string]any, hist
 					run.TokensKnown = true
 				}
 			}
-			history.Add(runner.Event{Type: "activity", Unit: event.Unit, Fields: event.Fields, Data: activity})
+			if history != nil {
+				history.Add(runner.Event{Type: "activity", Unit: event.Unit, Fields: event.Fields, Data: activity})
+			}
 		}
 	}
 	missing := func() {

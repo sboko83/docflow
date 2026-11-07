@@ -21,7 +21,8 @@ func TestBacklogKeysAndMultilineEditor(t *testing.T) {
 		t.Fatal(flatScreen(model))
 	}
 	model = send(t, model, keyMsg("+"))
-	model = send(t, model, tea.PasteMsg{Content: "первая\r\nвторая"})
+	// A Windows console pastes characters off the keyboard layout as NUL.
+	model = send(t, model, tea.PasteMsg{Content: "пер\x00вая\r\nвто\x1bрая"})
 	model = send(t, model, keyMsg("home"))
 	model = send(t, model, keyMsg("right"))
 	model = send(t, model, keyMsg("down"))
@@ -166,7 +167,7 @@ func TestBacklogMinimumSizeWithNoticeAndEmptyQueue(t *testing.T) {
 	path := filepath.Join(root, "docs/docflow.md")
 	writeRosterTestFile(t, path, "---\ndocflow: 3\n---\n## Queue\n\n## Backlog\n")
 	model := resize(t, loadedModel(t, root), 32, 10)
-	model.notice = "Backlog saved; commit project files before starting a run"
+	model.notice = "Backlog saved · commit: docflow: update Backlog"
 	model = model.openBacklog()
 	if !strings.Contains(flatScreen(model), "Backlogisempty") {
 		t.Fatal(model.String())

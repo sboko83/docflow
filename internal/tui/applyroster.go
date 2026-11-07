@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -167,7 +168,12 @@ func refusalLines(reason string) []string {
 // file is written by the same roster.Apply as the CLI, so a refusal leaves
 // it as it was, and the person can read the reason next to the diff.
 func (m Model) applyRefusal(reason string) Model {
-	m.dialogLines = append(m.dialogLines, refusalLines(reason)...)
+	refusal := refusalLines(reason)
+	// A repeated Enter on the same refusal must not stack copies of it.
+	if n := len(m.dialogLines); n >= len(refusal) && slices.Equal(m.dialogLines[n-len(refusal):], refusal) {
+		return m
+	}
+	m.dialogLines = append(slices.Clone(m.dialogLines), refusal...)
 	return m
 }
 

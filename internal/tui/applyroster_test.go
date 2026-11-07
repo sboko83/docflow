@@ -305,8 +305,16 @@ func TestApplyDialogRefusesARunLock(t *testing.T) {
 	if model.dialog != dialogApply {
 		t.Fatalf("the refused apply closed the dialog")
 	}
-	if body := strings.Join(model.dialogLines, "\n"); !strings.Contains(body, "a run is in progress") {
+	body := strings.Join(model.dialogLines, "\n")
+	if !strings.Contains(body, "a run is in progress") {
 		t.Fatalf("the dialog does not name the run lock:\n%s", body)
+	}
+	if strings.Count(body, "✗") != 1 {
+		t.Fatalf("the refusal is stacked:\n%s", body)
+	}
+	model = send(t, model, keyMsg("enter"))
+	if again := strings.Join(model.dialogLines, "\n"); again != body {
+		t.Fatalf("a repeated Enter stacked the refusal:\n%s", again)
 	}
 	if got := readRosterTestFile(t, applyPlanFile(root)); got != before {
 		t.Fatalf("a run lock did not stop the write:\n%s", got)

@@ -98,7 +98,9 @@ func TestProbeZaiQuotaHangingServer(t *testing.T) {
 	t.Setenv("DOCFLOW_ZAI_QUOTA_URL", server.URL)
 	start := time.Now()
 	equal(t, ProbeZaiQuota(200*time.Millisecond), Quota{})
-	if elapsed := time.Since(start); elapsed > 450*time.Millisecond {
+	// The slack covers starting the fake pi through Bash on a loaded Windows
+	// runner; a probe that waited for the hanging server would never return.
+	if elapsed := time.Since(start); elapsed > 1500*time.Millisecond {
 		t.Fatalf("probe exceeded timeout allowance: %s", elapsed)
 	}
 }

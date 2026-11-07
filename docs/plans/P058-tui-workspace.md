@@ -35,7 +35,7 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 рассуждения показываются полным потоком со сворачиванием; сейчас TUI,
 веб — позже, поэтому данные экранов собираются вне рендера.
 
-- docs/design/tui.md
+- docs/design/tui.md#экраны
 - docs/design/roster.md#политика-rostertoml
 
 ## Constraints
@@ -157,6 +157,7 @@ replan: codex | gpt-6.1-sol | medium; pi | opencode-go/deepseek-v4.1-flash | max
 - The stale 'История пока не принимает собственных клавиш' line in docs/design/tui.md is corrected in this change — the spec contradicted its own История section and historyKey code — rejected leaving it for a follow-up.
 - Activity.Message сохраняет идентификатор первой дельты — финальное событие Claude должно закрывать существующий блок — отвергнута смена идентификатора после получения message id.
 - Новый старт TUI сбрасывает историю активности и состояние чтения, Resume сохраняет их — сводка и поток должны описывать текущий прогон; отвергнуто смешивание независимых прогонов в истории одного терминального сеанса.
+- Находки проверки перед закрытием исправлены напрямую юнитом P058.6.3 по поручению человека 2026-11-07, а Unverified, проверяемые на Windows-машине, закрыты там же — отвергнуты план исправлений и перенос находок в Backlog.
 
 ## Phase 1: Workspace shell
 
@@ -562,3 +563,28 @@ Handoff:
 - Unverified: P058.3.4 — открыть tier-прогон, поставить паузу, изменить внешний agents.toml и переоткрыть TUI: проверить предупреждение о новой сессии и фактический Resume без прежней сессии.
 - Unverified: P058.5.1 — на Windows без VISUAL/EDITOR открыть план через e и подтвердить запуск Notepad с правильным файлом.
 - Unverified: Новая обвязка workspaceConsole скомпилирована для Windows, но её обработка Esc и завершение процесса ещё не проверены нативным запуском TestWorkspaceTerminal* через ConPTY.
+
+### [x] P058.6.3 Fix the findings of the closing check
+Read:
+- internal/tui/parameters.go
+- internal/tui/backlog.go
+- internal/tui/pastruns.go
+- internal/tui/project.go
+- internal/agents/interactive.go
+- internal/tui/workspace_terminal_test.go:L197-320
+Do:
+- Исправь находки проверки перед закрытием напрямую, по поручению человека от 2026-11-07 (не план исправлений и не Backlog): `o` отказывал при lint-ошибке другого плана; `P` на Windows обрезал многострочный промпт у агента, установленного как `.cmd`; «История» перечитывала все логи вызовов при каждом заходе (5 с на 4 прогона) и показывала «пока пусто» во время чтения; вставка в редактор Backlog писала NUL в `docs/docflow.md`; диалог `c` предлагал тему коммита последнего юнита плана; повторный Enter в отказе `A` дублировал причину.
+- Прогони полный gate на Windows и почини падения: `TestRosterLegacyRosterPreviewsAndWritesTheMigration` (длинный путь переносит имя `.bak`), `TestWorkspaceTerminalRunHistory` (гонка с `run_end`), `TestWorkspaceTerminalBacklog` (раскладка без `$`), `TestProbeZaiQuotaHangingServer` (запас времени под нагрузкой). Почини красный macOS CI: `tools/tui-live` терял принятый `S`, потому что повторный `S` затирал notice на экране до проверки.
+- На каждую находку — тест, падающий на прежнем коде.
+Verify: `go test -timeout 30m ./...`
+Depends: P058.6.2
+Commit: P058.6.3: fix the closing check findings
+Handoff:
+- Юнит выполнен вне раннера, в интерактивной сессии по поручению человека закрыть P058 без плана исправлений и без Backlog (Decisions).
+- CI до правок был красным: Windows — TestRosterLegacyRosterPreviewsAndWritesTheMigration (длинный путь переносил имя .bak; проверка по flatScreen) и TestWorkspaceTerminalRunHistory (История читалась до run_end; тест ждёт run_end во всех журналах); macOS — tools/tui-live терял принятый S: повторный S затирал notice на экране, теперь каждый S ждёт отрисовки до 1 с и принимается также по run:Stopping в шапке.
+- Продукт: SaveParameter откатывает только новые lint-ошибки (TestParameterIgnoresAnotherPlansLintError падает на прежнем коде); agents.BatchLauncherArgs — промпт для .cmd/.bat без переводов строк, % и " — отказ с копируемым промптом (проверено настоящим .cmd с node: кириллица и многострочный текст доходят целиком); История — фоновое чтение с «чтение журналов…» и кэш сводок по размеру и mtime (повторный заход 4,8 с → 22 мс на этой машине); вставка в редактор Backlog отбрасывает управляющие символы (консоль Windows вставляла NUL вместо символов вне раскладки); диалог c предлагает подсказку последней записи или Pxxx: update plan; повторный Enter в отказе A не дублирует причину.
+- TestWorkspaceTerminalBacklog на раскладке без $ (VkKeyScanW = -1, русская) печатает задачу без $; на CI с английской раскладкой проверяется $(literal). TestProbeZaiQuotaHangingServer: запас 1,5 с под медленный старт bash; TestPlaceholderScreensSayWhatIsThere проверяет «чтение журналов…» до чтения.
+- Accepted: P058.1.1–P058.6.2 Windows — полный verify и gate прошли нативно на Windows 11, включая ConPTY-сценарии TestWorkspaceTerminal*, rename/SameFile, историю и o; Linux — ubuntu-latest в CI зелёный.
+- Accepted: P058.3.2 — настоящий roster scan на этой машине собрал каталог (6 доступов, opencode not_ready — реальное состояние авторизации); P058.5.2 — флаги InteractiveArgv сверены с --help установленных codex, pi, opencode; живая авторизованная сессия — это CLI агента, а не код docflow; OSC 52 — запасной путь, промпт виден на экране.
+- Accepted: P058.3.4 — смена маршрута при Resume покрыта recovery_test.go и TestResumeIgnoresStaleConfigurationFile; P058.5.1 — notepad разрешается в C:\WINDOWS\system32\notepad.exe.
+- Unverified: исправление tools/tui-live на macOS подтвердит только CI после push — пакет на Windows не собирает тестов, WSL на машине нет.

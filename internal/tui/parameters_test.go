@@ -146,3 +146,31 @@ func TestParametersScreenEditsSessionForNextStart(t *testing.T) {
 		t.Fatalf("runner args = %d/%d, want 1/3", host.args.Attempts, host.args.Replans)
 	}
 }
+
+func TestParameterIgnoresAnotherPlansLintError(t *testing.T) {
+	root := parameterTestProject(t)
+	planPath := filepath.Join(root, "docs", "plans", "P001-parameters.md")
+	text, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(strings.ReplaceAll(string(text), "P001", "P002"), "status: active\n", "status: active\ntimeout: 12\n", 1)
+	if err := os.WriteFile(filepath.Join(root, "docs", "plans", "P002-broken.md"), []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	docflowPath := filepath.Join(root, "docs", "docflow.md")
+	docflow, err := os.ReadFile(docflowPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(docflowPath, []byte(strings.Replace(string(docflow), "- P001\n", "- P001\n- P002\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parameter := Parameter{Scope: "Plan P001", Key: "timeout", Path: planPath, Disk: true}
+	if err := SaveParameter(root, parameter, "120"); err != nil {
+		t.Fatalf("an unrelated lint error blocked the edit: %v", err)
+	}
+	if err := SaveParameter(root, parameter, "12"); err == nil || !strings.Contains(err.Error(), "lint rejected") {
+		t.Fatalf("SaveParameter error = %v, want lint rejection", err)
+	}
+}

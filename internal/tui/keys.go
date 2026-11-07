@@ -97,7 +97,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return model.startRoster()
 		}
 		if model.screen == screenHistory {
-			return model, pastRunsCmd(model.root)
+			return model.loadPastRuns()
 		}
 		return model, nil
 	}
@@ -116,7 +116,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		if m.screen == screenHistory {
-			return m, pastRunsCmd(m.root)
+			return m.loadPastRuns()
 		}
 		m.state = StateLoading
 		m.errText = ""

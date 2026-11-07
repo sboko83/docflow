@@ -59,6 +59,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   form `v: 1` without the `configured_*` fields.
 
 ### Fixed
+- Pasting into the Backlog editor of `docflow tui` drops control
+  characters: a Windows console pastes a character missing from the active
+  keyboard layout as NUL, which was written into `docs/docflow.md`.
+- The `c` commit dialog of `docflow tui` proposes the hint of the last
+  write (`Pxxx: set KEY` after `o`, `docflow: update Backlog` after a
+  Backlog edit) or `Pxxx: update plan`, instead of reusing the Commit
+  subject of the plan's last unit.
+- Repeating Enter on a refused roster apply no longer stacks copies of
+  the refusal in the dialog.
+- The История screen of `docflow tui` shows `чтение журналов…` while it
+  reads the run journals instead of an empty list, and a revisit reuses
+  the summaries of unchanged journals instead of parsing every call log
+  again.
+- `docflow tui` planning with `P` on Windows passes a multi-line Backlog
+  task whole to an agent installed as a `.cmd` launcher: line breaks
+  become spaces instead of cutting the prompt at its first line, and a
+  task with `%` or `"` falls back to the copyable prompt.
+- Editing a parameter with `o` in `docflow tui` is no longer refused when
+  another plan already has a lint error; only errors the edit introduces
+  roll it back.
 - `docflow tui` opens editors whose configured executable path or arguments
   contain quoted spaces, including paths under Windows Program Files.
 - `docflow tui` project commits use the suggested message and handle renamed

@@ -290,3 +290,35 @@ func TestHistorySummaryCostWithoutTokens(t *testing.T) {
 		t.Fatal(r.summaryLines())
 	}
 }
+
+func TestHistoryLoadingAndCachedSummary(t *testing.T) {
+	root, path, _ := historyFixture(t)
+	m := New(root)
+	m = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	next, cmd := m.Update(keyMsg("4"))
+	m = next.(Model)
+	if cmd == nil || !strings.Contains(m.String(), "чтение журналов") || strings.Contains(m.String(), "пока пусто") {
+		t.Fatalf("history did not show loading:\n%s", m.String())
+	}
+	m = send(t, m, cmd())
+	if m.pastLoading || len(m.pastRuns) != 1 || !strings.Contains(m.String(), m.pastRuns[0].ID) {
+		t.Fatalf("history did not load:\n%s", m.String())
+	}
+	// An unchanged journal is served from the cache; a grown one is read again.
+	first, err := LoadPastRuns(root)
+	if err != nil || len(first) != 1 || first[0].Attempts != 2 {
+		t.Fatalf("runs = %+v, %v", first, err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"v":1,"event":"attempt","unit":"P001.1.2","n":1,"log":"missing.out","ts":120}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	again, err := LoadPastRuns(root)
+	if err != nil || len(again) != 1 || again[0].Attempts != 3 {
+		t.Fatalf("grown journal not re-read: %+v, %v", again, err)
+	}
+}

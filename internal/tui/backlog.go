@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -136,7 +137,7 @@ func (m Model) saveBacklog(deleting bool) (Model, tea.Cmd) {
 		m.notice = err.Error()
 		return m, nil
 	}
-	m.notice = "Backlog saved; commit project files before starting a run"
+	m.notice = "Backlog saved · commit: docflow: update Backlog"
 	m = m.openBacklog()
 	return m, loadCmd(m.load)
 }
@@ -182,7 +183,13 @@ func (m Model) planBacklog() (Model, tea.Cmd) {
 	if err != nil {
 		return m.planningRefused(err, prompt), nil
 	}
-	cmd := exec.Command(path, argv[1:]...)
+	args := argv[1:]
+	if agents.IsBatchLauncher(path) {
+		if args, err = agents.BatchLauncherArgs(args); err != nil {
+			return m.planningRefused(err, prompt), nil
+		}
+	}
+	cmd := exec.Command(path, args...)
 	cmd.Dir = m.root
 	if m, ok = m.backlogWritable(); !ok {
 		return m, nil
@@ -337,6 +344,14 @@ func (m Model) insertBacklogText(text string) Model {
 	runes := []rune(m.dialogInput)
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
+	// A Windows console pastes a character missing from the active keyboard
+	// layout as NUL; control bytes never belong in docflow.md.
+	text = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, text)
 	pos := m.backlogCaret
 	m.dialogInput = string(runes[:pos]) + text + string(runes[pos:])
 	m.backlogCaret += utf8.RuneCountInString(text)

@@ -604,12 +604,21 @@ func runScenario(opts *options, spec scenarioSpec, checkout, bin string) (rec sc
 	term.Send("R")
 	stopped := false
 	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	// The screen is read, not a log: once S is accepted, a repeated S
+	// replaces its notice with "needs a running run". Give each S a second
+	// to render, and accept the Stopping state in the header too, which
+	// stays until the unit ends.
+	accepted := func() bool {
+		screen := term.Output()
+		return strings.Contains(screen, "stopping after the current unit") || strings.Contains(screen, "run:"+string(runner.StateStopping))
+	}
+	for time.Now().Before(deadline) && !stopped {
 		term.Send("S")
-		time.Sleep(100 * time.Millisecond)
-		if strings.Contains(term.Output(), "stopping after the current unit") {
-			stopped = true
-			break
+		for wait := time.Now().Add(time.Second); time.Now().Before(wait); time.Sleep(20 * time.Millisecond) {
+			if accepted() {
+				stopped = true
+				break
+			}
 		}
 	}
 	if !stopped {

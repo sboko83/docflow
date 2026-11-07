@@ -748,10 +748,14 @@ func TestRosterLegacyRosterPreviewsAndWritesTheMigration(t *testing.T) {
 		t.Fatalf("the preview wrote a backup: %v", err)
 	}
 	rendered = model.String()
-	for _, want := range []string{"version = 2", "roster.toml.bak", "Enter — записать"} {
+	for _, want := range []string{"version = 2", "Enter — записать"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("the preview lost %q:\n%s", want, rendered)
 		}
+	}
+	// A long temporary path (Windows) wraps the backup name across lines.
+	if !strings.Contains(flatScreen(model), rosterPath+".bak") {
+		t.Fatalf("the preview does not name the backup:\n%s", rendered)
 	}
 
 	// Esc cancels: the file and its backup stay as they were.

@@ -16,3 +16,7 @@ func startWorkspaceTerminal(t *testing.T, f *workspaceFixture, width, height int
 	})
 	return s
 }
+
+// keyboardTypes reports whether a pseudo terminal delivers the text as
+// typed; a Unix PTY passes bytes through.
+func keyboardTypes(string) bool { return true }

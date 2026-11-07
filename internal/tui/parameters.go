@@ -96,7 +96,7 @@ func (m Model) saveCurrentParameter(value string) Model {
 		m.notice = err.Error()
 		return m
 	}
-	m.notice = "parameters updated · commit: " + filepath.ToSlash(strings.TrimPrefix(p.Path, m.root+string(filepath.Separator)))
+	m.notice = "parameters updated · " + parameterCommitHint(p)
 	snapshot, err := m.load()
 	if err != nil {
 		m.notice += " · reload failed: " + err.Error()
@@ -110,6 +110,16 @@ func (m Model) saveCurrentParameter(value string) Model {
 		m.parameters = rows
 	}
 	return m
+}
+
+// parameterCommitHint names the commit of one saved parameter: the c dialog
+// takes it as the proposed message.
+func parameterCommitHint(p Parameter) string {
+	scope := "docflow"
+	if id, ok := strings.CutPrefix(p.Scope, "Plan "); ok {
+		scope = id
+	}
+	return fmt.Sprintf("commit: %s: set %s", scope, p.Key)
 }
 
 // Parameter is a plain screen row, independent of Bubble Tea.
@@ -185,18 +195,33 @@ func SaveParameter(root string, parameter Parameter, value string) error {
 	if err != nil {
 		return err
 	}
+	// An error another plan already has must not block this edit: only the
+	// errors the edit introduces roll it back.
+	before := map[string]bool{}
+	if baseline, baselineErr := lint.Lint(root); baselineErr == nil {
+		for _, issue := range baseline.Errors() {
+			before[issue.String()] = true
+		}
+	}
 	if err := os.WriteFile(parameter.Path, []byte(doc.Text()), info.Mode().Perm()); err != nil {
 		return err
 	}
 	report, lintErr := lint.Lint(root)
-	if lintErr == nil && len(report.Errors()) == 0 {
-		return nil
+	var issues []lint.Issue
+	if lintErr == nil {
+		for _, issue := range report.Errors() {
+			if !before[issue.String()] {
+				issues = append(issues, issue)
+			}
+		}
+		if len(issues) == 0 {
+			return nil
+		}
 	}
 	rollbackErr := os.WriteFile(parameter.Path, original, info.Mode().Perm())
 	if lintErr != nil {
 		return errorsJoin(lintErr, rollbackErr)
 	}
-	issues := report.Errors()
 	var lintMessage string
 	if len(issues) > 0 {
 		lintMessage = issues[0].String()

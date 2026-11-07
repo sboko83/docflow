@@ -157,6 +157,7 @@ type Model struct {
 	pastRuns            []PastRun
 	pastCursor, pastTop int
 	pastErr             string
+	pastLoading         bool
 	replay              *PastRun
 	replayUnit          string
 	liveHistory         *ActivityHistory
@@ -350,6 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case pastRunsMsg:
 		m.pastRuns = msg.runs
+		m.pastLoading = false
 		m.pastCursor = min(m.pastCursor, max(0, len(msg.runs)-1))
 		m.pastErr = ""
 		if msg.err != nil {

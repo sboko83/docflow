@@ -160,3 +160,24 @@ func TestProjectCommitHandlesRenamesAndUnicodePaths(t *testing.T) {
 		t.Fatalf("status after commit = %q", status)
 	}
 }
+
+func TestCommitMessageProposal(t *testing.T) {
+	m := newModel(t.TempDir(), func() (Snapshot, error) { return Snapshot{}, nil }, true)
+	for notice, want := range map[string]string{
+		"commit: P001: apply roster":                      "P001: apply roster",
+		"parameters updated · commit: P001: set timeout":  "P001: set timeout",
+		"Backlog saved · commit: docflow: update Backlog": "docflow: update Backlog",
+		"plans reloaded": "docflow: update project files",
+	} {
+		m.notice = notice
+		if got := lastCommitMessage(m); got != want {
+			t.Fatalf("notice %q proposes %q, want %q", notice, got, want)
+		}
+	}
+	if got := parameterCommitHint(Parameter{Scope: "Plan P007", Key: "gate"}); got != "commit: P007: set gate" {
+		t.Fatalf("plan hint = %q", got)
+	}
+	if got := parameterCommitHint(Parameter{Scope: "Project", Key: "read_budget"}); got != "commit: docflow: set read_budget" {
+		t.Fatalf("project hint = %q", got)
+	}
+}

@@ -295,6 +295,20 @@ func TestWorkspaceTerminalRunHistory(t *testing.T) {
 			t.Fatalf("executor assignment missing from config in %s", path)
 		}
 	}
+	// The commit lands before the run journals its end; History reads the
+	// journals once on entry, so wait for every run to be closed first.
+	ended := false
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline) && !ended; time.Sleep(20 * time.Millisecond) {
+		ended = true
+		for _, path := range files {
+			if !strings.Contains(workspaceRead(t, path), `"event":"run_end"`) {
+				ended = false
+			}
+		}
+	}
+	if !ended {
+		t.Fatal("a run journal has no run_end")
+	}
 	ui.send("4")
 	workspaceScreen(t, ui, "Юниты: 1 done", "")
 	workspaceScreen(t, ui, "План: P001", "")
@@ -444,7 +458,13 @@ func TestWorkspaceTerminalBacklog(t *testing.T) {
 	ui.send("b")
 	ui.send("+")
 	workspaceScreen(t, ui, "Edit Backlog task", "")
-	const task = "Backlog terminal task; $(literal)"
+	task := "Backlog terminal task; $(literal)"
+	if !keyboardTypes(task) {
+		// The console of this machine cannot type $ (a Windows layout
+		// without the key): the argv still passes the parentheses unexpanded.
+		t.Logf("keyboard layout cannot type %q; typing it without $", task)
+		task = "Backlog terminal task; (literal)"
+	}
 	ui.send(task)
 	ui.send("\r")
 	ui.send("second line")

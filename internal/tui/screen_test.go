@@ -733,9 +733,24 @@ func TestPlaceholderScreensSayWhatIsThere(t *testing.T) {
 	if rendered := model.String(); !strings.Contains(rendered, "Читаю ростер") || !strings.Contains(rendered, "roster.toml") {
 		t.Fatalf("the roster screen does not name the file it reads:\n%s", rendered)
 	}
-	model = send(t, model, keyMsg("4"))
+	next, load := model.Update(keyMsg("4"))
+	model = next.(Model)
+	// Until the journals are read the screen says so instead of "empty".
+	if rendered := model.String(); !strings.Contains(rendered, "чтение журналов") || strings.Contains(rendered, "пока пусто") {
+		t.Fatalf("history claims a result before reading the journals:\n%s", rendered)
+	}
+	if load == nil {
+		t.Fatal("the history screen did not read the journals")
+	}
+	// The fixture is not a git checkout: the read ends in its error, and an
+	// empty list says "пока пусто" — either way the loading line is gone.
+	model = send(t, model, pastRunsMsg{})
 	if rendered := model.String(); !strings.Contains(rendered, "пока пусто") || !strings.Contains(rendered, "История") {
 		t.Fatalf("history placeholder is not honest:\n%s", rendered)
+	}
+	model = send(t, model, load())
+	if rendered := model.String(); strings.Contains(rendered, "чтение журналов") {
+		t.Fatalf("history kept loading after the read:\n%s", rendered)
 	}
 }
 

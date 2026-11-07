@@ -27,3 +27,19 @@ func TestInteractiveArgv(t *testing.T) {
 		t.Fatal("unknown agent accepted")
 	}
 }
+
+func TestBatchLauncherArgs(t *testing.T) {
+	got, err := BatchLauncherArgs([]string{"--model", "m", "--", "first line `x`\r\n  second & third\n"})
+	want := []string{"--model", "m", "--", "first line `x`   second & third"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("args = %#v, %v", got, err)
+	}
+	for _, arg := range []string{`say "hi"`, "100%PATH%"} {
+		if _, err := BatchLauncherArgs([]string{arg}); err == nil {
+			t.Fatalf("%q accepted", arg)
+		}
+	}
+	if !IsBatchLauncher(`C:\npm\pi.CMD`) || !IsBatchLauncher("x.bat") || IsBatchLauncher("codex.exe") || IsBatchLauncher("/usr/bin/pi") {
+		t.Fatal("IsBatchLauncher misclassified a path")
+	}
+}

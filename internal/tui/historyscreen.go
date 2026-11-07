@@ -16,6 +16,13 @@ type replayMsg struct {
 	err     error
 }
 
+// loadPastRuns marks the list as loading and reads the journals in the
+// background: a first read parses every call log and can take seconds.
+func (m Model) loadPastRuns() (Model, tea.Cmd) {
+	m.pastLoading = true
+	return m, pastRunsCmd(m.root)
+}
+
 func pastRunsCmd(root string) tea.Cmd {
 	return func() tea.Msg { runs, err := LoadPastRuns(root); return pastRunsMsg{runs, err} }
 }
@@ -79,6 +86,9 @@ func (m Model) historyBody(width, height int) []string {
 		text := "Журналы прогонов лежат в <git-dir>/docflow/run; r обновить"
 		if m.pastErr != "" {
 			return m.messageLines(width, height, "Ошибка чтения истории", Sanitize(m.pastErr), "r повторить · ? помощь")
+		}
+		if m.pastLoading {
+			return m.messageLines(width, height, "чтение журналов…", "История прогонов", text)
 		}
 		return m.messageLines(width, height, "пока пусто", "История прогонов", text)
 	}
