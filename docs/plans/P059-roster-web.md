@@ -293,7 +293,7 @@ Handoff:
 - the file panel is a sketch the front end renders from its view (mockup parity) — it can show models = [...] for an access that only carries routes; the authoritative file is on disk
 - Unverified: pixel layout not checked — in-app browser screenshot timed out twice; the DOM flow (budget toggle, route add, class change, variant modal) was verified click-by-click and the files matched
 
-### [ ] P059.2.3 Ревью фазы 2
+### [x] P059.2.3 Ревью фазы 2
 
 Read:
 - docs/plans/P059-roster-web.md
@@ -309,6 +309,9 @@ Verify: `go test -short -timeout 20m ./...`
 Role: review
 
 Commit: P059.2.3: review phase 2 web server and UI
+Handoff:
+- reviewed 7611db8..HEAD: static has no external refs (CDN, lucide, window.zcode), web imports only internal/roster + stdlib directly, go.mod untouched, TUI diff is empty, op dispatch matches the P059.1.3 names one-to-one
+- observation: the transitive dep closure of the web package reaches cycle/format/lint through roster itself — pre-existing shape of roster, not a new edge
 
 ### [ ] P059.2.4 Приёмка: веб-редактор на живой политике
 
