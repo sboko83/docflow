@@ -14,7 +14,7 @@ import (
 // variantsTestPolicy is the policy the variants tests merge over: one
 // trusted access and one check access, so a minimal preset can name both
 // an accepted and a rejected target.
-const variantsTestPolicy = "version = 2\n\n" +
+const variantsTestPolicy = "version = 3\n\n" +
 	"[access.codex]\nagents = [\"codex\"]\ntrusted = true\n\n" +
 	"[access.zai]\nagents = [\"pi\"]\ncheck = true\n\n" +
 	policyRoles

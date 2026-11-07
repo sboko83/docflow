@@ -25,10 +25,10 @@ import (
 
 // acceptanceRoster sends the executor role to the fake pi agent, which
 // reports a cost, and keeps the fake codex available for the runner's
-// quota probe. The v2 roster resolves against acceptanceCatalog beside it,
+// quota probe. The v3 roster resolves against acceptanceCatalog beside it,
 // so an arm runs the same routes on every machine.
-const acceptanceRoster = `# The routes of a benchmark arm, in the v2 format.
-version = 2
+const acceptanceRoster = `# The routes of a benchmark arm, in the v3 format.
+version = 3
 
 [access.pi]
 agents = ["pi"]
@@ -41,8 +41,8 @@ budget  = "normal"
 trusted = true
 models  = ["gpt-6.1-sol"]
 
-[model."pi/test-model"]
-class = "strong"
+[route."pi/test-model"]
+high = "strong"
 
 [role]
 cheap      = "cheap"
@@ -51,9 +51,6 @@ heavy      = "strong"
 review     = "strong"
 acceptance = "trusted"
 replan     = "trusted"
-
-[effort]
-"pi/test-model" = "high"
 `
 
 // acceptanceCatalog is the catalog fixture of acceptanceRoster: the models

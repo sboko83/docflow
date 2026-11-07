@@ -11,10 +11,13 @@ import (
 	"bsv-docflow/internal/clierrors"
 )
 
-// PolicyVersion is the format marker of a v2 roster: a top-level
-// version = 2. The old roster has no version key; migrating it is a
-// separate command, and Load never guesses.
-const PolicyVersion = 2
+// PolicyVersion is the format marker of a roster policy: a top-level
+// version = 3. Version 3 replaced the [model] classes and the [effort]
+// pins of version 2 with the [route] table: the class belongs to the pair
+// of a model and an effort level. Older rosters (v1 without a version
+// key, v2 policies) are migrated by a separate command, and Load never
+// guesses.
+const PolicyVersion = 3
 
 // Access budgets, from most to least available: prefer and normal serve
 // every role, lean skips heavy, acceptance and replan, minimal serves
@@ -40,20 +43,54 @@ var (
 	PolicyAgents = []string{"claude", "codex", "pi", "opencode"}
 )
 
-// Policy is a validated v2 roster policy (roster.toml): the stable
-// configuration of accesses, model classes, role requirements, effort
-// overrides and presets. Temporary conditions do not live here: they go
-// to roster.state.toml, and the resolver merges them over the policy.
+// Policy is a validated v3 roster policy (roster.toml): the stable
+// configuration of accesses, model routes, role requirements and presets.
+// Temporary conditions do not live here: they go to roster.state.toml,
+// and the resolver merges them over the policy.
 type Policy struct {
 	Path     string
 	Version  int
 	Accesses []Access          // [access.NAME] in file order
-	Models   map[string]string // "ACCESS/MODEL" → cheap|standard|strong
+	Routes   []Route           // [route."ACCESS/MODEL"] entries in file order
 	Roles    map[string]string // role → cheap|standard|strong|trusted
-	Efforts  map[string]string // "ACCESS/MODEL" → effort level, overrides the class ladder
 	Presets  []Preset          // [preset.NAME] in file order
 
 	index map[string]int // access name → position in Accesses
+}
+
+// Route is one entry of a [route."ACCESS/MODEL"] table: the class the
+// access serves the model at when the agent runs it at the Eff reasoning
+// level. The key "-" means the effort is not passed to the agent. A model
+// without a route in the policy is served at its automatic class with the
+// class ladder effort.
+type Route struct {
+	Access string
+	Model  string
+	Eff    string // the effort key: "-" or a level such as "high"
+	Class  string // cheap | standard | strong
+}
+
+// routesOf returns the routes of one model in file order.
+func (p *Policy) routesOf(access, model string) []Route {
+	routes := make([]Route, 0, 2)
+	for _, route := range p.Routes {
+		if route.Access == access && route.Model == model {
+			routes = append(routes, route)
+		}
+	}
+	return routes
+}
+
+// RouteSummary renders the routes of a model for display: "low→cheap,
+// high→standard". A model without routes renders empty, because its
+// class and effort are the resolver's automatic choice.
+func (p *Policy) RouteSummary(access, model string) string {
+	routes := p.routesOf(access, model)
+	parts := make([]string, 0, len(routes))
+	for _, route := range routes {
+		parts = append(parts, route.Eff+"→"+route.Class)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Access is one [access.NAME] section: the agent channels that reach it,
@@ -162,6 +199,11 @@ func ParsePolicy(path, text string) (*Policy, error) {
 		// number; a located error names the file and the line.
 		return nil, clierrors.FormatError{Path: path, Line: line, Text: fmt.Sprintf("table [%s] is defined twice", name)}
 	}
+	if table, key, line, duplicated := repeatedRouteKey(text); duplicated {
+		// The TOML parser rejects a duplicate key with a bare line number;
+		// a located error names the file and the line.
+		return nil, clierrors.FormatError{Path: path, Line: line, Text: fmt.Sprintf("table [%s]: effort '%s' is written twice", table, key)}
+	}
 	root, err := agents.ParseTOML(text)
 	if err != nil {
 		return nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: %v", path, err), Code: clierrors.EXIT_FORMAT}
@@ -176,9 +218,9 @@ func ParsePolicy(path, text string) (*Policy, error) {
 func (p *Policy) parse(index *lineIndex, root map[string]any) error {
 	version, ok := root["version"].(int64)
 	if !ok || version != PolicyVersion {
-		// A roster the previous CLI wrote has no version key but spends and
-		// routes; the error must say how to convert it, not only what is wrong.
-		if hasLegacyTables(root) {
+		// A roster of a previous version is converted by a command, not
+		// hand-edited; the error must say how, not only what is wrong.
+		if isPreviousRoster(root, version, ok) {
 			return failAt(p.Path, index, "", "version", "the roster is in the previous format: run `docflow roster migrate` to convert it to version %d", PolicyVersion)
 		}
 		return failAt(p.Path, index, "", "version", "version must be %d", PolicyVersion)
@@ -186,7 +228,9 @@ func (p *Policy) parse(index *lineIndex, root map[string]any) error {
 	p.Version = int(version)
 	for _, key := range index.keysByLine("", root) {
 		switch key {
-		case "version", "access", "model", "role", "effort", "preset":
+		case "version", "access", "route", "role", "preset":
+		case "model", "effort":
+			return failAtLine(p.Path, index.line(key, ""), "[%s] was replaced by [route] in version %d: run `docflow roster migrate`", key, PolicyVersion)
 		default:
 			return failAt(p.Path, index, "", key, "unknown key '%s'", key)
 		}
@@ -194,16 +238,29 @@ func (p *Policy) parse(index *lineIndex, root map[string]any) error {
 	if err := p.parseAccesses(index, root["access"]); err != nil {
 		return err
 	}
-	if err := p.parseModels(index, root["model"]); err != nil {
+	if err := p.parseRoutes(index, root["route"]); err != nil {
 		return err
 	}
 	if err := p.parseRoles(index, root["role"]); err != nil {
 		return err
 	}
-	if err := p.parseEfforts(index, root["effort"]); err != nil {
-		return err
-	}
 	return p.parsePresets(index, root["preset"])
+}
+
+// isPreviousRoster reports whether the document is an older roster: a v1
+// roster (its own tables, usually no version key) or a v2 policy (version
+// 2, or the [model] and [effort] tables v3 replaced).
+func isPreviousRoster(root map[string]any, version int64, hasVersion bool) bool {
+	if hasLegacyTables(root) {
+		return true
+	}
+	if _, ok := root["model"]; ok {
+		return true
+	}
+	if _, ok := root["effort"]; ok {
+		return true
+	}
+	return hasVersion && version > 0 && version < PolicyVersion
 }
 
 func (p *Policy) parseAccesses(index *lineIndex, value any) error {
@@ -317,40 +374,39 @@ func (p *Policy) parseAccess(index *lineIndex, name string, section map[string]a
 	return access, nil
 }
 
-func (p *Policy) parseModels(index *lineIndex, value any) error {
+// parseRoutes reads the [route."ACCESS/MODEL"] tables: every key of a
+// section is an effort level whose value is the class the model serves at
+// under that effort. A model that takes no effort uses the "-" key. A
+// route section without entries carries no information, and a key that is
+// not ACCESS/MODEL cannot address a model, so both are errors.
+func (p *Policy) parseRoutes(index *lineIndex, value any) error {
 	table, ok := value.(map[string]any)
 	if value != nil && !ok {
-		return failAt(p.Path, index, "", "model", "model must be a table of [model.\"ACCESS/MODEL\"] sections")
+		return failAt(p.Path, index, "", "route", "route must be a table of [route.\"ACCESS/MODEL\"] sections")
 	}
-	p.Models = make(map[string]string, len(table))
-	for _, key := range index.keysByLine("model", table) {
-		section, ok := table[key].(map[string]any)
-		if !ok {
-			return failAt(p.Path, index, "model", key, "model %s must be a [model.\"%s\"] table", key, key)
-		}
-		access, _, err := splitModelKey(key)
+	for _, key := range index.keysByLine("route", table) {
+		access, model, err := splitModelKey(key)
 		if err != nil {
-			return failAt(p.Path, index, "model", key, "model %s: %v", key, err)
+			return failAt(p.Path, index, "route", key, "route %s: %v", key, err)
 		}
 		if _, ok := p.Access(access); !ok {
-			return failAt(p.Path, index, "model", key, "model %s: unknown access '%s'", key, access)
+			return failAt(p.Path, index, "route", key, "route %s: unknown access '%s'", key, access)
 		}
-		tablePath := "model." + key
-		class := ""
-		for _, field := range index.keysByLine(tablePath, section) {
-			if field != "class" {
-				return failAt(p.Path, index, tablePath, field, "unknown key '%s' in [model.\"%s\"]", field, key)
+		section, ok := table[key].(map[string]any)
+		if !ok {
+			return failAt(p.Path, index, "route", key, "route %s must be a [route.\"%s\"] table", key, key)
+		}
+		if len(section) == 0 {
+			return failAt(p.Path, index, "route", key, "route %s: at least one effort is required", key)
+		}
+		tablePath := "route." + key
+		for _, eff := range index.keysByLine(tablePath, section) {
+			class, ok := section[eff].(string)
+			if !ok || eff == "" || strings.ContainsAny(eff, " \t|") || !contains(tiers, class) {
+				return failAt(p.Path, index, tablePath, eff, "route %s: effort must be a single word mapped to a class %s", key, orList(tiers))
 			}
-			value, ok := section[field].(string)
-			if !ok || !contains(tiers, value) {
-				return failAt(p.Path, index, tablePath, field, "model %s: class must be %s", key, orList(tiers))
-			}
-			class = value
+			p.Routes = append(p.Routes, Route{Access: access, Model: model, Eff: eff, Class: class})
 		}
-		if class == "" {
-			return failAt(p.Path, index, tablePath, "", "model %s: class is required", key)
-		}
-		p.Models[key] = class
 	}
 	return nil
 }
@@ -378,29 +434,6 @@ func (p *Policy) parseRoles(index *lineIndex, value any) error {
 		if _, ok := p.Roles[role]; !ok {
 			return failAt(p.Path, index, "role", "", "role %s: no requirement in [role]", role)
 		}
-	}
-	return nil
-}
-
-func (p *Policy) parseEfforts(index *lineIndex, value any) error {
-	table, ok := value.(map[string]any)
-	if value != nil && !ok {
-		return failAt(p.Path, index, "", "effort", "effort must be a table of [effort.\"ACCESS/MODEL\"] levels")
-	}
-	p.Efforts = make(map[string]string, len(table))
-	for _, key := range index.keysByLine("effort", table) {
-		access, _, err := splitModelKey(key)
-		if err != nil {
-			return failAt(p.Path, index, "effort", key, "effort %s: %v", key, err)
-		}
-		if _, ok := p.Access(access); !ok {
-			return failAt(p.Path, index, "effort", key, "effort %s: unknown access '%s'", key, access)
-		}
-		level, ok := table[key].(string)
-		if !ok || level == "" || strings.ContainsAny(level, " \t|") {
-			return failAt(p.Path, index, "effort", key, "effort %s: level must be a single word", key)
-		}
-		p.Efforts[key] = level
 	}
 	return nil
 }
@@ -535,7 +568,7 @@ func failAtLine(path string, line int, format string, args ...any) error {
 // repeatedTable finds a named table header that appears twice. The TOML
 // parser rejects it with a bare line number, while a policy error must
 // name the file and the line; only keyed tables are checked, [role] and
-// [effort] have a single header each.
+// [route] have a single header each.
 func repeatedTable(text string) (string, int, bool) {
 	seen := make(map[string]bool)
 	for n, raw := range strings.Split(text, "\n") {
@@ -552,7 +585,7 @@ func repeatedTable(text string) (string, int, bool) {
 			continue
 		}
 		switch segments[0] {
-		case "access", "model", "preset":
+		case "access", "route", "preset":
 		default:
 			continue
 		}
@@ -563,6 +596,50 @@ func repeatedTable(text string) (string, int, bool) {
 		seen[name] = true
 	}
 	return "", 0, false
+}
+
+// repeatedRouteKey finds an effort written twice in one
+// [route."ACCESS/MODEL"] table. The TOML parser rejects a duplicate key
+// with a bare line number, while a policy error must name the file and
+// the line, so the route tables are scanned the way repeatedTable scans
+// the headers.
+func repeatedRouteKey(text string) (route, effort string, line int, duplicated bool) {
+	table := ""
+	seen := make(map[string]bool)
+	for n, raw := range strings.Split(text, "\n") {
+		row := strings.TrimSpace(raw)
+		if row == "" || strings.HasPrefix(row, "#") {
+			continue
+		}
+		if strings.HasPrefix(row, "[") {
+			table = ""
+			end := strings.Index(row, "]")
+			if end < 0 {
+				continue
+			}
+			segments := headerSegments(row[1:end])
+			// The display keeps the header as written: the segments cannot
+			// rebuild a model id that contains a dot.
+			if len(segments) >= 2 && segments[0] == "route" {
+				table = row
+				seen = make(map[string]bool)
+			}
+			continue
+		}
+		if table == "" {
+			continue
+		}
+		key, _, found := strings.Cut(row, "=")
+		if !found {
+			continue
+		}
+		key = strings.Trim(strings.TrimSpace(key), `"'`)
+		if seen[key] {
+			return table, key, n + 1, true
+		}
+		seen[key] = true
+	}
+	return "", "", 0, false
 }
 
 // splitModelKey splits the catalog-style key "ACCESS/MODEL": the access

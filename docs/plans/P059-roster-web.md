@@ -91,10 +91,11 @@ replan: pi | opencode-go/deepseek-v4.1-flash | max; codex | gpt-6.1-sol | medium
   сохранением комментариев — TOML round-trip без зависимостей хрупок.
 - Прогон плана: пресет `zai-first` (order `zai → opencode-go → codex`,
   `off = ["strata"]`, добавлен в политику вручную), `permissions: full`.
+- v2→v3 migration materializes the class-ladder effort as the route key when a model has a class but no pin; the plan's 'pin or -' covers explicit '-' pins only — '-' for missing pins would silently stop passing effort to reasoning models; rejected: losing the effort on migration
 
 ## Phase 1: Формат v3 и ядро
 
-### [ ] P059.1.1 Route-таблица в политике версии 3
+### [x] P059.1.1 Route-таблица в политике версии 3
 
 Read:
 - internal/roster/policy2.go:L1-120
@@ -128,6 +129,11 @@ Traps: `[preset]`-глобы `models`/`exclude` и `roster.state.toml` не за
 `PolicyVersion`, тесты на её текст обновить.
 
 Commit: P059.1.1: replace model class and effort pins with route table v3
+Handoff:
+- servingRoute picks among a model's routes by the minimal class that meets the role minimum; a class tie keeps file order — if P059.1.2 wants a lower-effort preference on ties, that is its change
+- routeEffort snaps a route key to the declared levels like the v2 pin did; P059.1.2 may pass unknown keys verbatim instead
+- context-audit start-reads row fails on the clean tree too (pre-existing, README size at 200 plans) — owned by P059.2.4, not this unit
+- Unverified: TUI model list now prints 'effort→class' route summaries (was a single class) — no test asserts the new format string
 
 ### [ ] P059.1.2 Резолвер и бриф по маршрутам
 

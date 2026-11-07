@@ -1,9 +1,9 @@
-# The v2 roster of the P036 draft: zai is the check access (its units need
+# The v3 roster of the P036 draft: zai is the check access (its units need
 # an independent review), claude and codex are the trusted judges, and
 # [preset.codex-first] carries the order of the v1 profile of the same
 # name. draft-v1.toml is the v1 text the migration tests read.
 
-version = 2
+version = 3
 
 [access.zai]
 agents = ["pi"]
@@ -23,28 +23,28 @@ budget  = "normal"
 trusted = true
 models  = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
 
-# The class is the strongest tier a model served in v1, the effort is that
-# route's effort: a model keeps one effort per access.
-[model."zai/glm-5.3-flash"]
-class = "standard"
+# The route keeps the strongest tier a model served in v1 and that
+# route's effort: a model keeps one route per access.
+[route."zai/glm-5.3-flash"]
+max = "standard"
 
-[model."zai/glm-5.3"]
-class = "strong"
+[route."zai/glm-5.3"]
+max = "strong"
 
-[model."codex/gpt-6-luna"]
-class = "standard"
+[route."codex/gpt-6-luna"]
+max = "standard"
 
-[model."codex/gpt-6.1-sol"]
-class = "strong"
+[route."codex/gpt-6.1-sol"]
+high = "strong"
 
-[model."claude/claude-haiku-5-5"]
-class = "cheap"
+[route."claude/claude-haiku-5-5"]
+"-" = "cheap"
 
-[model."claude/claude-sonnet-5-5"]
-class = "standard"
+[route."claude/claude-sonnet-5-5"]
+high = "standard"
 
-[model."claude/claude-opus-5-5"]
-class = "strong"
+[route."claude/claude-opus-5-5"]
+high = "strong"
 
 [role]
 cheap      = "cheap"
@@ -54,16 +54,7 @@ review     = "strong"
 acceptance = "trusted"
 replan     = "trusted"
 
-[effort]
-"zai/glm-5.3-flash"        = "max"
-"zai/glm-5.3"              = "max"
-"codex/gpt-6-luna"         = "max"
-"codex/gpt-6.1-sol"        = "high"
-"claude/claude-haiku-5-5"  = "-"
-"claude/claude-sonnet-5-5" = "high"
-"claude/claude-opus-5-5"   = "high"
-
-# The v1 profile codex-first replaced the spend order; v2 keeps the policy
-# and reorders the accesses for one call.
+# The v1 profile codex-first replaced the spend order; v3 keeps the
+# policy and reorders the accesses for one call.
 [preset.codex-first]
 order = ["codex", "zai", "claude"]

@@ -421,9 +421,9 @@ func TestRosterApplyConditionsMatchBrief(t *testing.T) {
 	}
 }
 
-// codexOnlyRoster is a v2 policy with one access: switching codex off leaves
+// codexOnlyRoster is a v3 policy with one access: switching codex off leaves
 // every chain empty.
-const codexOnlyRoster = `version = 2
+const codexOnlyRoster = `version = 3
 
 [access.codex]
 agents  = ["codex"]
@@ -432,8 +432,8 @@ budget  = "normal"
 trusted = true
 models  = ["gpt-6.1-sol"]
 
-[model."codex/gpt-6.1-sol"]
-class = "strong"
+[route."codex/gpt-6.1-sol"]
+high = "strong"
 
 [role]
 cheap      = "standard"

@@ -19,13 +19,13 @@ import (
 // test clock as a roster of its own and returns its path.
 func workspacePolicy(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("testdata/policy-v2.toml")
+	data, err := os.ReadFile("testdata/policy-v3.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := strings.Replace(string(data), `expires = "2026-06-30"`, `expires = "2099-01-01"`, 1)
 	if text == string(data) {
-		t.Fatal("policy-v2.toml no longer names the zai expiry the test patches")
+		t.Fatal("policy-v3.toml no longer names the zai expiry the test patches")
 	}
 	path := filepath.Join(t.TempDir(), "roster.toml")
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
@@ -99,7 +99,7 @@ func conditionNames(conditions []Condition) []string {
 func TestLoadWorkspaceModel(t *testing.T) {
 	config := t.TempDir()
 	rosterPath := filepath.Join(config, "roster.toml")
-	data, err := os.ReadFile("testdata/policy-v2.toml")
+	data, err := os.ReadFile("testdata/policy-v3.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -707,7 +707,7 @@ func TestWorkspaceSaveVariantRefusesInexpressible(t *testing.T) {
 // TestWorkspaceSaveVariantKeepsOrder: the access order the active preset
 // puts in force is part of the variant, so the saved routes stay the same.
 func TestWorkspaceSaveVariantKeepsOrder(t *testing.T) {
-	policy := "version = 2\n\n" +
+	policy := "version = 3\n\n" +
 		"[access.alpha]\nagents = [\"pi\"]\n\n" +
 		"[access.beta]\nagents = [\"pi\"]\n\n" +
 		"[access.gamma]\nagents = [\"pi\"]\n" +
@@ -820,7 +820,7 @@ func TestWorkspaceExplainAndApplyPlan(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", config)
 	rosterPath := filepath.Join(config, "docflow", "roster.toml")
-	data, err := os.ReadFile("testdata/policy-v2.toml")
+	data, err := os.ReadFile("testdata/policy-v3.toml")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,7 @@ import (
 
 // statePolicy is the policy the state tests merge over: one access per
 // kind of condition the state can carry.
-const statePolicy = "version = 2\n\n" +
+const statePolicy = "version = 3\n\n" +
 	"[access.zai]\nagents = [\"pi\"]\nbudget = \"lean\"\nmodels = [\"glm-5.3*\"]\n\n" +
 	"[access.codex]\nagents = [\"codex\"]\ntrusted = true\n\n" +
 	"[access.claude]\nagents = [\"claude\"]\ntrusted = true\n\n" +

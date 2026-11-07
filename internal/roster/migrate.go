@@ -4,37 +4,42 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 	"strings"
 
+	"bsv-docflow/internal/agents"
 	"bsv-docflow/internal/clierrors"
 )
 
 // localAccess is the v1 provider of the models that run on this machine;
-// the v2 policy marks it with kind = "local" so the resolver keeps local
+// the v3 policy marks it with kind = "local" so the resolver keeps local
 // work apart from the metered subscriptions.
 const localAccess = "strata"
 
 // MigrateResult is the outcome of a roster migration: the resolved roster
-// path, the v2 text and, after a write, the path of the v1 backup.
+// path, the migrated text and, after a write, the path of the backup.
 type MigrateResult struct {
 	Path   string
 	Backup string
 	Text   string
 }
 
-// Migrate converts v1 roster text into v2 policy text: the spend order
-// plus [provider], [role], [route] and every [profile] become
-// [access.NAME], [model], [role], [effort] and [preset.NAME]. A text that
-// is not a v1 roster — already version 2, another version, or not TOML —
-// is an exit-code-2 error. The same input always gives the same output,
-// so a migration is reproducible; the output is parsed back as a v2
-// policy before it is returned.
+// Migrate converts older roster text into v3 policy text. A v1 roster
+// (the spend order plus [provider], [role], [route] and every [profile])
+// becomes [access.NAME], [route], [role] and [preset.NAME]; a v2 policy
+// keeps everything but its [model] classes and [effort] pins, which
+// become [route] entries. A text that is not an older roster — already
+// version 3, another version, or not TOML — is an exit-code-2 error. The
+// same input always gives the same output, so a migration is
+// reproducible; the output is parsed back as a v3 policy before it is
+// returned.
 func Migrate(text string) (string, error) { return migrateText("roster.toml", text) }
 
 // MigrateFile converts the roster at path ("" means DefaultPath) and,
-// when write is true, keeps the v1 text in roster.toml.bak and replaces
-// roster.toml with the v2 text through a temporary file and a rename, so
-// a failed write never leaves half a roster. Without write it only reads.
+// when write is true, keeps the old text in roster.toml.bak and replaces
+// roster.toml with the migrated text through a temporary file and a
+// rename, so a failed write never leaves half a roster. Without write it
+// only reads.
 func MigrateFile(rosterPath string, write bool) (MigrateResult, error) {
 	resolved := PolicyPath(rosterPath)
 	text, err := os.ReadFile(resolved)
@@ -66,6 +71,18 @@ func MigrateFile(rosterPath string, write bool) (MigrateResult, error) {
 }
 
 func migrateText(rosterPath, text string) (string, error) {
+	// A v2 policy converts in place; anything else is v1 or broken, and
+	// the v1 path reports it.
+	migrated, converted, err := migrateV2(rosterPath, text)
+	if err != nil {
+		return "", err
+	}
+	if converted {
+		if _, err := ParsePolicy(rosterPath, migrated); err != nil {
+			return "", clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: the migrated roster is not a valid version %d policy: %v", PolicyVersion, err), Code: clierrors.EXIT_FORMAT}
+		}
+		return migrated, nil
+	}
 	v1, err := parseLegacy(rosterPath, text)
 	if err != nil {
 		return "", err
@@ -75,13 +92,171 @@ func migrateText(rosterPath, text string) (string, error) {
 		return "", err
 	}
 	presets := v1.presets(accesses, byProvider)
-	migrated := v1.render(accesses, models, presets)
-	// The generated roster must load as a v2 policy; a shape the parser
+	migrated = v1.render(accesses, models, presets)
+	// The generated roster must load as a v3 policy; a shape the parser
 	// rejects is a migration bug, not a file the user can fix.
 	if _, err := ParsePolicy(rosterPath, migrated); err != nil {
 		return "", clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: the migrated roster is not a valid version %d policy: %v", PolicyVersion, err), Code: clierrors.EXIT_FORMAT}
 	}
 	return migrated, nil
+}
+
+// migrateV2 converts v2 policy text into v3: every [model."ACCESS/MODEL"]
+// class and [effort] pin of the file becomes one [route."ACCESS/MODEL"]
+// entry — the key from the pin or "-", the class from [model] or, for a
+// pin without a class, the automatic class by the model name. The rest of
+// the file is kept as it is (comments, budgets, presets), the version
+// line moves to 3, and the caller re-parses the result as a v3 policy. A
+// text that is not a v2 policy reports converted = false, so the v1
+// migration decides what the text is.
+func migrateV2(rosterPath, text string) (string, bool, error) {
+	root, err := agents.ParseTOML(text)
+	if err != nil {
+		// Broken TOML is reported by the v1 path, which owns that error.
+		return "", false, nil
+	}
+	if version, ok := root["version"].(int64); !ok || version != 2 {
+		return "", false, nil
+	}
+	models, _ := root["model"].(map[string]any)
+	efforts, _ := root["effort"].(map[string]any)
+	index := scanLines(text)
+	type entry struct {
+		key    string
+		class  string
+		effort string
+		line   int
+	}
+	known := make(map[string]*entry, len(models)+len(efforts))
+	entries := make([]*entry, 0, len(models)+len(efforts))
+	for _, key := range index.keysByLine("model", models) {
+		e := &entry{key: key, line: index.line("model", key)}
+		if section, ok := models[key].(map[string]any); ok {
+			e.class, _ = section["class"].(string)
+		}
+		known[key] = e
+		entries = append(entries, e)
+	}
+	for _, key := range index.keysByLine("effort", efforts) {
+		level, _ := efforts[key].(string)
+		if e, ok := known[key]; ok {
+			e.effort = level
+			continue
+		}
+		e := &entry{key: key, effort: level, line: index.line("effort", key)}
+		known[key] = e
+		entries = append(entries, e)
+	}
+	if len(entries) == 0 {
+		return bumpVersion(text), true, nil
+	}
+	// The routes go where the [model] tables stood, in file order; a pin
+	// without a class keeps the pin and takes the automatic class.
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].line < entries[j].line })
+	routes := make([]string, 0, len(entries)*3)
+	for _, e := range entries {
+		_, id, err := splitModelKey(e.key)
+		if err != nil {
+			return "", true, clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: model key %q: %v", rosterPath, e.key, err), Code: clierrors.EXIT_FORMAT}
+		}
+		if e.class == "" {
+			e.class = familyClass(id)
+		}
+		if e.effort == "" {
+			// No pin: the model kept the class ladder effort under v2, so
+			// the route key carries it instead of dropping the effort.
+			e.effort = classEffort[e.class]
+			if e.effort == "" {
+				e.effort = "-"
+			}
+		}
+		routes = append(routes, "", fmt.Sprintf("[route.%s]", quote(e.key)), fmt.Sprintf("%s = %s", quote(e.effort), quote(e.class)))
+	}
+	result, err := spliceV2Sections(text, routes)
+	if err != nil {
+		return "", true, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: %v", err), Code: clierrors.EXIT_FORMAT}
+	}
+	return result, true, nil
+}
+
+// bumpVersion replaces the version line of a v2 policy that has no
+// [model] and no [effort] table: the format is already v3-shaped.
+func bumpVersion(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, raw := range lines {
+		if isV2VersionLine(strings.TrimSpace(raw)) {
+			lines[i] = fmt.Sprintf("version = %d", PolicyVersion)
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// spliceV2Sections drops the [model.*] tables and the [effort] table,
+// inserts the [route] lines where the first of them stood, and moves the
+// version line to 3. A section runs from its header line to the next
+// header line; the same restricted subset repeatedTable scans.
+func spliceV2Sections(text string, routes []string) (string, error) {
+	lines := strings.Split(text, "\n")
+	skip := make(map[int]bool)
+	insertAt := -1
+	sectionStart := -1
+	sectionRoute := false
+	for i, raw := range lines {
+		row := strings.TrimSpace(raw)
+		header := strings.HasPrefix(row, "[")
+		if header || i == len(lines)-1 {
+			if sectionStart >= 0 && sectionRoute {
+				for j := sectionStart; j < i; j++ {
+					skip[j] = true
+				}
+				if insertAt < 0 {
+					insertAt = sectionStart
+				}
+			}
+			sectionStart, sectionRoute = -1, false
+			if header {
+				end := strings.Index(row, "]")
+				if end < 0 {
+					return "", fmt.Errorf("cannot find the end of the header line %q", row)
+				}
+				segments := headerSegments(row[1:end])
+				sectionStart = i
+				sectionRoute = len(segments) >= 1 && (segments[0] == "model" || segments[0] == "effort")
+			}
+		}
+	}
+	if insertAt < 0 {
+		return "", fmt.Errorf("no [model] or [effort] table to replace")
+	}
+	out := make([]string, 0, len(lines)+len(routes))
+	routed := false
+	versioned := false
+	for i, raw := range lines {
+		if i == insertAt && !routed {
+			out = append(out, routes...)
+			routed = true
+		}
+		if skip[i] {
+			continue
+		}
+		row := strings.TrimSpace(raw)
+		if !versioned && isV2VersionLine(row) {
+			out = append(out, fmt.Sprintf("version = %d", PolicyVersion))
+			versioned = true
+			continue
+		}
+		out = append(out, raw)
+	}
+	if !versioned {
+		return "", fmt.Errorf("cannot find the version line")
+	}
+	return strings.Join(out, "\n"), nil
+}
+
+// isV2VersionLine reports whether a line sets version = 2.
+func isV2VersionLine(row string) bool {
+	return row == "version = 2" || row == "version=2"
 }
 
 // accessDraft is one [access.NAME] the migration builds.
@@ -95,9 +270,9 @@ type accessDraft struct {
 	providers []string // v1 providers whose routes reach this access
 }
 
-// modelDraft is one [model."ACCESS/MODEL"] together with its [effort]
-// level: the class and the effort come from the route with the strongest
-// tier that served the model, the first such route in file order.
+// modelDraft is one [route."ACCESS/MODEL"] entry: the class and the
+// effort come from the route with the strongest tier that served the
+// model, the first such route in file order.
 type modelDraft struct {
 	access string
 	id     string
@@ -200,8 +375,8 @@ func (l *legacy) convert() ([]*accessDraft, []*modelDraft, map[string][]*accessD
 			draft.effort = rt.triple.Effort
 		}
 	}
-	// Group the models by access in access order, so [model] and [effort]
-	// read like the [access] tables above them.
+	// Group the models by access in access order, so [route] reads like
+	// the [access] tables above it.
 	ordered := make([]*modelDraft, 0, len(byKey))
 	for _, draft := range accesses {
 		for _, id := range draft.models {
@@ -266,12 +441,12 @@ func (l *legacy) presets(accesses []*accessDraft, byProvider map[string][]*acces
 	return presets
 }
 
-// render writes the v2 policy: accesses in v1 spend order, their models
-// with the class and the effort of the strongest route, the role
+// render writes the v3 policy: accesses in v1 spend order, one route per
+// model — the class and the effort of the strongest route — the role
 // requirements, then the presets.
 func (l *legacy) render(accesses []*accessDraft, models []*modelDraft, presets []presetDraft) string {
 	var text strings.Builder
-	text.WriteString("# Roster v2, converted from the v1 format by docflow roster migrate.\n")
+	text.WriteString("# Roster v3, converted from the v1 format by docflow roster migrate.\n")
 	text.WriteString("# Model context, prices and reasoning levels come from docflow roster scan.\n")
 	fmt.Fprintf(&text, "version = %d\n", PolicyVersion)
 	for _, access := range accesses {
@@ -291,22 +466,16 @@ func (l *legacy) render(accesses []*accessDraft, models []*modelDraft, presets [
 		}
 	}
 	for _, model := range models {
-		fmt.Fprintf(&text, "\n[model.%s]\nclass = %s\n", quote(model.access+"/"+model.id), quote(model.class))
+		effort := model.effort
+		if effort == "" {
+			// v1 spelled "no effort" as "-"; the route key keeps it.
+			effort = "-"
+		}
+		fmt.Fprintf(&text, "\n[route.%s]\n%s = %s\n", quote(model.access+"/"+model.id), quote(effort), quote(model.class))
 	}
 	text.WriteString("\n[role]\n")
 	for _, role := range Roles {
 		fmt.Fprintf(&text, "%-10s = %s\n", role, quote(l.roster.RoleTiers[role]))
-	}
-	if len(models) > 0 {
-		text.WriteString("\n[effort]\n")
-		for _, model := range models {
-			effort := model.effort
-			if effort == "" {
-				// v1 spelled "no effort" as "-"; the plan format keeps it.
-				effort = "-"
-			}
-			fmt.Fprintf(&text, "%s = %s\n", quote(model.access+"/"+model.id), quote(effort))
-		}
 	}
 	for _, preset := range presets {
 		fmt.Fprintf(&text, "\n[preset.%s]\n", tomlKey(preset.name))

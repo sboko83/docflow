@@ -15,7 +15,7 @@ import (
 // XDG_CONFIG_HOME, so the default path of the model is the fixture and no
 // test touches the personal roster.
 
-const testRosterPolicy = `version = 2
+const testRosterPolicy = `version = 3
 
 [access.zai]
 agents = ["pi"]
@@ -37,20 +37,20 @@ kind    = "subscription"
 budget  = "off"
 trusted = true
 
-[model."zai/glm-5.3"]
-class = "strong"
+[route."zai/glm-5.3"]
+high = "strong"
 
-[model."zai/glm-5.3-flash"]
-class = "cheap"
+[route."zai/glm-5.3-flash"]
+low = "cheap"
 
-[model."codex/gpt-6.1-sol"]
-class = "strong"
+[route."codex/gpt-6.1-sol"]
+high = "strong"
 
-[model."codex/gpt-6-luna"]
-class = "standard"
+[route."codex/gpt-6-luna"]
+high = "standard"
 
-[model."claude/claude-opus-5-5"]
-class = "strong"
+[route."claude/claude-opus-5-5"]
+high = "strong"
 
 [role]
 cheap      = "cheap"
@@ -558,7 +558,7 @@ func TestRosterScreenDefaultsToTheDefaultRosterPath(t *testing.T) {
 func TestRosterScreenShowsLoadRefusal(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	root, rosterPath := rosterFixture(t)
-	writeRosterTestFile(t, rosterPath, "version = 2\n\n[access.zai]\nbudget = \"lean\"\n")
+	writeRosterTestFile(t, rosterPath, "version = 3\n\n[access.zai]\nbudget = \"lean\"\n")
 	model := New(root)
 	model.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
 	updated, _ := model.Update(model.Init()())
@@ -748,7 +748,7 @@ func TestRosterLegacyRosterPreviewsAndWritesTheMigration(t *testing.T) {
 		t.Fatalf("the preview wrote a backup: %v", err)
 	}
 	rendered = model.String()
-	for _, want := range []string{"version = 2", "Enter — записать"} {
+	for _, want := range []string{"version = 3", "Enter — записать"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("the preview lost %q:\n%s", want, rendered)
 		}
@@ -791,7 +791,7 @@ func TestRosterLegacyRosterPreviewsAndWritesTheMigration(t *testing.T) {
 	if model.roster == nil || model.roster.Legacy || model.rosterPhase != rosterReady {
 		t.Fatalf("the migrated roster is not loaded: phase=%v roster=%+v", model.rosterPhase, model.roster)
 	}
-	if migrated := readRosterTestFile(t, rosterPath); !strings.Contains(migrated, "version = 2") {
+	if migrated := readRosterTestFile(t, rosterPath); !strings.Contains(migrated, "version = 3") {
 		t.Fatalf("the roster was not migrated:\n%s", migrated)
 	}
 	if backup := readRosterTestFile(t, rosterPath+".bak"); backup != testLegacyRoster {

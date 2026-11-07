@@ -48,8 +48,8 @@ const rosterProviderAnswer = `{"data":[` +
 // it.
 const rosterSecret = "wrk_fixture_org_secret"
 
-// rosterPolicy is the version 2 roster the catalog commands filter by.
-const rosterPolicy = `version = 2
+// rosterPolicy is the version 3 roster the catalog commands filter by.
+const rosterPolicy = `version = 3
 
 [access.zai]
 agents = ["pi"]
@@ -68,7 +68,7 @@ replan     = "trusted"
 
 // rosterPolicyMissing also names strata, an access no channel of this
 // machine reaches.
-const rosterPolicyMissing = `version = 2
+const rosterPolicyMissing = `version = 3
 
 [access.zai]
 agents = ["pi"]

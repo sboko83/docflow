@@ -92,13 +92,13 @@ func wantApplyError(t *testing.T, err error, code int, text string) {
 // file is never the personal roster.
 func applyScenario(t *testing.T) (*Policy, *State, *Catalog) {
 	t.Helper()
-	data, err := os.ReadFile("testdata/policy-v2.toml")
+	data, err := os.ReadFile("testdata/policy-v3.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := strings.Replace(string(data), `expires = "2026-06-30"`, `expires = "2099-01-01"`, 1)
 	if text == string(data) {
-		t.Fatal("policy-v2.toml no longer names the zai expiry the test patches")
+		t.Fatal("policy-v3.toml no longer names the zai expiry the test patches")
 	}
 	path := filepath.Join(t.TempDir(), "roster.toml")
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {

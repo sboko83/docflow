@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	policyHeader = "version = 2\n"
+	policyHeader = "version = 3\n"
 	policyZai    = "[access.zai]\nagents = [\"pi\"]\n"
 	policyRoles  = `[role]
 cheap      = "cheap"
@@ -24,8 +24,8 @@ replan     = "trusted"
 `
 )
 
-func TestPolicyV2Fixture(t *testing.T) {
-	policy, err := LoadPolicy(filepath.Join("testdata", "policy-v2.toml"))
+func TestPolicyV3Fixture(t *testing.T) {
+	policy, err := LoadPolicy(filepath.Join("testdata", "policy-v3.toml"))
 	if err != nil {
 		t.Fatalf("LoadPolicy() error = %v", err)
 	}
@@ -98,16 +98,16 @@ func TestPolicyV2Fixture(t *testing.T) {
 		t.Errorf("local = %+v, want local/check/off", local)
 	}
 
-	wantClasses := map[string]string{
-		"opencode-go/deepseek-v4.1-flash": "cheap",
-		"opencode-go/deepseek-v4.1":       "standard",
-		"zai/glm-5.3-flash":               "cheap",
-		"zai/glm-5.3":                     "strong",
-		"codex/gpt-6-luna":                "cheap",
-		"codex/gpt-6.1-sol":               "strong",
+	wantRoutes := []Route{
+		{Access: "opencode-go", Model: "deepseek-v4.1-flash", Eff: "high", Class: "cheap"},
+		{Access: "opencode-go", Model: "deepseek-v4.1", Eff: "high", Class: "standard"},
+		{Access: "zai", Model: "glm-5.3-flash", Eff: "low", Class: "cheap"},
+		{Access: "zai", Model: "glm-5.3", Eff: "max", Class: "strong"},
+		{Access: "codex", Model: "gpt-6-luna", Eff: "low", Class: "cheap"},
+		{Access: "codex", Model: "gpt-6.1-sol", Eff: "medium", Class: "strong"},
 	}
-	if !reflect.DeepEqual(policy.Models, wantClasses) {
-		t.Errorf("Models = %v, want %v", policy.Models, wantClasses)
+	if !reflect.DeepEqual(policy.Routes, wantRoutes) {
+		t.Errorf("Routes = %v, want %v", policy.Routes, wantRoutes)
 	}
 
 	wantRoles := map[string]string{
@@ -120,15 +120,6 @@ func TestPolicyV2Fixture(t *testing.T) {
 	}
 	if !reflect.DeepEqual(policy.Roles, wantRoles) {
 		t.Errorf("Roles = %v, want %v", policy.Roles, wantRoles)
-	}
-
-	wantEfforts := map[string]string{
-		"opencode-go/deepseek-v4.1-flash": "high",
-		"zai/glm-5.3":                     "max",
-		"codex/gpt-6.1-sol":               "medium",
-	}
-	if !reflect.DeepEqual(policy.Efforts, wantEfforts) {
-		t.Errorf("Efforts = %v, want %v", policy.Efforts, wantEfforts)
 	}
 
 	if got := policy.PresetNames(); !reflect.DeepEqual(got, []string{"low"}) {
@@ -153,7 +144,7 @@ func TestPolicyV2Fixture(t *testing.T) {
 	}
 }
 
-func TestPolicyV2Minimal(t *testing.T) {
+func TestPolicyV3Minimal(t *testing.T) {
 	policy, err := ParsePolicy("roster.toml", policyHeader+policyZai+policyRoles)
 	if err != nil {
 		t.Fatalf("ParsePolicy() error = %v", err)
@@ -168,8 +159,8 @@ func TestPolicyV2Minimal(t *testing.T) {
 	if access.Kind != "" || access.Trusted || access.Check || len(access.Models) != 0 || len(access.Exclude) != 0 || !access.Expires.IsZero() {
 		t.Errorf("access = %+v, want everything but agents defaulted", access)
 	}
-	if len(policy.Models) != 0 || len(policy.Presets) != 0 {
-		t.Errorf("Models/Presets = %v/%v, want empty", policy.Models, policy.Presets)
+	if len(policy.Routes) != 0 || len(policy.Presets) != 0 {
+		t.Errorf("Routes/Presets = %v/%v, want empty", policy.Routes, policy.Presets)
 	}
 	if _, ok := policy.Preset("low"); ok {
 		t.Error("Preset(low) found in a policy without presets")
@@ -179,7 +170,7 @@ func TestPolicyV2Minimal(t *testing.T) {
 	}
 }
 
-func TestPolicyV2Errors(t *testing.T) {
+func TestPolicyV3Errors(t *testing.T) {
 	cases := []struct {
 		name   string
 		text   string
@@ -191,19 +182,25 @@ func TestPolicyV2Errors(t *testing.T) {
 			name: "no version",
 			text: policyZai + policyRoles,
 			line: 1,
-			want: "version must be 2",
+			want: "version must be 3",
 		},
 		{
 			name:   "version one",
 			text:   "version = 1\n" + policyZai + policyRoles,
 			needle: "version = 1",
-			want:   "version must be 2",
+			want:   "the roster is in the previous format",
+		},
+		{
+			name:   "version two",
+			text:   "version = 2\n" + policyZai + policyRoles,
+			needle: "version = 2",
+			want:   "run `docflow roster migrate`",
 		},
 		{
 			name:   "version as a string",
 			text:   "version = \"2\"\n" + policyZai + policyRoles,
 			needle: "version = \"2\"",
-			want:   "version must be 2",
+			want:   "version must be 3",
 		},
 		{
 			name:   "unknown top-level key",
@@ -320,34 +317,58 @@ func TestPolicyV2Errors(t *testing.T) {
 			want: "table [access.zai] is defined twice",
 		},
 		{
-			name:   "model unknown access",
-			text:   policyHeader + "[model.\"nope/x\"]\nclass = \"cheap\"\n",
-			needle: "[model.\"nope/x\"]",
+			name:   "model table is gone",
+			text:   policyHeader + policyZai + policyRoles + "[model.\"zai/glm-5.3\"]\nclass = \"cheap\"\n",
+			needle: "[model.\"zai/glm-5.3\"]",
+			want:   "[model] was replaced by [route] in version 3: run `docflow roster migrate`",
+		},
+		{
+			name:   "effort table is gone",
+			text:   policyHeader + policyZai + policyRoles + "[effort]\n\"zai/glm-5.3\" = \"high\"\n",
+			needle: "[effort]",
+			want:   "[effort] was replaced by [route] in version 3: run `docflow roster migrate`",
+		},
+		{
+			name:   "route unknown access",
+			text:   policyHeader + policyZai + policyRoles + "[route.\"nope/x\"]\nhigh = \"cheap\"\n",
+			needle: "[route.\"nope/x\"]",
 			want:   "unknown access 'nope'",
 		},
 		{
-			name:   "model key without access",
-			text:   policyHeader + policyZai + "[model.\"glm-5.3\"]\nclass = \"cheap\"\n",
-			needle: "[model.\"glm-5.3\"]",
+			name:   "route key without access",
+			text:   policyHeader + policyZai + policyRoles + "[route.\"glm-5.3\"]\nhigh = \"cheap\"\n",
+			needle: "[route.\"glm-5.3\"]",
 			want:   "key must be ACCESS/MODEL",
 		},
 		{
-			name:   "model unknown key",
-			text:   policyHeader + policyZai + "[model.\"zai/glm-5.3\"]\nclass = \"strong\"\nreasoning = true\n",
-			needle: "reasoning",
-			want:   "unknown key 'reasoning'",
+			name:   "route key with a space",
+			text:   policyHeader + policyZai + policyRoles + "[route.\"zai/glm 5.3\"]\nhigh = \"cheap\"\n",
+			needle: "[route.\"zai/glm 5.3\"]",
+			want:   "key must not contain whitespace",
 		},
 		{
-			name:   "model bad class",
-			text:   policyHeader + policyZai + "[model.\"zai/glm-5.3\"]\nclass = \"medium\"\n",
-			needle: "class = \"medium\"",
-			want:   "class must be cheap, standard or strong",
+			name:   "route bad class",
+			text:   policyHeader + policyZai + policyRoles + "[route.\"zai/glm-5.3\"]\nhigh = \"medium\"\n",
+			needle: "high = \"medium\"",
+			want:   "class cheap, standard or strong",
 		},
 		{
-			name:   "model missing class",
-			text:   policyHeader + policyZai + "[model.\"zai/glm-5.3\"]\n",
-			needle: "[model.\"zai/glm-5.3\"]",
-			want:   "class is required",
+			name:   "route bad effort key",
+			text:   policyHeader + policyZai + policyRoles + "[route.\"zai/glm-5.3\"]\n\"very high\" = \"cheap\"\n",
+			needle: "very high",
+			want:   "must be a single word",
+		},
+		{
+			name:   "route without efforts",
+			text:   policyHeader + policyZai + policyRoles + "[route.\"zai/glm-5.3\"]\n",
+			needle: "[route.\"zai/glm-5.3\"]",
+			want:   "at least one effort is required",
+		},
+		{
+			name: "repeated effort in one route",
+			text: policyHeader + policyZai + policyRoles + "[route.\"zai/glm-5.3\"]\nhigh = \"cheap\"\nhigh = \"strong\"\n",
+			line: 13,
+			want: "effort 'high' is written twice",
 		},
 		{
 			name: "missing role table",
@@ -372,24 +393,6 @@ func TestPolicyV2Errors(t *testing.T) {
 			text:   policyHeader + policyZai + strings.Replace(policyRoles, "executor   = \"standard\"\n", "", 1),
 			needle: "[role]",
 			want:   "role executor: no requirement",
-		},
-		{
-			name:   "effort unknown access",
-			text:   policyHeader + policyZai + policyRoles + "[effort]\n\"nope/x\" = \"high\"\n",
-			needle: "\"nope/x\"",
-			want:   "unknown access 'nope'",
-		},
-		{
-			name:   "effort key without model",
-			text:   policyHeader + policyZai + policyRoles + "[effort]\n\"glm\" = \"high\"\n",
-			needle: "\"glm\"",
-			want:   "key must be ACCESS/MODEL",
-		},
-		{
-			name:   "effort bad level",
-			text:   policyHeader + policyZai + policyRoles + "[effort]\n\"zai/glm-5.3\" = \"very high\"\n",
-			needle: "very high",
-			want:   "level must be a single word",
 		},
 		{
 			name:   "preset not a table",

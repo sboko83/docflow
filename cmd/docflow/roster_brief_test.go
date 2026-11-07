@@ -30,7 +30,7 @@ func rosterBriefEnv(t *testing.T) string {
 	policy := readRosterFile(t, home, "docflow/roster.toml")
 	patched := strings.Replace(policy, `expires = "2026-06-30"`, `expires = "2099-01-01"`, 1)
 	if patched == policy {
-		t.Fatal("policy-v2.toml no longer names the zai expiry the test patches")
+		t.Fatal("policy-v3.toml no longer names the zai expiry the test patches")
 	}
 	writeLifecycleFile(t, home, "docflow/roster.toml", patched)
 	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "catalog-scenario.json"))

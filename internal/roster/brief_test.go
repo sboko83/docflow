@@ -11,7 +11,7 @@ import (
 // the pinned day and builds its brief.
 func scenarioBrief(t *testing.T) *Brief {
 	t.Helper()
-	policy, err := LoadPolicy("testdata/policy-v2.toml")
+	policy, err := LoadPolicy("testdata/policy-v3.toml")
 	if err != nil {
 		t.Fatalf("LoadPolicy() error = %v", err)
 	}
@@ -133,8 +133,8 @@ func TestBriefUnknownContext(t *testing.T) {
 [access.small]
 agents = ["pi"]
 
-[model."small/m"]
-class = "standard"
+[route."small/m"]
+high = "standard"
 `)
 	catalog := resolveCatalog(resolveModel("small", "m", 0, nil))
 	brief, err := buildBriefAt(policy, nil, catalog, []string{"executor"}, resolveDay)
@@ -164,8 +164,8 @@ func TestBriefWarningsFollowRoles(t *testing.T) {
 [access.one]
 agents = ["pi"]
 
-[model."one/m"]
-class = "standard"
+[route."one/m"]
+high = "standard"
 `)
 	catalog := resolveCatalog(resolveModel("one", "m", 100000, nil))
 	brief, err := buildBriefAt(policy, nil, catalog, []string{"executor"}, resolveDay)
@@ -196,11 +196,11 @@ budget = "lean"
 agents = ["pi"]
 budget = "prefer"
 
-[model."lean/m"]
-class = "strong"
+[route."lean/m"]
+high = "strong"
 
-[model."prefer/m"]
-class = "strong"
+[route."prefer/m"]
+high = "strong"
 `)
 	catalog := resolveCatalog(
 		resolveModel("lean", "m", 100000, nil),
@@ -241,8 +241,8 @@ func TestBriefRoleOrder(t *testing.T) {
 [access.one]
 agents = ["pi"]
 
-[model."one/m"]
-class = "standard"
+[route."one/m"]
+high = "standard"
 `)
 	catalog := resolveCatalog(resolveModel("one", "m", 100000, nil))
 	brief, err := buildBriefAt(policy, nil, catalog, []string{"replan", "executor", "replan"}, resolveDay)
@@ -264,8 +264,8 @@ func TestBriefUnknownRole(t *testing.T) {
 [access.one]
 agents = ["pi"]
 
-[model."one/m"]
-class = "standard"
+[route."one/m"]
+high = "standard"
 `)
 	catalog := resolveCatalog(resolveModel("one", "m", 100000, nil))
 	_, err := buildBriefAt(policy, nil, catalog, []string{"executorr"}, resolveDay)

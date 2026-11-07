@@ -1041,8 +1041,8 @@ func (m Model) rosterModelLines() []string {
 			glyph = "x"
 		}
 		line := fmt.Sprintf("%s%s %s", marker, glyph, model.ID)
-		if class := m.roster.Policy.Models[model.Access+"/"+model.ID]; class != "" {
-			line += " · " + class
+		if summary := m.roster.Policy.RouteSummary(model.Access, model.ID); summary != "" {
+			line += " · " + summary
 		}
 		if model.Context > 0 {
 			line += fmt.Sprintf(" · контекст %d", model.Context)

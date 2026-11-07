@@ -16,7 +16,7 @@ import (
 // fake CLI logs before dispatch, including unexpected model invocations.
 func TestRosterV2Flow(t *testing.T) {
 	originalPath := os.Getenv("PATH")
-	policy := strings.Replace(rosterFixture(t, "policy-v2.toml"), "2026-06-30", "2099-01-01", 1)
+	policy := strings.Replace(rosterFixture(t, "policy-v3.toml"), "2026-06-30", "2099-01-01", 1)
 	home := rosterScanEnv(t, policy)
 	bin := os.Getenv("PATH")
 	// Windows testshim needs Git Bash while creating each executable shim.

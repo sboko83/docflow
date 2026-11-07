@@ -545,7 +545,7 @@ func TestRosterShowErrors(t *testing.T) {
 		}
 	})
 	t.Run("removed profile flag", func(t *testing.T) {
-		path := writeRosterFile(t, "version = 2\n")
+		path := writeRosterFile(t, "version = 3\n")
 		parsed, code := parseArgs([]string{"roster", "show", "--profile", "nope", "--roster", path}, &bytes.Buffer{}, &bytes.Buffer{})
 		if parsed == nil || code != 0 {
 			t.Fatalf("parseArgs() = (%v, %d)", parsed, code)

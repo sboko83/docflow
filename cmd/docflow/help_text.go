@@ -347,18 +347,22 @@ prefer, normal, lean, minimal or off; expire ACCESS DATE drops an
 access after DATE; allow ACCESS PATTERN... narrows the models of an
 access to the globs, deny ACCESS PATTERN... hides them; reset deletes
 the state file. An off condition whose until date has passed is
-dropped when the file is loaded. A condition command reads the version 2
-policy and fails on a v1 roster with the migration hint.
+dropped when the file is loaded. A condition command reads the version 3
+policy and fails on an older roster with the migration hint.
 
-roster migrate converts a v1 roster — spend, [provider], [role],
-[route] and [profile] — into a v2 policy and prints it; --write keeps
-the v1 file in roster.toml.bak and replaces roster.toml atomically. A
-pi or opencode model prefix becomes the access, the route tier the
-model class, the route effort the [effort] level, and every model of an
-access its models allowlist; a profile becomes a preset. A roster that
-is already version 2 is exit code 2 and nothing is written; every other
-roster command refuses a v1 file with this command in the hint, and
---profile is gone — the flag was v1 and --preset replaces it.
+roster migrate converts an older roster into a version 3 policy and
+prints it; --write keeps the old file in roster.toml.bak and replaces
+roster.toml atomically. A v1 roster — spend, [provider], [role],
+[route] and [profile] — becomes [access.NAME], [route], [role] and
+[preset.NAME]: a pi or opencode model prefix becomes the access, the
+strongest route gives one [route."ACCESS/MODEL"] entry (the effort the
+key, the tier the class), and every model of an access its models
+allowlist; a profile becomes a preset. A v2 policy keeps everything but
+its [model] classes and [effort] pins, which become [route] entries the
+same way. A roster that is already version 3 is exit code 2 and nothing
+is written; every other roster command refuses an older file with this
+command in the hint, and --profile is gone — the flag was v1 and
+--preset replaces it.
 
 subcommands:
   show             print the brief (alias of brief)

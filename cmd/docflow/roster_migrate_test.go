@@ -27,8 +27,8 @@ func TestRosterMigrateCommand(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("roster migrate = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
-	if !strings.HasPrefix(stdout, "# Roster v2") || !strings.Contains(stdout, "version = 2") {
-		t.Fatalf("roster migrate stdout =\n%s\nwant the v2 text", stdout)
+	if !strings.HasPrefix(stdout, "# Roster v3") || !strings.Contains(stdout, "version = 3") {
+		t.Fatalf("roster migrate stdout =\n%s\nwant the v3 text", stdout)
 	}
 	if data, _ := os.ReadFile(path); string(data) != draftV1Roster(t) {
 		t.Fatalf("a dry run rewrote the roster")
@@ -52,12 +52,12 @@ func TestRosterMigrateCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(migrated), "# Roster v2") {
+	if !strings.HasPrefix(string(migrated), "# Roster v3") {
 		t.Fatalf("the roster was not migrated:\n%s", migrated)
 	}
 
 	code, _, stderr = callLifecycleCLI(t, t.TempDir(), "roster", "migrate", "--write")
-	if code != 2 || !strings.Contains(stderr, "already version 2") {
+	if code != 2 || !strings.Contains(stderr, "already version 3") {
 		t.Fatalf("second roster migrate --write = (%d, %q), want 2 and the refusal", code, stderr)
 	}
 	if again, _ := os.ReadFile(path); string(again) != string(migrated) {

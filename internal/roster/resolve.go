@@ -125,7 +125,7 @@ func resolveAt(policy *Policy, state *State, catalog *Catalog, today time.Time) 
 				continue
 			}
 			info := accesses[access.Name]
-			model, class, problem := pickModel(merged, access, models[access.Name], minimum, role)
+			model, route, problem := pickModel(merged, access, models[access.Name], minimum, role)
 			if problem != "" {
 				resolution.Skipped = append(resolution.Skipped, Skip{Access: access.Name, Role: role, Reason: problem})
 				continue
@@ -137,8 +137,8 @@ func resolveAt(policy *Policy, state *State, catalog *Catalog, today time.Time) 
 				Agent:   agent,
 				ID:      model.ID,
 				Model:   routeModel(agent, access.Name, model.ID),
-				Class:   class,
-				Effort:  effortFor(merged, model, class),
+				Class:   route.Class,
+				Effort:  routeEffort(model, route),
 				Context: model.Context,
 				MaxOut:  model.MaxOut,
 				Cost:    model.Cost,
@@ -262,22 +262,22 @@ func servesBudget(budget, role string) bool {
 	return false
 }
 
-// pickModel returns the best model an access can offer for a role and its
-// class, or the reason no model qualifies. The model must pass the access
-// allowlist and the denials, its class must be at or above the role
-// minimum, and a heavy unit needs a known context: an unknown context
-// must not be guessed into the strongest role.
-func pickModel(policy *Policy, access *Access, models []ModelInfo, minimum int, role string) (ModelInfo, string, string) {
+// pickModel returns the best model an access can offer for a role, the
+// route it is served through, or the reason no model qualifies. The model
+// must pass the access allowlist and the denials, its route must meet the
+// role minimum, and a heavy unit needs a known context: an unknown
+// context must not be guessed into the strongest role.
+func pickModel(policy *Policy, access *Access, models []ModelInfo, minimum int, role string) (ModelInfo, Route, string) {
 	var best ModelInfo
-	bestClass := ""
+	bestRoute := Route{}
 	allowed, tooWeak, noContext := 0, 0, 0
 	for _, model := range models {
 		if !modelAllowed(access, model.ID) {
 			continue
 		}
 		allowed++
-		class := modelClass(policy, access.Name, model.ID)
-		if tierIndex(class) < minimum {
+		route, ok := servingRoute(policy, access.Name, model.ID, minimum)
+		if !ok {
 			tooWeak++
 			continue
 		}
@@ -285,22 +285,50 @@ func pickModel(policy *Policy, access *Access, models []ModelInfo, minimum int, 
 			noContext++
 			continue
 		}
-		if best.ID == "" || betterModel(model, class, best, bestClass) {
-			best, bestClass = model, class
+		if best.ID == "" || betterModel(model, route.Class, best, bestRoute.Class) {
+			best, bestRoute = model, route
 		}
 	}
 	switch {
 	case best.ID != "":
-		return best, bestClass, ""
+		return best, bestRoute, ""
 	case allowed == 0:
-		return ModelInfo{}, "", "no model the access allows"
+		return ModelInfo{}, Route{}, "no model the access allows"
 	case noContext > 0:
 		// A model met the class bar; the role still cannot use it, because
 		// its context is unknown and a heavy unit must not be guessed in.
-		return ModelInfo{}, "", "no model with a known context"
+		return ModelInfo{}, Route{}, "no model with a known context"
 	default:
-		return ModelInfo{}, "", fmt.Sprintf("no model at class %s or above", tiers[minimum])
+		return ModelInfo{}, Route{}, fmt.Sprintf("no model at class %s or above", tiers[minimum])
 	}
+}
+
+// servingRoute reports how an access serves a model for a role: of the
+// model's [route] entries the one with the smallest class that still
+// meets the role minimum — a cheap route answers a cheap role before a
+// strong one, and a tie keeps the file order, so the choice is stable.
+// A model without routes is served at its automatic class with the class
+// ladder effort (an empty Eff on the returned pseudo-route); a model
+// whose routes all fall below the minimum is not suitable.
+func servingRoute(policy *Policy, access, id string, minimum int) (Route, bool) {
+	routes := policy.routesOf(access, id)
+	if len(routes) == 0 {
+		class := familyClass(id)
+		return Route{Access: access, Model: id, Class: class}, tierIndex(class) >= minimum
+	}
+	best := -1
+	for i, route := range routes {
+		if tierIndex(route.Class) < minimum {
+			continue
+		}
+		if best < 0 || tierIndex(route.Class) < tierIndex(routes[best].Class) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return Route{}, false
+	}
+	return routes[best], true
 }
 
 // betterModel reports whether a beats b for the same role: the smaller
@@ -350,20 +378,10 @@ func matchAny(globs []string, id string) bool {
 	return false
 }
 
-// modelClass is the class of a model: the [model] override of the policy
-// when it has one, otherwise the family rule, because a catalog scan
-// cannot know quality and the policy does not have to name every model.
-func modelClass(policy *Policy, access, id string) string {
-	if class, ok := policy.Models[access+"/"+id]; ok {
-		return class
-	}
-	return familyClass(id)
-}
-
-// familyClass is the automatic class of a model whose policy has no
-// [model] entry: flash, mini and lite are cheap; pro, sol and opus are
-// strong; everything else is standard. The id is split into words, so
-// "gemini" is not a "mini", and a strong marker wins over a cheap one.
+// familyClass is the automatic class of a model whose policy fixes no
+// route: flash, mini and lite are cheap; pro, sol and opus are strong;
+// everything else is standard. The id is split into words, so "gemini" is
+// not a "mini", and a strong marker wins over a cheap one.
 func familyClass(id string) string {
 	words := strings.FieldsFunc(strings.ToLower(id), func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
@@ -386,25 +404,27 @@ func familyClass(id string) string {
 }
 
 // classEffort is the effort ladder of a class: the promotion a level
-// makes over the class itself. The [effort] table overrides it.
+// makes over the class itself. It serves a model that has no route in the
+// policy; a routed model takes the effort of its route.
 var classEffort = map[string]string{
 	"cheap":    "low",
 	"standard": "high",
 	"strong":   "high",
 }
 
-// effortFor resolves the effort of a candidate: the [effort] pin when the
-// policy has one ("-" means no effort at all), otherwise the class ladder,
-// snapped to the levels the model declares. A model without reasoning
-// takes no effort, and an unknown effort is passed as the ladder says:
-// the catalog cannot tell whether the model supports it.
-func effortFor(policy *Policy, model ModelInfo, class string) string {
+// routeEffort resolves the effort of a candidate: the route key when the
+// model serves through a fixed route ("-" means no effort at all),
+// otherwise the class ladder of the automatic class, snapped to the
+// levels the model declares. A model without reasoning takes no effort,
+// and an unknown effort is passed as the key says: the catalog cannot
+// tell whether the model supports it.
+func routeEffort(model ModelInfo, route Route) string {
 	if !model.Reasoning {
 		return ""
 	}
-	target, pinned := policy.Efforts[model.Key()]
-	if !pinned {
-		target = classEffort[class]
+	target := route.Eff
+	if target == "" {
+		target = classEffort[route.Class]
 	}
 	if target == "" || target == "-" {
 		return ""

@@ -1,4 +1,4 @@
-version = 2
+version = 3
 
 [access.opencode-go]
 agents  = ["pi", "opencode"]
@@ -41,23 +41,26 @@ kind   = "local"
 budget = "off"
 check  = true
 
-[model."opencode-go/deepseek-v4.1-flash"]
-class = "cheap"
+# The class belongs to the pair of a model and an effort: the same model
+# can be cheap at low effort and standard at high. A model without a
+# route is served at its automatic class with the class ladder effort.
+[route."opencode-go/deepseek-v4.1-flash"]
+high = "cheap"
 
-[model."opencode-go/deepseek-v4.1"]
-class = "standard"
+[route."opencode-go/deepseek-v4.1"]
+high = "standard"
 
-[model."zai/glm-5.3-flash"]
-class = "cheap"
+[route."zai/glm-5.3-flash"]
+low = "cheap"
 
-[model."zai/glm-5.3"]
-class = "strong"
+[route."zai/glm-5.3"]
+max = "strong"
 
-[model."codex/gpt-6-luna"]
-class = "cheap"
+[route."codex/gpt-6-luna"]
+low = "cheap"
 
-[model."codex/gpt-6.1-sol"]
-class = "strong"
+[route."codex/gpt-6.1-sol"]
+medium = "strong"
 
 [role]
 cheap      = "cheap"
@@ -66,11 +69,6 @@ heavy      = "strong"
 review     = "standard"
 acceptance = "trusted"
 replan     = "trusted"
-
-[effort]
-"opencode-go/deepseek-v4.1-flash" = "high"
-"zai/glm-5.3"                     = "max"
-"codex/gpt-6.1-sol"               = "medium"
 
 # The acceptance scenario: claude and the local model are off, codex runs
 # at minimal, zai is limited to flash, opencode-go opens the order.

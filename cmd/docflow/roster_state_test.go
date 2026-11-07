@@ -12,7 +12,7 @@ import (
 // XDG_CONFIG_HOME: the state file must be created next to it, and the
 // repository must stay untouched.
 
-// rosterStateEnv installs testdata/policy-v2.toml as the personal roster
+// rosterStateEnv installs testdata/policy-v3.toml as the personal roster
 // in a temporary XDG_CONFIG_HOME and returns that directory.
 func rosterStateEnv(t *testing.T) string {
 	t.Helper()
@@ -27,7 +27,7 @@ func rosterStateEnv(t *testing.T) string {
 	t.Setenv("DOCFLOW_NOTIFY", "0")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "policy-v2.toml"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "policy-v3.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,22 +210,22 @@ func TestRosterStateDropsExpiredOff(t *testing.T) {
 	}
 }
 
-func TestRosterStateNeedsV2Roster(t *testing.T) {
+func TestRosterStateNeedsV3Roster(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", home)
 	writeLifecycleFile(t, home, "docflow/roster.toml", "[access.zai]\nagents = [\"pi\"]\n")
 	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "off", "zai")
-	if code != 2 || !strings.Contains(stderr, "version must be 2") {
-		t.Fatalf("roster off on a v1 roster = (%d, %q, %q)", code, stdout, stderr)
+	if code != 2 || !strings.Contains(stderr, "version must be 3") {
+		t.Fatalf("roster off on a broken roster = (%d, %q, %q)", code, stdout, stderr)
 	}
 	if state := readRosterState(t, home); state != "" {
 		t.Fatalf("a failed command wrote the state:\n%s", state)
 	}
 	// status reads the policy too, so a roster without the version key
 	// fails there instead of silently dropping the conditions.
-	if code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "status"); code != 2 || !strings.Contains(stderr, "version must be 2") {
+	if code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "status"); code != 2 || !strings.Contains(stderr, "version must be 3") {
 		t.Fatalf("roster status on a roster without version = (%d, %q), want code 2", code, stderr)
 	}
 }

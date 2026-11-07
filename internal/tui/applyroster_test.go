@@ -15,7 +15,7 @@ import (
 // come from the same resolver the CLI uses, so the tests never spell out a
 // route the roster would not write.
 
-const applyRosterPolicy = `version = 2
+const applyRosterPolicy = `version = 3
 
 [access.zai]
 agents = ["pi"]
@@ -35,20 +35,20 @@ kind    = "subscription"
 budget  = "off"
 trusted = true
 
-[model."zai/glm-5.3"]
-class = "standard"
+[route."zai/glm-5.3"]
+high = "standard"
 
-[model."zai/glm-5.3-flash"]
-class = "cheap"
+[route."zai/glm-5.3-flash"]
+low = "cheap"
 
-[model."codex/gpt-6.1-sol"]
-class = "strong"
+[route."codex/gpt-6.1-sol"]
+high = "strong"
 
-[model."codex/gpt-6-luna"]
-class = "standard"
+[route."codex/gpt-6-luna"]
+high = "standard"
 
-[model."claude/claude-opus-5-5"]
-class = "strong"
+[route."claude/claude-opus-5-5"]
+high = "strong"
 
 [role]
 cheap      = "cheap"

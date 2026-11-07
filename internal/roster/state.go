@@ -684,15 +684,12 @@ func (p *Policy) clone() *Policy {
 	copied := &Policy{
 		Path:    p.Path,
 		Version: p.Version,
-		Models:  make(map[string]string, len(p.Models)),
+		Routes:  append([]Route(nil), p.Routes...),
 		Roles:   make(map[string]string, len(p.Roles)),
-		Efforts: make(map[string]string, len(p.Efforts)),
 		Presets: append([]Preset(nil), p.Presets...),
 		index:   make(map[string]int, len(p.Accesses)),
 	}
-	maps.Copy(copied.Models, p.Models)
 	maps.Copy(copied.Roles, p.Roles)
-	maps.Copy(copied.Efforts, p.Efforts)
 	for i, access := range p.Accesses {
 		copiedAccess := access
 		copiedAccess.Agents = append([]string(nil), access.Agents...)

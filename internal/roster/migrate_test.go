@@ -94,33 +94,23 @@ func TestMigrateDraft(t *testing.T) {
 	if codex := accessOf(t, policy, "codex"); len(codex.Models) != 2 {
 		t.Fatalf("codex models = %v, want both models", codex.Models)
 	}
-	// A tier belongs to the route, not the model: the class is the
-	// strongest tier the model served.
-	classes := map[string]string{
-		"zai/glm-5.3-flash":       "standard",
-		"zai/glm-5.3":             "strong",
-		"codex/gpt-6-luna":        "standard",
-		"codex/gpt-6.1-sol":       "strong",
-		"claude/claude-haiku-5-5": "cheap",
-		"claude/claude-opus-5-5":  "strong",
-	}
-	for key, want := range classes {
-		if got := policy.Models[key]; got != want {
-			t.Errorf("class of %s = %q, want %q", key, got, want)
-		}
-	}
-	// The effort comes from the strongest route of the model; "-" stays
+	// A tier belongs to the route, not the model: the route carries the
+	// strongest tier the model served and that route's effort, "-" stays
 	// "no effort" instead of becoming a class-ladder guess.
-	efforts := map[string]string{
-		"zai/glm-5.3-flash":        "max",
-		"zai/glm-5.3":              "max",
-		"codex/gpt-6-luna":         "max",
-		"claude/claude-haiku-5-5":  "-",
-		"claude/claude-sonnet-5-5": "high",
+	routes := map[string]Route{
+		"zai/glm-5.3-flash":        {Access: "zai", Model: "glm-5.3-flash", Eff: "max", Class: "standard"},
+		"zai/glm-5.3":              {Access: "zai", Model: "glm-5.3", Eff: "max", Class: "strong"},
+		"codex/gpt-6-luna":         {Access: "codex", Model: "gpt-6-luna", Eff: "max", Class: "standard"},
+		"codex/gpt-6.1-sol":        {Access: "codex", Model: "gpt-6.1-sol", Eff: "high", Class: "strong"},
+		"claude/claude-haiku-5-5":  {Access: "claude", Model: "claude-haiku-5-5", Eff: "-", Class: "cheap"},
+		"claude/claude-sonnet-5-5": {Access: "claude", Model: "claude-sonnet-5-5", Eff: "high", Class: "standard"},
+		"claude/claude-opus-5-5":   {Access: "claude", Model: "claude-opus-5-5", Eff: "high", Class: "strong"},
 	}
-	for key, want := range efforts {
-		if got := policy.Efforts[key]; got != want {
-			t.Errorf("effort of %s = %q, want %q", key, got, want)
+	for key, want := range routes {
+		access, id, _ := splitModelKey(key)
+		got := policy.routesOf(access, id)
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("route of %s = %v, want %v", key, got, want)
 		}
 	}
 	wantRoles := map[string]string{"cheap": "cheap", "executor": "standard", "heavy": "strong", "review": "strong", "acceptance": "trusted", "replan": "trusted"}
@@ -154,8 +144,8 @@ func TestMigrateLegacyFixture(t *testing.T) {
 	if want := []string{"kimi-k3.1-pro"}; !reflect.DeepEqual(goAccess.Models, want) {
 		t.Fatalf("opencode-go models = %v, want %v", goAccess.Models, want)
 	}
-	if got := policy.Models["opencode-go/kimi-k3.1-pro"]; got != "strong" {
-		t.Fatalf("class of opencode-go/kimi-k3.1-pro = %q, want strong", got)
+	if route := policy.routesOf("opencode-go", "kimi-k3.1-pro"); len(route) != 1 || route[0] != (Route{Access: "opencode-go", Model: "kimi-k3.1-pro", Eff: "high", Class: "strong"}) {
+		t.Fatalf("route of opencode-go/kimi-k3.1-pro = %v, want high = strong", route)
 	}
 	// The local provider stays local.
 	if got := accessOf(t, policy, "strata").Kind; got != "local" {
@@ -210,10 +200,10 @@ func TestMigrateDeterministic(t *testing.T) {
 	if first != second {
 		t.Fatalf("two migrations of one roster differ:\n%s\n---\n%s", first, second)
 	}
-	// The output is not a v1 roster: migrating it again must fail instead
-	// of rewriting a v2 file as if it were the old format.
-	if _, err := Migrate(first); err == nil || !strings.Contains(err.Error(), "already version 2") {
-		t.Fatalf("Migrate(migrated) error = %v, want already version 2", err)
+	// The output is not an older roster: migrating it again must fail
+	// instead of rewriting a v3 file as if it were the old format.
+	if _, err := Migrate(first); err == nil || !strings.Contains(err.Error(), "already version 3") {
+		t.Fatalf("Migrate(migrated) error = %v, want already version 3", err)
 	}
 }
 
@@ -224,13 +214,8 @@ func TestMigrateRejectsNonV1(t *testing.T) {
 		want string
 	}{
 		{
-			name: "already version 2",
-			text: "version = 2\n\n[access.zai]\nagents = [\"pi\"]\n\n[role]\ncheap = \"cheap\"\nexecutor = \"standard\"\nheavy = \"strong\"\nreview = \"strong\"\nacceptance = \"trusted\"\nreplan = \"trusted\"\n",
-			want: "already version 2",
-		},
-		{
 			name: "unknown version",
-			text: "version = 3\nspend = [\"zai\"]\n",
+			text: "version = 4\nspend = [\"zai\"]\n",
 			want: "is not the v1 roster format",
 		},
 		{
@@ -377,8 +362,8 @@ spend = ["opencode.go"]
 	if want := []string{"kimi-k3.1-pro"}; !reflect.DeepEqual(access.Models, want) {
 		t.Fatalf("models of opencode.go = %v, want %v", access.Models, want)
 	}
-	if got := policy.Models["opencode.go/kimi-k3.1-pro"]; got != "standard" {
-		t.Fatalf("class of opencode.go/kimi-k3.1-pro = %q, want standard", got)
+	if route := policy.routesOf("opencode.go", "kimi-k3.1-pro"); len(route) != 1 || route[0].Class != "standard" {
+		t.Fatalf("route of opencode.go/kimi-k3.1-pro = %v, want class standard", route)
 	}
 	if _, ok := policy.Preset("lean.start"); !ok {
 		t.Fatalf("preset lean.start is missing; presets: %v", policy.PresetNames())
@@ -433,8 +418,8 @@ tier = "strong"
 	if err != nil {
 		t.Fatalf("the migrated roster does not parse: %v\n%s", err, migrated)
 	}
-	if got := policy.Efforts["zai/glm-5.3"]; got != "high" {
-		t.Fatalf("effort of zai/glm-5.3 = %q, want the first route's high", got)
+	if route := policy.routesOf("zai", "glm-5.3"); len(route) != 1 || route[0].Eff != "high" {
+		t.Fatalf("route of zai/glm-5.3 = %v, want the first route's high", route)
 	}
 }
 
@@ -510,11 +495,11 @@ func TestMigrateFile(t *testing.T) {
 	if _, err := ParsePolicy(path, string(data)); err != nil {
 		t.Fatalf("the written roster does not load: %v", err)
 	}
-	// A second --write is a refusal, not a rewrite of the v2 file: the
+	// A second --write is a refusal, not a rewrite of the v3 file: the
 	// roster and its backup stay as they are.
 	_, err = MigrateFile(path, true)
-	if err == nil || !strings.Contains(err.Error(), "already version 2") {
-		t.Fatalf("second MigrateFile() error = %v, want already version 2", err)
+	if err == nil || !strings.Contains(err.Error(), "already version 3") {
+		t.Fatalf("second MigrateFile() error = %v, want already version 3", err)
 	}
 	if again, _ := os.ReadFile(path); string(again) != string(data) {
 		t.Fatalf("a refused migration rewrote roster.toml")
@@ -535,7 +520,7 @@ func TestMigrateFileMissing(t *testing.T) {
 }
 
 // TestV2LoadHintsMigration: after the cutover a v1 roster is not read by
-// the v2 loader, and the error tells the user which command converts it.
+// the v3 loader, and the error tells the user which command converts it.
 func TestV2LoadHintsMigration(t *testing.T) {
 	data, err := os.ReadFile("testdata/draft-v1.toml")
 	if err != nil {
@@ -555,5 +540,158 @@ func TestV2LoadHintsMigration(t *testing.T) {
 	_, err = LoadPolicy(path)
 	if err == nil || !strings.Contains(err.Error(), "docflow roster migrate") {
 		t.Fatalf("LoadPolicy() error = %v, want the migrate hint", err)
+	}
+}
+
+// v2Policy is a v2 policy that exercises the v2→v3 conversion: classes
+// with and without pins, a "-" pin, a comment and a preset the output
+// must keep as they are.
+const v2Policy = `# A v2 policy the user hand-tuned.
+version = 2
+
+[access.zai]
+agents = ["pi"]
+budget = "lean"
+check  = true
+
+[access.codex]
+agents  = ["codex"]
+trusted = true
+
+[model."zai/glm-5.3"]
+class = "strong"
+
+[model."zai/glm-5.3-flash"]
+class = "cheap"
+
+[model."codex/gpt-6-luna"]
+class = "standard"
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "strong"
+acceptance = "trusted"
+replan     = "trusted"
+
+[effort]
+"zai/glm-5.3"       = "max"
+"zai/glm-5.3-flash" = "-"
+"codex/gpt-6-luna"  = "high"
+
+[preset.zai-first]
+order = ["zai"]
+`
+
+// TestMigrateV2: a v2 policy converts in place — the class and the pin of
+// a model become one route, everything else is kept as it is, and the
+// result loads as version 3.
+func TestMigrateV2(t *testing.T) {
+	policy := func() *Policy {
+		migrated, err := Migrate(v2Policy)
+		if err != nil {
+			t.Fatalf("Migrate() error = %v", err)
+		}
+		parsed, err := ParsePolicy("roster.toml", migrated)
+		if err != nil {
+			t.Fatalf("the migrated roster does not parse: %v\n%s", err, migrated)
+		}
+		return parsed
+	}()
+	if policy.Version != 3 {
+		t.Fatalf("version = %d, want 3", policy.Version)
+	}
+	// The pin moves into the route key; the class follows it. A comment
+	// inside the removed tables dies with them (the file is rewritten
+	// by the next save anyway); the rest of the file stays as it is.
+	routes := map[string]Route{
+		"zai/glm-5.3":       {Access: "zai", Model: "glm-5.3", Eff: "max", Class: "strong"},
+		"zai/glm-5.3-flash": {Access: "zai", Model: "glm-5.3-flash", Eff: "-", Class: "cheap"},
+		// A pin without a class takes the automatic class by the name.
+		"codex/gpt-6-luna": {Access: "codex", Model: "gpt-6-luna", Eff: "high", Class: "standard"},
+	}
+	for key, want := range routes {
+		access, id, _ := splitModelKey(key)
+		got := policy.routesOf(access, id)
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("route of %s = %v, want %v", key, got, want)
+		}
+	}
+	if _, ok := policy.Preset("zai-first"); !ok {
+		t.Fatal("preset zai-first is missing: the conversion lost the preset")
+	}
+	migrated, err := Migrate(v2Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, keep := range []string{"# A v2 policy the user hand-tuned.", "[preset.zai-first]", `budget = "lean"`} {
+		if !strings.Contains(migrated, keep) {
+			t.Errorf("the migrated text lost %q:\n%s", keep, migrated)
+		}
+	}
+	if !strings.Contains(migrated, "version = 3") || strings.Contains(migrated, "version = 2") {
+		t.Errorf("the migrated text keeps the wrong version:\n%s", migrated)
+	}
+}
+
+// TestMigrateV2ClassWithoutPin: a class without a pin takes the class
+// ladder as the route key, so the model keeps the effort v2 gave it.
+func TestMigrateV2ClassWithoutPin(t *testing.T) {
+	text := `version = 2
+
+[access.zai]
+agents = ["pi"]
+
+[model."zai/glm-flash"]
+class = "cheap"
+
+[model."zai/glm-pro"]
+class = "strong"
+
+[role]
+cheap      = "cheap"
+executor   = "standard"
+heavy      = "strong"
+review     = "strong"
+acceptance = "trusted"
+replan     = "trusted"
+`
+	policy, err := Migrate(text)
+	if err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	parsed, err := ParsePolicy("roster.toml", policy)
+	if err != nil {
+		t.Fatalf("the migrated roster does not parse: %v\n%s", err, policy)
+	}
+	if route := parsed.routesOf("zai", "glm-flash"); len(route) != 1 || route[0] != (Route{Access: "zai", Model: "glm-flash", Eff: "low", Class: "cheap"}) {
+		t.Fatalf("route of zai/glm-flash = %v, want low = cheap", route)
+	}
+	if route := parsed.routesOf("zai", "glm-pro"); len(route) != 1 || route[0] != (Route{Access: "zai", Model: "glm-pro", Eff: "high", Class: "strong"}) {
+		t.Fatalf("route of zai/glm-pro = %v, want high = strong", route)
+	}
+}
+
+// TestMigrateV2WithoutModelTables: a v2 policy that named no class at all
+// only moves its version line.
+func TestMigrateV2WithoutModelTables(t *testing.T) {
+	text := "version = 2\n\n[access.zai]\nagents = [\"pi\"]\n\n[role]\ncheap      = \"cheap\"\nexecutor   = \"standard\"\nheavy      = \"strong\"\nreview     = \"strong\"\nacceptance = \"trusted\"\nreplan     = \"trusted\"\n"
+	migrated, err := Migrate(text)
+	if err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+	if !strings.HasPrefix(migrated, "version = 3\n") || !strings.Contains(migrated, "[access.zai]") {
+		t.Fatalf("Migrate() = %q, want the version bumped and the rest kept", migrated)
+	}
+}
+
+// TestMigrateV2RejectsBrokenKeys: a model key the v3 format cannot
+// address fails the conversion instead of writing an unloadable file.
+func TestMigrateV2RejectsBrokenKeys(t *testing.T) {
+	text := "version = 2\n\n[access.zai]\nagents = [\"pi\"]\n\n[role]\ncheap      = \"cheap\"\nexecutor   = \"standard\"\nheavy      = \"strong\"\nreview     = \"strong\"\nacceptance = \"trusted\"\nreplan     = \"trusted\"\n\n[effort]\n\"glm-5.3\" = \"high\"\n"
+	err := migrateError(t, text)
+	if !strings.Contains(err.Error(), "model key") {
+		t.Fatalf("Migrate() error = %v, want the model key problem", err)
 	}
 }

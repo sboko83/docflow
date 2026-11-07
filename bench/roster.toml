@@ -1,8 +1,8 @@
-# The routes a benchmark run uses, in the v2 format. The catalog of these
+# The routes a benchmark run uses, in the v3 format. The catalog of these
 # accesses is catalog.json beside this file: a benchmark must resolve the
 # same routes on every machine, so it reads the fixture instead of a scan
 # of the developer's own roster.
-version = 2
+version = 3
 
 [access.zai]
 agents  = ["pi"]
@@ -16,17 +16,17 @@ budget  = "normal"
 trusted = true
 models  = ["gpt-6-luna", "gpt-6.1-sol"]
 
-[model."codex/gpt-6-luna"]
-class = "standard"
+[route."codex/gpt-6-luna"]
+high = "standard"
 
-[model."codex/gpt-6.1-sol"]
-class = "strong"
+[route."codex/gpt-6.1-sol"]
+high = "strong"
 
-[model."zai/glm-5.3"]
-class = "strong"
+[route."zai/glm-5.3"]
+max = "strong"
 
-[model."zai/glm-5.3-flash"]
-class = "cheap"
+[route."zai/glm-5.3-flash"]
+high = "cheap"
 
 [role]
 cheap      = "cheap"
@@ -35,9 +35,3 @@ heavy      = "strong"
 review     = "cheap"
 acceptance = "cheap"
 replan     = "trusted"
-
-[effort]
-"codex/gpt-6-luna"  = "high"
-"codex/gpt-6.1-sol" = "high"
-"zai/glm-5.3"       = "max"
-"zai/glm-5.3-flash" = "high"

@@ -46,14 +46,14 @@ agents = ["pi"]
 budget = "prefer"
 trusted = true
 
-[model."lean/m"]
-class = "strong"
+[route."lean/m"]
+high = "strong"
 
-[model."normal/m"]
-class = "strong"
+[route."normal/m"]
+high = "strong"
 
-[model."prefer/m"]
-class = "strong"
+[route."prefer/m"]
+high = "strong"
 `)
 	chains := buildChains(t, policy, nil, resolveCatalog(
 		resolveModel("lean", "m", 100000, nil),
@@ -93,11 +93,11 @@ agents = ["pi", "opencode"]
 agents = ["pi"]
 budget = "lean"
 
-[model."dual/m"]
-class = "strong"
+[route."dual/m"]
+high = "strong"
 
-[model."second/m"]
-class = "strong"
+[route."second/m"]
+high = "strong"
 `)
 		chains := buildChains(t, policy, nil, resolveCatalog(
 			resolveModel("dual", "m", 100000, nil),
@@ -116,8 +116,8 @@ class = "strong"
 [access.opencode-go]
 agents = ["opencode"]
 
-[model."opencode-go/m"]
-class = "standard"
+[route."opencode-go/m"]
+high = "standard"
 `)
 		chains := buildChains(t, policy, nil, resolveCatalog(resolveModel("opencode-go", "m", 100000, nil)))
 		routes := chains.Routes("executor")
@@ -156,8 +156,8 @@ func TestResolveChainNoFallback(t *testing.T) {
 [access.only]
 agents = ["pi"]
 
-[model."only/m"]
-class = "strong"
+[route."only/m"]
+high = "strong"
 `)
 	chains := buildChains(t, policy, nil, resolveCatalog(resolveModel("only", "m", 100000, nil)))
 	if got := len(chains.Routes("executor")); got != 1 {
@@ -179,8 +179,8 @@ agents = ["pi"]
 budget = "minimal"
 trusted = true
 
-[model."judge/m"]
-class = "strong"
+[route."judge/m"]
+high = "strong"
 `)
 	chains := buildChains(t, policy, nil, resolveCatalog(resolveModel("judge", "m", 100000, nil)))
 	if routes := chains.Routes("review"); len(routes) != 0 {
@@ -213,14 +213,14 @@ budget = "prefer"
 [access.weak]
 agents = ["pi"]
 
-[model."checker/m"]
-class = "standard"
+[route."checker/m"]
+high = "standard"
 
-[model."reviewer/m"]
-class = "standard"
+[route."reviewer/m"]
+high = "standard"
 
-[model."weak/m"]
-class = "cheap"
+[route."weak/m"]
+low = "cheap"
 `)
 	chains := buildChains(t, policy, nil, resolveCatalog(
 		resolveModel("checker", "m", 100000, nil),
@@ -280,8 +280,8 @@ func TestReviewNoReviewer(t *testing.T) {
 agents = ["pi"]
 check = true
 
-[model."checker/m"]
-class = "standard"
+[route."checker/m"]
+high = "standard"
 `)
 		assertNoReviewer(t, policy, resolveCatalog(resolveModel("checker", "m", 100000, nil)),
 			"check access checker",
@@ -301,11 +301,11 @@ check = true
 agents = ["pi"]
 budget = "off"
 
-[model."checker/m"]
-class = "standard"
+[route."checker/m"]
+high = "standard"
 
-[model."spare/m"]
-class = "standard"
+[route."spare/m"]
+high = "standard"
 `)
 		assertNoReviewer(t, policy, resolveCatalog(
 			resolveModel("checker", "m", 100000, nil),
@@ -323,11 +323,11 @@ check = true
 agents = ["pi"]
 check = true
 
-[model."first/m"]
-class = "standard"
+[route."first/m"]
+high = "standard"
 
-[model."second/m"]
-class = "standard"
+[route."second/m"]
+high = "standard"
 `)
 		assertNoReviewer(t, policy, resolveCatalog(
 			resolveModel("first", "m", 100000, nil),
@@ -345,8 +345,8 @@ func TestReviewSameAccessRefused(t *testing.T) {
 agents = ["pi"]
 check = true
 
-[model."checker/m"]
-class = "strong"
+[route."checker/m"]
+high = "strong"
 `)
 	checker := Candidate{Role: "review", Access: "checker", Agent: "pi", Model: "checker/m", Class: "strong", Budget: BudgetNormal, Check: true}
 	resolution := &Resolution{
@@ -378,14 +378,14 @@ check = true
 [access.reviewer]
 agents = ["pi"]
 
-[model."judge/m"]
-class = "strong"
+[route."judge/m"]
+high = "strong"
 
-[model."checker/m"]
-class = "standard"
+[route."checker/m"]
+high = "standard"
 
-[model."reviewer/m"]
-class = "standard"
+[route."reviewer/m"]
+high = "standard"
 `)
 	chains := buildChains(t, policy, nil, resolveCatalog(
 		resolveModel("judge", "m", 100000, nil),
@@ -412,7 +412,7 @@ class = "standard"
 // its reviewer, heavy has no route, and every incomplete chain is a
 // warning rather than a refusal.
 func TestResolveChainScenario(t *testing.T) {
-	policy, err := LoadPolicy("testdata/policy-v2.toml")
+	policy, err := LoadPolicy("testdata/policy-v3.toml")
 	if err != nil {
 		t.Fatalf("LoadPolicy() error = %v", err)
 	}

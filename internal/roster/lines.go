@@ -64,7 +64,10 @@ func scanLines(text string) *lineIndex {
 				table = strings.Join(segments, ".")
 				index.set(table, "", n+1)
 				// A dotted header [a.b.c] also answers lookups of each
-				// segment as a key of its parent table.
+				// segment as a key of its parent table, and its first
+				// segment answers as the table line itself, so an error
+				// about the keyed tables can point at their header.
+				index.set(segments[0], "", n+1)
 				for i := 1; i < len(segments); i++ {
 					index.set(strings.Join(segments[:i], "."), segments[i], n+1)
 				}

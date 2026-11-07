@@ -1,6 +1,7 @@
 package roster
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -9,8 +10,8 @@ import (
 
 // docPolicyExamples returns the full roster.toml examples of a document:
 // every toml fence that carries the version marker and the [role] table.
-// The state file example starts with version = 2 too but has no roles, so
-// it is not mistaken for a policy.
+// The state and variants examples start with version = 2 too but have no
+// roles, so they are not mistaken for a policy.
 func docPolicyExamples(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -24,7 +25,7 @@ func docPolicyExamples(t *testing.T, path string) []string {
 		if strings.HasPrefix(line, "```") {
 			if inFence {
 				block := strings.Join(current, "\n")
-				if strings.Contains(block, "version = 2") && strings.Contains(block, "[role]") {
+				if strings.Contains(block, fmt.Sprintf("version = %d", PolicyVersion)) && strings.Contains(block, "[role]") {
 					examples = append(examples, block)
 				}
 				current = nil

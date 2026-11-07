@@ -29,7 +29,7 @@ replan     = "trusted"
 // resolvePolicy parses a policy body with the standard role table.
 func resolvePolicy(t *testing.T, body string) *Policy {
 	t.Helper()
-	policy, err := ParsePolicy("roster.toml", "version = 2\n"+body+resolveRoles)
+	policy, err := ParsePolicy("roster.toml", "version = 3\n"+body+resolveRoles)
 	if err != nil {
 		t.Fatalf("ParsePolicy() error = %v", err)
 	}
@@ -100,7 +100,7 @@ func skipReason(resolution *Resolution, access, role string) (string, bool) {
 // claude and local off, codex minimal, zai lean and limited to flash,
 // opencode-go first.
 func TestResolveCandidatesScenario(t *testing.T) {
-	policy, err := LoadPolicy("testdata/policy-v2.toml")
+	policy, err := LoadPolicy("testdata/policy-v3.toml")
 	if err != nil {
 		t.Fatalf("LoadPolicy() error = %v", err)
 	}
@@ -182,14 +182,14 @@ agents = ["pi"]
 agents = ["pi"]
 budget = "prefer"
 
-[model."lean/m"]
-class = "strong"
+[route."lean/m"]
+high = "strong"
 
-[model."normal/m"]
-class = "strong"
+[route."normal/m"]
+high = "strong"
 
-[model."prefer/m"]
-class = "strong"
+[route."prefer/m"]
+high = "strong"
 `)
 	catalog := resolveCatalog(
 		resolveModel("lean", "m", 100000, nil),
@@ -217,23 +217,23 @@ func TestResolveCandidatesModelPick(t *testing.T) {
 [access.pick]
 agents = ["pi"]
 
-[model."pick/cheap"]
-class = "cheap"
+[route."pick/cheap"]
+low = "cheap"
 
-[model."pick/standard-expensive"]
-class = "standard"
+[route."pick/standard-expensive"]
+high = "standard"
 
-[model."pick/standard-cheap"]
-class = "standard"
+[route."pick/standard-cheap"]
+high = "standard"
 
-[model."pick/standard-big"]
-class = "standard"
+[route."pick/standard-big"]
+high = "standard"
 
-[model."pick/standard-unknown"]
-class = "standard"
+[route."pick/standard-unknown"]
+high = "standard"
 
-[model."pick/strong"]
-class = "strong"
+[route."pick/strong"]
+high = "strong"
 `)
 	catalog := resolveCatalog(
 		resolveModel("pick", "cheap", 100000, &Cost{Input: 0.1, Output: 0.1}),
@@ -272,11 +272,11 @@ agents = ["pi"]
 [access.unknown]
 agents = ["pi"]
 
-[model."known/strong"]
-class = "strong"
+[route."known/strong"]
+high = "strong"
 
-[model."unknown/strong"]
-class = "strong"
+[route."unknown/strong"]
+high = "strong"
 `)
 	catalog := resolveCatalog(
 		resolveModel("known", "strong", 500000, nil),
@@ -297,37 +297,54 @@ class = "strong"
 	}
 }
 
-// TestResolveCandidatesEffort pins the effort of a candidate: the [effort]
-// pin, otherwise the class ladder, snapped to the declared levels, and no
-// effort at all without reasoning.
+// TestResolveCandidatesEffort pins the effort of a candidate: the route
+// key when the policy routes the model, otherwise the class ladder of the
+// automatic class, snapped to the declared levels, and no effort at all
+// without reasoning. A case without a pin routes the model with the
+// ladder key; the cheap-ladder case leaves the model unrouted and names
+// an id the family rule classes as cheap.
 func TestResolveCandidatesEffort(t *testing.T) {
+	ladder := map[string]string{"cheap": "low", "standard": "high", "strong": "high"}
 	cases := []struct {
 		name      string
 		role      string
+		id        string // empty is "m", routed; a name is unrouted
 		class     string
 		reasoning bool
 		efforts   []string
 		pin       string
 		want      string
 	}{
-		{"class ladder high", "executor", "standard", true, []string{"low", "medium", "high", "max"}, "", "high"},
-		{"class ladder low snapped down", "cheap", "cheap", true, []string{"none", "minimal", "medium"}, "", "minimal"},
-		{"pin overrides the ladder", "executor", "standard", true, []string{"low", "medium", "high"}, "low", "low"},
-		{"pin snapped down", "executor", "standard", true, []string{"low", "medium"}, "max", "medium"},
-		{"ladder snapped up", "executor", "standard", true, []string{"xhigh", "max"}, "", "xhigh"},
-		{"pin without effort", "executor", "standard", true, []string{"high"}, "-", ""},
-		{"without reasoning", "executor", "standard", false, []string{"high"}, "", ""},
-		{"level outside the ladder stays", "executor", "standard", true, []string{"thinking"}, "", "high"},
-		{"unknown support keeps the ladder", "executor", "standard", true, nil, "", "high"},
+		{"class ladder high", "executor", "", "standard", true, []string{"low", "medium", "high", "max"}, "", "high"},
+		{"class ladder low snapped down", "cheap", "m-mini", "cheap", true, []string{"none", "minimal", "medium"}, "", "minimal"},
+		{"pin overrides the ladder", "executor", "", "standard", true, []string{"low", "medium", "high"}, "low", "low"},
+		{"pin snapped down", "executor", "", "standard", true, []string{"low", "medium"}, "max", "medium"},
+		{"ladder snapped up", "executor", "", "standard", true, []string{"xhigh", "max"}, "", "xhigh"},
+		{"pin without effort", "executor", "", "standard", true, []string{"high"}, "-", ""},
+		{"without reasoning", "executor", "", "standard", false, []string{"high"}, "", ""},
+		{"level outside the ladder stays", "executor", "", "standard", true, []string{"thinking"}, "", "high"},
+		{"unknown support keeps the ladder", "executor", "", "standard", true, nil, "", "high"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			body := fmt.Sprintf("[access.a]\nagents = [\"pi\"]\n\n[model.\"a/m\"]\nclass = %q\n", tc.class)
-			if tc.pin != "" {
-				body += fmt.Sprintf("\n[effort]\n\"a/m\" = %q\n", tc.pin)
+			id := tc.id
+			routed := id == ""
+			if id == "" {
+				id = "m"
+			}
+			var body string
+			if routed {
+				key := tc.pin
+				if key == "" {
+					key = ladder[tc.class]
+				}
+				body = fmt.Sprintf("[access.a]\nagents = [\"pi\"]\n\n[route.\"a/%s\"]\n%s = %q\n", id, key, tc.class)
+			} else {
+				// No route: the automatic class by the name serves the role.
+				body = "[access.a]\nagents = [\"pi\"]\n"
 			}
 			policy := resolvePolicy(t, body)
-			model := resolveModel("a", "m", 100000, nil)
+			model := resolveModel("a", id, 100000, nil)
 			model.Reasoning = tc.reasoning
 			model.Efforts = tc.efforts
 			resolution, err := resolveAt(policy, nil, resolveCatalog(model), resolveDay)
@@ -361,14 +378,14 @@ trusted = true
 [access.plain]
 agents = ["pi"]
 
-[model."checker/m"]
-class = "strong"
+[route."checker/m"]
+high = "strong"
 
-[model."judge/m"]
-class = "strong"
+[route."judge/m"]
+high = "strong"
 
-[model."plain/m"]
-class = "strong"
+[route."plain/m"]
+high = "strong"
 `)
 	catalog := resolveCatalog(
 		resolveModel("checker", "m", 100000, nil),
@@ -411,11 +428,11 @@ expires = "2026-06-30"
 [access.switched]
 agents = ["pi"]
 
-[model."dated/m"]
-class = "standard"
+[route."dated/m"]
+high = "standard"
 
-[model."switched/m"]
-class = "standard"
+[route."switched/m"]
+high = "standard"
 `)
 	catalog := resolveCatalog(
 		resolveModel("dated", "m", 100000, nil),
@@ -459,14 +476,14 @@ agents = ["pi"]
 [access.missing]
 agents = ["pi"]
 
-[model."refused/m"]
-class = "standard"
+[route."refused/m"]
+high = "standard"
 
-[model."undecided/m"]
-class = "standard"
+[route."undecided/m"]
+high = "standard"
 
-[model."missing/m"]
-class = "standard"
+[route."missing/m"]
+high = "standard"
 `)
 	catalog := resolveCatalog(
 		resolveModel("refused", "m", 100000, nil),
@@ -512,14 +529,14 @@ agents = ["codex"]
 [access.claude]
 agents = ["claude"]
 
-[model."dual/m"]
-class = "standard"
+[route."dual/m"]
+high = "standard"
 
-[model."codex/m"]
-class = "standard"
+[route."codex/m"]
+high = "standard"
 
-[model."claude/m"]
-class = "standard"
+[route."claude/m"]
+high = "standard"
 `)
 	catalog := resolveCatalog(
 		resolveModel("dual", "m", 100000, nil),
@@ -562,8 +579,8 @@ func TestResolveCandidatesMinimalUntrusted(t *testing.T) {
 [access.a]
 agents = ["pi"]
 
-[model."a/m"]
-class = "standard"
+[route."a/m"]
+high = "standard"
 `)
 	access, ok := policy.Access("a")
 	if !ok {
@@ -638,14 +655,14 @@ agents = ["pi"]
 models = ["a-*"]
 exclude = ["a-bad*"]
 
-[model."listed/a-good"]
-class = "standard"
+[route."listed/a-good"]
+high = "standard"
 
-[model."listed/a-bad"]
-class = "cheap"
+[route."listed/a-bad"]
+low = "cheap"
 
-[model."listed/other"]
-class = "standard"
+[route."listed/other"]
+high = "standard"
 `)
 	catalog := resolveCatalog(
 		resolveModel("listed", "a-good", 100000, nil),
@@ -695,8 +712,8 @@ func TestResolveCandidatesEmptyAllowlist(t *testing.T) {
 [access.a]
 agents = ["pi"]
 
-[model."a/m"]
-class = "standard"
+[route."a/m"]
+high = "standard"
 
 [preset.none]
 models = { a = [] }
