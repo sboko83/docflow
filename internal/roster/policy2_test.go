@@ -24,6 +24,26 @@ replan     = "trusted"
 `
 )
 
+func TestRouteSummary(t *testing.T) {
+	policy, err := LoadPolicy(filepath.Join("testdata", "policy-v3.toml"))
+	if err != nil {
+		t.Fatalf("LoadPolicy() error = %v", err)
+	}
+	// The TUI model list prints this summary; it must name the route the
+	// way the file declares it: "effort→class".
+	if got, want := policy.RouteSummary("zai", "glm-5.3-flash"), "low→cheap"; got != want {
+		t.Errorf("RouteSummary(zai, glm-5.3-flash) = %q, want %q", got, want)
+	}
+	if got, want := policy.RouteSummary("opencode-go", "deepseek-v4.1"), "high→standard"; got != want {
+		t.Errorf("RouteSummary(opencode-go, deepseek-v4.1) = %q, want %q", got, want)
+	}
+	// A model without routes renders empty: its class and effort are the
+	// resolver's automatic choice.
+	if got := policy.RouteSummary("local", "swift-1.5-iq3_s"); got != "" {
+		t.Errorf("RouteSummary(local, swift-1.5-iq3_s) = %q, want empty", got)
+	}
+}
+
 func TestPolicyV3Fixture(t *testing.T) {
 	policy, err := LoadPolicy(filepath.Join("testdata", "policy-v3.toml"))
 	if err != nil {
