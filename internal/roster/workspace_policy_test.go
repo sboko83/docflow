@@ -402,3 +402,43 @@ func TestVariantOperations(t *testing.T) {
 		t.Fatalf("SetVariantBudget(policy preset) = %v, want a refusal", err)
 	}
 }
+
+// TestAddAccessRefusesBadName: a name the CLI flags cannot address is an
+// error, not a panic — AddAccess validates the name on the model, where
+// no line index exists.
+func TestAddAccessRefusesBadName(t *testing.T) {
+	workspace := workspacePolicyWorkspace(t)
+	err := workspace.AddAccess("bad/name", "", []string{"pi"})
+	if err == nil || !strings.Contains(err.Error(), "must not contain") {
+		t.Fatalf("AddAccess(bad/name) = %v, want a name error", err)
+	}
+	if reloaded := reloadWorkspace(t, workspace); reloaded.Missing || reloaded.Legacy {
+		t.Fatalf("the refused AddAccess changed the roster: missing %t legacy %t", reloaded.Missing, reloaded.Legacy)
+	}
+}
+
+// TestSetVariantBudgetRefusesMinimalUntrusted: a minimal budget on an
+// access that is not trusted is refused before the variants file is
+// written, because the loader refuses such a preset and the roster would
+// not load again.
+func TestSetVariantBudgetRefusesMinimalUntrusted(t *testing.T) {
+	workspace := workspacePolicyWorkspace(t)
+	if err := workspace.CreateVariant("guarded", false, ""); err != nil {
+		t.Fatalf("CreateVariant() error = %v", err)
+	}
+	err := workspace.SetVariantBudget("guarded", "zai", BudgetMinimal)
+	if err == nil || !strings.Contains(err.Error(), "minimal requires trusted") {
+		t.Fatalf("SetVariantBudget(minimal on zai) = %v, want a trusted error", err)
+	}
+	reloaded := reloadWorkspace(t, workspace)
+	if variant, ok := reloaded.Policy.Preset("guarded"); ok && contains(variant.Minimal, "zai") {
+		t.Fatalf("the refused budget was written: %+v", variant)
+	}
+	// The same budget on a trusted access stays writable.
+	if err := workspace.SetVariantBudget("guarded", "codex", BudgetMinimal); err != nil {
+		t.Fatalf("SetVariantBudget(minimal on codex) error = %v", err)
+	}
+	if variant, _ := reloadWorkspace(t, workspace).Policy.Preset("guarded"); !contains(variant.Minimal, "codex") {
+		t.Fatalf("variant guarded = %+v, want codex at minimal", variant)
+	}
+}

@@ -129,9 +129,13 @@
     return ((ws.catalog_models || {})[a.id] || []).map(function(m){ return m.id; });
   }
 
+  // autoClass mirrors the resolver's familyClass: the id splits into
+  // words, strong markers win, everything else is standard.
   function autoClass(id){
-    if (/(^|[.\-_])(flash|mini|lite|haiku|nano)([.\-_]|$)/.test(id)) return 'cheap';
-    if (/(pro|sol|opus|ultra)/.test(id)) return 'strong';
+    var words = String(id).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    var has = function(names){ for (var i=0;i<names.length;i++) if (words.indexOf(names[i]) >= 0) return true; return false; };
+    if (has(['pro','sol','opus'])) return 'strong';
+    if (has(['flash','mini','lite'])) return 'cheap';
     return 'standard';
   }
   function fmtCtx(n){ return n >= 1000000 ? (Math.round(n/100000)/10).toString().replace('.0','') + 'M' : Math.round(n/1000)+'k'; }
@@ -267,17 +271,22 @@
           var cat = catalogModel(a.id, m.id);
           var effs = effortsOf(a.id, m.id);
           var routes = m.routes.map(function(r, ri){
+            var key = r.eff === null ? '-' : r.eff;
             var effSel;
             if (effs.length) {
-              effSel = '<select class="rw-sel" data-reff="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(r.eff === null ? '-' : r.eff) + '" aria-label="Ризонинг">' +
-                effs.map(function(e){ return '<option value="' + e + '"' + (r.eff===e ? ' selected' : '') + '>' + e + '</option>'; }).join('') + '</select>';
+              var opts = [];
+              if (effs.indexOf(key) < 0) {
+                opts.push('<option value="' + esc(key) + '" selected>' + (key === '-' ? 'без усилия' : esc(key)) + '</option>');
+              }
+              opts = opts.concat(effs.map(function(e){ return '<option value="' + e + '"' + (r.eff===e ? ' selected' : '') + '>' + e + '</option>'; }));
+              effSel = '<select class="rw-sel" data-reff="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(key) + '" aria-label="Ризонинг">' + opts.join('') + '</select>';
             } else {
               effSel = '<span class="rw-arrow">без усилия</span>';
             }
-            var clsSel = '<select class="rw-sel cls-' + r.cls + '" data-rcls="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(r.eff === null ? '-' : r.eff) + '" aria-label="Класс">' +
+            var clsSel = '<select class="rw-sel cls-' + r.cls + '" data-rcls="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(key) + '" aria-label="Класс">' +
               ['cheap','standard','strong'].map(function(c){ return '<option value="' + c + '"' + (r.cls===c ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select>';
             return '<div class="rw-route2">' + effSel + '<span class="rw-arrow">→</span>' + clsSel +
-              '<button type="button" class="rw-rx" data-rdel="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(r.eff === null ? '-' : r.eff) + '" aria-label="Убрать уровень">×</button></div>';
+              '<button type="button" class="rw-rx" data-rdel="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(key) + '" aria-label="Убрать уровень">×</button></div>';
           }).join('');
           var unused = effs.filter(function(e){ return !m.routes.some(function(r){ return r.eff === e; }); });
           var addBtn = effs.length

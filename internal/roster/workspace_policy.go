@@ -527,6 +527,8 @@ func (w *Workspace) RenameVariant(oldName, newName string) error {
 // SetVariantBudget puts an access of a machine-owned variant on a budget
 // level, or, with an empty level, lifts the condition: a preset carries
 // only the deviations from normal, so normal is expressed by clearing.
+// A minimal budget on an access that is not trusted is refused, because
+// the loader refuses such a preset — writing it would break the next load.
 func (w *Workspace) SetVariantBudget(name, access, level string) error {
 	return w.editNamedPreset(name, func(entry *Preset) error {
 		if _, ok := w.Policy.Access(access); !ok {
@@ -539,6 +541,12 @@ func (w *Workspace) SetVariantBudget(name, access, level string) error {
 			}
 			return nil
 		case BudgetPrefer, BudgetLean, BudgetMinimal, BudgetOff:
+			if level == BudgetMinimal {
+				policyAccess, _ := w.Policy.Access(access)
+				if !policyAccess.Trusted {
+					return clierrors.DocflowError{Message: fmt.Sprintf("docflow: variant %s: access %s: budget minimal requires trusted = true, minimal serves only acceptance and replan", name, access), Code: clierrors.EXIT_FORMAT}
+				}
+			}
 			for _, list := range []*[]string{&entry.Off, &entry.Lean, &entry.Minimal, &entry.Prefer} {
 				*list = removeItem(*list, access)
 			}

@@ -546,7 +546,9 @@ func parsePresetSection(policy *Policy, path string, index *lineIndex, name stri
 // hasLegacyTables reports whether the parsed document has a top-level key
 // only the v1 roster has: spend, provider, route or profile. The v1 file
 // has no version key, so its absence alone does not tell a broken v2 file
-// from an old roster; these tables do.
+// from an old roster; these tables do. A v3 policy shares the [route]
+// table with v1 — it passes the version check and never reaches this
+// test, and legacyRosterFile excludes a declared version 2 or 3.
 func hasLegacyTables(root map[string]any) bool {
 	for _, key := range []string{"spend", "provider", "route", "profile"} {
 		if _, ok := root[key]; ok {

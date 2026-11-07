@@ -103,7 +103,11 @@ func (index *lineIndex) set(table, key string, line int) {
 
 // line returns the 1-based line of a key inside a table, or 0 when the
 // scan has no entry (exotic syntax); callers fall back to the file head.
+// A nil index (an error raised on the model, not on the text) reads as 0.
 func (index *lineIndex) line(table, key string) int {
+	if index == nil {
+		return 0
+	}
 	return index.lines[table+"|"+key]
 }
 

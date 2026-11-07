@@ -904,3 +904,22 @@ func TestWorkspaceExplainAndApplyPlan(t *testing.T) {
 		t.Fatalf("ApplyPlan() error code = %v, want %d", err, clierrors.EXIT_ORDER)
 	}
 }
+
+// TestLoadWorkspaceBrokenPolicyIsNotLegacy: a v3 roster whose load fails —
+// here a variants preset with minimal on an untrusted access — returns the
+// real error. The [route] table the v1 format also declares must not turn
+// the failure into the migration hint of a version 1 roster.
+func TestLoadWorkspaceBrokenPolicyIsNotLegacy(t *testing.T) {
+	rosterPath := workspacePolicy(t)
+	writeRosterFile(t, VariantsPath(rosterPath), "version = 2\n\n[preset.broken]\nminimal = [\"zai\"]\n")
+	_, err := LoadWorkspace(rosterPath, "")
+	if err == nil {
+		t.Fatal("LoadWorkspace accepted a variants preset the loader refuses")
+	}
+	if !strings.Contains(err.Error(), "minimal access 'zai' is not trusted") {
+		t.Fatalf("error = %v, want the real parse problem", err)
+	}
+	if strings.Contains(err.Error(), "migrate") {
+		t.Fatalf("error = %v, want no migration hint for a versioned policy", err)
+	}
+}

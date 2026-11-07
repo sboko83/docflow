@@ -294,6 +294,9 @@ func loadWorkspace(rosterPath, root string) (*Workspace, error) {
 // legacyRosterFile reports whether the file at path is a version 1 roster:
 // it has a top-level table only the old format declared, and a loader
 // error about a file like that is the migration hint, not a broken policy.
+// A file that declares version 2 or 3 is a policy — the v1 tables it may
+// share ([route] names a v3 table too) never turn its own load error into
+// a migration hint.
 func legacyRosterFile(path string) bool {
 	text, err := os.ReadFile(path)
 	if err != nil {
@@ -301,6 +304,9 @@ func legacyRosterFile(path string) bool {
 	}
 	root, err := agents.ParseTOML(string(text))
 	if err != nil {
+		return false
+	}
+	if version, ok := root["version"].(int64); ok && version >= 2 {
 		return false
 	}
 	return hasLegacyTables(root)
