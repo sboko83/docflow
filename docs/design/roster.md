@@ -190,6 +190,7 @@ models  = { zai = ["*flash*"] }  # пустой список — ни одной
 
 ### Варианты `roster.variants.toml`
 
+Слои вариантов введены [P058](../archive/P058-tui-workspace.md).
 Пресет варианта — тот же `[preset.NAME]`, что и в политике, но в
 отдельном файле: глобальный `roster.variants.toml` лежит рядом с
 `roster.toml`, проектный — `docs/roster.variants.toml` от корня checkout.
