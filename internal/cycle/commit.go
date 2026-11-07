@@ -377,19 +377,27 @@ func traceCommit(root string, args []string, stdin []byte, feedStdin bool) (comm
 		}
 	}
 	env = append(env, "GIT_TRACE2_EVENT="+tracePath)
-	command := exec.Command("git", append([]string{"commit", "-q"}, args...)...)
-	command.Dir = root
-	command.Env = env
-	if feedStdin {
-		command.Stdin = bytes.NewReader(stdin)
-	} else {
-		// Python inherits stdin when no input was supplied.
-		command.Stdin = os.Stdin
-	}
-	var stdout, stderr bytes.Buffer
-	command.Stdout, command.Stderr = &stdout, &stderr
-	err = command.Run()
-	result := commandOutput{stdout: stdout.Bytes(), stderr: stderr.Bytes(), code: commandExitCode(err)}
+	var result commandOutput
+	// An editor polling git status can hold index.lock for a moment; the
+	// refused commit changed nothing and is repeated. Each attempt starts a
+	// fresh trace, so the hook events are those of the last attempt.
+	gitx.RetryIndexLock(func() ([]byte, bool) {
+		_ = os.Remove(tracePath)
+		command := exec.Command("git", append([]string{"commit", "-q"}, args...)...)
+		command.Dir = root
+		command.Env = env
+		if feedStdin {
+			command.Stdin = bytes.NewReader(stdin)
+		} else {
+			// Python inherits stdin when no input was supplied.
+			command.Stdin = os.Stdin
+		}
+		var stdout, stderr bytes.Buffer
+		command.Stdout, command.Stderr = &stdout, &stderr
+		runErr := command.Run()
+		result = commandOutput{stdout: stdout.Bytes(), stderr: stderr.Bytes(), code: commandExitCode(runErr)}
+		return result.stderr, result.code != 0
+	})
 	content, err := os.ReadFile(tracePath)
 	if os.IsNotExist(err) {
 		return result, nil, nil

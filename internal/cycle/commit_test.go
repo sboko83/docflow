@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"bsv-docflow/internal/format"
 )
@@ -390,5 +391,29 @@ func TestDiffHeaderPath(t *testing.T) {
 		if got := diffHeaderPath(header); got != want {
 			t.Errorf("diffHeaderPath(%q) = %q, want %q", header, got, want)
 		}
+	}
+}
+
+// TestCommitWaitsForAHeldIndexLock: an editor polling git status holds
+// index.lock for a moment while the runner commits a unit; the commit is
+// repeated instead of stopping the run on commit-pending.
+func TestCommitWaitsForAHeldIndexLock(t *testing.T) {
+	root := makeCommitProject(t, commitPlan("!"), map[string]string{"a.py": "print(1)\n"})
+	writeCycleFile(t, root, "a.py", "print(2)\n")
+	gitCycle(t, root, "add", "a.py")
+	lock := filepath.Join(root, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_ = os.Remove(lock)
+	}()
+	result, _, err := traceCommit(root, []string{"-m", "P001.1.1: locked"}, nil, false)
+	if err != nil || result.code != 0 {
+		t.Fatalf("commit under a held lock = %d %s, %v", result.code, result.stderr, err)
+	}
+	if got := strings.TrimSpace(gitCycle(t, root, "log", "-1", "--format=%s")); got != "P001.1.1: locked" {
+		t.Fatalf("commit subject = %q", got)
 	}
 }

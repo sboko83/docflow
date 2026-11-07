@@ -10,10 +10,20 @@ import (
 
 // Git returns the stdout of a Git command run in root. It preserves the
 // command's bytes and matches the CLI's shared error format on failure.
+// A command refused because another Git process holds index.lock is
+// repeated for a few seconds (RetryIndexLock).
 func Git(root string, args ...string) ([]byte, error) {
-	command := exec.Command("git", args...)
-	command.Dir = root
-	output, err := command.Output()
+	var output []byte
+	var err error
+	RetryIndexLock(func() ([]byte, bool) {
+		command := exec.Command("git", args...)
+		command.Dir = root
+		output, err = command.Output()
+		if exit, ok := err.(*exec.ExitError); ok {
+			return exit.Stderr, true
+		}
+		return nil, err != nil
+	})
 	if err == nil {
 		return output, nil
 	}
