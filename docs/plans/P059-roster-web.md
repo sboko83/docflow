@@ -313,7 +313,7 @@ Handoff:
 - reviewed 7611db8..HEAD: static has no external refs (CDN, lucide, window.zcode), web imports only internal/roster + stdlib directly, go.mod untouched, TUI diff is empty, op dispatch matches the P059.1.3 names one-to-one
 - observation: the transitive dep closure of the web package reaches cycle/format/lint through roster itself — pre-existing shape of roster, not a new edge
 
-### [ ] P059.2.4 Приёмка: веб-редактор на живой политике
+### [x] P059.2.4 Приёмка: веб-редактор на живой политике
 
 Read:
 - docs/plans/P059-roster-web.md
@@ -343,3 +343,7 @@ Depends: P059.1.1, P059.1.2, P059.1.3, P059.1.4, P059.2.1, P059.2.2, P059.2.3
 Role: acceptance
 
 Commit: P059.2.4: accept roster web editor end to end
+Handoff:
+- acceptance scenario lives in TestRosterWebAcceptance (cmd/docflow): live-shaped v2 copy → migrate --write → web ops (AddAccessModel, SetRouteClass low→cheap, AddRouteLevel, SetRouteEffort medium→high, SetRouteClass high→standard, CreateVariant) → roster brief resolves deepseek@low in cheap and @high in executor; bash tools/accept-roster-web.sh runs the same against a copy of the real live roster (ran here, PASS)
+- context-audit start-reads row stays red as before P059 (pre-existing README size at 200 plans); the README web mentions add ~18 tokens to that row — trimmed to the minimum honest phrasing
+- the live catalog cache was nearly empty during the script run (accesses: [], one model): the script uses the scenario fixture for reproducibility

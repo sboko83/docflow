@@ -36,7 +36,8 @@ state in the repository instead of the agent's memory.
   metadata, `roster brief` turns "codex minimal", "local off", "zai only
   flash" into a chain per role, a read budget and the reason behind the
   choice, and `roster apply` writes the plan header
-  ([details](docs/usage.md#автозапуск), in Russian).
+  ([details](docs/usage.md#автозапуск), in Russian); `roster web` edits
+  the same roster from a browser.
 - **Or do everything in a terminal.** `docflow tui` is a four-screen
   workspace: Проект keeps the queue, plans, Backlog and project settings;
   Ростер edits accesses, conditions and variants and writes a plan header;

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The roster policy is version 3: the class of a model belongs to the pair
+  of a model and a reasoning effort, so one key
+  `[route."ACCESS/MODEL"]` with `effort = class` pairs replaces the
+  `[model]` classes and the `[effort]` pins of version 2. A v1 roster and
+  a v2 policy are converted by `docflow roster migrate`; every other
+  roster command refuses an older file with that hint. Chains of the brief
+  and the plan header name the route as `access/model@effort`.
+- `docflow roster web` serves a browser editor for the roster on
+  127.0.0.1: access cards with their routes, the role matrix, the model
+  and access pickers from the scan catalog, variants with budgets, order
+  and model narrowing, and a file panel. It writes roster.toml (atomic
+  full rewrite, hand comments are not preserved) and the variants files;
+  conditions stay with `roster off/on/...`, and `docflow tui` keeps
+  reading the same files.
+
 ### Fixed
 - `docflow run` and `docflow prompt` no longer stop the first unit on the
   uncommitted traces of `docflow activate` (the plan's `status: active`
