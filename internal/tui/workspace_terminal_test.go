@@ -242,7 +242,10 @@ func TestWorkspaceTerminalRunHistory(t *testing.T) {
 	ui.send("\x1b")
 	ui.send("3")
 	ui.send("p")
-	workspaceScreen(t, ui, "paused", "")
+	// "paused" reaches the stream (unit_end paused) before the host has
+	// stopped; R before that is refused as "a run is already active". The
+	// notice below is set only once the paused run has finished.
+	workspaceScreen(t, ui, "Resume continues the interrupted unit", "")
 	cp, err := runner.ReadCheckpoint(f.root)
 	if err != nil || cp.Session != "workspace-session" || cp.Stage != "agent" {
 		t.Fatalf("paused checkpoint = %+v, %v", cp, err)
