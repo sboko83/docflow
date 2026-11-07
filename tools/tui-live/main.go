@@ -600,6 +600,12 @@ func runScenario(opts *options, spec scenarioSpec, checkout, bin string) (rec sc
 	rec.Pause.LockReleased = true
 	transition("agent_stopped")
 
+	// The lock is released before the workspace publishes the finished
+	// pause; R before that is refused as "a run is already active", and
+	// nothing resumes. The notice below is set only after the pause ends.
+	if err := term.WaitFor("Resume continues the interrupted unit", opts.startTimeout); err != nil {
+		return rec, fmt.Errorf("pause did not finish: %w", err)
+	}
 	// Resume the paused call, then ask the runner to stop after that unit.
 	term.Send("R")
 	stopped := false
