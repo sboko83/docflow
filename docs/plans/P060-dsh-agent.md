@@ -140,7 +140,7 @@ Handoff:
 - У dsh нет флагов модели и усилия: блок без model_args/effort_args; instructions нужны только если auto остаётся песочницей — по решению спайка auto=full=danger-full-access, instructions пустые.
 - Limit-regex по живому отказу не снят (лимит подписки не воспроизвести); брать 'rate limit|429|RATE_LIMIT|quota' как предположение.
 
-### [ ] P060.1.2 Review phase 1
+### [x] P060.1.2 Review phase 1
 Read:
 - internal/agentio/testdata/dsh.jsonl
 - internal/agents/agents.go:L40-170
@@ -152,6 +152,11 @@ Verify: `go test -short -timeout 20m ./...`
 Depends: P060.1.1
 Role: review
 Commit: P060.1.2: review dsh spike phase
+Handoff:
+- Review: нарушений Constraints/Traps и регресса нет; фикстуры без личных путей и значений ключей (в dsh-auth.jsonl только маска '****alue' фиктивного ключа).
+- Trap плана про зависание '--approval-policy ask' спайк опроверг для headless (отказ 'no approval channel'); в cmd всё равно 'never' — поведение одинаковое, never явнее.
+- Транскрипт resume в testdata не сохранён — контракт записан в Decisions; P060.2.1 при нужде тестирует resume через fake_agent.sh.
+- Unverified: сеть (HTTPS) и запись в кэш go-build под danger-full-access не проверены живьём (прогон с сетью остановил классификатор сессии); закрывает приёмка P060.3.1 на реальном dsh.
 
 ## Phase 2: Парсер и конфиг
 
