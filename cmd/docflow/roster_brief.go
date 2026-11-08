@@ -126,29 +126,20 @@ func rosterConditionPolicy(parsed *parsedArgs) (*roster.Policy, *roster.State, e
 }
 
 // applyBriefFlags merges the one-shot condition flags into the state:
-// --preset, the budget levels, --off, --expires and --only. Brief, show,
+// --preset, --off and --expires. Brief, show,
 // explain and apply share the overlay; the lists take comma-separated
 // accesses, so one flag can name several.
 func applyBriefFlags(parsed *parsedArgs, state *roster.State) error {
 	if preset := rosterString(parsed, "--preset"); preset != "" {
 		state.Preset = preset
 	}
-	for _, flag := range []string{"--off", "--minimal", "--lean", "--prefer"} {
-		level := strings.TrimPrefix(flag, "--")
-		for _, value := range briefFlagValues(parsed, flag) {
-			for _, access := range splitBriefList(value) {
-				if access == "" {
-					return briefFlagError(flag, "ACCESS[,ACCESS...]")
-				}
-				if flag == "--off" {
-					// An open-ended off, the same a bare `roster off` writes.
-					state.SetOff(access, time.Time{})
-					continue
-				}
-				if err := state.SetBudget(access, level); err != nil {
-					return err
-				}
+	for _, value := range briefFlagValues(parsed, "--off") {
+		for _, access := range splitBriefList(value) {
+			if access == "" {
+				return briefFlagError("--off", "ACCESS[,ACCESS...]")
 			}
+			// An open-ended off, the same a bare `roster off` writes.
+			state.SetOff(access, time.Time{})
 		}
 	}
 	for _, value := range briefFlagValues(parsed, "--expires") {
@@ -164,17 +155,6 @@ func applyBriefFlags(parsed *parsedArgs, state *roster.State) error {
 			state.SetExpires(access, when)
 		}
 	}
-	for _, value := range briefFlagValues(parsed, "--only") {
-		for _, entry := range splitBriefList(value) {
-			access, glob, ok := strings.Cut(entry, "=")
-			if !ok || access == "" || glob == "" {
-				return briefFlagError("--only", "ACCESS=GLOB")
-			}
-			if err := state.Allow(access, []string{glob}); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -185,7 +165,7 @@ func briefFlagNames(parsed *parsedArgs) []string {
 	if rosterString(parsed, "--preset") != "" {
 		names = append(names, "--preset")
 	}
-	for _, flag := range []string{"--off", "--minimal", "--lean", "--prefer", "--expires", "--only"} {
+	for _, flag := range []string{"--off", "--expires"} {
 		if len(briefFlagValues(parsed, flag)) > 0 {
 			names = append(names, flag)
 		}

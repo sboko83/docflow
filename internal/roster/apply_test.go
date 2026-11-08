@@ -87,21 +87,29 @@ func wantApplyError(t *testing.T, err error, code int, text string) {
 	}
 }
 
-// applyScenario loads the v2 fixture with the expiry pushed past the test
+// applyScenario loads the v4 fixture with the expiry pushed past the test
 // clock, the low preset in memory and the scenario catalog. The policy
 // file is never the personal roster.
 func applyScenario(t *testing.T) (*Policy, *State, *Catalog) {
 	t.Helper()
-	data, err := os.ReadFile("testdata/policy-v3.toml")
+	data, err := os.ReadFile("testdata/policy.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := strings.Replace(string(data), `expires = "2026-06-30"`, `expires = "2099-01-01"`, 1)
 	if text == string(data) {
-		t.Fatal("policy-v3.toml no longer names the zai expiry the test patches")
+		t.Fatal("policy.toml no longer names the zai expiry the test patches")
 	}
-	path := filepath.Join(t.TempDir(), "roster.toml")
+	variants, err := os.ReadFile("testdata/policy.variants.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "roster.toml")
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "roster.variants.toml"), variants, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	policy, err := LoadPolicy(path)
@@ -308,7 +316,7 @@ func TestApplyWarnings(t *testing.T) {
 	policy, state, catalog := applyScenario(t)
 	plan := strings.Replace(applyPlan(), "Executor: pi | zai/glm-5.3-flash | low", "Executor: claude | claude-opus-5-5 | high", 1)
 	root := applyProject(t, plan)
-	if err := os.WriteFile(filepath.Join(root, "big.txt"), []byte(strings.Repeat("x", 700000)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "big.txt"), []byte(strings.Repeat("x", 900000)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	plan = strings.Replace(plan, "### [ ] P040.1.2 Second unit\nRead:\n- a.py", "### [ ] P040.1.2 Second unit\nRead:\n- big.txt", 1)
@@ -324,7 +332,7 @@ func TestApplyWarnings(t *testing.T) {
 	}
 	for _, want := range []string{
 		"unit P040.1.1: Executor: claude | claude-opus-5-5 | high is outside the current conditions: access claude is off",
-		"unit P040.1.2: Read: proxy ~175000 tokens > cheap budget 152371",
+		"unit P040.1.2: Read: proxy ~225000 tokens > cheap budget 203162",
 		"no fallback for executor",
 	} {
 		if !strings.Contains(result.Stderr, want) {
@@ -432,9 +440,6 @@ func TestApplyRefusesEmptyChain(t *testing.T) {
 	t.Run("role", func(t *testing.T) {
 		policy, state, catalog := applyScenario(t)
 		state.SetOff("zai", time.Time{})
-		if err := state.Allow("opencode-go", []string{"deepseek-v4.1"}); err != nil {
-			t.Fatal(err)
-		}
 		heavy := "### [ ] P040.1.5 Heavy unit\nRead:\n- a.py\nDo:\n- work\nVerify: `true`\nRole: heavy\nCommit: P040.1.5: heavy\n\n"
 		plan := strings.Replace(applyPlan(), "### [x] P040.1.4 Done unit", heavy+"### [x] P040.1.4 Done unit", 1)
 		root := applyProject(t, plan)

@@ -7,11 +7,11 @@ import (
 
 // TestContextBudgetScenario pins the arithmetic on the acceptance
 // scenario: one million tokens of context, a 128k output limit, a reserve
-// of ten percent, the executor and cheap shares and class factors. The
+// of ten percent, the executor and cheap shares. The
 // unmatched value 284426 shows the clamp works, not that the formula
 // returned the target.
 func TestContextBudgetScenario(t *testing.T) {
-	route := Candidate{Access: "opencode-go", ID: "deepseek-v4.1", Class: "standard", Context: 1048576, MaxOut: 131072}
+	route := Candidate{Access: "opencode-go", ID: "deepseek-v4.1", Context: 1048576, MaxOut: 131072}
 	executor := unitBudget("executor", route)
 	if executor == nil {
 		t.Fatal("unitBudget(executor) = nil, want a budget")
@@ -26,10 +26,10 @@ func TestContextBudgetScenario(t *testing.T) {
 		t.Errorf("executor target = %d, want the ceiling %d", executor.Target, MaxReadBudget)
 	}
 
-	cheapRoute := Candidate{Access: "opencode-go", ID: "deepseek-v4.1-flash", Class: "cheap", Context: 1048576, MaxOut: 131072}
+	cheapRoute := Candidate{Access: "opencode-go", ID: "deepseek-v4.1-flash", Context: 1048576, MaxOut: 131072}
 	cheap := unitBudget("cheap", cheapRoute)
-	if cheap.Target != 152371 {
-		t.Errorf("cheap target = %d, want 152371", cheap.Target)
+	if cheap.Target != 203162 {
+		t.Errorf("cheap target = %d, want 203162", cheap.Target)
 	}
 	if cheap.Route != "opencode-go/deepseek-v4.1-flash" {
 		t.Errorf("cheap route = %q, want the access and the model id", cheap.Route)
@@ -39,7 +39,7 @@ func TestContextBudgetScenario(t *testing.T) {
 // TestContextClamp keeps the recommendation inside its bounds whatever
 // the window: the floor on a small context, the ceiling on a huge one.
 func TestContextClamp(t *testing.T) {
-	small := unitBudget("cheap", Candidate{Access: "a", ID: "m", Class: "cheap", Context: 100000, MaxOut: 1000})
+	small := unitBudget("cheap", Candidate{Access: "a", ID: "m", Context: 100000, MaxOut: 1000})
 	if small.Reserve != MinReserve {
 		t.Errorf("reserve of a small context = %d, want the minimum %d", small.Reserve, MinReserve)
 	}
@@ -50,7 +50,7 @@ func TestContextClamp(t *testing.T) {
 		t.Errorf("target of a small context = %d, want the floor %d", small.Target, MinReadBudget)
 	}
 
-	huge := unitBudget("heavy", Candidate{Access: "a", ID: "m", Class: "strong", Context: 2000000, MaxOut: 100000})
+	huge := unitBudget("heavy", Candidate{Access: "a", ID: "m", Context: 2000000, MaxOut: 100000})
 	if huge.Target != MaxReadBudget {
 		t.Errorf("target of a huge context = %d, want the ceiling %d", huge.Target, MaxReadBudget)
 	}
@@ -60,7 +60,7 @@ func TestContextClamp(t *testing.T) {
 // context prints as unknown, never as a guessed number, and no share is
 // applied to it.
 func TestContextUnknown(t *testing.T) {
-	budget := unitBudget("executor", Candidate{Access: "a", ID: "m", Class: "standard"})
+	budget := unitBudget("executor", Candidate{Access: "a", ID: "m"})
 	if budget == nil {
 		t.Fatal("unitBudget() = nil, want a budget saying unknown")
 	}
@@ -75,7 +75,7 @@ func TestContextUnknown(t *testing.T) {
 // TestContextNoUsable pins the second unknown case: a window that the
 // output limit and the reserve consume leaves nothing to read.
 func TestContextNoUsable(t *testing.T) {
-	budget := unitBudget("executor", Candidate{Access: "a", ID: "m", Class: "standard", Context: 40000, MaxOut: 30000})
+	budget := unitBudget("executor", Candidate{Access: "a", ID: "m", Context: 40000, MaxOut: 30000})
 	if budget.Reserve != MinReserve {
 		t.Errorf("reserve = %d, want the minimum %d", budget.Reserve, MinReserve)
 	}
@@ -93,7 +93,7 @@ func TestContextNoUsable(t *testing.T) {
 // TestContextUnknownMaxOut pins the tolerance of a missing output limit:
 // it counts as zero and the explanation says so instead of hiding it.
 func TestContextUnknownMaxOut(t *testing.T) {
-	budget := unitBudget("executor", Candidate{Access: "a", ID: "m", Class: "standard", Context: 500000})
+	budget := unitBudget("executor", Candidate{Access: "a", ID: "m", Context: 500000})
 	if budget.Usable != 450000 {
 		t.Errorf("usable = %d, want 450000 = 500000 - 0 - 50000", budget.Usable)
 	}
@@ -108,7 +108,7 @@ func TestContextUnknownMaxOut(t *testing.T) {
 // TestContextJudgeRoles pins the scope rule: review, acceptance and replan
 // judge a diff and the tests, so they get no read budget at all.
 func TestContextJudgeRoles(t *testing.T) {
-	route := Candidate{Access: "a", ID: "m", Class: "strong", Context: 500000, MaxOut: 100000}
+	route := Candidate{Access: "a", ID: "m", Context: 500000, MaxOut: 100000}
 	for _, role := range []string{"review", "acceptance", "replan"} {
 		if budget := unitBudget(role, route); budget != nil {
 			t.Errorf("unitBudget(%s) = %+v, want no read budget for a judge role", role, budget)

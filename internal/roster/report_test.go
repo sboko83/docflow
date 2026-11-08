@@ -28,8 +28,7 @@ func TestRosterAccessNames(t *testing.T) {
 	t.Run("policy file order", func(t *testing.T) {
 		path := writeRosterText(t, policyHeader+
 			"[access.zai]\nagents = [\"pi\"]\n\n[access.codex]\nagents = [\"codex\"]\n\n"+
-			"[access.\"opencode-go\"]\nagents = [\"pi\", \"opencode\"]\n\n[access.local]\nagents = [\"pi\"]\nkind = \"local\"\n\n"+
-			policyRoles)
+			"[access.\"opencode-go\"]\nagents = [\"pi\", \"opencode\"]\n\n[access.local]\nagents = [\"pi\"]\nkind = \"local\"\n")
 		names, err := RosterAccessNames(path)
 		if err != nil {
 			t.Fatalf("RosterAccessNames() error = %v", err)

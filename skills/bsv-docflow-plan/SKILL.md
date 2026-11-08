@@ -58,15 +58,15 @@ unless asked.
 One block, not drip-fed, nothing assigned on the user's behalf; a choice
 already stated is recorded mechanically and not asked again.
 
-- Conditions and budget: ask which temporary limits apply and whether a
-  preset applies — not which model goes to which role. Translate the answer
-  into flags: «локальные недоступны» `--off local`; «codex по минимуму»
-  `--minimal codex` (acceptance and replan only); `--lean A,B` drops heavy,
-  acceptance and replan; `--prefer A,B` puts an access first; «zai до
-  четверга» `--expires zai=DATE`; «zai только flash» `--only zai=*flash*`.
-  Show the resolved conditions and chains (`roster brief` with the flags)
-  before writing units, pass the same flags to `roster apply`. A condition
-  that outlives the plan is a `roster off|budget|expire|allow|deny` command.
+- Conditions: ask which temporary limits apply and which roster policy
+  (`--preset NAME`) fits — not which model goes to which role: the roster
+  table already says that. Translate the answer into flags: «локальные
+  недоступны» `--off local`; «zai до четверга» `--expires zai=DATE`;
+  «codex по минимуму», «zai первым» — a named policy (`--preset`), which the
+  human keeps in `docflow roster web`. Show the resolved conditions and
+  chains (`roster brief` with the flags) before writing units, pass the
+  same flags to `roster apply`. A condition that outlives the plan is a
+  `roster off|on|expire` command.
 - `permissions: auto|full` in the frontmatter. `full` runs agents without
   their sandbox and approvals; name the mode anyway — a committed `full`
   must not be a silent escalation. No key — `auto`.

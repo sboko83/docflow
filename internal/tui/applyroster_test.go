@@ -15,53 +15,43 @@ import (
 // come from the same resolver the CLI uses, so the tests never spell out a
 // route the roster would not write.
 
-const applyRosterPolicy = `version = 3
+const applyRosterPolicy = `version = 4
 
 [access.zai]
 agents = ["pi"]
 kind   = "subscription"
-budget = "normal"
+
+[access.zai.roles]
+executor = "glm-5.3@high"
+cheap    = "glm-5.3-flash@low"
+heavy    = "glm-5.3@high"
+review   = "glm-5.3@high"
 
 [access.codex]
 agents  = ["codex"]
 kind    = "subscription"
-budget  = "normal"
-trusted = true
 expires = "2099-06-30"
+
+[access.codex.roles]
+executor   = "gpt-6-luna@high"
+heavy      = "gpt-6.1-sol@high"
+review     = "gpt-6.1-sol@high"
+acceptance = "gpt-6.1-sol@high"
+replan     = "gpt-6.1-sol@high"
 
 [access.claude]
 agents  = ["claude"]
 kind    = "subscription"
-budget  = "off"
-trusted = true
 
-[route."zai/glm-5.3"]
-high = "standard"
-
-[route."zai/glm-5.3-flash"]
-low = "cheap"
-
-[route."codex/gpt-6.1-sol"]
-high = "strong"
-
-[route."codex/gpt-6-luna"]
-high = "standard"
-
-[route."claude/claude-opus-5-5"]
-high = "strong"
-
-[role]
-cheap      = "cheap"
-executor   = "standard"
-heavy      = "strong"
-review     = "strong"
-acceptance = "trusted"
-replan     = "trusted"
+[access.claude.roles]
+heavy      = "claude-opus-5-5@high"
+acceptance = "claude-opus-5-5@high"
+replan     = "claude-opus-5-5@high"
 `
 
 // applyVariants reorders the accesses for the card warning test and switches
 // every route off for the refusal test.
-const applyVariants = `version = 2
+const applyVariants = `version = 3
 
 [preset.codex-first]
 order = ["codex", "zai", "claude"]
@@ -186,7 +176,7 @@ func TestApplyDialogShowsTheDiffAndWritesTheHeader(t *testing.T) {
 		t.Fatalf("A opened dialog %v, want the apply dialog", model.dialog)
 	}
 	body := strings.Join(model.dialogLines, "\n")
-	for _, want := range []string{"P700", "вариант: нет активного", "executor: pi | codex/gpt-6-luna | high → ", "replan: - → ", "cheap: - → ", "⚠ no fallback for replan"} {
+	for _, want := range []string{"P700", "вариант: нет активного", "executor: pi | codex/gpt-6-luna | high → ", "replan: - → ", "cheap: - → ", "⚠ no fallback for cheap"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the dialog lost %q:\n%s", want, body)
 		}

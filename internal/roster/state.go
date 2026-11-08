@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,25 +25,20 @@ const (
 
 // State is the condition layer of the roster (roster.state.toml) merged
 // over the policy: the accesses switched off by hand and the day their
-// off condition ends, the budget overrides, the temporary expiry dates,
-// the model globs the conditions allow or deny, and the preset to apply.
-// `roster off`, `on`, `budget`, `expire`, `allow`, `deny` and `reset`
-// write only this file; a missing state file means no conditions.
+// off condition ends, the temporary expiry dates and the preset to apply.
+// `roster off`, `on`, `expire` and `reset` write only this file; a
+// missing state file means no conditions.
 type State struct {
 	Path    string
 	Version int
 	Off     []string             // accesses switched off by hand
 	Until   map[string]time.Time // access → the last day it stays off
-	Budget  map[string]string    // access → budget level, overrides the policy
 	Expires map[string]time.Time // access → the last day it is usable
-	Models  map[string][]string  // access → the globs the conditions allow
-	Exclude map[string][]string  // access → the globs the conditions deny
 	Preset  string               // preset merged over the policy
 }
 
-// Condition is one active condition of the roster with its source: a
-// budget, an expiry, a model allowlist or denial from the policy or the
-// state, or a condition of the applied preset.
+// Condition is one active condition of the roster with its source: an
+// expiry from the policy or the state, an off switch, or the preset.
 type Condition struct {
 	Access string `json:"access"`
 	Kind   string `json:"kind"`
@@ -102,10 +96,7 @@ func NewState(path string) *State {
 		Version: StateVersion,
 		Off:     []string{},
 		Until:   map[string]time.Time{},
-		Budget:  map[string]string{},
 		Expires: map[string]time.Time{},
-		Models:  map[string][]string{},
-		Exclude: map[string][]string{},
 	}
 }
 
@@ -157,7 +148,9 @@ func (s *State) parse(index *lineIndex, root map[string]any) error {
 	s.Version = int(version)
 	for _, key := range index.keysByLine("", root) {
 		switch key {
-		case "version", "off", "preset", "until", "budget", "expires", "models", "exclude":
+		case "version", "off", "preset", "until", "expires":
+		case "budget", "models", "exclude":
+			return failAt(s.Path, index, "", key, "the '%s' condition was removed with roster version %d: %s, or `docflow roster reset`", key, PolicyVersion, migrateHint)
 		default:
 			return failAt(s.Path, index, "", key, "unknown key '%s'", key)
 		}
@@ -183,16 +176,7 @@ func (s *State) parse(index *lineIndex, root map[string]any) error {
 	if err := s.parseDates(index, "until", root["until"], s.Until); err != nil {
 		return err
 	}
-	if err := s.parseBudgets(index, root["budget"]); err != nil {
-		return err
-	}
-	if err := s.parseDates(index, "expires", root["expires"], s.Expires); err != nil {
-		return err
-	}
-	if err := s.parseGlobs(index, "models", root["models"], s.Models); err != nil {
-		return err
-	}
-	return s.parseGlobs(index, "exclude", root["exclude"], s.Exclude)
+	return s.parseDates(index, "expires", root["expires"], s.Expires)
 }
 
 func (s *State) parseDates(index *lineIndex, key string, value any, target map[string]time.Time) error {
@@ -213,42 +197,6 @@ func (s *State) parseDates(index *lineIndex, key string, value any, target map[s
 			return failAt(s.Path, index, key, access, "%s.%s: %v", key, access, err)
 		}
 		target[access] = day
-	}
-	return nil
-}
-
-func (s *State) parseBudgets(index *lineIndex, value any) error {
-	table, ok := value.(map[string]any)
-	if value != nil && !ok {
-		return failAt(s.Path, index, "", "budget", "budget must be a table of access = level")
-	}
-	for _, access := range index.keysByLine("budget", table) {
-		if err := checkAccessName(s.Path, index, "budget", access); err != nil {
-			return err
-		}
-		level, ok := table[access].(string)
-		if !ok || !contains(Budgets, level) {
-			return failAt(s.Path, index, "budget", access, "budget.%s must be %s", access, orList(Budgets))
-		}
-		s.Budget[access] = level
-	}
-	return nil
-}
-
-func (s *State) parseGlobs(index *lineIndex, key string, value any, target map[string][]string) error {
-	table, ok := value.(map[string]any)
-	if value != nil && !ok {
-		return failAt(s.Path, index, "", key, "%s must be a table of access = [model globs]", key)
-	}
-	for _, access := range index.keysByLine(key, table) {
-		if err := checkAccessName(s.Path, index, key, access); err != nil {
-			return err
-		}
-		globs, err := globList(table[access])
-		if err != nil {
-			return failAt(s.Path, index, key, access, "%s.%s: %v", key, access, err)
-		}
-		target[access] = globs
 	}
 	return nil
 }
@@ -279,8 +227,7 @@ func (s *State) clean(today time.Time) {
 }
 
 // Validate checks the state against the policy it will be merged over:
-// every named access must exist, a budget must be a known level, minimal
-// must stay on a trusted access and the preset must be declared. An
+// every named access must exist and the preset must be declared. An
 // unknown name is an error, not a silently ignored condition: a typo in a
 // dead file must fail instead of doing nothing.
 func (s *State) Validate(policy *Policy) error {
@@ -294,32 +241,9 @@ func (s *State) Validate(policy *Policy) error {
 			return s.unknownAccess(policy, "until", access)
 		}
 	}
-	for _, access := range sortedKeys(s.Budget) {
-		known, ok := policy.Access(access)
-		if !ok {
-			return s.unknownAccess(policy, "budget", access)
-		}
-		level := s.Budget[access]
-		if !contains(Budgets, level) {
-			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: budget.%s: level must be %s", s.Path, access, orList(Budgets)), Code: clierrors.EXIT_FORMAT}
-		}
-		if level == BudgetMinimal && !known.Trusted {
-			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: budget.%s: budget minimal requires trusted = true, minimal serves only acceptance and replan", s.Path, access), Code: clierrors.EXIT_FORMAT}
-		}
-	}
 	for _, access := range sortedKeys(s.Expires) {
 		if _, ok := policy.Access(access); !ok {
 			return s.unknownAccess(policy, "expires", access)
-		}
-	}
-	for _, table := range []struct {
-		key     string
-		entries map[string][]string
-	}{{"models", s.Models}, {"exclude", s.Exclude}} {
-		for _, access := range sortedKeys(table.entries) {
-			if _, ok := policy.Access(access); !ok {
-				return s.unknownAccess(policy, table.key, access)
-			}
 		}
 	}
 	if s.Preset != "" {
@@ -350,25 +274,11 @@ func (s *State) SetOff(access string, until time.Time) {
 	s.Until[access] = until
 }
 
-// SetOn lifts the conditions that switch an access off: the off entry,
-// its until date and a budget set to off. Budgets, allowlists and denials
-// that do not disable the access stay.
+// SetOn lifts the conditions that switch an access off: the off entry
+// and its until date.
 func (s *State) SetOn(access string) {
 	s.Off = removeItem(s.Off, access)
 	delete(s.Until, access)
-	if s.Budget[access] == BudgetOff {
-		delete(s.Budget, access)
-	}
-}
-
-// SetBudget overrides the budget of an access. The level is checked here
-// because the setter is also the place a typo arrives.
-func (s *State) SetBudget(access, level string) error {
-	if !contains(Budgets, level) {
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: budget: level must be %s", orList(Budgets)), Code: clierrors.EXIT_FORMAT}
-	}
-	s.Budget[access] = level
-	return nil
 }
 
 // SetExpires bounds an access to the named day: it is usable through that
@@ -377,38 +287,11 @@ func (s *State) SetExpires(access string, day time.Time) {
 	s.Expires[access] = day
 }
 
-// Allow narrows an access to the model globs of the conditions. The state
-// allowlist replaces the policy one instead of widening it: a temporary
-// condition may restrict a stable allowlist, never open it. Repeated
-// patterns are kept once.
-func (s *State) Allow(access string, globs []string) error {
-	list, err := checkGlobs(globs)
-	if err != nil {
-		return err
-	}
-	s.Models[access] = mergeGlobs(s.Models[access], list)
-	return nil
-}
-
-// Deny hides model globs from an access. Denials add up: the state list
-// extends the policy one, and repeated patterns are kept once.
-func (s *State) Deny(access string, globs []string) error {
-	list, err := checkGlobs(globs)
-	if err != nil {
-		return err
-	}
-	s.Exclude[access] = mergeGlobs(s.Exclude[access], list)
-	return nil
-}
-
 // Reset drops every condition; the caller deletes the file.
 func (s *State) Reset() {
 	s.Off = []string{}
 	s.Until = map[string]time.Time{}
-	s.Budget = map[string]string{}
 	s.Expires = map[string]time.Time{}
-	s.Models = map[string][]string{}
-	s.Exclude = map[string][]string{}
 	s.Preset = ""
 }
 
@@ -418,24 +301,11 @@ func (s *State) clone() *State {
 	copied := *s
 	copied.Off = append([]string(nil), s.Off...)
 	copied.Until = maps.Clone(s.Until)
-	copied.Budget = maps.Clone(s.Budget)
 	copied.Expires = maps.Clone(s.Expires)
-	copied.Models = cloneGlobs(s.Models)
-	copied.Exclude = cloneGlobs(s.Exclude)
 	if copied.Off == nil {
 		copied.Off = []string{}
 	}
 	return &copied
-}
-
-// cloneGlobs copies a table of model glob lists, so the copy shares no
-// slice with the original.
-func cloneGlobs(table map[string][]string) map[string][]string {
-	copied := make(map[string][]string, len(table))
-	for access, globs := range table {
-		copied[access] = append([]string(nil), globs...)
-	}
-	return copied
 }
 
 // Save writes the state to path ("" means the path it was loaded from,
@@ -470,7 +340,7 @@ func (s *State) Save(path string) error {
 func (s *State) text() string {
 	var text strings.Builder
 	text.WriteString("# roster conditions: the temporary state layer of roster.toml.\n")
-	text.WriteString("# Written by docflow roster off|on|budget|expire|allow|deny; drop the file to reset it.\n")
+	text.WriteString("# Written by docflow roster off|on|expire; drop the file to reset it.\n")
 	fmt.Fprintf(&text, "version = %d\n", StateVersion)
 	if s.Preset != "" {
 		fmt.Fprintf(&text, "\npreset = %s\n", quote(s.Preset))
@@ -483,10 +353,7 @@ func (s *State) text() string {
 		fmt.Fprintf(&text, "\noff = [%s]\n", strings.Join(quoted, ", "))
 	}
 	writeDates(&text, "until", s.Until)
-	writeNameTable(&text, "budget", s.Budget)
 	writeDates(&text, "expires", s.Expires)
-	writeGlobTable(&text, "models", s.Models)
-	writeGlobTable(&text, "exclude", s.Exclude)
 	return text.String()
 }
 
@@ -497,30 +364,6 @@ func writeDates(text *strings.Builder, key string, dates map[string]time.Time) {
 	fmt.Fprintf(text, "\n[%s]\n", key)
 	for _, access := range sortedKeys(dates) {
 		fmt.Fprintf(text, "%s = %s\n", tomlKey(access), quote(dayText(dates[access])))
-	}
-}
-
-func writeNameTable(text *strings.Builder, key string, values map[string]string) {
-	if len(values) == 0 {
-		return
-	}
-	fmt.Fprintf(text, "\n[%s]\n", key)
-	for _, access := range sortedKeys(values) {
-		fmt.Fprintf(text, "%s = %s\n", tomlKey(access), quote(values[access]))
-	}
-}
-
-func writeGlobTable(text *strings.Builder, key string, values map[string][]string) {
-	if len(values) == 0 {
-		return
-	}
-	fmt.Fprintf(text, "\n[%s]\n", key)
-	for _, access := range sortedKeys(values) {
-		quoted := make([]string, 0, len(values[access]))
-		for _, glob := range values[access] {
-			quoted = append(quoted, quote(glob))
-		}
-		fmt.Fprintf(text, "%s = [%s]\n", tomlKey(access), strings.Join(quoted, ", "))
 	}
 }
 
@@ -566,10 +409,9 @@ func quote(value string) string {
 }
 
 // Merge returns a copy of the policy with the state conditions applied
-// over it: the preset first, then the budget overrides, the expiries, the
-// off switches, the model allowlists and the denials. The policy itself
-// is never modified, so the resolver can compare the stable layer with
-// what the conditions do to it.
+// over it: the preset first, then the expiries and the off switches. The
+// policy itself is never modified, so a screen can compare the stable
+// layer with what the conditions do to it.
 func Merge(policy *Policy, state *State) (*Policy, error) {
 	if state == nil {
 		return policy.clone(), nil
@@ -588,18 +430,9 @@ func mergeAt(merged *Policy, state *State, today time.Time) *Policy {
 			applyPreset(merged, preset)
 		}
 	}
-	for access, level := range state.Budget {
-		if known, ok := merged.Access(access); ok {
-			known.Budget = level
-		}
-	}
 	for access, day := range state.Expires {
 		known, ok := merged.Access(access)
 		if !ok {
-			continue
-		}
-		if today.After(day) {
-			known.Budget = BudgetOff
 			continue
 		}
 		if known.Expires.IsZero() || day.Before(known.Expires) {
@@ -611,41 +444,35 @@ func mergeAt(merged *Policy, state *State, today time.Time) *Policy {
 			continue
 		}
 		if known, ok := merged.Access(access); ok {
-			known.Budget = BudgetOff
-		}
-	}
-	for access, globs := range state.Models {
-		if known, ok := merged.Access(access); ok {
-			known.Models = append([]string(nil), globs...)
-			known.ModelsSet = true
-		}
-	}
-	for access, globs := range state.Exclude {
-		if known, ok := merged.Access(access); ok {
-			known.Exclude = mergeGlobs(append([]string(nil), known.Exclude...), globs)
+			known.Off = true
 		}
 	}
 	return merged
 }
 
-// applyPreset applies a preset to a policy: the access conditions become
-// budgets (off/lean/minimal/prefer are the budget levels), the preset
-// models narrow the access and the order puts the listed accesses first.
+// applyPreset applies a preset to a policy: its off list switches the
+// accesses off, its cells replace the base cells (the empty cell clears
+// one), and its order puts the listed accesses first.
 func applyPreset(policy *Policy, preset *Preset) {
-	for _, list := range []struct {
-		names  []string
-		budget string
-	}{{preset.Prefer, BudgetPrefer}, {preset.Lean, BudgetLean}, {preset.Minimal, BudgetMinimal}, {preset.Off, BudgetOff}} {
-		for _, access := range list.names {
-			if known, ok := policy.Access(access); ok {
-				known.Budget = list.budget
-			}
+	for _, name := range preset.Off {
+		if known, ok := policy.Access(name); ok {
+			known.Off = true
 		}
 	}
-	for access, globs := range preset.Models {
-		if known, ok := policy.Access(access); ok {
-			known.Models = append([]string(nil), globs...)
-			known.ModelsSet = true
+	for name, cells := range preset.Roles {
+		known, ok := policy.Access(name)
+		if !ok {
+			continue
+		}
+		for role, cell := range cells {
+			if cell.Empty() {
+				delete(known.Roles, role)
+				continue
+			}
+			if known.Roles == nil {
+				known.Roles = map[string]Cell{}
+			}
+			known.Roles[role] = cell
 		}
 	}
 	if len(preset.Order) > 0 {
@@ -672,35 +499,44 @@ func (p *Policy) reorder(order []string) {
 		}
 	}
 	p.Accesses = ordered
-	p.index = make(map[string]int, len(ordered))
-	for i, access := range ordered {
-		p.index[access.Name] = i
-	}
+	p.reindex()
 }
 
 // clone returns a deep copy of the policy: the resolver mutates the
-// accesses of the merged copy, and the loaded policy stays untouched. The
-// presets are copied deeply too — an operation that edits a preset list
-// must not write through the slice the loaded policy shares.
+// accesses of the merged copy, and the loaded policy stays untouched.
 func (p *Policy) clone() *Policy {
-	copied := &Policy{
-		Path:    p.Path,
-		Version: p.Version,
-		Routes:  append([]Route(nil), p.Routes...),
-		Roles:   make(map[string]string, len(p.Roles)),
-		index:   make(map[string]int, len(p.Accesses)),
-	}
-	maps.Copy(copied.Roles, p.Roles)
+	copied := &Policy{Path: p.Path, Version: p.Version}
 	for _, preset := range p.Presets {
 		copied.Presets = append(copied.Presets, preset.clone())
 	}
-	for i, access := range p.Accesses {
-		copiedAccess := access
-		copiedAccess.Agents = append([]string(nil), access.Agents...)
-		copiedAccess.Models = append([]string(nil), access.Models...)
-		copiedAccess.Exclude = append([]string(nil), access.Exclude...)
-		copied.Accesses = append(copied.Accesses, copiedAccess)
-		copied.index[access.Name] = i
+	for _, access := range p.Accesses {
+		copied.Accesses = append(copied.Accesses, access.clone())
+	}
+	copied.reindex()
+	return copied
+}
+
+// clone returns a deep copy of an access.
+func (a Access) clone() Access {
+	copied := a
+	copied.Agents = append([]string(nil), a.Agents...)
+	if a.Roles != nil {
+		copied.Roles = maps.Clone(a.Roles)
+	}
+	return copied
+}
+
+// clone returns a deep copy of a preset, so editing a variant never writes
+// through to the layer it was copied from.
+func (p Preset) clone() Preset {
+	copied := p
+	copied.Off = append([]string(nil), p.Off...)
+	copied.Order = append([]string(nil), p.Order...)
+	if p.Roles != nil {
+		copied.Roles = make(map[string]map[string]Cell, len(p.Roles))
+		for access, cells := range p.Roles {
+			copied.Roles[access] = maps.Clone(cells)
+		}
 	}
 	return copied
 }
@@ -711,17 +547,8 @@ func (p *Policy) clone() *Policy {
 func Conditions(policy *Policy, state *State) []Condition {
 	rows := make([]Condition, 0, len(policy.Accesses))
 	for _, access := range policy.Accesses {
-		if access.Budget != DefaultBudget {
-			rows = append(rows, Condition{Access: access.Name, Kind: "budget", Value: access.Budget, Source: SourcePolicy})
-		}
 		if !access.Expires.IsZero() {
 			rows = append(rows, Condition{Access: access.Name, Kind: "expires", Value: dayText(access.Expires), Source: SourcePolicy})
-		}
-		if len(access.Models) > 0 {
-			rows = append(rows, Condition{Access: access.Name, Kind: "models", Value: strings.Join(access.Models, ","), Source: SourcePolicy})
-		}
-		if len(access.Exclude) > 0 {
-			rows = append(rows, Condition{Access: access.Name, Kind: "exclude", Value: strings.Join(access.Exclude, ","), Source: SourcePolicy})
 		}
 	}
 	if state == nil {
@@ -737,19 +564,8 @@ func Conditions(policy *Policy, state *State) []Condition {
 		}
 		rows = append(rows, Condition{Access: access, Kind: "off", Value: value, Source: SourceState})
 	}
-	for _, access := range sortedKeys(state.Budget) {
-		rows = append(rows, Condition{Access: access, Kind: "budget", Value: state.Budget[access], Source: SourceState})
-	}
 	for _, access := range sortedKeys(state.Expires) {
 		rows = append(rows, Condition{Access: access, Kind: "expires", Value: dayText(state.Expires[access]), Source: SourceState})
-	}
-	for _, table := range []struct {
-		kind    string
-		entries map[string][]string
-	}{{"models", state.Models}, {"exclude", state.Exclude}} {
-		for _, access := range sortedKeys(table.entries) {
-			rows = append(rows, Condition{Access: access, Kind: table.kind, Value: strings.Join(table.entries[access], ","), Source: SourceState})
-		}
 	}
 	return rows
 }
@@ -799,32 +615,6 @@ func accessNameProblem(name string) string {
 		return "must not contain whitespace, '/', '|', ',' or '='"
 	}
 	return ""
-}
-
-// checkGlobs validates the glob syntax before a pattern reaches the file:
-// a broken pattern would silently match nothing.
-func checkGlobs(globs []string) ([]string, error) {
-	for _, glob := range globs {
-		if glob == "" {
-			return nil, clierrors.DocflowError{Message: "docflow: model pattern must not be empty", Code: clierrors.EXIT_FORMAT}
-		}
-		if _, err := path.Match(glob, ""); err != nil {
-			return nil, clierrors.DocflowError{Message: fmt.Sprintf("docflow: bad model pattern '%s': %v", glob, err), Code: clierrors.EXIT_FORMAT}
-		}
-	}
-	return globs, nil
-}
-
-// mergeGlobs appends the globs a list does not hold yet, keeping the order
-// they were named in.
-func mergeGlobs(current, added []string) []string {
-	for _, glob := range added {
-		current = addUnique(current, glob)
-	}
-	if current == nil {
-		current = []string{}
-	}
-	return current
 }
 
 func addUnique[V comparable](list []V, value V) []V {

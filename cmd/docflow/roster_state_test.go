@@ -12,7 +12,7 @@ import (
 // XDG_CONFIG_HOME: the state file must be created next to it, and the
 // repository must stay untouched.
 
-// rosterStateEnv installs testdata/policy-v3.toml as the personal roster
+// rosterStateEnv installs testdata/policy.toml and its low policy as the personal roster
 // in a temporary XDG_CONFIG_HOME and returns that directory.
 func rosterStateEnv(t *testing.T) string {
 	t.Helper()
@@ -27,11 +27,16 @@ func rosterStateEnv(t *testing.T) string {
 	t.Setenv("DOCFLOW_NOTIFY", "0")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "policy-v3.toml"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "policy.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeLifecycleFile(t, home, "docflow/roster.toml", string(data))
+	variants, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "policy.variants.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLifecycleFile(t, home, "docflow/roster.variants.toml", string(variants))
 	return home
 }
 
@@ -109,18 +114,14 @@ func TestRosterStateOffOn(t *testing.T) {
 	}
 }
 
-func TestRosterStateBudgetExpireAllowDeny(t *testing.T) {
+func TestRosterStateExpire(t *testing.T) {
 	home := rosterStateEnv(t)
 	root := t.TempDir()
 	for _, tc := range []struct {
 		args   []string
 		stdout string
 	}{
-		{[]string{"roster", "budget", "opencode-go", "normal"}, "opencode-go: budget normal\n"},
 		{[]string{"roster", "expire", "zai", "2099-01-01"}, "zai: expires 2099-01-01\n"},
-		{[]string{"roster", "allow", "zai", "*flash*", "glm-5*"}, "zai: allow *flash* glm-5*\n"},
-		{[]string{"roster", "deny", "zai", "glm-5.3-thinking"}, "zai: deny glm-5.3-thinking\n"},
-		{[]string{"roster", "deny", "zai", "glm-5.3-thinking"}, "zai: deny glm-5.3-thinking\n"},
 	} {
 		code, stdout, stderr := callLifecycleCLI(t, root, tc.args...)
 		if code != 0 || stdout != tc.stdout || stderr != "" {
@@ -128,26 +129,19 @@ func TestRosterStateBudgetExpireAllowDeny(t *testing.T) {
 		}
 	}
 	state := readRosterState(t, home)
-	for _, want := range []string{`opencode-go = "normal"`, `zai = "2099-01-01"`, `zai = ["*flash*", "glm-5*"]`, `zai = ["glm-5.3-thinking"]`} {
-		if !strings.Contains(state, want) {
-			t.Errorf("state lacks %q:\n%s", want, state)
-		}
+	if !strings.Contains(state, `zai = "2099-01-01"`) {
+		t.Errorf("state lacks the expiry:\n%s", state)
 	}
-	if strings.Count(state, "glm-5.3-thinking") != 1 {
-		t.Errorf("deny duplicated a pattern:\n%s", state)
-	}
-	// The state is data, not policy: a broken level, a minimal budget on
-	// an untrusted access and a broken glob fail before the write.
+	// A broken date, a missing access and the commands of the removed
+	// conditions fail before the write.
 	for _, tc := range []struct {
 		args    []string
 		message string
 	}{
-		{[]string{"roster", "budget", "zai", "plenty"}, "level must be"},
-		{[]string{"roster", "budget", "zai", "minimal"}, "minimal requires trusted"},
-		{[]string{"roster", "deny", "zai", "["}, "bad model pattern"},
 		{[]string{"roster", "expire", "zai", "2026-13-01"}, "date must be YYYY-MM-DD"},
-		{[]string{"roster", "budget", "zai"}, "LEVEL is required"},
-		{[]string{"roster", "allow", "zai"}, "PATTERN is required"},
+		{[]string{"roster", "expire", "zai"}, "DATE is required"},
+		{[]string{"roster", "budget", "zai"}, "unknown roster subcommand 'budget'"},
+		{[]string{"roster", "allow", "zai"}, "unknown roster subcommand 'allow'"},
 		{[]string{"roster", "off"}, "ACCESS is required"},
 		{[]string{"roster", "off", "nope"}, "unknown access 'nope'"},
 		// `on` names an access too: a typo fails before the file is
@@ -163,7 +157,7 @@ func TestRosterStateBudgetExpireAllowDeny(t *testing.T) {
 	if code != 0 || stderr != rosterNoCacheNote {
 		t.Fatalf("roster status = (%d, %q, %q)", code, stdout, stderr)
 	}
-	for _, want := range []string{"zai", "expires", "2099-01-01", "glm-5.3-thinking"} {
+	for _, want := range []string{"zai", "expires", "2099-01-01"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("status lacks %q:\n%s", want, stdout)
 		}
@@ -217,7 +211,7 @@ func TestRosterStateNeedsV3Roster(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", home)
 	writeLifecycleFile(t, home, "docflow/roster.toml", "[access.zai]\nagents = [\"pi\"]\n")
 	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "off", "zai")
-	if code != 2 || !strings.Contains(stderr, "version must be 3") {
+	if code != 2 || !strings.Contains(stderr, "version must be 4") {
 		t.Fatalf("roster off on a broken roster = (%d, %q, %q)", code, stdout, stderr)
 	}
 	if state := readRosterState(t, home); state != "" {
@@ -225,7 +219,7 @@ func TestRosterStateNeedsV3Roster(t *testing.T) {
 	}
 	// status reads the policy too, so a roster without the version key
 	// fails there instead of silently dropping the conditions.
-	if code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "status"); code != 2 || !strings.Contains(stderr, "version must be 3") {
+	if code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "status"); code != 2 || !strings.Contains(stderr, "version must be 4") {
 		t.Fatalf("roster status on a roster without version = (%d, %q), want code 2", code, stderr)
 	}
 }

@@ -9,9 +9,9 @@ import (
 )
 
 // docPolicyExamples returns the full roster.toml examples of a document:
-// every toml fence that carries the version marker and the [role] table.
-// The state and variants examples start with version = 2 too but have no
-// roles, so they are not mistaken for a policy.
+// every toml fence that carries the version marker and a roles table.
+// The state and variants examples carry other versions and no access
+// rows, so they are not mistaken for a policy.
 func docPolicyExamples(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -25,7 +25,7 @@ func docPolicyExamples(t *testing.T, path string) []string {
 		if strings.HasPrefix(line, "```") {
 			if inFence {
 				block := strings.Join(current, "\n")
-				if strings.Contains(block, fmt.Sprintf("version = %d", PolicyVersion)) && strings.Contains(block, "[role]") {
+				if strings.Contains(block, fmt.Sprintf("version = %d", PolicyVersion)) && strings.Contains(block, ".roles]") {
 					examples = append(examples, block)
 				}
 				current = nil

@@ -7,17 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- `docflow roster web` renders as a full page document — no window frame
-  or title bar; the closed file sheet no longer adds a horizontal
-  scrollbar.
-- `docflow roster web` access cards keep the delete button on the first
-  line with trusted/check on the second, and role routes show their
-  class, so a route above the role minimum reads as intended.
-- `docflow roster web` marks the roles every route closes on the access
-  card, disables the controls of a variant defined in roster.toml (the
-  variant operations never rewrite it), and clears a refused-operation
-  error after 30 seconds.
+### Changed
+- The roster policy is version 4: one table of accesses × plan roles.
+  Every access names the model and effort it serves each role with
+  (`[access.NAME.roles]`, `role = "MODEL@EFFORT"`), and the file order of
+  the accesses is the priority — the chain of a role is its column read
+  top to bottom. Named policies in the variants files switch accesses off,
+  reorder them and override single cells; the default policy is
+  roster.toml itself. `docflow roster migrate` converts a v1, v2 or v3
+  roster, its variants files and its conditions, resolving the v3 classes
+  and budgets once against the scanned catalog.
+- `docflow roster web` edits that table directly: a cell is a model@effort
+  picker from the catalog, the tabs are the default and the named
+  policies, and the chains below the table are read from it.
+- The read budget of a unit no longer scales by a model class.
+
+### Removed
+- Model classes (`[route]`), class requirements (`[role]`), access
+  budgets (`prefer/normal/lean/minimal/off`), `trusted`, the model
+  allowlist and `exclude`, with the conditions and commands built on them:
+  `docflow roster budget|allow|deny` and the `--lean`, `--minimal`,
+  `--prefer` and `--only` flags of `roster brief` and `roster apply`.
+- The budget keys and the allow/deny editing of the TUI roster screen; its
+  model list now shows the roles each model serves.
 
 ## [0.27.0] - 2026-11-07
 

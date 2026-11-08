@@ -55,7 +55,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 3 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--addr", "ADDR", "web: address to listen on (default: a random port on 127.0.0.1)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief and apply: accesses switched off for this call only"), appendOption("--minimal", "A,B", "brief and apply: accesses at the minimal budget for this call only"), appendOption("--lean", "A,B", "brief and apply: accesses at the lean budget for this call only"), appendOption("--prefer", "A,B", "brief and apply: accesses at the prefer budget for this call only"), appendOption("--expires", "A=DATE", "brief and apply: expire an access on DATE for this call only"), appendOption("--only", "A=GLOB", "brief and apply: narrow an access to the model glob for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml, keeping roster.toml.bak")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 4 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--addr", "ADDR", "web: address to listen on (default: a random port on 127.0.0.1)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the preset to apply on top of the policy"), appendOption("--off", "A,B", "brief and apply: accesses switched off for this call only"), appendOption("--expires", "A=DATE", "brief and apply: expire an access on DATE for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml and the files around it, keeping FILE.bak")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "tui", help: "open the interactive terminal workspace for the queue and plans", args: tuiArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -397,7 +397,7 @@ func handleRoster(parsed *parsedArgs) error {
 	// none, so a stray token stays an error instead of being ignored.
 	rest, _ := parsed.values["args"].([]string)
 	switch subcommand {
-	case "budget", "expire", "allow", "deny":
+	case "expire":
 	default:
 		if len(rest) > 0 {
 			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, strings.Join(rest, " ")), Code: clierrors.EXIT_FORMAT}
@@ -436,7 +436,7 @@ func handleRoster(parsed *parsedArgs) error {
 		return rosterModels(parsed)
 	case "status":
 		return rosterStatus(parsed)
-	case "off", "on", "budget", "expire", "allow", "deny", "reset":
+	case "off", "on", "expire", "reset":
 		return rosterCondition(parsed)
 	case "migrate":
 		return rosterMigrate(parsed)
@@ -445,7 +445,7 @@ func handleRoster(parsed *parsedArgs) error {
 	case "explain":
 		return rosterExplain(parsed)
 	default:
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, brief, explain, apply, scan, models, status, off, on, budget, expire, allow, deny, reset, migrate, web)", subcommand), Code: clierrors.EXIT_FORMAT}
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, brief, explain, apply, scan, models, status, off, on, expire, reset, migrate, web)", subcommand), Code: clierrors.EXIT_FORMAT}
 	}
 }
 
@@ -546,7 +546,7 @@ func rosterConditionsText(workspace *roster.Workspace, conditions []roster.Condi
 }
 
 // rosterCondition runs the commands that write the condition state:
-// off, on, budget, expire, allow, deny and reset write only
+// off, on, expire and reset write only
 // roster.state.toml, never roster.toml. Every condition goes through the
 // workspace operations, which check the access against the policy and save
 // through State.Save, so a typo fails instead of sitting dead in the file.
@@ -595,15 +595,6 @@ func rosterCondition(parsed *parsedArgs) error {
 			return err
 		}
 		line = access + ": on"
-	case "budget":
-		level, err := rosterFirstArgument(subcommand, rest, "LEVEL")
-		if err != nil {
-			return err
-		}
-		if err := workspace.SetBudget(access, level); err != nil {
-			return err
-		}
-		line = access + ": budget " + level
 	case "expire":
 		text, err := rosterFirstArgument(subcommand, rest, "DATE")
 		if err != nil {
@@ -617,19 +608,6 @@ func rosterCondition(parsed *parsedArgs) error {
 			return err
 		}
 		line = access + ": expires " + day.Format("2006-01-02")
-	case "allow", "deny":
-		if len(rest) == 0 {
-			return rosterArgumentError(subcommand, "PATTERN")
-		}
-		if subcommand == "allow" {
-			err = workspace.Allow(access, rest)
-		} else {
-			err = workspace.Deny(access, rest)
-		}
-		if err != nil {
-			return err
-		}
-		line = access + ": " + subcommand + " " + strings.Join(rest, " ")
 	}
 	if rosterFlag(parsed, "--json") {
 		return rosterJSON(roster.NewConditionsReport(workspace.Policy, workspace.State), "")
@@ -637,10 +615,11 @@ func rosterCondition(parsed *parsedArgs) error {
 	return commandResult{code: clierrors.EXIT_OK, stdout: line + "\n"}
 }
 
-// rosterMigrate converts a v1 roster to v2: without --write it prints the
-// converted policy, with --write it keeps the v1 text in roster.toml.bak
-// and replaces roster.toml atomically. A roster that is not v1 — already
-// migrated included — is exit code 2 and nothing is written.
+// rosterMigrate converts an older roster to the current version: without
+// --write it prints the converted policy, the other files it would rewrite
+// and the notes; with --write it keeps every old file in FILE.bak and
+// replaces it atomically. A roster already at the current version is exit
+// code 2 and nothing is written.
 func rosterMigrate(parsed *parsedArgs) error {
 	// migrate takes no positional argument; the shared roster spec puts a
 	// stray token into the id slot, so refuse it here.
@@ -651,10 +630,28 @@ func rosterMigrate(parsed *parsedArgs) error {
 	if err != nil {
 		return err
 	}
-	if !rosterFlag(parsed, "--write") {
-		return commandResult{code: clierrors.EXIT_OK, stdout: result.Text}
+	var notes strings.Builder
+	for _, note := range result.Notes {
+		fmt.Fprintf(&notes, "note: %s\n", note)
 	}
-	return commandResult{code: clierrors.EXIT_OK, stdout: fmt.Sprintf("migrated %s to version %d (backup: %s)\n", result.Path, roster.PolicyVersion, result.Backup)}
+	if !rosterFlag(parsed, "--write") {
+		var out strings.Builder
+		out.WriteString(result.Text)
+		for _, file := range result.Files {
+			fmt.Fprintf(&out, "\n# --- %s\n%s", file.Path, file.Text)
+		}
+		return commandResult{code: clierrors.EXIT_OK, stdout: out.String(), stderr: notes.String()}
+	}
+	var out strings.Builder
+	fmt.Fprintf(&out, "migrated %s to version %d (backup: %s)\n", result.Path, roster.PolicyVersion, result.Backup)
+	for _, file := range result.Files {
+		backup := file.Backup
+		if backup == "" {
+			backup = "new file"
+		}
+		fmt.Fprintf(&out, "rewrote %s (backup: %s)\n", file.Path, backup)
+	}
+	return commandResult{code: clierrors.EXIT_OK, stdout: out.String(), stderr: notes.String()}
 }
 
 // rosterFirstArgument picks the single value a subcommand expects after

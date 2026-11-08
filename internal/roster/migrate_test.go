@@ -34,17 +34,17 @@ tier = "strong"
 
 // migratedPolicy migrates a roster file and returns the parsed v2 policy,
 // so the tests read the result the way the resolver will.
-func migratedPolicy(t *testing.T, path string) *Policy {
+func migratedPolicy(t *testing.T, path string) *v3Policy {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, err := Migrate(string(data))
+	text, err := migrateToV3("roster.toml", string(data))
 	if err != nil {
-		t.Fatalf("Migrate(%s) error = %v", path, err)
+		t.Fatalf("migrateToV3(%s) error = %v", path, err)
 	}
-	policy, err := ParsePolicy(path, text)
+	policy, err := parseV3Policy(path, text)
 	if err != nil {
 		t.Fatalf("the migrated %s does not parse: %v\n%s", path, err, text)
 	}
@@ -53,17 +53,17 @@ func migratedPolicy(t *testing.T, path string) *Policy {
 
 func migrateError(t *testing.T, text string) error {
 	t.Helper()
-	_, err := Migrate(text)
+	_, err := migrateToV3("roster.toml", text)
 	if err == nil {
-		t.Fatalf("Migrate() error = nil, want an error")
+		t.Fatalf("migrateToV3() error = nil, want an error")
 	}
 	if coded, ok := err.(interface{ ExitCode() int }); !ok || coded.ExitCode() != 2 {
-		t.Fatalf("Migrate() error = %v, want exit code 2", err)
+		t.Fatalf("migrateToV3() error = %v, want exit code 2", err)
 	}
 	return err
 }
 
-func accessOf(t *testing.T, policy *Policy, name string) *Access {
+func accessOf(t *testing.T, policy *v3Policy, name string) *v3Access {
 	t.Helper()
 	access, ok := policy.Access(name)
 	if !ok {
@@ -97,7 +97,7 @@ func TestMigrateDraft(t *testing.T) {
 	// A tier belongs to the route, not the model: the route carries the
 	// strongest tier the model served and that route's effort, "-" stays
 	// "no effort" instead of becoming a class-ladder guess.
-	routes := map[string]Route{
+	routes := map[string]v3Route{
 		"zai/glm-5.3-flash":        {Access: "zai", Model: "glm-5.3-flash", Eff: "max", Class: "standard"},
 		"zai/glm-5.3":              {Access: "zai", Model: "glm-5.3", Eff: "max", Class: "strong"},
 		"codex/gpt-6-luna":         {Access: "codex", Model: "gpt-6-luna", Eff: "max", Class: "standard"},
@@ -144,7 +144,7 @@ func TestMigrateLegacyFixture(t *testing.T) {
 	if want := []string{"kimi-k3.1-pro"}; !reflect.DeepEqual(goAccess.Models, want) {
 		t.Fatalf("opencode-go models = %v, want %v", goAccess.Models, want)
 	}
-	if route := policy.routesOf("opencode-go", "kimi-k3.1-pro"); len(route) != 1 || route[0] != (Route{Access: "opencode-go", Model: "kimi-k3.1-pro", Eff: "high", Class: "strong"}) {
+	if route := policy.routesOf("opencode-go", "kimi-k3.1-pro"); len(route) != 1 || route[0] != (v3Route{Access: "opencode-go", Model: "kimi-k3.1-pro", Eff: "high", Class: "strong"}) {
 		t.Fatalf("route of opencode-go/kimi-k3.1-pro = %v, want high = strong", route)
 	}
 	// The local provider stays local.
@@ -175,7 +175,7 @@ func TestMigrateLegacyFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, err := Migrate(string(data))
+	text, err := migrateToV3("roster.toml", string(data))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,21 +189,24 @@ func TestMigrateDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := Migrate(string(data))
+	first, err := migrateToV3("roster.toml", string(data))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Migrate(string(data))
+	second, err := migrateToV3("roster.toml", string(data))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first != second {
 		t.Fatalf("two migrations of one roster differ:\n%s\n---\n%s", first, second)
 	}
-	// The output is not an older roster: migrating it again must fail
-	// instead of rewriting a v3 file as if it were the old format.
-	if _, err := Migrate(first); err == nil || !strings.Contains(err.Error(), "already version 3") {
-		t.Fatalf("Migrate(migrated) error = %v, want already version 3", err)
+	// The v3 text goes on to version 4; a v4 text is not migrated again.
+	v4, err := Migrate(first)
+	if err != nil {
+		t.Fatalf("migrateToV3(v3) error = %v", err)
+	}
+	if _, err := Migrate(v4); err == nil || !strings.Contains(err.Error(), "already version 4") {
+		t.Fatalf("Migrate(v4) error = %v, want already version 4", err)
 	}
 }
 
@@ -215,7 +218,7 @@ func TestMigrateRejectsNonV1(t *testing.T) {
 	}{
 		{
 			name: "unknown version",
-			text: "version = 4\nspend = [\"zai\"]\n",
+			text: "version = 9\nspend = [\"zai\"]\n",
 			want: "is not the v1 roster format",
 		},
 		{
@@ -277,7 +280,7 @@ tier = "strong"
 		t.Run(tc.name, func(t *testing.T) {
 			err := migrateError(t, tc.text)
 			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("Migrate() error = %v, want it to contain %q", err, tc.want)
+				t.Fatalf("migrateToV3() error = %v, want it to contain %q", err, tc.want)
 			}
 		})
 	}
@@ -301,10 +304,10 @@ tier = "standard"
 `
 	err := migrateError(t, text)
 	if !strings.Contains(err.Error(), "access name 'a,b'") {
-		t.Fatalf("Migrate() error = %v, want the access name", err)
+		t.Fatalf("migrateToV3() error = %v, want the access name", err)
 	}
 	if !strings.Contains(err.Error(), "route x") {
-		t.Fatalf("Migrate() error = %v, want the route location", err)
+		t.Fatalf("migrateToV3() error = %v, want the route location", err)
 	}
 }
 
@@ -325,7 +328,7 @@ tier = "standard"
 `
 	err := migrateError(t, text)
 	if !strings.Contains(err.Error(), "cannot be a model glob") {
-		t.Fatalf("Migrate() error = %v, want the glob problem", err)
+		t.Fatalf("migrateToV3() error = %v, want the glob problem", err)
 	}
 }
 
@@ -347,12 +350,12 @@ tier = "standard"
 [profile."lean.start"]
 spend = ["opencode.go"]
 `
-	policy := func() *Policy {
-		migrated, err := Migrate(text)
+	policy := func() *v3Policy {
+		migrated, err := migrateToV3("roster.toml", text)
 		if err != nil {
-			t.Fatalf("Migrate() error = %v", err)
+			t.Fatalf("migrateToV3() error = %v", err)
 		}
-		parsed, err := ParsePolicy("roster.toml", migrated)
+		parsed, err := parseV3Policy("roster.toml", migrated)
 		if err != nil {
 			t.Fatalf("the migrated roster does not parse: %v\n%s", err, migrated)
 		}
@@ -410,11 +413,11 @@ tier = "strong"
 run = "pi | zai/glm-5.3 | max"
 tier = "strong"
 `
-	migrated, err := Migrate(text)
+	migrated, err := migrateToV3("roster.toml", text)
 	if err != nil {
-		t.Fatalf("Migrate() error = %v", err)
+		t.Fatalf("migrateToV3() error = %v", err)
 	}
-	policy, err := ParsePolicy("roster.toml", migrated)
+	policy, err := parseV3Policy("roster.toml", migrated)
 	if err != nil {
 		t.Fatalf("the migrated roster does not parse: %v\n%s", err, migrated)
 	}
@@ -440,11 +443,11 @@ replan = "trusted"
 run = "pi | zai/glm-5.3 | high"
 tier = "standard"
 `
-	migrated, err := Migrate(text)
+	migrated, err := migrateToV3("roster.toml", text)
 	if err != nil {
-		t.Fatalf("Migrate() error = %v", err)
+		t.Fatalf("migrateToV3() error = %v", err)
 	}
-	policy, err := ParsePolicy("roster.toml", migrated)
+	policy, err := parseV3Policy("roster.toml", migrated)
 	if err != nil {
 		t.Fatalf("the migrated roster does not parse: %v\n%s", err, migrated)
 	}
@@ -454,6 +457,7 @@ tier = "standard"
 }
 
 func TestMigrateFile(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	dir := t.TempDir()
 	path := filepath.Join(dir, "roster.toml")
 	if err := os.WriteFile(path, []byte(minimal), 0o644); err != nil {
@@ -470,7 +474,7 @@ func TestMigrateFile(t *testing.T) {
 	if data, _ := os.ReadFile(path); string(data) != minimal {
 		t.Fatalf("a read-only migration rewrote the roster")
 	}
-	// --write keeps the v1 text and replaces the roster.
+	// --write keeps the v1 text and replaces the roster with version 4.
 	result, err = MigrateFile(path, true)
 	if err != nil {
 		t.Fatalf("MigrateFile(write) error = %v", err)
@@ -478,12 +482,8 @@ func TestMigrateFile(t *testing.T) {
 	if result.Backup != path+".bak" {
 		t.Fatalf("backup = %q, want %q", result.Backup, path+".bak")
 	}
-	backup, err := os.ReadFile(result.Backup)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(backup) != minimal {
-		t.Fatalf("backup holds\n%s\nwant the v1 text\n%s", backup, minimal)
+	if backup, _ := os.ReadFile(result.Backup); string(backup) != minimal {
+		t.Fatalf("backup holds\n%s\nwant the v1 text", backup)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -492,20 +492,95 @@ func TestMigrateFile(t *testing.T) {
 	if string(data) != result.Text {
 		t.Fatalf("roster.toml does not hold the migrated text")
 	}
-	if _, err := ParsePolicy(path, string(data)); err != nil {
+	policy, err := ParsePolicy(path, string(data))
+	if err != nil {
 		t.Fatalf("the written roster does not load: %v", err)
 	}
-	// A second --write is a refusal, not a rewrite of the v3 file: the
-	// roster and its backup stay as they are.
-	_, err = MigrateFile(path, true)
-	if err == nil || !strings.Contains(err.Error(), "already version 3") {
-		t.Fatalf("second MigrateFile() error = %v, want already version 3", err)
+	// Without a catalog the cells come from the models the policy names:
+	// the strong routes review, the cheap ones take the cheap role.
+	zai, _ := policy.Access("zai")
+	if got := zai.Cell("cheap"); got != (Cell{Model: "m", Effort: "high"}) {
+		t.Fatalf("zai cheap = %+v\n%s", got, data)
 	}
-	if again, _ := os.ReadFile(path); string(again) != string(data) {
-		t.Fatalf("a refused migration rewrote roster.toml")
+	if got := zai.Cell("review"); got != (Cell{Model: "m2", Effort: "high"}) {
+		t.Fatalf("zai review = %+v\n%s", got, data)
+	}
+	if !zai.Cell("acceptance").Empty() {
+		t.Fatalf("zai acceptance = %+v: an untrusted v1 provider never judged", zai.Cell("acceptance"))
+	}
+	// A second --write is a refusal, not a rewrite of the v4 file.
+	_, err = MigrateFile(path, true)
+	if err == nil || !strings.Contains(err.Error(), "already version 4") {
+		t.Fatalf("second MigrateFile() error = %v, want already version 4", err)
 	}
 	if again, _ := os.ReadFile(result.Backup); string(again) != minimal {
 		t.Fatalf("a refused migration rewrote the backup")
+	}
+}
+
+// TestMigrateV3Scenario converts the v3 acceptance fixture with the
+// scenario catalog: the base budgets become the order and the cells, an
+// access at budget off becomes an off condition, and the low preset
+// becomes a policy of the variants file.
+func TestMigrateV3Scenario(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	catalog, err := os.ReadFile("testdata/catalog-scenario.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cache, "docflow", "roster"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cache, "docflow", "roster", "catalog.json"), catalog, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v3, err := os.ReadFile("testdata/policy-v3.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "roster.toml")
+	if err := os.WriteFile(path, v3, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := MigrateFile(path, true)
+	if err != nil {
+		t.Fatalf("MigrateFile() error = %v", err)
+	}
+	policy, err := LoadPolicy(path)
+	if err != nil {
+		t.Fatalf("LoadPolicy() error = %v", err)
+	}
+	if got := strings.Join(policy.AccessNames(), ","); got != "opencode-go,zai,codex,claude,opencode,local" {
+		t.Fatalf("order = %s: prefer, then lean, minimal, then the accesses that were off", got)
+	}
+	want, err := LoadPolicy("testdata/policy.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range want.AccessNames() {
+		got, _ := policy.Access(name)
+		expected, _ := want.Access(name)
+		if !reflect.DeepEqual(got.Roles, expected.Roles) {
+			t.Errorf("%s cells = %v, want %v as in testdata/policy.toml", name, got.Roles, expected.Roles)
+		}
+	}
+	low, ok := policy.Preset("low")
+	if !ok || strings.Join(low.Off, ",") != "claude,local" || len(low.Order) != 0 {
+		t.Fatalf("low = %+v", low)
+	}
+	if cell, ok := low.Roles["zai"]["executor"]; !ok || !cell.Empty() {
+		t.Fatalf("low zai executor = %+v, %v; want cleared: the flash-only zai served no executor", cell, ok)
+	}
+	state, err := LoadState(StatePath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(state.Off, ",") != "claude,opencode,local" {
+		t.Fatalf("state off = %v", state.Off)
+	}
+	if len(result.Notes) != 3 || len(result.Files) != 2 {
+		t.Fatalf("result = %+v", result)
 	}
 }
 
@@ -588,24 +663,21 @@ order = ["zai"]
 // a model become one route, everything else is kept as it is, and the
 // result loads as version 3.
 func TestMigrateV2(t *testing.T) {
-	policy := func() *Policy {
-		migrated, err := Migrate(v2Policy)
+	policy := func() *v3Policy {
+		migrated, err := migrateToV3("roster.toml", v2Policy)
 		if err != nil {
-			t.Fatalf("Migrate() error = %v", err)
+			t.Fatalf("migrateToV3() error = %v", err)
 		}
-		parsed, err := ParsePolicy("roster.toml", migrated)
+		parsed, err := parseV3Policy("roster.toml", migrated)
 		if err != nil {
 			t.Fatalf("the migrated roster does not parse: %v\n%s", err, migrated)
 		}
 		return parsed
 	}()
-	if policy.Version != 3 {
-		t.Fatalf("version = %d, want 3", policy.Version)
-	}
 	// The pin moves into the route key; the class follows it. A comment
 	// inside the removed tables dies with them (the file is rewritten
 	// by the next save anyway); the rest of the file stays as it is.
-	routes := map[string]Route{
+	routes := map[string]v3Route{
 		"zai/glm-5.3":       {Access: "zai", Model: "glm-5.3", Eff: "max", Class: "strong"},
 		"zai/glm-5.3-flash": {Access: "zai", Model: "glm-5.3-flash", Eff: "-", Class: "cheap"},
 		// A pin without a class takes the automatic class by the name.
@@ -621,7 +693,7 @@ func TestMigrateV2(t *testing.T) {
 	if _, ok := policy.Preset("zai-first"); !ok {
 		t.Fatal("preset zai-first is missing: the conversion lost the preset")
 	}
-	migrated, err := Migrate(v2Policy)
+	migrated, err := migrateToV3("roster.toml", v2Policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,18 +729,18 @@ review     = "strong"
 acceptance = "trusted"
 replan     = "trusted"
 `
-	policy, err := Migrate(text)
+	policy, err := migrateToV3("roster.toml", text)
 	if err != nil {
-		t.Fatalf("Migrate() error = %v", err)
+		t.Fatalf("migrateToV3() error = %v", err)
 	}
-	parsed, err := ParsePolicy("roster.toml", policy)
+	parsed, err := parseV3Policy("roster.toml", policy)
 	if err != nil {
 		t.Fatalf("the migrated roster does not parse: %v\n%s", err, policy)
 	}
-	if route := parsed.routesOf("zai", "glm-flash"); len(route) != 1 || route[0] != (Route{Access: "zai", Model: "glm-flash", Eff: "low", Class: "cheap"}) {
+	if route := parsed.routesOf("zai", "glm-flash"); len(route) != 1 || route[0] != (v3Route{Access: "zai", Model: "glm-flash", Eff: "low", Class: "cheap"}) {
 		t.Fatalf("route of zai/glm-flash = %v, want low = cheap", route)
 	}
-	if route := parsed.routesOf("zai", "glm-pro"); len(route) != 1 || route[0] != (Route{Access: "zai", Model: "glm-pro", Eff: "high", Class: "strong"}) {
+	if route := parsed.routesOf("zai", "glm-pro"); len(route) != 1 || route[0] != (v3Route{Access: "zai", Model: "glm-pro", Eff: "high", Class: "strong"}) {
 		t.Fatalf("route of zai/glm-pro = %v, want high = strong", route)
 	}
 }
@@ -677,12 +749,12 @@ replan     = "trusted"
 // only moves its version line.
 func TestMigrateV2WithoutModelTables(t *testing.T) {
 	text := "version = 2\n\n[access.zai]\nagents = [\"pi\"]\n\n[role]\ncheap      = \"cheap\"\nexecutor   = \"standard\"\nheavy      = \"strong\"\nreview     = \"strong\"\nacceptance = \"trusted\"\nreplan     = \"trusted\"\n"
-	migrated, err := Migrate(text)
+	migrated, err := migrateToV3("roster.toml", text)
 	if err != nil {
-		t.Fatalf("Migrate() error = %v", err)
+		t.Fatalf("migrateToV3() error = %v", err)
 	}
 	if !strings.HasPrefix(migrated, "version = 3\n") || !strings.Contains(migrated, "[access.zai]") {
-		t.Fatalf("Migrate() = %q, want the version bumped and the rest kept", migrated)
+		t.Fatalf("migrateToV3() = %q, want the version bumped and the rest kept", migrated)
 	}
 }
 
@@ -692,6 +764,48 @@ func TestMigrateV2RejectsBrokenKeys(t *testing.T) {
 	text := "version = 2\n\n[access.zai]\nagents = [\"pi\"]\n\n[role]\ncheap      = \"cheap\"\nexecutor   = \"standard\"\nheavy      = \"strong\"\nreview     = \"strong\"\nacceptance = \"trusted\"\nreplan     = \"trusted\"\n\n[effort]\n\"glm-5.3\" = \"high\"\n"
 	err := migrateError(t, text)
 	if !strings.Contains(err.Error(), "model key") {
-		t.Fatalf("Migrate() error = %v, want the model key problem", err)
+		t.Fatalf("migrateToV3() error = %v, want the model key problem", err)
 	}
+}
+
+// The v1 and v2 migrations end at a version 3 policy; these accessors read
+// it the way the tests of that step always did.
+func (p *v3Policy) AccessNames() []string {
+	names := make([]string, 0, len(p.Accesses))
+	for _, access := range p.Accesses {
+		names = append(names, access.Name)
+	}
+	return names
+}
+
+func (p *v3Policy) Access(name string) (*v3Access, bool) {
+	access := p.access(name)
+	return access, access != nil
+}
+
+func (p *v3Policy) routesOf(access, model string) []v3Route {
+	var routes []v3Route
+	for _, route := range p.Routes {
+		if route.Access == access && route.Model == model {
+			routes = append(routes, route)
+		}
+	}
+	return routes
+}
+
+func (p *v3Policy) Preset(name string) (*v3Preset, bool) {
+	for i := range p.Presets {
+		if p.Presets[i].Name == name {
+			return &p.Presets[i], true
+		}
+	}
+	return nil, false
+}
+
+func (p *v3Policy) PresetNames() []string {
+	names := make([]string, 0, len(p.Presets))
+	for _, preset := range p.Presets {
+		names = append(names, preset.Name)
+	}
+	return names
 }

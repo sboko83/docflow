@@ -30,14 +30,14 @@ state in the repository instead of the agent's memory.
   unit, switches to the fallback executor on a provider limit or outage,
   and stops safely on a timeout or a stalled agent. Claude Code, Codex CLI,
   Pi and OpenCode are built in; the plan routes each unit to its own
-  assistant, model, and reasoning effort. The roster takes conditions, not
-  a list of models: `docflow roster scan` collects models, context, price,
-  and reasoning levels from Pi and OpenCode plus known Codex/Claude
-  metadata, `roster brief` turns "codex minimal", "local off", "zai only
-  flash" into a chain per role, a read budget and the reason behind the
-  choice, and `roster apply` writes the plan header
-  ([details](docs/usage.md#автозапуск), in Russian); `roster web` edits
-  the same roster from a browser.
+  assistant, model, and reasoning effort. The roster is one table of
+  accesses × plan roles: `docflow roster scan` collects models, context,
+  price, and reasoning levels from Pi and OpenCode plus known Codex/Claude
+  metadata, `roster web` edits the table and named policies over it
+  ("zai first", "local off") in a browser, `roster brief` prints the chain
+  per role with a read budget and the reason behind it, and `roster apply`
+  writes the plan header ([details](docs/usage.md#автозапуск), in
+  Russian).
 - **Or do everything in a terminal.** `docflow tui` is a four-screen
   workspace: Проект keeps the queue, plans, Backlog and project settings;
   Ростер edits accesses, conditions and variants and writes a plan header;

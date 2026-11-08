@@ -49,6 +49,11 @@ func rosterEnv(t *testing.T, rosterText string) {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
 	writeLifecycleFile(t, home, "docflow/roster.toml", rosterText)
+	// The draft roster carries its codex-first policy in the variants file
+	// beside it.
+	if strings.Contains(rosterText, "draft.variants.toml") {
+		writeLifecycleFile(t, home, "docflow/roster.variants.toml", rosterFixture(t, "draft.variants.toml"))
+	}
 }
 
 // rosterAcceptanceEnv installs the v2 draft roster together with its
@@ -328,8 +333,7 @@ func TestRosterAcceptanceMigrateTwoToThree(t *testing.T) {
 func TestRosterApplyConditionsMatchBrief(t *testing.T) {
 	home := rosterBriefEnv(t)
 	root := rosterProject(t, rosterPlanUnits("", rosterConditionUnits))
-	flags := []string{"--off", "claude,local", "--lean", "zai", "--minimal", "codex",
-		"--prefer", "opencode-go", "--only", "zai=*flash*", "--expires", "zai=2099-01-01"}
+	flags := []string{"--preset", "low", "--off", "claude,local", "--expires", "zai=2099-01-01"}
 
 	briefArgs := append([]string{"roster", "brief", "--json"}, flags...)
 	code, stdout, stderr := callLifecycleCLI(t, root, briefArgs...)
@@ -381,14 +385,14 @@ func TestRosterApplyConditionsMatchBrief(t *testing.T) {
 		t.Errorf("--off claude still wrote a claude route:\n%s", text)
 	}
 	if !strings.Contains(text, "cheap: pi | opencode-go/deepseek-v4.1-flash | high; pi | zai/glm-5.3-flash | low") {
-		t.Errorf("--only zai=*flash* changed the cheap chain:\n%s", text)
+		t.Errorf("--preset low changed the cheap chain:\n%s", text)
 	}
 	if strings.Contains(text, "zai/glm-5.3 |") {
-		t.Errorf("--only zai=*flash* wrote another zai model:\n%s", text)
+		t.Errorf("--preset low kept the cleared zai executor cell:\n%s", text)
 	}
 	for _, line := range headerLines(text) {
 		if strings.Contains(line, "codex") && !strings.HasPrefix(line, "acceptance: ") && !strings.HasPrefix(line, "replan: ") {
-			t.Errorf("--minimal codex put codex into %q", line)
+			t.Errorf("codex, a judge only, went into %q", line)
 		}
 	}
 	if strings.Contains(text, "heavy:") {
@@ -421,27 +425,21 @@ func TestRosterApplyConditionsMatchBrief(t *testing.T) {
 	}
 }
 
-// codexOnlyRoster is a v3 policy with one access: switching codex off leaves
-// every chain empty.
-const codexOnlyRoster = `version = 3
+// codexOnlyRoster is a v4 policy with one access: switching codex off
+// leaves every chain empty.
+const codexOnlyRoster = `version = 4
 
 [access.codex]
-agents  = ["codex"]
-kind    = "subscription"
-budget  = "normal"
-trusted = true
-models  = ["gpt-6.1-sol"]
+agents = ["codex"]
+kind   = "subscription"
 
-[route."codex/gpt-6.1-sol"]
-high = "strong"
-
-[role]
-cheap      = "standard"
-executor   = "standard"
-heavy      = "strong"
-review     = "standard"
-acceptance = "trusted"
-replan     = "trusted"
+[access.codex.roles]
+executor   = "gpt-6.1-sol@high"
+cheap      = "gpt-6.1-sol@high"
+heavy      = "gpt-6.1-sol@high"
+review     = "gpt-6.1-sol@high"
+acceptance = "gpt-6.1-sol@high"
+replan     = "gpt-6.1-sol@high"
 `
 
 // TestRosterApplyRefusesEmptyExecutorChain reproduces codex off → apply:

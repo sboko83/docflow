@@ -30,7 +30,7 @@ func rosterBriefEnv(t *testing.T) string {
 	policy := readRosterFile(t, home, "docflow/roster.toml")
 	patched := strings.Replace(policy, `expires = "2026-06-30"`, `expires = "2099-01-01"`, 1)
 	if patched == policy {
-		t.Fatal("policy-v3.toml no longer names the zai expiry the test patches")
+		t.Fatal("policy.toml no longer names the zai expiry the test patches")
 	}
 	writeLifecycleFile(t, home, "docflow/roster.toml", patched)
 	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "catalog-scenario.json"))
@@ -112,10 +112,8 @@ func TestRosterBriefProjectVariant(t *testing.T) {
 	rosterBriefEnv(t)
 	project := t.TempDir()
 	writeLifecycleFile(t, project, "docs/docflow.md", lifecycleDocflow(nil, nil))
-	writeLifecycleFile(t, project, "docs/roster.variants.toml", "version = 2\n\n[preset.project-low]\n"+
-		"off = [\"claude\", \"local\"]\nlean = [\"zai\"]\nminimal = [\"codex\"]\n"+
-		"prefer = [\"opencode-go\"]\norder = [\"opencode-go\", \"zai\", \"codex\"]\n"+
-		"models = { zai = [\"*flash*\"] }\n")
+	writeLifecycleFile(t, project, "docs/roster.variants.toml", "version = 3\n\n[preset.project-low]\n"+
+		"off = [\"claude\", \"local\", \"opencode\"]\n\n[preset.project-low.roles.zai]\nexecutor = \"\"\n")
 
 	code, _, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "brief", "--preset", "project-low")
 	if code != 2 || !strings.Contains(stderr, "unknown preset 'project-low'") {
@@ -133,18 +131,21 @@ func TestRosterBriefProjectVariant(t *testing.T) {
 	}
 }
 
-// TestRosterBriefOneShotFlags checks that the in-memory flags produce the
-// same chains as the preset they spell out and that they write no state.
+// TestRosterBriefOneShotFlags checks that the in-memory flags switch the
+// same accesses off as the low preset (which also clears the zai executor
+// cell) and that they write no state.
 func TestRosterBriefOneShotFlags(t *testing.T) {
 	home := rosterBriefEnv(t)
 	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "brief",
-		"--off", "claude,local", "--lean", "zai", "--minimal", "codex",
-		"--prefer", "opencode-go", "--only", "zai=*flash*", "--expires", "zai=2099-01-01")
+		"--off", "claude,local,opencode", "--expires", "zai=2099-01-01")
 	if code != 0 || stderr != "" {
 		t.Fatalf("roster brief flags = (%d, %q, %q)", code, stdout, stderr)
 	}
 	got := briefChains(t, stdout)
 	for role, want := range scenarioChains {
+		if role == "executor" {
+			want = "opencode-go/deepseek-v4.1@high > zai/glm-5.3@max"
+		}
 		if got[role] != want {
 			t.Errorf("%s chain = %q, want %q", role, got[role], want)
 		}
@@ -180,8 +181,7 @@ func TestRosterBriefBadFlags(t *testing.T) {
 		{"unknown access", []string{"--off", "nope"}, "unknown access 'nope'"},
 		{"unknown preset", []string{"--preset", "nope"}, "unknown preset 'nope'"},
 		{"bad expires", []string{"--expires", "zai"}, "--expires wants ACCESS=DATE"},
-		{"bad only", []string{"--only", "zai"}, "--only wants ACCESS=GLOB"},
-		{"minimal untrusted", []string{"--minimal", "zai"}, "budget minimal requires trusted"},
+		{"removed budget flag", []string{"--lean", "zai"}, "unrecognized arguments: --lean"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			args := append([]string{"roster", "brief"}, tc.args...)

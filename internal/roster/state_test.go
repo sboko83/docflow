@@ -11,20 +11,27 @@ import (
 
 // statePolicy is the policy the state tests merge over: one access per
 // kind of condition the state can carry.
-const statePolicy = "version = 3\n\n" +
-	"[access.zai]\nagents = [\"pi\"]\nbudget = \"lean\"\nmodels = [\"glm-5.3*\"]\n\n" +
-	"[access.codex]\nagents = [\"codex\"]\ntrusted = true\n\n" +
-	"[access.claude]\nagents = [\"claude\"]\ntrusted = true\n\n" +
-	"[access.local]\nagents = [\"pi\"]\nkind = \"local\"\ncheck = true\n\n" +
-	policyRoles +
-	"\n[preset.low]\noff = [\"claude\", \"local\"]\nlean = [\"zai\"]\nminimal = [\"codex\"]\norder = [\"codex\", \"zai\"]\n"
+const statePolicy = "version = 4\n\n" +
+	"[access.zai]\nagents = [\"pi\"]\nexpires = \"2099-01-01\"\n\n[access.zai.roles]\nexecutor = \"glm-5.3@high\"\n\n" +
+	"[access.codex]\nagents = [\"codex\"]\n\n" +
+	"[access.claude]\nagents = [\"claude\"]\n\n" +
+	"[access.local]\nagents = [\"pi\"]\nkind = \"local\"\ncheck = true\n"
 
+// stateTestPolicy parses the state policy and gives it the low preset: two
+// accesses off, codex first and the zai executor cell cleared.
 func stateTestPolicy(t *testing.T) *Policy {
 	t.Helper()
 	policy, err := ParsePolicy("roster.toml", statePolicy)
 	if err != nil {
 		t.Fatalf("ParsePolicy() error = %v", err)
 	}
+	policy.Presets = []Preset{{
+		Name:   "low",
+		Source: SourceVariants,
+		Off:    []string{"claude", "local"},
+		Order:  []string{"codex", "zai"},
+		Roles:  map[string]map[string]Cell{"zai": {"executor": {}}},
+	}}
 	return policy
 }
 
@@ -61,40 +68,9 @@ func TestStateOffOnUntil(t *testing.T) {
 	if _, ok := state.Until["codex"]; ok {
 		t.Fatalf("until kept after an open-ended off: %v", state.Until)
 	}
-	state.SetBudget("codex", BudgetOff)
 	state.SetOn("codex")
 	if len(state.Off) != 0 || len(state.Until) != 0 {
 		t.Fatalf("on left off conditions: %v %v", state.Off, state.Until)
-	}
-	if _, ok := state.Budget["codex"]; ok {
-		t.Fatalf("on left the off budget: %v", state.Budget)
-	}
-}
-
-func TestStateAllowDenyDedup(t *testing.T) {
-	state := NewState("roster.state.toml")
-	for _, globs := range [][]string{{"*flash*", "glm-5*"}, {"*flash*"}} {
-		if err := state.Allow("zai", globs); err != nil {
-			t.Fatalf("Allow(%v) error = %v", globs, err)
-		}
-	}
-	if want := []string{"*flash*", "glm-5*"}; !reflect.DeepEqual(state.Models["zai"], want) {
-		t.Fatalf("models = %v, want %v", state.Models["zai"], want)
-	}
-	if err := state.Deny("zai", []string{"glm-5.3-thinking"}); err != nil {
-		t.Fatalf("Deny() error = %v", err)
-	}
-	if err := state.Deny("zai", []string{"glm-5.3-thinking"}); err != nil {
-		t.Fatalf("Deny() repeat error = %v", err)
-	}
-	if want := []string{"glm-5.3-thinking"}; !reflect.DeepEqual(state.Exclude["zai"], want) {
-		t.Fatalf("exclude = %v, want %v", state.Exclude["zai"], want)
-	}
-	if err := state.Allow("zai", []string{"["}); err == nil {
-		t.Fatal("Allow() accepted a broken glob")
-	}
-	if err := state.SetBudget("zai", "plenty"); err == nil {
-		t.Fatal("SetBudget() accepted an unknown level")
 	}
 }
 
@@ -108,16 +84,7 @@ func TestStateSaveLoadRoundTrip(t *testing.T) {
 	state.Preset = "low"
 	state.SetOff("claude", day)
 	state.SetOff("local", time.Time{})
-	if err := state.SetBudget("codex", BudgetMinimal); err != nil {
-		t.Fatal(err)
-	}
 	state.SetExpires("zai", day)
-	if err := state.Allow("zai", []string{"*flash*"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.Deny("zai", []string{"glm-5.3-thinking"}); err != nil {
-		t.Fatal(err)
-	}
 	if err := state.Save(""); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
@@ -130,10 +97,7 @@ func TestStateSaveLoadRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(loaded.Off, state.Off) ||
 		!reflect.DeepEqual(loaded.Until, state.Until) ||
-		!reflect.DeepEqual(loaded.Budget, state.Budget) ||
 		!reflect.DeepEqual(loaded.Expires, state.Expires) ||
-		!reflect.DeepEqual(loaded.Models, state.Models) ||
-		!reflect.DeepEqual(loaded.Exclude, state.Exclude) ||
 		loaded.Preset != state.Preset {
 		t.Fatalf("round trip = %+v, want %+v", loaded, state)
 	}
@@ -193,14 +157,6 @@ func TestStateValidateUnknownAccess(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want an unknown preset", err)
 	}
 	state.Preset = ""
-	state.SetBudget("zai", BudgetMinimal)
-	if err := state.Validate(policy); err == nil || !strings.Contains(err.Error(), "minimal requires trusted") {
-		t.Fatalf("Validate() error = %v, want minimal to require trusted", err)
-	}
-	if err := state.SetBudget("zai", BudgetLean); err != nil {
-		t.Fatal(err)
-	}
-	state.SetBudget("codex", BudgetMinimal)
 	state.SetExpires("claude", time.Now().UTC().AddDate(0, 1, 0))
 	if err := state.Validate(policy); err != nil {
 		t.Fatalf("Validate() error = %v, want a valid state", err)
@@ -212,16 +168,6 @@ func TestStateMerge(t *testing.T) {
 	state := NewState("roster.state.toml")
 	state.Preset = "low"
 	state.SetOff("zai", time.Now().UTC().AddDate(0, 7, 0))
-	if err := state.SetBudget("codex", BudgetMinimal); err != nil {
-		t.Fatal(err)
-	}
-	state.SetExpires("local", time.Now().UTC().AddDate(0, 0, -1))
-	if err := state.Allow("zai", []string{"*flash*"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := state.Deny("zai", []string{"glm-5.3-thinking"}); err != nil {
-		t.Fatal(err)
-	}
 	merged, err := Merge(policy, state)
 	if err != nil {
 		t.Fatalf("Merge() error = %v", err)
@@ -230,47 +176,47 @@ func TestStateMerge(t *testing.T) {
 		t.Fatalf("merged order = %v, want the preset order %v", merged.AccessNames(), want)
 	}
 	zai, _ := merged.Access("zai")
-	if zai.Budget != BudgetOff {
-		t.Errorf("zai budget = %q, want off: an off switch beats lean", zai.Budget)
-	}
-	if want := []string{"*flash*"}; !reflect.DeepEqual(zai.Models, want) {
-		t.Errorf("zai models = %v, want the state allowlist %v", zai.Models, want)
-	}
-	if want := []string{"glm-5.3-thinking"}; !reflect.DeepEqual(zai.Exclude, want) {
-		t.Errorf("zai exclude = %v, want %v", zai.Exclude, want)
-	}
-	codex, _ := merged.Access("codex")
-	if codex.Budget != BudgetMinimal {
-		t.Errorf("codex budget = %q, want minimal", codex.Budget)
+	if !zai.Off || !zai.Cell("executor").Empty() {
+		t.Errorf("zai = %+v, want off with the executor cell cleared", zai)
 	}
 	claude, _ := merged.Access("claude")
 	local, _ := merged.Access("local")
-	if claude.Budget != BudgetOff || local.Budget != BudgetOff {
-		t.Errorf("preset off = claude %q, local %q, want both off", claude.Budget, local.Budget)
+	codex, _ := merged.Access("codex")
+	if !claude.Off || !local.Off || codex.Off {
+		t.Errorf("off = claude %v, local %v, codex %v", claude.Off, local.Off, codex.Off)
 	}
-	// The policy itself stays untouched: the resolver compares the stable
-	// layer with the conditions.
-	if stable, _ := policy.Access("zai"); stable.Budget != BudgetLean || len(stable.Exclude) != 0 {
+	// The policy itself stays untouched.
+	if stable, _ := policy.Access("zai"); stable.Off || stable.Cell("executor").Empty() {
 		t.Fatalf("Merge() changed the policy: %+v", stable)
 	}
 }
 
-func TestStateMergeExpiredAccess(t *testing.T) {
+func TestStateMergeExpiry(t *testing.T) {
 	policy := stateTestPolicy(t)
 	state := NewState("roster.state.toml")
 	today := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
-	state.SetExpires("codex", today.AddDate(0, 0, -1))
+	state.SetExpires("zai", today.AddDate(0, 0, 1))
 	merged := mergeAt(policy.clone(), state, today)
-	codex, _ := merged.Access("codex")
-	if codex.Budget != BudgetOff {
-		t.Fatalf("codex budget = %q, want off the day after its expiry", codex.Budget)
+	zai, _ := merged.Access("zai")
+	if !zai.Expires.Equal(today.AddDate(0, 0, 1)) {
+		t.Fatalf("zai expires = %v, want the earlier state date", zai.Expires)
 	}
-	// The expiry day itself is still usable.
-	state.SetExpires("codex", today.AddDate(0, 0, 1))
+	state.SetExpires("zai", time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
 	merged = mergeAt(policy.clone(), state, today)
-	codex, _ = merged.Access("codex")
-	if codex.Budget == BudgetOff || !codex.Expires.Equal(today.AddDate(0, 0, 1)) {
-		t.Fatalf("codex = %+v, want a live access expiring tomorrow", codex)
+	zai, _ = merged.Access("zai")
+	if dayText(zai.Expires) != "2099-01-01" {
+		t.Fatalf("zai expires = %v, want the policy date: a condition never extends it", zai.Expires)
+	}
+}
+
+// TestStateRefusesRemovedConditions: the budget, allowlist and denial
+// conditions of the v3 roster send the user to the migration.
+func TestStateRefusesRemovedConditions(t *testing.T) {
+	for _, key := range []string{"budget", "models", "exclude"} {
+		_, err := ParseState("roster.state.toml", "version = 2\n\n["+key+"]\nzai = \"lean\"\n")
+		if err == nil || !strings.Contains(err.Error(), "docflow roster migrate") {
+			t.Errorf("%s: ParseState() error = %v, want the migration hint", key, err)
+		}
 	}
 }
 
@@ -278,8 +224,8 @@ func TestStateConditions(t *testing.T) {
 	policy := stateTestPolicy(t)
 	state := NewState("roster.state.toml")
 	rows := Conditions(policy, state)
-	if len(rows) != 2 || rows[0].Access != "zai" || rows[0].Kind != "budget" || rows[0].Value != BudgetLean || rows[0].Source != SourcePolicy {
-		t.Fatalf("policy conditions = %+v, want the zai budget and allowlist", rows)
+	if len(rows) != 1 || rows[0].Access != "zai" || rows[0].Kind != "expires" || rows[0].Value != "2099-01-01" || rows[0].Source != SourcePolicy {
+		t.Fatalf("policy conditions = %+v, want the zai expiry", rows)
 	}
 	state.SetOff("claude", time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC))
 	rows = Conditions(policy, state)

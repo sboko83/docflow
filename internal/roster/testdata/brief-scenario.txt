@@ -1,20 +1,11 @@
 conditions:
-access       condition  value             source
-opencode-go  budget     prefer            roster
-opencode-go  models     deepseek-*        roster
-zai          budget     lean              roster
-zai          expires    2026-06-30        roster
-zai          models     glm-5.3*          roster
-zai          exclude    glm-5.3-thinking  roster
-codex        budget     minimal           roster
-claude       budget     off               roster
-opencode     budget     off               roster
-local        budget     off               roster
--            preset     low               state
+access  condition  value       source
+zai     expires    2026-06-30  roster
+-       preset     low         state
 chains:
 role        chain                                                         budget  scope
 executor    opencode-go/deepseek-v4.1@high                                250000  read
-cheap       opencode-go/deepseek-v4.1-flash@high > zai/glm-5.3-flash@low  152371  read
+cheap       opencode-go/deepseek-v4.1-flash@high > zai/glm-5.3-flash@low  203162  read
 heavy       -                                                             -       read
 review      opencode-go/deepseek-v4.1@high                                -       diff/test
 acceptance  codex/gpt-6.1-sol@medium                                      -       diff/test
@@ -23,17 +14,17 @@ review:
 access  reviewers
 zai     opencode-go/deepseek-v4.1@high
 why:
-- executor: primary opencode-go/deepseek-v4.1@high via pi: prefer budget, standard class
-- executor: budget 250000: usable 812647 = context 1048576 - max-out 131072 - reserve 104857; * share 0.35 (executor) * class 1.00 (standard) = 284426, clamped to 20000..250000
-- cheap: primary opencode-go/deepseek-v4.1-flash@high via pi: prefer budget, cheap class
-- cheap: fallback zai/glm-5.3-flash@low via pi: lean budget, cheap class
-- cheap: budget 152371: usable 812647 = context 1048576 - max-out 131072 - reserve 104857; * share 0.25 (cheap) * class 0.75 (cheap) = 152371, clamped to 20000..250000
+- executor: primary opencode-go/deepseek-v4.1@high via pi
+- executor: budget 250000: usable 812647 = context 1048576 - max-out 131072 - reserve 104857; * share 0.35 (executor) = 284426, clamped to 20000..250000
+- cheap: primary opencode-go/deepseek-v4.1-flash@high via pi
+- cheap: fallback zai/glm-5.3-flash@low via pi
+- cheap: budget 203162: usable 812647 = context 1048576 - max-out 131072 - reserve 104857; * share 0.25 (cheap) = 203162, clamped to 20000..250000
 - heavy: no route: no access serves this role under the current conditions
-- review: primary opencode-go/deepseek-v4.1@high via pi: prefer budget, standard class
+- review: primary opencode-go/deepseek-v4.1@high via pi
 - review: diff/test scope: a judge reads the diff and the test output, not the repository, so it has no read budget
-- acceptance: primary codex/gpt-6.1-sol@medium via codex: minimal budget, strong class
+- acceptance: primary codex/gpt-6.1-sol@medium via codex
 - acceptance: diff/test scope: a judge reads the diff and the test output, not the repository, so it has no read budget
-- replan: primary codex/gpt-6.1-sol@medium via codex: minimal budget, strong class
+- replan: primary codex/gpt-6.1-sol@medium via codex
 - replan: diff/test scope: a judge reads the diff and the test output, not the repository, so it has no read budget
 warnings:
 - no fallback for executor

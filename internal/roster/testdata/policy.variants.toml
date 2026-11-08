@@ -1,0 +1,8 @@
+# roster variants: the policies over the default table; this file is machine-owned.
+version = 3
+
+[preset.low]
+off = ["claude", "local", "opencode"]
+
+[preset.low.roles.zai]
+executor   = ""

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"path"
 	"strings"
 	"time"
 
@@ -59,10 +58,6 @@ func (p rosterPanel) title() string {
 		return "Варианты"
 	}
 }
-
-// budgetLadder is the order ←/→ walks, the most available level first. off
-// is the last step: the switch key is the direct way to it.
-var budgetLadder = []string{roster.BudgetPrefer, roster.BudgetNormal, roster.BudgetLean, roster.BudgetMinimal, roster.BudgetOff}
 
 // rosterMsg is the answer of a roster load.
 type rosterMsg struct {
@@ -299,10 +294,6 @@ func (m Model) handleRosterKey(key string) (Model, tea.Cmd) {
 			return m, nil
 		case "space":
 			return m.toggleAccess(), nil
-		case "left", "h":
-			return m.stepBudget(-1), nil
-		case "right", "l":
-			return m.stepBudget(1), nil
 		case "enter":
 			return m.openRosterModels(), nil
 		case "esc":
@@ -482,28 +473,6 @@ func (m Model) toggleAccess() Model {
 		access.Access + " is switched off until the conditions change.",
 		"Date YYYY-MM-DD, empty means no end date.",
 	}, []string{"Enter — switch off · Esc — cancel"})
-}
-
-// stepBudget walks the budget ladder of the selected access one level.
-func (m Model) stepBudget(direction int) Model {
-	access, ok := m.selectedAccess()
-	if !ok {
-		return m
-	}
-	index := 0
-	for i, level := range budgetLadder {
-		if level == access.Budget {
-			index = i
-		}
-	}
-	next := clampIndex(index+direction, len(budgetLadder))
-	if budgetLadder[next] == access.Budget {
-		return m
-	}
-	level := budgetLadder[next]
-	return m.rosterEdit(access.Access+" budget "+level, func(w *roster.Workspace) error {
-		return w.SetBudget(access.Access, level)
-	})
 }
 
 // applyOffDialog answers the off dialog: an empty date means no end date, a
@@ -702,12 +671,6 @@ func (m Model) handleRosterModelsKey(key string) Model {
 			m.rmodels.cursor = max(0, len(m.rmodels.models)-1)
 		}
 		return m
-	case "a":
-		return m.editModelGlob("allow")
-	case "x":
-		return m.editModelGlob("deny")
-	case "backspace":
-		return m.editModelGlob("unset")
 	case "esc", "enter":
 		m.overlay = overlayNone
 		m.rmodels = nil
@@ -715,62 +678,17 @@ func (m Model) handleRosterModelsKey(key string) Model {
 	return m
 }
 
-// editModelGlob writes one model glob into the conditions of the access:
-// allow and deny add it, backspace drops it from both. The policy layer is
-// never rewritten.
-func (m Model) editModelGlob(kind string) Model {
-	selected, ok := m.selectedRosterModel()
-	if !ok || m.roster == nil {
-		return m
-	}
-	access, glob := m.rmodels.access, selected.ID
-	done := ""
-	op := func(w *roster.Workspace) error {
-		switch kind {
-		case "allow":
-			return w.Allow(access, []string{glob})
-		case "deny":
-			return w.Deny(access, []string{glob})
-		}
-		return w.UnsetGlob(access, glob)
-	}
-	switch kind {
-	case "allow":
-		done = access + ": allowed " + glob
-	case "deny":
-		done = access + ": denied " + glob
-	default:
-		done = access + ": condition cleared for " + glob
-	}
-	if err := op(m.roster); err != nil {
-		m.notice = err.Error()
-		return m
-	}
-	m = m.refreshRoster()
-	if m.rosterPhase == rosterFailed {
-		m.notice = done + "; the reload failed: " + m.rosterErr
-		return m
-	}
-	m.notice = done
-	return m.refreshRosterModels()
-}
-
-// modelGlobState says what the conditions in force do with a model id.
-func modelGlobState(access roster.WorkspaceAccess, id string) string {
-	for _, glob := range access.Deny {
-		if matched, err := path.Match(glob, id); err == nil && matched {
-			return "denied"
+// modelRoles lists the roles the effective row of an access serves with a
+// model: the cells the roster web editor writes.
+func modelRoles(access roster.WorkspaceAccess, id string) []string {
+	var roles []string
+	for _, role := range roster.Roles {
+		cell := access.Effective[role]
+		if cell == id || strings.HasPrefix(cell, id+"@") {
+			roles = append(roles, role+" "+strings.TrimPrefix(cell, id))
 		}
 	}
-	if len(access.Allow) == 0 {
-		return "unrestricted"
-	}
-	for _, glob := range access.Allow {
-		if matched, err := path.Match(glob, id); err == nil && matched {
-			return "allowed"
-		}
-	}
-	return "not in the allowlist"
+	return roles
 }
 
 // rosterBody renders the roster screen: three panels from 100 columns, one
@@ -797,7 +715,7 @@ func (m Model) rosterBody(width, height int) []string {
 			"u — собрать каталог · Esc — вернуться на «Проект»")
 	case workspace.Legacy:
 		return m.messageLines(width, height, "Ростер версии 1: "+workspace.PolicyPath,
-			workspace.Problem, "Enter — миграция на версию 2 · u — собрать каталог")
+			workspace.Problem, "Enter — миграция на текущую версию · u — собрать каталог")
 	}
 	if m.singlePanel() {
 		var content []string
@@ -913,25 +831,21 @@ func accessHead(access roster.WorkspaceAccess) string {
 	return strings.Join(parts, " · ")
 }
 
-// accessState is the second line: the effective switch, budget and review
-// flags.
+// accessState is the second line: the effective switch, the check flag and
+// how many roles the effective row serves.
 func accessState(access roster.WorkspaceAccess) string {
 	parts := []string{"выкл"}
 	if !access.Off {
 		parts[0] = "вкл"
 	}
-	parts = append(parts, "бюджет "+access.Budget)
+	parts = append(parts, fmt.Sprintf("ролей %d/%d", len(access.Effective), len(roster.Roles)))
 	if access.Check {
 		parts = append(parts, "check")
-	}
-	if access.Trusted {
-		parts = append(parts, "trusted")
 	}
 	return strings.Join(parts, " · ")
 }
 
-// accessDetail is the third line: the dates go before the globs, so a narrow
-// column cuts a long pattern instead of a date.
+// accessDetail is the third line: the dates of the conditions.
 func accessDetail(access roster.WorkspaceAccess) string {
 	parts := make([]string, 0, 4)
 	if access.Until != "" {
@@ -939,12 +853,6 @@ func accessDetail(access roster.WorkspaceAccess) string {
 	}
 	if access.Expires != "" {
 		parts = append(parts, "до "+access.Expires)
-	}
-	if len(access.Allow) > 0 {
-		parts = append(parts, "модели "+strings.Join(access.Allow, ","))
-	}
-	if len(access.Deny) > 0 {
-		parts = append(parts, "запрет "+strings.Join(access.Deny, ","))
 	}
 	return strings.Join(parts, " · ")
 }
@@ -1015,16 +923,16 @@ func chainText(role roster.RoleBrief) string {
 	return strings.Join(parts, " > ")
 }
 
-// rosterModelLines renders the open model list: the conditions in force,
-// then every catalog model of the access with what they do with it.
+// rosterModelLines renders the open model list: every catalog model of the
+// access with the roles its effective row serves with it. The cells are
+// edited in `docflow roster web`.
 func (m Model) rosterModelLines() []string {
 	if m.rmodels == nil || m.roster == nil || m.roster.Policy == nil {
 		return nil
 	}
 	access, _ := m.rosterAccess(m.rmodels.access)
 	lines := []string{
-		"allow: " + dashList(access.Allow),
-		"deny:  " + dashList(access.Deny),
+		"роли задаются в docflow roster web",
 		"",
 	}
 	if len(m.rmodels.models) == 0 {
@@ -1036,18 +944,14 @@ func (m Model) rosterModelLines() []string {
 		if i == m.rmodels.cursor {
 			marker = ">"
 		}
+		roles := modelRoles(access, model.ID)
 		glyph := "·"
-		switch modelGlobState(access, model.ID) {
-		case "allowed":
+		if len(roles) > 0 {
 			glyph = "+"
-		case "denied":
-			glyph = "-"
-		case "not in the allowlist":
-			glyph = "x"
 		}
 		line := fmt.Sprintf("%s%s %s", marker, glyph, model.ID)
-		if summary := m.roster.Policy.RouteSummary(model.Access, model.ID); summary != "" {
-			line += " · " + summary
+		if len(roles) > 0 {
+			line += " · " + strings.Join(roles, ", ")
 		}
 		if model.Context > 0 {
 			line += fmt.Sprintf(" · контекст %d", model.Context)
@@ -1063,13 +967,6 @@ func (m Model) rosterModelLines() []string {
 		room--
 	}
 	return append(lines, windowRows(rows, m.rmodels.cursor, max(1, room))...)
-}
-
-func dashList(values []string) string {
-	if len(values) == 0 {
-		return "—"
-	}
-	return strings.Join(values, " ")
 }
 
 // windowRows keeps the row under the cursor visible: the rows below it

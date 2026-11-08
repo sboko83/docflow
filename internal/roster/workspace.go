@@ -3,7 +3,6 @@ package roster
 import (
 	"fmt"
 	"os"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -59,11 +58,11 @@ type Workspace struct {
 	CatalogAccesses []WorkspaceCatalogAccess    `json:"catalog_accesses,omitempty"`
 	CatalogModels   map[string][]WorkspaceModel `json:"catalog_models,omitempty"`
 
-	// Routes and RoleRequirements mirror the policy model for the editor:
-	// the Policy struct itself is not serialized, and a browser cannot
-	// resolve Go fields.
-	Routes           []Route           `json:"routes"`
-	RoleRequirements map[string]string `json:"role_requirements"`
+	// Order is the access priority in force: the policy order, or the
+	// order the active preset puts first. Roles lists the plan roles in
+	// table column order.
+	Order     []string `json:"order"`
+	RoleNames []string `json:"role_names"`
 
 	Policy  *Policy  `json:"-"`
 	State   *State   `json:"-"`
@@ -88,45 +87,36 @@ func (w *Workspace) PlanningRoute() (agents.Route, error) {
 }
 
 // WorkspaceAccess is one access row of the roster screen: the channels and
-// flags of the policy, the kind, auth status and model count the catalog
-// adds, the effective budget the conditions leave, and the conditions in
-// force with their dates and their source.
+// the check flag of the policy, the kind, auth status and model count the
+// catalog adds, the off switch and the conditions in force, and the row of
+// the role table — as the policy declares it (Cells) and as the preset and
+// the conditions leave it (Effective). A cell reads MODEL@EFFORT.
 type WorkspaceAccess struct {
-	Access     string      `json:"access"`
-	Agents     []string    `json:"agents,omitempty"`
-	Kind       string      `json:"kind,omitempty"`
-	Auth       string      `json:"auth,omitempty"`
-	Models     int         `json:"models"`
-	Budget     string      `json:"budget"`
-	Check      bool        `json:"check,omitempty"`
-	Trusted    bool        `json:"trusted,omitempty"`
-	Off        bool        `json:"off,omitempty"`
-	Allow      []string    `json:"allow,omitempty"`
-	Deny       []string    `json:"deny,omitempty"`
-	Until      string      `json:"until,omitempty"`
-	Expires    string      `json:"expires,omitempty"`
-	Conditions []Condition `json:"conditions,omitempty"`
-	// PolicyModels and PolicyBudget are what the policy itself declares
-	// (the exact ids and the base budget of roster.toml), as opposed to
-	// Allow and Budget — the effective lists the conditions put in force.
-	PolicyModels []string `json:"policy_models,omitempty"`
-	PolicyBudget string   `json:"policy_budget,omitempty"`
+	Access     string            `json:"access"`
+	Agents     []string          `json:"agents,omitempty"`
+	Kind       string            `json:"kind,omitempty"`
+	Auth       string            `json:"auth,omitempty"`
+	Models     int               `json:"models"`
+	Check      bool              `json:"check,omitempty"`
+	Off        bool              `json:"off,omitempty"`
+	Until      string            `json:"until,omitempty"`
+	Expires    string            `json:"expires,omitempty"`
+	Conditions []Condition       `json:"conditions,omitempty"`
+	Cells      map[string]string `json:"cells"`
+	Effective  map[string]string `json:"effective"`
 }
 
-// WorkspaceVariant is one preset of the roster with the layer it comes
-// from and the conditions it carries: roster.toml is hand-edited and
-// read-only for the variant operations, the global and the project
-// variants files are machine-owned.
+// WorkspaceVariant is one preset of the roster with the variants layer it
+// comes from and what it changes: the accesses it switches off, the order
+// it puts first and its cell overrides (access → role → MODEL@EFFORT, ""
+// clears the base cell).
 type WorkspaceVariant struct {
-	Name    string              `json:"name"`
-	Source  string              `json:"source"`
-	Path    string              `json:"path,omitempty"`
-	Off     []string            `json:"off,omitempty"`
-	Lean    []string            `json:"lean,omitempty"`
-	Minimal []string            `json:"minimal,omitempty"`
-	Prefer  []string            `json:"prefer,omitempty"`
-	Order   []string            `json:"order,omitempty"`
-	Models  map[string][]string `json:"models,omitempty"`
+	Name   string                       `json:"name"`
+	Source string                       `json:"source"`
+	Path   string                       `json:"path,omitempty"`
+	Off    []string                     `json:"off,omitempty"`
+	Order  []string                     `json:"order,omitempty"`
+	Roles  map[string]map[string]string `json:"roles,omitempty"`
 }
 
 // WorkspaceCatalogAccess is one access the catalog knows: what the
@@ -283,10 +273,10 @@ func loadWorkspace(rosterPath, root string) (*Workspace, error) {
 	workspace.Preset = state.Preset
 	workspace.Conditions = Conditions(policy, state)
 	workspace.Variants = workspace.variantRows()
-	workspace.Routes = append([]Route(nil), policy.Routes...)
-	workspace.RoleRequirements = make(map[string]string, len(policy.Roles))
-	for role, requirement := range policy.Roles {
-		workspace.RoleRequirements[role] = requirement
+	workspace.RoleNames = append([]string(nil), Roles...)
+	workspace.Order = policy.AccessNames()
+	if merged, err := Merge(policy, state); err == nil {
+		workspace.Order = merged.AccessNames()
 	}
 	return workspace, nil
 }
@@ -294,7 +284,7 @@ func loadWorkspace(rosterPath, root string) (*Workspace, error) {
 // legacyRosterFile reports whether the file at path is a version 1 roster:
 // it has a top-level table only the old format declared, and a loader
 // error about a file like that is the migration hint, not a broken policy.
-// A file that declares version 2 or 3 is a policy — the v1 tables it may
+// A file that declares a version is a policy — the v1 tables it may
 // share ([route] names a v3 table too) never turn its own load error into
 // a migration hint.
 func legacyRosterFile(path string) bool {
@@ -313,8 +303,8 @@ func legacyRosterFile(path string) bool {
 }
 
 // accessRows builds the access rows of the screen in policy file order.
-// The budget and the off switch are the effective ones — the conditions
-// merged over the policy — because that is what a run would use.
+// The off switch and the effective cells are the ones the conditions
+// leave in force, because that is what a run would use.
 func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 	merged, err := Merge(w.Policy, w.State)
 	if err != nil {
@@ -328,30 +318,23 @@ func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 	for i := range w.Policy.Accesses {
 		access := &w.Policy.Accesses[i]
 		row := WorkspaceAccess{
-			Access:  access.Name,
-			Agents:  append([]string(nil), access.Agents...),
-			Budget:  access.Budget,
-			Check:   access.Check,
-			Trusted: access.Trusted,
-			Models:  w.Catalog.modelCount(access.Name),
-			// The policy allowlist: the ids the editor's model list names,
-			// next to the effective Allow the conditions put in force.
-			PolicyModels: append([]string(nil), access.Models...),
-			PolicyBudget: access.Budget,
+			Access:    access.Name,
+			Agents:    append([]string(nil), access.Agents...),
+			Kind:      access.Kind,
+			Check:     access.Check,
+			Models:    w.Catalog.modelCount(access.Name),
+			Cells:     cellTexts(access.Roles),
+			Effective: map[string]string{},
 		}
 		if entry, ok := known[access.Name]; ok {
-			row.Kind = entry.Kind
+			if row.Kind == "" {
+				row.Kind = entry.Kind
+			}
 			row.Auth = entry.Auth
 		}
 		if effective, ok := merged.Access(access.Name); ok {
-			row.Budget = effective.Budget
-			// The allowlist is the effective one: a condition replaces the
-			// policy list instead of widening it, and the screen must show
-			// what a run would use. Denials add up over both layers.
-			if effective.ModelsSet {
-				row.Allow = append([]string{}, effective.Models...)
-			}
-			row.Deny = append([]string{}, effective.Exclude...)
+			row.Off = effective.Off
+			row.Effective = cellTexts(effective.Roles)
 			if !effective.Expires.IsZero() {
 				row.Expires = dayText(effective.Expires)
 			}
@@ -361,7 +344,6 @@ func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 				row.Until = dayText(until)
 			}
 		}
-		row.Off = row.Budget == BudgetOff
 		for _, condition := range w.Conditions {
 			if condition.Access == access.Name {
 				row.Conditions = append(row.Conditions, condition)
@@ -372,22 +354,35 @@ func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 	return rows, nil
 }
 
+// cellTexts renders a row of cells as MODEL@EFFORT texts; an empty cell
+// (a preset clearing the base cell) renders as "".
+func cellTexts(cells map[string]Cell) map[string]string {
+	texts := make(map[string]string, len(cells))
+	for role, cell := range cells {
+		texts[role] = cell.String()
+	}
+	return texts
+}
+
 // variantRows lists the presets of every layer in policy file order with
 // the file that defines them.
 func (w *Workspace) variantRows() []WorkspaceVariant {
 	rows := make([]WorkspaceVariant, 0, len(w.Policy.Presets))
 	for _, preset := range w.Policy.Presets {
-		rows = append(rows, WorkspaceVariant{
-			Name:    preset.Name,
-			Source:  preset.Source,
-			Path:    w.variantPath(preset.Source),
-			Off:     append([]string(nil), preset.Off...),
-			Lean:    append([]string(nil), preset.Lean...),
-			Minimal: append([]string(nil), preset.Minimal...),
-			Prefer:  append([]string(nil), preset.Prefer...),
-			Order:   append([]string(nil), preset.Order...),
-			Models:  cloneGlobs(preset.Models),
-		})
+		row := WorkspaceVariant{
+			Name:   preset.Name,
+			Source: preset.Source,
+			Path:   w.variantPath(preset.Source),
+			Off:    append([]string(nil), preset.Off...),
+			Order:  append([]string(nil), preset.Order...),
+		}
+		if len(preset.Roles) > 0 {
+			row.Roles = make(map[string]map[string]string, len(preset.Roles))
+			for access, cells := range preset.Roles {
+				row.Roles[access] = cellTexts(cells)
+			}
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }
@@ -488,19 +483,6 @@ func (w *Workspace) SetOn(access string) error {
 	})
 }
 
-// SetBudget overrides the budget of an access. A level the policy cannot
-// take — an unknown one, or minimal on an access that is not trusted — is
-// refused before the file is written.
-func (w *Workspace) SetBudget(access, level string) error {
-	if err := w.ready(); err != nil {
-		return err
-	}
-	if err := w.checkAccess("budget", access); err != nil {
-		return err
-	}
-	return w.mutate(func(state *State) error { return state.SetBudget(access, level) })
-}
-
 // SetExpires bounds an access to the named day: it is usable through that
 // day and gone after it.
 func (w *Workspace) SetExpires(access string, day time.Time) error {
@@ -512,52 +494,6 @@ func (w *Workspace) SetExpires(access string, day time.Time) error {
 	}
 	return w.mutate(func(state *State) error {
 		state.SetExpires(access, day)
-		return nil
-	})
-}
-
-// Allow narrows an access to the model globs of the conditions.
-func (w *Workspace) Allow(access string, globs []string) error {
-	if err := w.ready(); err != nil {
-		return err
-	}
-	if err := w.checkAccess("allow", access); err != nil {
-		return err
-	}
-	return w.mutate(func(state *State) error { return state.Allow(access, globs) })
-}
-
-// Deny hides model globs from an access.
-func (w *Workspace) Deny(access string, globs []string) error {
-	if err := w.ready(); err != nil {
-		return err
-	}
-	if err := w.checkAccess("deny", access); err != nil {
-		return err
-	}
-	return w.mutate(func(state *State) error { return state.Deny(access, globs) })
-}
-
-// UnsetGlob removes one pattern from the condition allowlist and the
-// condition denylist of an access: the screen edits the temporary layer,
-// and the hand-edited policy keeps the globs it declares. An empty list
-// is dropped instead of written, so the state file stays readable.
-func (w *Workspace) UnsetGlob(access, glob string) error {
-	if err := w.ready(); err != nil {
-		return err
-	}
-	if err := w.checkAccess("allow", access); err != nil {
-		return err
-	}
-	return w.mutate(func(state *State) error {
-		for _, table := range []map[string][]string{state.Models, state.Exclude} {
-			kept := removeItem(table[access], glob)
-			if len(kept) == 0 {
-				delete(table, access)
-				continue
-			}
-			table[access] = kept
-		}
 		return nil
 	})
 }
@@ -607,10 +543,10 @@ func (w *Workspace) Reset() error {
 
 // SaveVariant freezes the conditions in force as a new preset and writes it
 // into the global variants file next to the policy or, with project set,
-// into the project one (docs/roster.variants.toml). A preset carries
-// budgets, an access order and model allowlists only, so a condition it
-// cannot express — a dated off, an expiry, a denial, a budget normal — is
-// an error instead of a variant that would mean something else. The name
+// into the project one (docs/roster.variants.toml). A preset carries off
+// switches, an access order and cell overrides only, so a condition it
+// cannot express — a dated off or an expiry — is an error instead of a
+// variant that would mean something else. The name
 // must be free in every layer, and the project file obeys the checkout
 // lock: it lives in the working tree.
 func (w *Workspace) SaveVariant(name string, project bool) error {
@@ -647,11 +583,9 @@ func (w *Workspace) SaveVariant(name string, project bool) error {
 	return SaveVariants(path, append(presets, *preset))
 }
 
-// DeleteVariant removes a variant from the machine-owned file that defines
-// it. A preset of roster.toml is refused: the hand-edited policy is never
-// rewritten, because a rewrite would drop its comments and its order. The
-// variant in force is cleared first, so the conditions never name a preset
-// that is gone.
+// DeleteVariant removes a variant from the variants file that defines it.
+// The variant in force is cleared first, so the conditions never name a
+// preset that is gone.
 func (w *Workspace) DeleteVariant(name string) error {
 	if err := w.ready(); err != nil {
 		return err
@@ -660,12 +594,6 @@ func (w *Workspace) DeleteVariant(name string) error {
 	if !ok {
 		return clierrors.DocflowError{
 			Message: fmt.Sprintf("docflow: roster: unknown variant '%s' (known: %s)", name, orList(w.Policy.PresetNames())),
-			Code:    clierrors.EXIT_FORMAT,
-		}
-	}
-	if preset.Source == SourcePolicy {
-		return clierrors.DocflowError{
-			Message: fmt.Sprintf("docflow: %s: variant '%s' is defined in roster.toml, which docflow never rewrites: delete the [preset.%s] table by hand", w.PolicyPath, name, name),
 			Code:    clierrors.EXIT_FORMAT,
 		}
 	}
@@ -725,16 +653,12 @@ func (w *Workspace) filePresets(path, source string) ([]Preset, error) {
 	return parseVariantPresets(w.Policy, path, string(text), source, nil)
 }
 
-// conditionPreset turns the conditions in force into a preset: the budgets
-// and the model allowlists the conditions and the active preset give every
-// access against the policy, and the access order they put in force. A
-// condition without a preset key is an error, never a silent loss: a
-// variant the human saved must mean what the screen showed.
+// conditionPreset turns the conditions in force into a preset: the active
+// preset with its order and cell overrides, plus the accesses the
+// conditions switch off. A condition without a preset key is an error,
+// never a silent loss: a variant the human saved must mean what the
+// screen showed.
 func (w *Workspace) conditionPreset(name string) (*Preset, error) {
-	merged, err := Merge(w.Policy, w.State)
-	if err != nil {
-		return nil, err
-	}
 	state := w.State
 	if state == nil {
 		state = NewState(w.StatePath)
@@ -746,71 +670,24 @@ func (w *Workspace) conditionPreset(name string) (*Preset, error) {
 	for _, access := range sortedKeys(state.Expires) {
 		problems = append(problems, fmt.Sprintf("expires %s for %s: a preset has no dates", dayText(state.Expires[access]), access))
 	}
-	for _, access := range sortedKeys(state.Exclude) {
-		problems = append(problems, fmt.Sprintf("denied globs for %s: a preset has no deny key", access))
-	}
-	preset := &Preset{Name: name, Models: map[string][]string{}}
-	for i := range w.Policy.Accesses {
-		access := &w.Policy.Accesses[i]
-		effective, ok := merged.Access(access.Name)
-		if !ok || effective.Budget == access.Budget {
-			continue
-		}
-		key := presetBudgetKey(effective.Budget)
-		if key == "" {
-			problems = append(problems, fmt.Sprintf("budget %s for %s: a preset names off, lean, minimal and prefer only", effective.Budget, access.Name))
-			continue
-		}
-		preset.addAccess(key, access.Name)
-	}
-	for i := range w.Policy.Accesses {
-		access := &w.Policy.Accesses[i]
-		effective, ok := merged.Access(access.Name)
-		if !ok || (effective.ModelsSet == access.ModelsSet && slices.Equal(effective.Models, access.Models)) {
-			continue
-		}
-		preset.Models[access.Name] = append([]string{}, effective.Models...)
-	}
 	if len(problems) > 0 {
 		return nil, clierrors.DocflowError{
 			Message: fmt.Sprintf("docflow: %s: cannot save the conditions as a variant: %s", w.StatePath, strings.Join(problems, "; ")),
 			Code:    clierrors.EXIT_FORMAT,
 		}
 	}
-	// The order the conditions put in force is part of what the screen
-	// shows: the active preset may reorder the accesses, and a variant that
-	// dropped the order would route differently.
-	if order := merged.AccessNames(); !slices.Equal(order, w.Policy.AccessNames()) {
-		preset.Order = order
+	preset := &Preset{Name: name}
+	if state.Preset != "" {
+		if active, ok := w.Policy.Preset(state.Preset); ok {
+			copied := active.clone()
+			copied.Name, copied.Source = name, ""
+			preset = &copied
+		}
 	}
-	if len(preset.Models) == 0 {
-		preset.Models = nil
+	for _, access := range state.Off {
+		preset.Off = addUnique(preset.Off, access)
 	}
 	return preset, nil
-}
-
-// presetBudgetKey names the preset key a budget uses; an empty string means
-// the preset grammar cannot carry the level (normal is the policy default).
-func presetBudgetKey(level string) string {
-	switch level {
-	case BudgetOff, BudgetLean, BudgetMinimal, BudgetPrefer:
-		return level
-	}
-	return ""
-}
-
-// addAccess appends an access to the list one preset condition key holds.
-func (p *Preset) addAccess(key, access string) {
-	switch key {
-	case BudgetOff:
-		p.Off = append(p.Off, access)
-	case BudgetLean:
-		p.Lean = append(p.Lean, access)
-	case BudgetMinimal:
-		p.Minimal = append(p.Minimal, access)
-	case BudgetPrefer:
-		p.Prefer = append(p.Prefer, access)
-	}
 }
 
 // ExplainChange is one header key where the plan and the brief disagree:

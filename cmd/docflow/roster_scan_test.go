@@ -48,27 +48,19 @@ const rosterProviderAnswer = `{"data":[` +
 // it.
 const rosterSecret = "wrk_fixture_org_secret"
 
-// rosterPolicy is the version 3 roster the catalog commands filter by.
-const rosterPolicy = `version = 3
+// rosterPolicy is the version 4 roster the catalog commands filter by.
+const rosterPolicy = `version = 4
 
 [access.zai]
 agents = ["pi"]
 
 [access.opencode-go]
 agents = ["pi", "opencode"]
-
-[role]
-cheap      = "cheap"
-executor   = "standard"
-heavy      = "strong"
-review     = "standard"
-acceptance = "trusted"
-replan     = "trusted"
 `
 
 // rosterPolicyMissing also names strata, an access no channel of this
 // machine reaches.
-const rosterPolicyMissing = `version = 3
+const rosterPolicyMissing = `version = 4
 
 [access.zai]
 agents = ["pi"]
@@ -79,14 +71,6 @@ agents = ["pi", "opencode"]
 [access.strata]
 agents = ["pi"]
 kind = "local"
-
-[role]
-cheap      = "cheap"
-executor   = "standard"
-heavy      = "strong"
-review     = "standard"
-acceptance = "trusted"
-replan     = "trusted"
 `
 
 // installRosterCommands puts the three fake CLIs on the isolated PATH.

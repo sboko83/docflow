@@ -111,7 +111,7 @@ func (m Model) keysLine(width int) string {
 		keys = []string{"↑↓ move", "Enter open", "o settings", "Tab panel", "s start"}
 	case screenRoster:
 		if m.overlay == overlayRosterModels {
-			keys = []string{"↑↓ move", "a allow", "x deny", "Backspace unset", "Esc close"}
+			keys = []string{"↑↓ move", "Esc close"}
 			break
 		}
 		// A roster without a policy or a catalog has no panels to navigate:
@@ -122,7 +122,7 @@ func (m Model) keysLine(width int) string {
 		case m.roster != nil && (m.roster.Missing || m.roster.CatalogEmpty):
 			keys = []string{"u scan"}
 		default:
-			keys = []string{"↑↓ move", "Tab panel", "Space on/off", "←→ budget", "Enter models"}
+			keys = []string{"↑↓ move", "Tab panel", "Space on/off", "Enter models"}
 		}
 	case screenRun:
 		keys = []string{"↑↓ move", "Enter expand", "[ ] page", "Tab panel", "t fold"}
@@ -151,9 +151,8 @@ func (m Model) screenHelp() []string {
 			"На доступе:",
 			"Space        включить или выключить; диалог спрашивает дату",
 			"             «off --until»: пусто — бессрочно",
-			"←/h, →/l     бюджет prefer · normal · lean · minimal · off",
-			"Enter        модели доступа из каталога: a разрешить, x запретить,",
-			"             Backspace снять условие, Esc закрыть",
+			"Enter        модели доступа из каталога и роли, которые они",
+			"             обслуживают; ячейки правит docflow roster web",
 			"",
 			"На варианте:",
 			"Enter        сделать активным пресетом",
@@ -166,8 +165,8 @@ func (m Model) screenHelp() []string {
 			"",
 			"Без каталога панель цепочек зовёт `u — собрать каталог`; пустой",
 			"roster.toml экран не создаёт — он называет файл и пример из",
-			"docs/design/roster.md. v1-ростер открывает Enter: предпросмотр",
-			"v2-текста, Enter пишет файл с бэкапом roster.toml.bak, Esc — нет.",
+			"docs/design/roster.md. Ростер старой версии открывает Enter:",
+			"предпросмотр миграции, Enter пишет файлы с бэкапом .bak, Esc — нет.",
 			"",
 			"Экран читает roster.LoadWorkspace: политика, варианты и условия",
 			"проекта. Правка пишет roster.state.toml или файл вариантов и",

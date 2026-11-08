@@ -1,0 +1,5 @@
+# roster variants: the policies over the default table; this file is machine-owned.
+version = 3
+
+[preset.codex-first]
+order = ["codex", "zai", "claude"]

@@ -1,60 +1,36 @@
-# The v3 roster of the P036 draft: zai is the check access (its units need
-# an independent review), claude and codex are the trusted judges, and
-# [preset.codex-first] carries the order of the v1 profile of the same
-# name. draft-v1.toml is the v1 text the migration tests read.
-
-version = 3
+# The P036 draft as a version 4 table: zai is the check access (its units
+# need an independent review), codex and claude judge. draft-v3.toml is the
+# same roster in version 3, draft-v1.toml in version 1; draft.variants.toml
+# holds the codex-first policy.
+version = 4
 
 [access.zai]
 agents = ["pi"]
-budget = "normal"
-check  = true
-models = ["glm-5.3-flash", "glm-5.3"]
+check = true
+
+[access.zai.roles]
+executor   = "glm-5.3-flash@max"
+cheap      = "glm-5.3-flash@max"
+heavy      = "glm-5.3@max"
 
 [access.codex]
-agents  = ["codex"]
-budget  = "normal"
-trusted = true
-models  = ["gpt-6-luna", "gpt-6.1-sol"]
+agents = ["codex"]
+
+[access.codex.roles]
+executor   = "gpt-6-luna@max"
+cheap      = "gpt-6-luna@max"
+heavy      = "gpt-6.1-sol@high"
+review     = "gpt-6.1-sol@high"
+acceptance = "gpt-6.1-sol@high"
+replan     = "gpt-6.1-sol@high"
 
 [access.claude]
-agents  = ["claude"]
-budget  = "normal"
-trusted = true
-models  = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]
+agents = ["claude"]
 
-# The route keeps the strongest tier a model served in v1 and that
-# route's effort: a model keeps one route per access.
-[route."zai/glm-5.3-flash"]
-max = "standard"
-
-[route."zai/glm-5.3"]
-max = "strong"
-
-[route."codex/gpt-6-luna"]
-max = "standard"
-
-[route."codex/gpt-6.1-sol"]
-high = "strong"
-
-[route."claude/claude-haiku-5-5"]
-"-" = "cheap"
-
-[route."claude/claude-sonnet-5-5"]
-high = "standard"
-
-[route."claude/claude-opus-5-5"]
-high = "strong"
-
-[role]
-cheap      = "cheap"
-executor   = "standard"
-heavy      = "strong"
-review     = "strong"
-acceptance = "trusted"
-replan     = "trusted"
-
-# The v1 profile codex-first replaced the spend order; v3 keeps the
-# policy and reorders the accesses for one call.
-[preset.codex-first]
-order = ["codex", "zai", "claude"]
+[access.claude.roles]
+executor   = "claude-sonnet-5-5@high"
+cheap      = "claude-haiku-5-5"
+heavy      = "claude-opus-5-5@high"
+review     = "claude-opus-5-5@high"
+acceptance = "claude-opus-5-5@high"
+replan     = "claude-opus-5-5@high"

@@ -1,0 +1,65 @@
+# The acceptance scenario as a version 4 table: opencode-go first, zai is
+# the check access (reviewed by another access), codex judges, claude,
+# opencode and local serve everything they hold when a policy lets them.
+# policy-v3.toml is the same roster in version 3; policy.variants.toml
+# holds the low policy.
+version = 4
+
+[access.opencode-go]
+agents = ["pi", "opencode"]
+kind = "subscription"
+
+[access.opencode-go.roles]
+executor   = "deepseek-v4.1@high"
+cheap      = "deepseek-v4.1-flash@high"
+review     = "deepseek-v4.1@high"
+
+[access.zai]
+agents = ["pi"]
+kind = "subscription"
+check = true
+expires = "2026-06-30"
+
+[access.zai.roles]
+executor   = "glm-5.3@max"
+cheap      = "glm-5.3-flash@low"
+
+[access.codex]
+agents = ["codex"]
+kind = "subscription"
+
+[access.codex.roles]
+acceptance = "gpt-6.1-sol@medium"
+replan     = "gpt-6.1-sol@medium"
+
+[access.claude]
+agents = ["claude"]
+kind = "subscription"
+
+[access.claude.roles]
+executor   = "claude-opus-5-5@high"
+cheap      = "claude-opus-5-5@high"
+heavy      = "claude-opus-5-5@high"
+review     = "claude-opus-5-5@high"
+acceptance = "claude-opus-5-5@high"
+replan     = "claude-opus-5-5@high"
+
+# opencode and opencode-go are different accesses: separate quotas even
+# when the same OpenCode Go subscription is reachable through both.
+[access.opencode]
+agents = ["opencode"]
+kind = "metered"
+
+[access.opencode.roles]
+executor   = "glm-5.3@high"
+cheap      = "glm-5.3@high"
+review     = "glm-5.3@high"
+
+[access.local]
+agents = ["pi"]
+kind = "local"
+check = true
+
+[access.local.roles]
+executor   = "strata/swift-1.5-iq3_s"
+cheap      = "strata/swift-1.5-iq3_s"

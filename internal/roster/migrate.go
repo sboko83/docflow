@@ -2,7 +2,6 @@ package roster
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -16,70 +15,25 @@ import (
 // work apart from the metered subscriptions.
 const localAccess = "strata"
 
-// MigrateResult is the outcome of a roster migration: the resolved roster
-// path, the migrated text and, after a write, the path of the backup.
-type MigrateResult struct {
-	Path   string
-	Backup string
-	Text   string
-}
-
-// Migrate converts older roster text into v3 policy text. A v1 roster
-// (the spend order plus [provider], [role], [route] and every [profile])
-// becomes [access.NAME], [route], [role] and [preset.NAME]; a v2 policy
-// keeps everything but its [model] classes and [effort] pins, which
-// become [route] entries. A text that is not an older roster — already
-// version 3, another version, or not TOML — is an exit-code-2 error. The
-// same input always gives the same output, so a migration is
-// reproducible; the output is parsed back as a v3 policy before it is
-// returned.
-func Migrate(text string) (string, error) { return migrateText("roster.toml", text) }
-
-// MigrateFile converts the roster at path ("" means DefaultPath) and,
-// when write is true, keeps the old text in roster.toml.bak and replaces
-// roster.toml with the migrated text through a temporary file and a
-// rename, so a failed write never leaves half a roster. Without write it
-// only reads.
-func MigrateFile(rosterPath string, write bool) (MigrateResult, error) {
-	resolved := PolicyPath(rosterPath)
-	text, err := os.ReadFile(resolved)
-	if err != nil {
-		return MigrateResult{}, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster file: %v", err), Code: clierrors.EXIT_FORMAT}
+// migrateToV3 brings older roster text to version 3, the last format with
+// classes: a v3 text is returned as it is, a v2 policy converts in place,
+// and anything else is v1 or broken, which the v1 path reports.
+func migrateToV3(rosterPath, text string) (string, error) {
+	if root, err := agents.ParseTOML(text); err == nil {
+		if version, ok := root["version"].(int64); ok && version == v3PolicyVersion {
+			if _, err := parseV3Policy(rosterPath, text); err != nil {
+				return "", err
+			}
+			return text, nil
+		}
 	}
-	migrated, err := migrateText(resolved, string(text))
-	if err != nil {
-		return MigrateResult{}, err
-	}
-	result := MigrateResult{Path: resolved, Text: migrated}
-	if !write {
-		return result, nil
-	}
-	result.Backup = resolved + ".bak"
-	if err := os.WriteFile(result.Backup, text, 0o644); err != nil {
-		return MigrateResult{}, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: backup: %v", err), Code: clierrors.EXIT_FORMAT}
-	}
-	temporary := resolved + ".tmp"
-	if err := os.WriteFile(temporary, []byte(migrated), 0o644); err != nil {
-		_ = os.Remove(temporary)
-		return MigrateResult{}, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: %v", err), Code: clierrors.EXIT_FORMAT}
-	}
-	if err := os.Rename(temporary, resolved); err != nil {
-		_ = os.Remove(temporary)
-		return MigrateResult{}, clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: %v", err), Code: clierrors.EXIT_FORMAT}
-	}
-	return result, nil
-}
-
-func migrateText(rosterPath, text string) (string, error) {
-	// A v2 policy converts in place; anything else is v1 or broken, and
-	// the v1 path reports it.
 	migrated, converted, err := migrateV2(rosterPath, text)
 	if err != nil {
 		return "", err
 	}
 	if converted {
-		if _, err := ParsePolicy(rosterPath, migrated); err != nil {
-			return "", clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: the migrated roster is not a valid version %d policy: %v", PolicyVersion, err), Code: clierrors.EXIT_FORMAT}
+		if _, err := parseV3Policy(rosterPath, migrated); err != nil {
+			return "", clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: the migrated roster is not a valid version %d policy: %v", v3PolicyVersion, err), Code: clierrors.EXIT_FORMAT}
 		}
 		return migrated, nil
 	}
@@ -95,8 +49,8 @@ func migrateText(rosterPath, text string) (string, error) {
 	migrated = v1.render(accesses, models, presets)
 	// The generated roster must load as a v3 policy; a shape the parser
 	// rejects is a migration bug, not a file the user can fix.
-	if _, err := ParsePolicy(rosterPath, migrated); err != nil {
-		return "", clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: the migrated roster is not a valid version %d policy: %v", PolicyVersion, err), Code: clierrors.EXIT_FORMAT}
+	if _, err := parseV3Policy(rosterPath, migrated); err != nil {
+		return "", clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: the migrated roster is not a valid version %d policy: %v", v3PolicyVersion, err), Code: clierrors.EXIT_FORMAT}
 	}
 	return migrated, nil
 }
@@ -185,7 +139,7 @@ func bumpVersion(text string) string {
 	lines := strings.Split(text, "\n")
 	for i, raw := range lines {
 		if isV2VersionLine(strings.TrimSpace(raw)) {
-			lines[i] = fmt.Sprintf("version = %d", PolicyVersion)
+			lines[i] = fmt.Sprintf("version = %d", v3PolicyVersion)
 			break
 		}
 	}
@@ -242,7 +196,7 @@ func spliceV2Sections(text string, routes []string) (string, error) {
 		}
 		row := strings.TrimSpace(raw)
 		if !versioned && isV2VersionLine(row) {
-			out = append(out, fmt.Sprintf("version = %d", PolicyVersion))
+			out = append(out, fmt.Sprintf("version = %d", v3PolicyVersion))
 			versioned = true
 			continue
 		}
@@ -448,7 +402,7 @@ func (l *legacy) render(accesses []*accessDraft, models []*modelDraft, presets [
 	var text strings.Builder
 	text.WriteString("# Roster v3, converted from the v1 format by docflow roster migrate.\n")
 	text.WriteString("# Model context, prices and reasoning levels come from docflow roster scan.\n")
-	fmt.Fprintf(&text, "version = %d\n", PolicyVersion)
+	fmt.Fprintf(&text, "version = %d\n", v3PolicyVersion)
 	for _, access := range accesses {
 		fmt.Fprintf(&text, "\n[access.%s]\n", tomlKey(access.name))
 		fmt.Fprintf(&text, "agents = %s\n", tomlArray(access.agents))

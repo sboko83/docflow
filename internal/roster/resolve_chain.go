@@ -27,9 +27,9 @@ type Review struct {
 
 // Chains is the roster's contribution to a plan header: the chain of
 // every role, the review matrix and the warnings about incomplete chains.
-// The resolver owns the candidate order (prefer, normal, lean, minimal)
-// and the role filters; the chain builder only keeps one route per
-// access, so the order has a single owner.
+// The resolver owns the candidate order (the access priority) and the
+// role filters; the chain builder only keeps one route per access, so the
+// order has a single owner.
 type Chains struct {
 	Roles    []Chain  `json:"roles"`
 	Reviews  []Review `json:"reviews,omitempty"`
@@ -166,9 +166,9 @@ func reviewerMessage(resolution *Resolution, access string) string {
 	}
 	fmt.Fprintf(&message, ": set check = false in [access.%s]", access)
 	if len(blocks) > 0 {
-		fmt.Fprintf(&message, ", roster allow %s <model-glob> to give it a review model", blocks[0].access)
+		fmt.Fprintf(&message, ", give %s a review cell in roster web or [access.%s.roles]", blocks[0].access, blocks[0].access)
 	} else {
-		message.WriteString(", roster allow a non-check access <model-glob> to give it a review model")
+		message.WriteString(", give a non-check access a review cell in roster web or its [access.NAME.roles]")
 	}
 	fmt.Fprintf(&message, ", or roster off %s --until DATE", access)
 	return message.String()

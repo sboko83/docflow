@@ -1,37 +1,28 @@
-# The routes a benchmark run uses, in the v3 format. The catalog of these
+# The routes a benchmark run uses, in the v4 format: the accesses in
+# priority order, each with its row of the role table. The catalog of these
 # accesses is catalog.json beside this file: a benchmark must resolve the
 # same routes on every machine, so it reads the fixture instead of a scan
 # of the developer's own roster.
-version = 3
+version = 4
 
 [access.zai]
-agents  = ["pi"]
-budget  = "normal"
-trusted = true
-models  = ["glm-5.3", "glm-5.3-flash"]
+agents = ["pi"]
+
+[access.zai.roles]
+executor   = "glm-5.3-flash@high"
+cheap      = "glm-5.3-flash@high"
+heavy      = "glm-5.3@max"
+review     = "glm-5.3-flash@high"
+acceptance = "glm-5.3-flash@high"
+replan     = "glm-5.3@max"
 
 [access.codex]
-agents  = ["codex"]
-budget  = "normal"
-trusted = true
-models  = ["gpt-6-luna", "gpt-6.1-sol"]
+agents = ["codex"]
 
-[route."codex/gpt-6-luna"]
-high = "standard"
-
-[route."codex/gpt-6.1-sol"]
-high = "strong"
-
-[route."zai/glm-5.3"]
-max = "strong"
-
-[route."zai/glm-5.3-flash"]
-high = "cheap"
-
-[role]
-cheap      = "cheap"
-executor   = "cheap"
-heavy      = "strong"
-review     = "cheap"
-acceptance = "cheap"
-replan     = "trusted"
+[access.codex.roles]
+executor   = "gpt-6-luna@high"
+cheap      = "gpt-6-luna@high"
+heavy      = "gpt-6.1-sol@high"
+review     = "gpt-6-luna@high"
+acceptance = "gpt-6-luna@high"
+replan     = "gpt-6.1-sol@high"

@@ -11,13 +11,12 @@ import (
 	"bsv-docflow/internal/clierrors"
 )
 
-// variantsTestPolicy is the policy the variants tests merge over: one
-// trusted access and one check access, so a minimal preset can name both
-// an accepted and a rejected target.
-const variantsTestPolicy = "version = 3\n\n" +
-	"[access.codex]\nagents = [\"codex\"]\ntrusted = true\n\n" +
-	"[access.zai]\nagents = [\"pi\"]\ncheck = true\n\n" +
-	policyRoles
+// variantsTestPolicy is the policy the variants tests merge over: a judge
+// and a check access, so a preset cell can name an accepted and a
+// rejected judge.
+const variantsTestPolicy = "version = 4\n\n" +
+	"[access.codex]\nagents = [\"codex\"]\n\n" +
+	"[access.zai]\nagents = [\"pi\"]\ncheck = true\n"
 
 func writeVariantsFile(t *testing.T, path, text string) {
 	t.Helper()
@@ -65,12 +64,12 @@ func TestVariantsPaths(t *testing.T) {
 func TestVariantsMergeLayers(t *testing.T) {
 	config := t.TempDir()
 	rosterPath := filepath.Join(config, "roster.toml")
-	writeVariantsFile(t, rosterPath, variantsTestPolicy+"\n[preset.base]\noff = [\"zai\"]\n")
+	writeVariantsFile(t, rosterPath, variantsTestPolicy)
 	writeVariantsFile(t, filepath.Join(config, "roster.variants.toml"),
-		"version = 2\n\n[preset.machine]\nlean = [\"zai\"]\n")
+		"version = 3\n\n[preset.base]\noff = [\"zai\"]\n\n[preset.machine]\norder = [\"zai\"]\n")
 	root := variantsCheckout(t)
 	writeVariantsFile(t, filepath.Join(root, "docs", "roster.variants.toml"),
-		"version = 2\n\n[preset.project]\nminimal = [\"codex\"]\n")
+		"version = 3\n\n[preset.project]\n\n[preset.project.roles.codex]\nreplan = \"gpt-6.1-sol@high\"\n")
 	t.Chdir(root)
 
 	policy, err := LoadPolicy(rosterPath)
@@ -80,7 +79,7 @@ func TestVariantsMergeLayers(t *testing.T) {
 	if got, want := policy.PresetNames(), []string{"base", "machine", "project"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("PresetNames() = %v, want %v", got, want)
 	}
-	sources := map[string]string{"base": SourcePolicy, "machine": SourceVariants, "project": SourceProject}
+	sources := map[string]string{"base": SourceVariants, "machine": SourceVariants, "project": SourceProject}
 	for name, want := range sources {
 		preset, ok := policy.Preset(name)
 		if !ok {
@@ -91,8 +90,8 @@ func TestVariantsMergeLayers(t *testing.T) {
 		}
 	}
 	project, _ := policy.Preset("project")
-	if want := []string{"codex"}; !reflect.DeepEqual(project.Minimal, want) {
-		t.Errorf("project minimal = %v, want %v", project.Minimal, want)
+	if got := project.Roles["codex"]["replan"]; got != (Cell{Model: "gpt-6.1-sol", Effort: "high"}) {
+		t.Errorf("project codex replan = %+v", got)
 	}
 	// A condition naming a preset of any layer is valid: --preset NAME
 	// must mean the same preset everywhere.
@@ -103,15 +102,19 @@ func TestVariantsMergeLayers(t *testing.T) {
 	}
 }
 
-// TestVariantsNameConflict checks that one preset name in roster.toml and
-// in the variants file is an error naming both files, not a shadowing.
+// TestVariantsNameConflict checks that one preset name in the global and
+// in the project variants file is an error naming both files, not a
+// shadowing.
 func TestVariantsNameConflict(t *testing.T) {
 	config := t.TempDir()
 	rosterPath := filepath.Join(config, "roster.toml")
-	writeVariantsFile(t, rosterPath, variantsTestPolicy+"\n[preset.low]\noff = [\"zai\"]\n")
-	variantsPath := filepath.Join(config, "roster.variants.toml")
-	writeVariantsFile(t, variantsPath, "version = 2\n\n[preset.low]\nlean = [\"zai\"]\n")
-	t.Chdir(t.TempDir())
+	writeVariantsFile(t, rosterPath, variantsTestPolicy)
+	globalPath := filepath.Join(config, "roster.variants.toml")
+	writeVariantsFile(t, globalPath, "version = 3\n\n[preset.low]\noff = [\"zai\"]\n")
+	root := variantsCheckout(t)
+	variantsPath := filepath.Join(root, "docs", "roster.variants.toml")
+	writeVariantsFile(t, variantsPath, "version = 3\n\n[preset.low]\norder = [\"zai\"]\n")
+	t.Chdir(root)
 
 	_, err := LoadPolicy(rosterPath)
 	var formatError clierrors.FormatError
@@ -121,7 +124,7 @@ func TestVariantsNameConflict(t *testing.T) {
 	if formatError.Path != variantsPath || formatError.Line != 3 {
 		t.Errorf("error at %s:%d, want %s:3", formatError.Path, formatError.Line, variantsPath)
 	}
-	for _, path := range []string{rosterPath, variantsPath} {
+	for _, path := range []string{globalPath, variantsPath} {
 		if !strings.Contains(formatError.Text, path) {
 			t.Errorf("error %q does not name %s", formatError.Text, path)
 		}
@@ -135,7 +138,7 @@ func TestVariantsUnknownAccess(t *testing.T) {
 	rosterPath := filepath.Join(config, "roster.toml")
 	writeVariantsFile(t, rosterPath, variantsTestPolicy)
 	variantsPath := filepath.Join(config, "roster.variants.toml")
-	writeVariantsFile(t, variantsPath, "version = 2\n\n[preset.bad]\noff = [\"nope\"]\n")
+	writeVariantsFile(t, variantsPath, "version = 3\n\n[preset.bad]\noff = [\"nope\"]\n")
 	t.Chdir(t.TempDir())
 
 	_, err := LoadPolicy(rosterPath)
@@ -157,23 +160,20 @@ func TestVariantsUnknownAccess(t *testing.T) {
 func TestVariantsAbsentLayers(t *testing.T) {
 	config := t.TempDir()
 	rosterPath := filepath.Join(config, "roster.toml")
-	writeVariantsFile(t, rosterPath, variantsTestPolicy+"\n[preset.base]\noff = [\"zai\"]\n")
+	writeVariantsFile(t, rosterPath, variantsTestPolicy)
 	t.Chdir(t.TempDir())
 
 	policy, err := LoadPolicy(rosterPath)
 	if err != nil {
 		t.Fatalf("LoadPolicy() error = %v", err)
 	}
-	if got, want := policy.PresetNames(), []string{"base"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("PresetNames() = %v, want %v", got, want)
-	}
-	if policy.Presets[0].Source != SourcePolicy {
-		t.Errorf("base source = %q, want %q", policy.Presets[0].Source, SourcePolicy)
+	if got := policy.PresetNames(); len(got) != 0 {
+		t.Fatalf("PresetNames() = %v, want none", got)
 	}
 
 	dir := t.TempDir()
 	writeVariantsFile(t, filepath.Join(dir, "docs", "roster.variants.toml"),
-		"version = 2\n\n[preset.stray]\noff = [\"zai\"]\n")
+		"version = 3\n\n[preset.stray]\noff = [\"zai\"]\n")
 	t.Chdir(dir) // no docs/docflow.md: not a checkout
 	policy, err = LoadPolicy(rosterPath)
 	if err != nil {
@@ -192,7 +192,7 @@ func TestVariantsSameFileInBothLayers(t *testing.T) {
 	rosterPath := filepath.Join(root, "docs", "roster.toml")
 	writeVariantsFile(t, rosterPath, variantsTestPolicy)
 	writeVariantsFile(t, filepath.Join(root, "docs", "roster.variants.toml"),
-		"version = 2\n\n[preset.shared]\noff = [\"zai\"]\n")
+		"version = 3\n\n[preset.shared]\noff = [\"zai\"]\n")
 	t.Chdir(root)
 
 	policy, err := LoadPolicy(rosterPath)
@@ -220,11 +220,12 @@ func TestVariantsRejectForeignKeys(t *testing.T) {
 		text string
 		want string
 	}{
-		{"top-level table", "version = 2\n\n[access.codex]\nagents = [\"codex\"]\n", "unknown key 'access'"},
-		{"version", "version = 1\n\n[preset.x]\noff = [\"zai\"]\n", "version must be 2"},
-		{"preset key", "version = 2\n\n[preset.x]\ntrusted = true\n", "unknown key 'trusted'"},
-		{"inline preset", "version = 2\n\n[preset]\nx = { off = [\"zai\"] }\n", "preset x must be a [preset.x] table"},
-		{"minimal untrusted", "version = 2\n\n[preset.x]\nminimal = [\"zai\"]\n", "minimal access 'zai' is not trusted"},
+		{"top-level table", "version = 3\n\n[access.codex]\nagents = [\"codex\"]\n", "unknown key 'access'"},
+		{"version", "version = 1\n\n[preset.x]\noff = [\"zai\"]\n", "version must be 3"},
+		{"previous version", "version = 2\n\n[preset.x]\noff = [\"zai\"]\n", "docflow roster migrate"},
+		{"preset key", "version = 3\n\n[preset.x]\ntrusted = true\n", "unknown key 'trusted'"},
+		{"inline preset", "version = 3\n\n[preset]\nx = { off = [\"zai\"] }\n", "preset x must be a [preset.x] table"},
+		{"check judges", "version = 3\n\n[preset.x.roles.zai]\nreview = \"glm\"\n", "a check access never judges"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -244,8 +245,8 @@ func TestVariantsRejectForeignKeys(t *testing.T) {
 }
 
 // TestSaveVariantsRoundTrip writes the whole file and loads it back: the
-// machine file keeps every condition, an empty models list means "no
-// model" and survives the round trip.
+// off list, the order and the cell overrides survive, a clearing empty cell
+// included.
 func TestSaveVariantsRoundTrip(t *testing.T) {
 	config := t.TempDir()
 	rosterPath := filepath.Join(config, "roster.toml")
@@ -253,8 +254,7 @@ func TestSaveVariantsRoundTrip(t *testing.T) {
 	path := filepath.Join(config, "roster.variants.toml")
 	presets := []Preset{
 		{Name: "second", Off: []string{"zai"}, Order: []string{"codex", "zai"}},
-		{Name: "first", Lean: []string{"zai"}, Models: map[string][]string{"zai": {"*flash*"}}},
-		{Name: "none-models", Models: map[string][]string{"codex": {}}},
+		{Name: "first", Roles: map[string]map[string]Cell{"zai": {"executor": {}, "cheap": {Model: "glm-5.3-flash", Effort: "low"}}}},
 	}
 	if err := SaveVariants(path, presets); err != nil {
 		t.Fatalf("SaveVariants() error = %v", err)
@@ -263,7 +263,7 @@ func TestSaveVariantsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "version = 2\n") {
+	if !strings.Contains(string(data), "version = 3\n") {
 		t.Errorf("written file has no version marker:\n%s", data)
 	}
 	t.Chdir(t.TempDir())
@@ -271,19 +271,16 @@ func TestSaveVariantsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadPolicy() error = %v", err)
 	}
-	if got, want := policy.PresetNames(), []string{"first", "none-models", "second"}; !reflect.DeepEqual(got, want) {
+	if got, want := policy.PresetNames(), []string{"first", "second"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("PresetNames() = %v, want the written name order %v", got, want)
 	}
 	first, _ := policy.Preset("first")
-	if first.Source != SourceVariants {
-		t.Errorf("first source = %q, want %q", first.Source, SourceVariants)
+	if want := (map[string]map[string]Cell{"zai": {"executor": {}, "cheap": {Model: "glm-5.3-flash", Effort: "low"}}}); !reflect.DeepEqual(first.Roles, want) {
+		t.Errorf("first roles = %v, want %v", first.Roles, want)
 	}
-	if want := map[string][]string{"zai": {"*flash*"}}; !reflect.DeepEqual(first.Models, want) {
-		t.Errorf("first models = %v, want %v", first.Models, want)
-	}
-	none, _ := policy.Preset("none-models")
-	if globs, ok := none.Models["codex"]; !ok || len(globs) != 0 {
-		t.Errorf("none-models codex = %v (present %v), want an empty list", globs, ok)
+	second, _ := policy.Preset("second")
+	if !reflect.DeepEqual(second.Order, []string{"codex", "zai"}) || !reflect.DeepEqual(second.Off, []string{"zai"}) {
+		t.Errorf("second = %+v", second)
 	}
 }
 
@@ -296,7 +293,7 @@ func TestSaveVariantsRollback(t *testing.T) {
 	}{
 		{"duplicate table", []Preset{
 			{Name: "same", Off: []string{"zai"}},
-			{Name: "same", Lean: []string{"zai"}},
+			{Name: "same", Order: []string{"zai"}},
 		}},
 		// A name the header grammar cannot carry would reload as another
 		// name: the round trip rejects it instead of writing a file it
@@ -306,7 +303,7 @@ func TestSaveVariantsRollback(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "roster.variants.toml")
-			original := "# hand comment\nversion = 2\n\n[preset.keep]\noff = [\"zai\"]\n"
+			original := "# hand comment\nversion = 3\n\n[preset.keep]\noff = [\"zai\"]\n"
 			writeVariantsFile(t, path, original)
 			if err := SaveVariants(path, tc.presets); err == nil {
 				t.Fatalf("SaveVariants() = nil error, want %s to fail", tc.name)

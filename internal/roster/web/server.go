@@ -30,24 +30,20 @@ var static embed.FS
 // workspace operations: an op names the method, the rest are its
 // arguments, and an argument the op does not take is ignored.
 type Request struct {
-	Op          string   `json:"op"`
-	Name        string   `json:"name,omitempty"`
-	Next        string   `json:"next,omitempty"`
-	Access      string   `json:"access,omitempty"`
-	ID          string   `json:"id,omitempty"`
-	Model       string   `json:"model,omitempty"`
-	Effort      string   `json:"effort,omitempty"`
-	Class       string   `json:"class,omitempty"`
-	Level       string   `json:"level,omitempty"`
-	Role        string   `json:"role,omitempty"`
-	Requirement string   `json:"requirement,omitempty"`
-	Agents      []string `json:"agents,omitempty"`
-	Kind        string   `json:"kind,omitempty"`
-	Dir         string   `json:"dir,omitempty"`
-	Trusted     bool     `json:"trusted,omitempty"`
-	Check       bool     `json:"check,omitempty"`
-	Project     bool     `json:"project,omitempty"`
-	CopyOf      string   `json:"copy_of,omitempty"`
+	Op      string   `json:"op"`
+	Name    string   `json:"name,omitempty"`
+	Next    string   `json:"next,omitempty"`
+	Access  string   `json:"access,omitempty"`
+	Role    string   `json:"role,omitempty"`
+	Value   string   `json:"value,omitempty"`
+	Agents  []string `json:"agents,omitempty"`
+	Kind    string   `json:"kind,omitempty"`
+	Dir     string   `json:"dir,omitempty"`
+	Check   bool     `json:"check,omitempty"`
+	Off     bool     `json:"off,omitempty"`
+	Inherit bool     `json:"inherit,omitempty"`
+	Project bool     `json:"project,omitempty"`
+	CopyOf  string   `json:"copy_of,omitempty"`
 }
 
 // Response is the JSON of every endpoint: the workspace after a
@@ -177,36 +173,29 @@ func (s *Server) apply(workspace *roster.Workspace, req *Request) error {
 		return workspace.AddAccess(req.Name, req.Kind, req.Agents)
 	case "RemoveAccess":
 		return workspace.RemoveAccess(req.Name)
-	case "SetAccessFlags":
-		return workspace.SetAccessFlags(req.Name, req.Trusted, req.Check)
-	case "SetAccessBudget":
-		return workspace.SetAccessBudget(req.Name, req.Level)
-	case "AddAccessModel":
-		return workspace.AddAccessModel(req.Access, req.ID)
-	case "RemoveAccessModel":
-		return workspace.RemoveAccessModel(req.Access, req.ID)
-	case "AddRouteLevel":
-		return workspace.AddRouteLevel(req.Access, req.Model)
-	case "RemoveRoute":
-		return workspace.RemoveRoute(req.Access, req.Model, req.Effort)
-	case "SetRouteClass":
-		return workspace.SetRouteClass(req.Access, req.Model, req.Effort, req.Class)
-	case "SetRouteEffort":
-		return workspace.SetRouteEffort(req.Access, req.Model, req.Effort, req.Next)
-	case "SetRole":
-		return workspace.SetRole(req.Role, req.Requirement)
+	case "SetAccessCheck":
+		return workspace.SetAccessCheck(req.Name, req.Check)
+	case "MoveAccess":
+		return workspace.MoveAccess(req.Name, req.Dir)
+	case "SetCell":
+		return workspace.SetCell(req.Access, req.Role, req.Value)
 	case "CreateVariant":
 		return workspace.CreateVariant(req.Name, req.Project, req.CopyOf)
 	case "RenameVariant":
 		return workspace.RenameVariant(req.Name, req.Next)
 	case "DeleteVariant":
 		return workspace.DeleteVariant(req.Name)
-	case "SetVariantBudget":
-		return workspace.SetVariantBudget(req.Name, req.Access, req.Level)
-	case "ToggleVariantModel":
-		return workspace.ToggleVariantModel(req.Name, req.Access, req.ID)
+	case "SetVariantOff":
+		return workspace.SetVariantOff(req.Name, req.Access, req.Off)
 	case "MoveVariantAccess":
 		return workspace.MoveVariantAccess(req.Name, req.Access, req.Dir)
+	case "SetVariantCell":
+		return workspace.SetVariantCell(req.Name, req.Access, req.Role, req.Value, req.Inherit)
+	case "SetPreset":
+		if req.Name == "" {
+			return workspace.ClearPreset()
+		}
+		return workspace.SetPreset(req.Name)
 	default:
 		return fmt.Errorf("docflow roster web: unknown op '%s'", req.Op)
 	}

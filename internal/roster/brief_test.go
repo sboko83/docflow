@@ -11,7 +11,7 @@ import (
 // the pinned day and builds its brief.
 func scenarioBrief(t *testing.T) *Brief {
 	t.Helper()
-	policy, err := LoadPolicy("testdata/policy-v3.toml")
+	policy, err := LoadPolicy("testdata/policy.toml")
 	if err != nil {
 		t.Fatalf("LoadPolicy() error = %v", err)
 	}
@@ -34,6 +34,11 @@ func scenarioBrief(t *testing.T) *Brief {
 // A changed line is a changed promise to the planner.
 func TestBriefScenarioGolden(t *testing.T) {
 	got := scenarioBrief(t).Text()
+	if os.Getenv("DOCFLOW_UPDATE_GOLDEN") != "" {
+		if err := os.WriteFile("testdata/brief-scenario.txt", []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	golden, err := os.ReadFile("testdata/brief-scenario.txt")
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
@@ -56,7 +61,7 @@ func TestBriefScenarioValues(t *testing.T) {
 			budgets[role.Role] = role.Budget.Target
 		}
 	}
-	want := map[string]int{"executor": 250000, "cheap": 152371}
+	want := map[string]int{"executor": 250000, "cheap": 203162}
 	for role, target := range want {
 		if budgets[role] != target {
 			t.Errorf("%s budget = %d, want %d", role, budgets[role], target)
@@ -114,8 +119,8 @@ func TestBriefJSON(t *testing.T) {
 	if len(cheap.Routes) != 2 || cheap.Routes[1].Access != "zai" {
 		t.Errorf("cheap routes = %+v, want the fallback zai", cheap.Routes)
 	}
-	if cheap.Budget == nil || cheap.Budget.Target != 152371 || cheap.Budget.Route != "opencode-go/deepseek-v4.1-flash@high" {
-		t.Errorf("cheap budget = %+v, want 152371 on the primary route", cheap.Budget)
+	if cheap.Budget == nil || cheap.Budget.Target != 203162 || cheap.Budget.Route != "opencode-go/deepseek-v4.1-flash@high" {
+		t.Errorf("cheap budget = %+v, want 203162 on the primary route", cheap.Budget)
 	}
 	if !strings.Contains(string(text), `"scope":"diff/test"`) {
 		t.Errorf("json has no diff/test scope: %s", text)
@@ -133,8 +138,9 @@ func TestBriefUnknownContext(t *testing.T) {
 [access.small]
 agents = ["pi"]
 
-[route."small/m"]
-high = "standard"
+[access.small.roles]
+executor = "m@high"
+replan   = "m@high"
 `)
 	catalog := resolveCatalog(resolveModel("small", "m", 0, nil))
 	brief, err := buildBriefAt(policy, nil, catalog, []string{"executor"}, resolveDay)
@@ -164,8 +170,9 @@ func TestBriefWarningsFollowRoles(t *testing.T) {
 [access.one]
 agents = ["pi"]
 
-[route."one/m"]
-high = "standard"
+[access.one.roles]
+executor = "m@high"
+replan   = "m@high"
 `)
 	catalog := resolveCatalog(resolveModel("one", "m", 100000, nil))
 	brief, err := buildBriefAt(policy, nil, catalog, []string{"executor"}, resolveDay)
@@ -186,21 +193,18 @@ high = "standard"
 // the resolver's, the primary route carries the budget and the fallback is
 // part of the chain and of the explanation.
 func TestBriefMultipleAccesses(t *testing.T) {
-	// The file order is the reverse of the budget order on purpose.
 	policy := resolvePolicy(t, `
-[access.lean]
-agents = ["pi"]
-budget = "lean"
-
 [access.prefer]
 agents = ["pi"]
-budget = "prefer"
 
-[route."lean/m"]
-high = "strong"
+[access.prefer.roles]
+executor = "m@high"
 
-[route."prefer/m"]
-high = "strong"
+[access.lean]
+agents = ["pi"]
+
+[access.lean.roles]
+executor = "m@high"
 `)
 	catalog := resolveCatalog(
 		resolveModel("lean", "m", 100000, nil),
@@ -217,7 +221,7 @@ high = "strong"
 	if role.Budget == nil || role.Budget.Route != "prefer/m@high" {
 		t.Fatalf("budget = %+v, want it computed from the primary route prefer/m@high", role.Budget)
 	}
-	if got, want := role.Budget.Target, 29313; got != want {
+	if got, want := role.Budget.Target, 23450; got != want {
 		t.Errorf("budget = %d, want %d", got, want)
 	}
 	if len(role.Why) != 3 {
@@ -241,8 +245,9 @@ func TestBriefRoleOrder(t *testing.T) {
 [access.one]
 agents = ["pi"]
 
-[route."one/m"]
-high = "standard"
+[access.one.roles]
+executor = "m@high"
+replan   = "m@high"
 `)
 	catalog := resolveCatalog(resolveModel("one", "m", 100000, nil))
 	brief, err := buildBriefAt(policy, nil, catalog, []string{"replan", "executor", "replan"}, resolveDay)
@@ -264,8 +269,9 @@ func TestBriefUnknownRole(t *testing.T) {
 [access.one]
 agents = ["pi"]
 
-[route."one/m"]
-high = "standard"
+[access.one.roles]
+executor = "m@high"
+replan   = "m@high"
 `)
 	catalog := resolveCatalog(resolveModel("one", "m", 100000, nil))
 	_, err := buildBriefAt(policy, nil, catalog, []string{"executorr"}, resolveDay)

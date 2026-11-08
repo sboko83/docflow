@@ -15,60 +15,44 @@ import (
 // XDG_CONFIG_HOME, so the default path of the model is the fixture and no
 // test touches the personal roster.
 
-const testRosterPolicy = `version = 3
+const testRosterPolicy = `version = 4
 
 [access.zai]
 agents = ["pi"]
 kind   = "subscription"
-budget = "lean"
 check  = true
-models = ["glm-*"]
+
+[access.zai.roles]
+executor = "glm-5.3@high"
+cheap    = "glm-5.3-flash@low"
+heavy    = "glm-5.3@high"
 
 [access.codex]
 agents  = ["codex"]
 kind    = "subscription"
-budget  = "normal"
-trusted = true
 expires = "2099-06-30"
+
+[access.codex.roles]
+executor   = "gpt-6-luna@high"
+heavy      = "gpt-6.1-sol@high"
+review     = "gpt-6.1-sol@high"
+acceptance = "gpt-6.1-sol@high"
+replan     = "gpt-6.1-sol@high"
 
 [access.claude]
 agents  = ["claude"]
 kind    = "subscription"
-budget  = "off"
-trusted = true
 
-[route."zai/glm-5.3"]
-high = "strong"
-
-[route."zai/glm-5.3-flash"]
-low = "cheap"
-
-[route."codex/gpt-6.1-sol"]
-high = "strong"
-
-[route."codex/gpt-6-luna"]
-high = "standard"
-
-[route."claude/claude-opus-5-5"]
-high = "strong"
-
-[role]
-cheap      = "cheap"
-executor   = "standard"
-heavy      = "strong"
-review     = "strong"
-acceptance = "trusted"
-replan     = "trusted"
-
-[preset.low]
-lean    = ["zai"]
-minimal = ["codex"]
-order   = ["zai", "codex", "claude"]
+[access.claude.roles]
+heavy      = "claude-opus-5-5@high"
+review     = "claude-opus-5-5@high"
+acceptance = "claude-opus-5-5@high"
+replan     = "claude-opus-5-5@high"
 `
 
-const testGlobalVariants = "version = 2\n\n[preset.machine]\nlean = [\"zai\"]\n"
+const testGlobalVariants = "version = 3\n\n[preset.low]\norder = [\"zai\", \"codex\", \"claude\"]\n\n[preset.machine]\noff = [\"claude\"]\n"
 
-const testProjectVariants = "version = 2\n\n[preset.project]\nminimal = [\"codex\"]\n"
+const testProjectVariants = "version = 3\n\n[preset.project]\n\n[preset.project.roles.zai]\nexecutor = \"\"\n"
 
 // rosterFixture writes the plan project with a git directory — the project
 // variants file is written under the checkout lock — a roster under a
@@ -192,9 +176,9 @@ func TestRosterScreenShowsVariantsAccessesAndChains(t *testing.T) {
 	assertScreenFits(t, rendered, 120, 40)
 	for _, want := range []string{
 		"Варианты", "Доступы", "Цепочки",
-		"low (roster)", "machine (глоб.)", "project (проект)",
-		"zai", "бюджет lean", "check", "модели glm-*",
-		"codex", "trusted", "бюджет off", "до 2099-06-30",
+		"low (глоб.)", "machine (глоб.)", "project (проект)",
+		"zai", "ролей 3/6", "check",
+		"codex", "ролей 5/6", "до 2099-06-30",
 		"executor", "heavy", "бюджет ",
 		"⚠",
 	} {
@@ -203,7 +187,7 @@ func TestRosterScreenShowsVariantsAccessesAndChains(t *testing.T) {
 		}
 	}
 	// The selected variant is the first row; no preset is active yet.
-	if !strings.Contains(rendered, ">  low (roster)") {
+	if !strings.Contains(rendered, ">  low (глоб.)") {
 		t.Fatalf("the selected variant is not marked:\n%s", rendered)
 	}
 
@@ -293,92 +277,28 @@ func TestRosterSpaceSwitchesAnAccessOffAndOn(t *testing.T) {
 	}
 }
 
-// TestRosterBudgetRefusesMinimalOnUntrusted: the refused level shows the
-// reason and writes nothing; the next accepted level lands in the file.
-func TestRosterBudgetRefusesMinimalOnUntrusted(t *testing.T) {
+// TestRosterModelListShowsRoles: Enter opens the catalog models of the
+// access with the roles the effective row serves with them; the list is
+// read-only and Esc closes it.
+func TestRosterModelListShowsRoles(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	root, rosterPath := rosterFixture(t)
 	model := rosterPanelModel(t, root, rosterPath, panelAccesses)
-	statePath := roster.StatePath(rosterPath)
-
-	// zai is lean and not trusted: the next level is minimal.
-	model = send(t, model, keyMsg("right"))
-	if !strings.Contains(model.notice, "budget minimal requires trusted = true") {
-		t.Fatalf("refusal notice = %q", model.notice)
-	}
-	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
-		t.Fatalf("a refused budget wrote the state file: %v", err)
-	}
-
-	model = send(t, model, keyMsg("left"))
-	if !strings.Contains(model.notice, "zai budget normal") {
-		t.Fatalf("accepted budget notice = %q", model.notice)
-	}
-	state, err := roster.LoadState(statePath)
-	if err != nil {
-		t.Fatalf("LoadState: %v", err)
-	}
-	if state.Budget["zai"] != roster.BudgetNormal {
-		t.Fatalf("state budget = %v", state.Budget)
-	}
-	if rendered := model.String(); !strings.Contains(rendered, "бюджет normal") {
-		t.Fatalf("the screen kept the old budget:\n%s", rendered)
-	}
-}
-
-// TestRosterModelListEditsAllowAndDeny: Enter opens the catalog models of
-// the access, a and x write the condition globs, Backspace drops them.
-func TestRosterModelListEditsAllowAndDeny(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
-	root, rosterPath := rosterFixture(t)
-	model := rosterPanelModel(t, root, rosterPath, panelAccesses)
-	statePath := roster.StatePath(rosterPath)
 
 	model = send(t, model, keyMsg("enter"))
 	if model.overlay != overlayRosterModels || model.rmodels == nil || model.rmodels.access != "zai" {
 		t.Fatalf("Enter opened overlay %v for %+v", model.overlay, model.rmodels)
 	}
-	if rendered := model.String(); !strings.Contains(rendered, "Модели zai") || !strings.Contains(rendered, "glm-5.3") {
-		t.Fatalf("the model list is not shown:\n%s", rendered)
+	rendered := model.String()
+	for _, want := range []string{"Модели zai", "glm-5.3 · executor @high, heavy @high", "glm-5.3-flash · cheap @low", "roster web"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the model list lost %q:\n%s", want, rendered)
+		}
 	}
-
-	// The catalog keeps glm-5.3 before glm-5.3-flash; the first row is
-	// selected.
 	model = send(t, model, keyMsg("a"))
-	state, err := roster.LoadState(statePath)
-	if err != nil {
-		t.Fatalf("LoadState: %v", err)
+	if _, err := os.Stat(roster.StatePath(rosterPath)); !os.IsNotExist(err) {
+		t.Fatalf("a key in the read-only list wrote the state: %v", err)
 	}
-	if len(state.Models["zai"]) != 1 || state.Models["zai"][0] != "glm-5.3" {
-		t.Fatalf("allow wrote %v", state.Models)
-	}
-
-	model = send(t, model, keyMsg("x"))
-	state, err = roster.LoadState(statePath)
-	if err != nil {
-		t.Fatalf("LoadState: %v", err)
-	}
-	if len(state.Exclude["zai"]) != 1 || state.Exclude["zai"][0] != "glm-5.3" {
-		t.Fatalf("deny wrote %v", state.Exclude)
-	}
-
-	model = send(t, model, keyMsg("backspace"))
-	state, err = roster.LoadState(statePath)
-	if err != nil {
-		t.Fatalf("LoadState: %v", err)
-	}
-	if len(state.Models["zai"]) != 0 || len(state.Exclude["zai"]) != 0 {
-		t.Fatalf("backspace left the conditions: %v %v", state.Models, state.Exclude)
-	}
-	if !strings.Contains(model.notice, "condition cleared") {
-		t.Fatalf("notice = %q", model.notice)
-	}
-	// The condition glob is gone, the policy allowlist stays: the model is
-	// still allowed by roster.toml, which the screen never rewrites.
-	if access, ok := model.rosterAccess("zai"); !ok || len(access.Allow) != 1 || access.Allow[0] != "glm-*" {
-		t.Fatalf("allow after the clear = %+v, want the policy globs back", access.Allow)
-	}
-
 	model = send(t, model, keyMsg("esc"))
 	if model.overlay != overlayNone || model.rmodels != nil {
 		t.Fatalf("Esc did not close the model list")
@@ -482,25 +402,6 @@ func TestRosterVariantsSetClearSaveAndDelete(t *testing.T) {
 	}
 }
 
-// TestRosterDeleteRefusesRosterPreset: a preset of the hand-edited policy
-// has no dialog and no write; the notice names the file to edit by hand.
-func TestRosterDeleteRefusesRosterPreset(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
-	root, rosterPath := rosterFixture(t)
-	model := rosterPanelModel(t, root, rosterPath, panelVariants)
-
-	model = send(t, model, keyMsg("D"))
-	if model.dialog != dialogNone {
-		t.Fatalf("D opened a dialog for a roster.toml preset")
-	}
-	if !strings.Contains(model.notice, "roster.toml") || !strings.Contains(model.notice, "by hand") {
-		t.Fatalf("notice = %q", model.notice)
-	}
-	if !strings.Contains(readRosterTestFile(t, rosterPath), "[preset.low]") {
-		t.Fatalf("the refusal rewrote roster.toml")
-	}
-}
-
 // TestRosterProjectVariantRefusedUnderRunLock: the project variants file
 // lives in the working tree, so a live run stops the save and the notice
 // names the lock; the file keeps its presets.
@@ -558,7 +459,7 @@ func TestRosterScreenDefaultsToTheDefaultRosterPath(t *testing.T) {
 func TestRosterScreenShowsLoadRefusal(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	root, rosterPath := rosterFixture(t)
-	writeRosterTestFile(t, rosterPath, "version = 3\n\n[access.zai]\nbudget = \"lean\"\n")
+	writeRosterTestFile(t, rosterPath, "version = 4\n\n[access.zai]\nkind = \"local\"\n")
 	model := New(root)
 	model.lockCheck = func(string) (int, bool, error) { return 0, false, nil }
 	updated, _ := model.Update(model.Init()())
@@ -718,6 +619,11 @@ func TestRosterLegacyRosterPreviewsAndWritesTheMigration(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	root, rosterPath := rosterFixture(t)
 	writeRosterTestFile(t, rosterPath, testLegacyRoster)
+	// The machine variants of the fixture name claude, which this v1
+	// roster does not have.
+	if err := os.Remove(roster.VariantsPath(rosterPath)); err != nil {
+		t.Fatal(err)
+	}
 	model := rosterScreenModel(t, root, rosterPath)
 	if model.roster == nil || !model.roster.Legacy {
 		t.Fatalf("the v1 roster is not flagged for migration: %+v", model.roster)
@@ -748,7 +654,7 @@ func TestRosterLegacyRosterPreviewsAndWritesTheMigration(t *testing.T) {
 		t.Fatalf("the preview wrote a backup: %v", err)
 	}
 	rendered = model.String()
-	for _, want := range []string{"version = 3", "Enter — записать"} {
+	for _, want := range []string{"version = 4", "Enter — записать"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("the preview lost %q:\n%s", want, rendered)
 		}
@@ -791,7 +697,7 @@ func TestRosterLegacyRosterPreviewsAndWritesTheMigration(t *testing.T) {
 	if model.roster == nil || model.roster.Legacy || model.rosterPhase != rosterReady {
 		t.Fatalf("the migrated roster is not loaded: phase=%v roster=%+v", model.rosterPhase, model.roster)
 	}
-	if migrated := readRosterTestFile(t, rosterPath); !strings.Contains(migrated, "version = 3") {
+	if migrated := readRosterTestFile(t, rosterPath); !strings.Contains(migrated, "version = 4") {
 		t.Fatalf("the roster was not migrated:\n%s", migrated)
 	}
 	if backup := readRosterTestFile(t, rosterPath+".bak"); backup != testLegacyRoster {

@@ -346,17 +346,18 @@ func executorCondition(merged *Policy, value, role string) string {
 	if !ok {
 		return fmt.Sprintf("access %s is not in the roster", name)
 	}
+	cell := access.Cell(role)
 	switch {
 	case !contains(access.Agents, agent):
 		return fmt.Sprintf("access %s is not reached by %s", name, agent)
-	case access.Budget == BudgetOff:
+	case access.Off:
 		return fmt.Sprintf("access %s is off", name)
-	case !servesBudget(access.Budget, role):
-		return fmt.Sprintf("access %s is at budget %s, which serves no %s role", name, access.Budget, role)
 	case !access.Expires.IsZero() && time.Now().UTC().After(access.Expires):
 		return fmt.Sprintf("access %s expired on %s", name, dayText(access.Expires))
-	case !modelAllowed(access, id):
-		return fmt.Sprintf("access %s does not allow model %s", name, id)
+	case cell.Empty():
+		return fmt.Sprintf("access %s has no %s cell", name, role)
+	case cell.Model != id:
+		return fmt.Sprintf("access %s serves %s with %s, not %s", name, role, cell.Model, id)
 	}
 	return ""
 }

@@ -13,11 +13,12 @@ import (
 )
 
 // VariantsVersion is the format marker of a roster variants file: a
-// top-level version = 2 and only [preset.NAME] tables. A variants file is
-// machine-owned: the workspace writes it whole, so comments and a hand
-// layout do not survive. roster.toml stays hand-edited and is never
-// rewritten.
-const VariantsVersion = 2
+// top-level version = 3 and only [preset.NAME] tables. Version 3 presets
+// set off, order and [preset.NAME.roles.ACCESS] cells; the budget lists
+// and model globs of version 2 are converted by `docflow roster migrate`.
+// A variants file is machine-owned: the workspace writes it whole, so
+// comments and a hand layout do not survive.
+const VariantsVersion = 3
 
 // Preset sources: the stable policy file, the global variants file named
 // next to it and the project variants file of a checkout.
@@ -150,6 +151,9 @@ func parseVariantPresets(policy *Policy, path, text, source string, origins map[
 	index := scanLines(text)
 	version, ok := root["version"].(int64)
 	if !ok || version != VariantsVersion {
+		if ok && version == 2 {
+			return nil, failAt(path, index, "", "version", "the variants file is in the previous format: %s", migrateHint)
+		}
 		return nil, failAt(path, index, "", "version", "version must be %d", VariantsVersion)
 	}
 	for _, key := range index.keysByLine("", root) {
@@ -202,7 +206,7 @@ func presetHeaders(text string) map[string]bool {
 			continue
 		}
 		segments := headerSegments(line[1:end])
-		if len(segments) == 2 && segments[0] == "preset" {
+		if len(segments) >= 2 && segments[0] == "preset" {
 			headers[segments[1]] = true
 		}
 	}
@@ -249,22 +253,25 @@ func SaveVariants(path string, presets []Preset) error {
 }
 
 // variantsText renders the presets of a variants file: the version and one
-// [preset.NAME] table per preset in name order. Empty conditions are
-// dropped; a models entry with an empty list is kept, it allows no model.
+// [preset.NAME] table per preset in name order, its cell overrides by
+// access name.
 func variantsText(presets []Preset) string {
 	ordered := append([]Preset(nil), presets...)
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
 	var text strings.Builder
-	text.WriteString("# roster variants: presets created in docflow tui; this file is machine-owned.\n")
+	text.WriteString("# roster variants: the policies over the default table; this file is machine-owned.\n")
 	fmt.Fprintf(&text, "version = %d\n", VariantsVersion)
 	for _, preset := range ordered {
 		fmt.Fprintf(&text, "\n[preset.%s]\n", tomlKey(preset.Name))
 		writeNameList(&text, "off", preset.Off)
-		writeNameList(&text, "lean", preset.Lean)
-		writeNameList(&text, "minimal", preset.Minimal)
-		writeNameList(&text, "prefer", preset.Prefer)
 		writeNameList(&text, "order", preset.Order)
-		writeModelTable(&text, preset.Models)
+		for _, access := range sortedKeys(preset.Roles) {
+			if len(preset.Roles[access]) == 0 {
+				continue
+			}
+			fmt.Fprintf(&text, "\n[preset.%s.roles.%s]\n", tomlKey(preset.Name), tomlKey(access))
+			writeCells(&text, preset.Roles[access])
+		}
 	}
 	return text.String()
 }
@@ -278,19 +285,4 @@ func writeNameList(text *strings.Builder, key string, names []string) {
 		quoted = append(quoted, quote(name))
 	}
 	fmt.Fprintf(text, "%s = [%s]\n", key, strings.Join(quoted, ", "))
-}
-
-func writeModelTable(text *strings.Builder, models map[string][]string) {
-	if len(models) == 0 {
-		return
-	}
-	entries := make([]string, 0, len(models))
-	for _, access := range sortedKeys(models) {
-		quoted := make([]string, 0, len(models[access]))
-		for _, glob := range models[access] {
-			quoted = append(quoted, quote(glob))
-		}
-		entries = append(entries, tomlKey(access)+" = ["+strings.Join(quoted, ", ")+"]")
-	}
-	fmt.Fprintf(text, "models = { %s }\n", strings.Join(entries, ", "))
 }

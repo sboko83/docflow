@@ -179,18 +179,15 @@ func roleWhy(role string, routes []Candidate, budget *UnitBudget) []string {
 	return why
 }
 
-// routeWhy explains one route of a chain: the access it spends, the
-// channel that reaches it, its budget level and the model class. The
-// effort is part of the model reference — in v3 the route is the pair of
-// a model and an effort.
+// routeWhy explains one route of a chain: the cell it comes from and the
+// channel that reaches the access.
 func routeWhy(kind string, route Candidate) string {
-	return fmt.Sprintf("%s %s via %s: %s budget, %s class",
-		kind, modelAtEffort(route), route.Agent, route.Budget, route.Class)
+	return fmt.Sprintf("%s %s via %s", kind, modelAtEffort(route), route.Agent)
 }
 
 // modelAtEffort renders "ACCESS/MODEL@EFFORT", the reference of the route
-// the resolver picked: in v3 the effort belongs to the route, so the
-// brief names the pair. A route without an effort renders without the
+// the cell names: the effort belongs to the cell, so the brief names the
+// pair. A route without an effort renders without the
 // suffix.
 func modelAtEffort(route Candidate) string {
 	if route.Effort == "" {

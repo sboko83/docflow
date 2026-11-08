@@ -16,8 +16,8 @@ import (
 // liveShapedRoster is the shape of the personal roster at the time of the
 // P059 acceptance: a v2 policy migrated from v1, with the strata local
 // access, the deepseek subscription and the check/trusted split. The
-// acceptance copies it, migrates it to v3 and edits it through the web
-// editor the way the browser does.
+// acceptance copies it, migrates it to the current version and edits it
+// through the web editor the way the browser does.
 const liveShapedRoster = `# Roster v2, converted from the v1 format by docflow roster migrate.
 # Model context, prices and reasoning levels come from docflow roster scan.
 version = 2
@@ -70,13 +70,17 @@ acceptance = "trusted"
 replan     = "trusted"
 `
 
-// TestRosterWebAcceptance walks the plan goal on a copy of the live-shaped
-// policy: migrate v2 to v3, add the deepseek routes low→cheap and
-// high→standard through the web operations, create a variant, and read
+// TestRosterWebAcceptance walks the editor on a copy of the live-shaped
+// policy: migrate v2 to v4, set the deepseek cells — low for cheap, high
+// for executor — through the web operations, create a variant, and read
 // the changes back through `roster brief`.
 func TestRosterWebAcceptance(t *testing.T) {
 	home := rosterStateEnv(t)
 	path := filepath.Join(home, "docflow", "roster.toml")
+	// The live-shaped roster has no variants of its own.
+	if err := os.Remove(roster.VariantsPath(path)); err != nil {
+		t.Fatal(err)
+	}
 	writeLifecycleFile(t, home, "docflow/roster.toml", liveShapedRoster)
 	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "roster", "testdata", "catalog-scenario.json"))
 	if err != nil {
@@ -111,23 +115,20 @@ func TestRosterWebAcceptance(t *testing.T) {
 		}
 		return out
 	}
-	// deepseek-v4.1 joins the allowlist with its first declared effort
-	// (low) at the automatic class; the editor then fixes the class and
-	// adds the second level under high.
-	post(`{"op":"AddAccessModel","access":"opencode-go","id":"deepseek-v4.1"}`)
-	post(`{"op":"SetRouteClass","access":"opencode-go","model":"deepseek-v4.1","effort":"low","class":"cheap"}`)
-	post(`{"op":"AddRouteLevel","access":"opencode-go","model":"deepseek-v4.1"}`)
-	post(`{"op":"SetRouteEffort","access":"opencode-go","model":"deepseek-v4.1","effort":"medium","next":"high"}`)
-	post(`{"op":"SetRouteClass","access":"opencode-go","model":"deepseek-v4.1","effort":"high","class":"standard"}`)
+	// The cells name deepseek-v4.1 at two efforts: low for cheap, high
+	// for executor; opencode-go moves to the top of the priority.
+	post(`{"op":"SetCell","access":"opencode-go","role":"cheap","value":"deepseek-v4.1@low"}`)
+	post(`{"op":"SetCell","access":"opencode-go","role":"executor","value":"deepseek-v4.1@high"}`)
+	post(`{"op":"MoveAccess","name":"opencode-go","dir":"up"}`)
 	post(`{"op":"CreateVariant","name":"web-accept"}`)
 
-	// The policy file carries both routes and the variants file the
+	// The policy file carries both cells and the variants file the
 	// preset.
 	policy, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"low" = "cheap"`, `"high" = "standard"`, "version = 3"} {
+	for _, want := range []string{`cheap      = "deepseek-v4.1@low"`, `executor   = "deepseek-v4.1@high"`, "version = 4"} {
 		if !strings.Contains(string(policy), want) {
 			t.Fatalf("the policy file lost %q:\n%s", want, policy)
 		}
@@ -141,16 +142,16 @@ func TestRosterWebAcceptance(t *testing.T) {
 	}
 
 	// `roster brief` reads the edited roster: the cheap role goes through
-	// the cheap low route, the executor through high.
+	// the low cell, the executor through high, both first in their chain.
 	code, stdout, stderr = callLifecycleCLI(t, t.TempDir(), "roster", "brief", "--roster", path)
 	if code != 0 {
 		t.Fatalf("roster brief = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
 	chains := briefChains(t, stdout)
-	if !strings.Contains(chains["cheap"], "opencode-go/deepseek-v4.1@low") {
-		t.Fatalf("cheap chain = %q, want the low→cheap route", chains["cheap"])
+	if !strings.HasPrefix(chains["cheap"], "opencode-go/deepseek-v4.1@low") {
+		t.Fatalf("cheap chain = %q, want the low cell first", chains["cheap"])
 	}
-	if !strings.Contains(chains["executor"], "opencode-go/deepseek-v4.1@high") {
-		t.Fatalf("executor chain = %q, want the high→standard route", chains["executor"])
+	if !strings.HasPrefix(chains["executor"], "opencode-go/deepseek-v4.1@high") {
+		t.Fatalf("executor chain = %q, want the high cell first", chains["executor"])
 	}
 }

@@ -15,26 +15,20 @@ import (
 
 // The workspace fixture: the same shape the roster tests use, small
 // enough to read by eye.
-const fixture = `version = 3
+const fixture = `version = 4
 
 [access.zai]
 agents = ["pi"]
-budget = "lean"
+
+[access.zai.roles]
+heavy = "glm-5.3@high"
 
 [access.codex]
 agents  = ["codex"]
-trusted = true
 
-[route."zai/glm-5.3"]
-high = "strong"
-
-[role]
-cheap      = "cheap"
-executor   = "standard"
-heavy      = "strong"
-review     = "strong"
-acceptance = "trusted"
-replan     = "trusted"
+[access.codex.roles]
+acceptance = "gpt-6.1-sol@medium"
+replan     = "gpt-6.1-sol@medium"
 `
 
 // testServer starts the handler against a temp roster and returns it with
@@ -93,19 +87,20 @@ func TestWorkspaceEndpoint(t *testing.T) {
 	if got := len(workspace.Accesses); got != 2 {
 		t.Fatalf("accesses = %d, want 2", got)
 	}
-	// The policy itself is not serialized; its routes and role
-	// requirements are, because the editor renders from them.
-	if len(workspace.Routes) != 1 || workspace.Routes[0] != (roster.Route{Access: "zai", Model: "glm-5.3", Eff: "high", Class: "strong"}) {
-		t.Fatalf("routes = %v, want the fixture route", workspace.Routes)
+	// The policy itself is not serialized; the rows carry the cells the
+	// table renders, and the order and the role names come along.
+	zai := workspace.Accesses[0]
+	if zai.Access != "zai" || zai.Cells["heavy"] != "glm-5.3@high" {
+		t.Fatalf("zai row = %+v, want the fixture cell", zai)
 	}
-	if workspace.RoleRequirements["executor"] != "standard" {
-		t.Fatalf("role requirements = %v, want the executor row", workspace.RoleRequirements)
+	if strings.Join(workspace.Order, ",") != "zai,codex" || len(workspace.RoleNames) != 6 {
+		t.Fatalf("order = %v, roles = %v", workspace.Order, workspace.RoleNames)
 	}
 }
 
 func TestOperationWritesFile(t *testing.T) {
 	server, path := testServer(t)
-	status, body := postOp(t, server, `{"op":"SetAccessBudget","name":"zai","level":"prefer"}`)
+	status, body := postOp(t, server, `{"op":"SetCell","access":"codex","role":"executor","value":"gpt-6-luna@high"}`)
 	if status != http.StatusOK || !body.OK || body.Workspace == nil {
 		t.Fatalf("POST /api/op = (%d, %+v), want 200 with a workspace", status, body)
 	}
@@ -113,17 +108,10 @@ func TestOperationWritesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `budget  = "prefer"`) && !strings.Contains(string(data), `budget = "prefer"`) {
+	if !strings.Contains(string(data), `executor   = "gpt-6-luna@high"`) {
 		t.Fatalf("the operation did not write the file:\n%s", data)
 	}
-	// The returned workspace carries the change too.
-	found := false
-	for _, access := range body.Workspace.Accesses {
-		if access.Access == "zai" && access.Budget == "prefer" {
-			found = true
-		}
-	}
-	if !found {
+	if body.Workspace.Accesses[1].Cells["executor"] != "gpt-6-luna@high" {
 		t.Fatalf("the returned workspace lost the change: %+v", body.Workspace.Accesses)
 	}
 }
@@ -134,12 +122,12 @@ func TestOperationRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, body := postOp(t, server, `{"op":"SetAccessBudget","name":"nope","level":"lean"}`)
-	if status != http.StatusBadRequest || body.OK || body.Error == "" {
-		t.Fatalf("POST /api/op = (%d, %+v), want 400 with an error", status, body)
+	status, body := postOp(t, server, `{"op":"SetCell","access":"nope","role":"executor","value":"m"}`)
+	if status != http.StatusBadRequest || body.OK || !strings.Contains(body.Error, "unknown access") {
+		t.Fatalf("POST /api/op = (%d, %+v), want 400 with the validation message", status, body)
 	}
-	if !strings.Contains(body.Error, "unknown access") {
-		t.Fatalf("error = %q, want the validation message", body.Error)
+	if status, body := postOp(t, server, `{"op":"SetCell","access":"zai","role":"executor","value":"glm@"}`); status != http.StatusBadRequest || !strings.Contains(body.Error, "effort") {
+		t.Fatalf("POST broken cell = (%d, %+v), want 400", status, body)
 	}
 	if status, body := postOp(t, server, `{"op":"Bogus"}`); status != http.StatusBadRequest || !strings.Contains(body.Error, "unknown op") {
 		t.Fatalf("POST bogus op = (%d, %+v), want 400 unknown op", status, body)
@@ -150,27 +138,6 @@ func TestOperationRefusal(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	if string(before) != string(after) {
 		t.Fatalf("a refused operation rewrote the file:\n%s", after)
-	}
-}
-
-func TestOperationSetRoleValidates(t *testing.T) {
-	server, path := testServer(t)
-	// A role requirement the parser refuses leaves the file as it was.
-	status, body := postOp(t, server, `{"op":"SetRole","role":"executor","requirement":"mighty"}`)
-	if status != http.StatusBadRequest || body.Error == "" {
-		t.Fatalf("POST /api/op = (%d, %+v), want 400 with an error", status, body)
-	}
-	data, _ := os.ReadFile(path)
-	if strings.Contains(string(data), "mighty") {
-		t.Fatalf("the refused requirement was written:\n%s", data)
-	}
-	status, body = postOp(t, server, `{"op":"SetRole","role":"executor","requirement":"strong"}`)
-	if status != http.StatusOK || !body.OK {
-		t.Fatalf("POST /api/op = (%d, %+v), want 200", status, body)
-	}
-	data, _ = os.ReadFile(path)
-	if !strings.Contains(string(data), `executor   = "strong"`) && !strings.Contains(string(data), `executor = "strong"`) {
-		t.Fatalf("the role change was not written:\n%s", data)
 	}
 }
 
@@ -188,73 +155,53 @@ func TestIndexPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Ассистенты и доступы", "app.js", "style.css"} {
+	for _, want := range []string{"Таблица ролей", "app.js", "style.css"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("GET / lost %q", want)
 		}
 	}
 }
 
-// TestEditorScenario walks the editor's basic path end to end: a route at
-// a new effort, its class changed to cheap, then a variant — with the
-// files on disk carrying both afterwards.
+// TestEditorScenario walks the editor's basic path end to end: a policy
+// is created, overrides a cell, switches an access off, moves another up
+// and becomes the one in force — with the files on disk carrying it.
 func TestEditorScenario(t *testing.T) {
 	installCatalog(t)
 	server, path := testServer(t)
 	variantsPath := roster.VariantsPath(path)
-
-	// The fixture routes zai/glm-5.3 at high only; the first unused
-	// declared effort of the catalog is low, at the first route's class.
-	status, body := postOp(t, server, `{"op":"AddRouteLevel","access":"zai","model":"glm-5.3"}`)
-	if status != http.StatusOK || !body.OK {
-		t.Fatalf("AddRouteLevel = (%d, %+v), want 200", status, body)
-	}
-	status, body = postOp(t, server, `{"op":"SetRouteClass","access":"zai","model":"glm-5.3","effort":"low","class":"cheap"}`)
-	if status != http.StatusOK || !body.OK {
-		t.Fatalf("SetRouteClass = (%d, %+v), want 200", status, body)
-	}
-	status, body = postOp(t, server, `{"op":"CreateVariant","name":"editor-test"}`)
-	if status != http.StatusOK || !body.OK {
-		t.Fatalf("CreateVariant = (%d, %+v), want 200", status, body)
-	}
-
-	// The returned workspace carries the new route and the variant.
-	found := false
-	for _, route := range body.Workspace.Routes {
-		if route.Access == "zai" && route.Model == "glm-5.3" && route.Eff == "low" && route.Class == "cheap" {
-			found = true
+	for _, op := range []string{
+		`{"op":"CreateVariant","name":"codex-first"}`,
+		`{"op":"MoveVariantAccess","name":"codex-first","access":"codex","dir":"up"}`,
+		`{"op":"SetVariantCell","name":"codex-first","access":"codex","role":"heavy","value":"gpt-6.1-sol@high"}`,
+		`{"op":"SetVariantCell","name":"codex-first","access":"zai","role":"heavy","value":""}`,
+		`{"op":"SetVariantOff","name":"codex-first","access":"zai","off":true}`,
+		`{"op":"SetPreset","name":"codex-first"}`,
+	} {
+		if status, body := postOp(t, server, op); status != http.StatusOK || !body.OK {
+			t.Fatalf("%s = (%d, %+v), want 200", op, status, body)
 		}
 	}
-	if !found {
-		t.Fatalf("the workspace lost the low→cheap route: %+v", body.Workspace.Routes)
-	}
-	variantFound := false
-	for _, entry := range body.Workspace.Variants {
-		if entry.Name == "editor-test" {
-			variantFound = true
-		}
-	}
-	if !variantFound {
-		t.Fatalf("the workspace lost the variant: %+v", body.Workspace.Variants)
-	}
-	policy, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(policy), `"low" = "cheap"`) {
-		t.Fatalf("the policy file lost the low→cheap route:\n%s", policy)
+	body := getWorkspace(t, server)
+	if body.Workspace.Preset != "codex-first" || strings.Join(body.Workspace.Order, ",") != "codex,zai" {
+		t.Fatalf("preset = %q, order = %v", body.Workspace.Preset, body.Workspace.Order)
 	}
 	variants, err := os.ReadFile(variantsPath)
 	if err != nil {
 		t.Fatalf("the variants file was not created: %v", err)
 	}
-	if !strings.Contains(string(variants), "[preset.editor-test]") {
-		t.Fatalf("the variants file lost the preset:\n%s", variants)
+	for _, want := range []string{"[preset.codex-first]", `order = ["codex", "zai"]`, `off = ["zai"]`, "[preset.codex-first.roles.codex]", `heavy      = "gpt-6.1-sol@high"`, `heavy      = ""`} {
+		if !strings.Contains(string(variants), want) {
+			t.Fatalf("the variants file lacks %q:\n%s", want, variants)
+		}
+	}
+	// The default table stays as it was.
+	policy, _ := os.ReadFile(path)
+	if strings.Contains(string(policy), "gpt-6.1-sol@high") {
+		t.Fatalf("a policy edit reached roster.toml:\n%s", policy)
 	}
 }
 
-// installCatalog puts the scenario catalog where LoadCatalog reads it, so
-// the route operations find the declared efforts.
+// installCatalog puts the scenario catalog where LoadCatalog reads it.
 func installCatalog(t *testing.T) {
 	t.Helper()
 	catalog, err := roster.LoadCatalog("../../roster/testdata/catalog-scenario.json")

@@ -16,8 +16,9 @@ import (
 // fake CLI logs before dispatch, including unexpected model invocations.
 func TestRosterV2Flow(t *testing.T) {
 	originalPath := os.Getenv("PATH")
-	policy := strings.Replace(rosterFixture(t, "policy-v3.toml"), "2026-06-30", "2099-01-01", 1)
+	policy := strings.Replace(rosterFixture(t, "policy.toml"), "2026-06-30", "2099-01-01", 1)
 	home := rosterScanEnv(t, policy)
+	writeLifecycleFile(t, home, "docflow/roster.variants.toml", rosterFixture(t, "policy.variants.toml"))
 	bin := os.Getenv("PATH")
 	// Windows testshim needs Git Bash while creating each executable shim.
 	// Only the actual scan runs with PATH restricted to the fake commands.
@@ -79,7 +80,7 @@ func TestRosterV2Flow(t *testing.T) {
 		t.Fatalf("status lost dated off: %s", status)
 	}
 	state := readRosterState(t, home)
-	flags := []string{"--off", "local", "--minimal", "codex", "--lean", "zai", "--only", "zai=*flash*", "--prefer", "opencode-go"}
+	flags := []string{"--preset", "low", "--off", "local"}
 	out, _ := invoke(append([]string{"roster", "brief", "--json"}, flags...)...)
 	want := map[string]string{
 		"executor": "pi | opencode-go/deepseek-v4.1 | high",
@@ -138,8 +139,12 @@ func TestRosterV2Flow(t *testing.T) {
 	if readRosterState(t, home) != "" {
 		t.Fatal("reset kept the conditions")
 	}
+	// The v1 roster below has none of the accesses the low policy names.
+	if err := os.Remove(filepath.Join(home, "docflow", "roster.variants.toml")); err != nil {
+		t.Fatal(err)
+	}
 	writeLifecycleFile(t, home, "docflow/roster.toml", draftV1Roster(t))
-	for _, args := range [][]string{{"roster", "scan"}, {"roster", "brief"}, {"roster", "apply", "P001", "--off", "local", "--only", "zai=*flash*", "--expires", "zai=2099-01-01"}} {
+	for _, args := range [][]string{{"roster", "scan"}, {"roster", "brief"}, {"roster", "apply", "P001", "--off", "local", "--expires", "zai=2099-01-01"}} {
 		code, _, errout := callLifecycleCLI(t, root, args...)
 		if code != 2 || !strings.Contains(errout, "roster migrate") {
 			t.Fatalf("v1 %v = (%d, %q)", args, code, errout)
@@ -154,7 +159,7 @@ func TestRosterV2Flow(t *testing.T) {
 
 func TestRosterV2ExpiredAccessCLI(t *testing.T) {
 	home := rosterBriefEnv(t)
-	writeLifecycleFile(t, home, "docflow/roster.state.toml", "version = 2\n[expires]\nzai = \"2000-01-01\"\n")
+	writeLifecycleFile(t, home, "docflow/roster.state.toml", "version = 2\npreset = \"low\"\n[expires]\nzai = \"2000-01-01\"\n")
 	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "brief", "--json")
 	if code != 0 || stderr != "" {
 		t.Fatalf("expired brief = (%d, %q, %q)", code, stdout, stderr)

@@ -703,7 +703,7 @@ func TestFooterShowsTheScreenKeys(t *testing.T) {
 
 	model = send(t, model, keyMsg("2"))
 	roster := footer()
-	for _, want := range []string{"Tab panel", "Space on/off", "←→ budget"} {
+	for _, want := range []string{"Tab panel", "Space on/off", "Enter models"} {
 		if !strings.Contains(roster, want) {
 			t.Fatalf("roster footer lost %q: %q", want, roster)
 		}

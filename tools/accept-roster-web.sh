@@ -1,6 +1,6 @@
 #!/bin/bash
 # Acceptance of `docflow roster web` on a copy of the live policy: migrate
-# the personal roster to v3 in a temp directory, drive the web operations
+# the personal roster to v4 in a temp directory, drive the web operations
 # the browser uses, and read the result back through `roster brief`.
 # Usage: bash tools/accept-roster-web.sh [LIVE_ROSTER]
 set -euo pipefail
@@ -26,7 +26,7 @@ export USERPROFILE="$work"
 export XDG_CONFIG_HOME="$work"
 export XDG_CACHE_HOME="$work/cache"
 
-echo "== migrate to v3"
+echo "== migrate to v4"
 "$work/docflow-bin" roster migrate --write
 
 echo "== start roster web"
@@ -49,39 +49,35 @@ if not d.get("ok"):
 }
 
 echo "== edit through the API"
-# The goal scenario: the deepseek model of the opencode access gets routes
-# low→cheap and high→standard, then a variant. The live roster names the
-# model in its allowlist; a model outside it is added first.
-model=$(python3 -c 'import re,sys; text=open(sys.argv[1]).read(); m=re.search(r"deepseek-[a-z0-9.\-]+", text); print(m.group(0) if m else "deepseek-v4.1")' "$work/docflow/roster.toml")
+# The goal scenario: the deepseek model of the opencode access closes cheap
+# at low and executor at high, opencode-go moves to the top, and a policy
+# switches it off again.
+model="deepseek-v4.1"
 access="opencode-go"
 if ! grep -q "\[access.$access\]" "$work/docflow/roster.toml"; then
   op "{\"op\":\"AddAccess\",\"name\":\"$access\",\"kind\":\"subscription\",\"agents\":[\"pi\"]}"
 fi
-allowlist=$(sed -n "/\[access.$access\]/,/^\[/p" "$work/docflow/roster.toml")
-if ! grep -q "\"$model\"" <<< "$allowlist"; then
-  op "{\"op\":\"AddAccessModel\",\"access\":\"$access\",\"id\":\"$model\"}"
-fi
-# The migrated model carries one route (the strongest v1 tier); the two
-# levels come from AddRouteLevel, which takes the first unused declared
-# effort; the keys and classes are then fixed to the goal pair.
-op "{\"op\":\"AddRouteLevel\",\"access\":\"$access\",\"model\":\"$model\"}"
-op "{\"op\":\"SetRouteClass\",\"access\":\"$access\",\"model\":\"$model\",\"effort\":\"low\",\"class\":\"cheap\"}"
-op "{\"op\":\"AddRouteLevel\",\"access\":\"$access\",\"model\":\"$model\"}"
-op "{\"op\":\"SetRouteEffort\",\"access\":\"$access\",\"model\":\"$model\",\"effort\":\"medium\",\"next\":\"high\"}"
-op "{\"op\":\"SetRouteClass\",\"access\":\"$access\",\"model\":\"$model\",\"effort\":\"high\",\"class\":\"standard\"}"
+op "{\"op\":\"SetCell\",\"access\":\"$access\",\"role\":\"cheap\",\"value\":\"$model@low\"}"
+op "{\"op\":\"SetCell\",\"access\":\"$access\",\"role\":\"executor\",\"value\":\"$model@high\"}"
+for _ in 1 2 3 4 5 6; do
+  op "{\"op\":\"MoveAccess\",\"name\":\"$access\",\"dir\":\"up\"}"
+done
 op "{\"op\":\"CreateVariant\",\"name\":\"web-accept\"}"
+op "{\"op\":\"SetVariantOff\",\"name\":\"web-accept\",\"access\":\"$access\",\"off\":true}"
 
 echo "== the files"
-grep -A3 "\[route.\"$access/$model\"\]" "$work/docflow/roster.toml" || cat "$work/docflow/roster.toml"
+sed -n "/\[access.$access.roles\]/,/^\$/p" "$work/docflow/roster.toml"
 grep -A2 "preset.web-accept" "$work/docflow/roster.variants.toml"
 
 echo "== roster brief sees the changes"
 "$work/docflow-bin" roster brief | sed -n '/^chains:/,/^review:/p'
 
 echo "== verdict"
-if grep -q "$model@low" <<< "$("$work/docflow-bin" roster brief)" && [ -f "$work/docflow/roster.variants.toml" ]; then
-  echo "PASS: the editor wrote the routes and the variant; the brief resolves them"
+brief="$("$work/docflow-bin" roster brief)"
+policy="$("$work/docflow-bin" roster brief --preset web-accept)"
+if grep -q "cheap  *$access/$model@low" <<< "$brief" && ! grep -q "$access/$model" <<< "$policy"; then
+  echo "PASS: the editor wrote the cells and the policy; the brief resolves them"
 else
-  echo "FAIL: the brief does not show the edited routes"
+  echo "FAIL: the brief does not show the edited cells"
   exit 1
 fi

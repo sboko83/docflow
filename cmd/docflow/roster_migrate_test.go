@@ -15,7 +15,7 @@ func draftV1Roster(t *testing.T) string {
 }
 
 // TestRosterMigrateCommand drives `roster migrate` through the CLI on an
-// isolated XDG_CONFIG_HOME and the v1 draft fixture: the dry run prints the v2 text, --write keeps
+// isolated XDG_CONFIG_HOME and the v1 draft fixture: the dry run prints the v4 text, --write keeps
 // the v1 roster as roster.toml.bak, and a second --write is refused with
 // exit code 2 instead of rewriting the migrated file.
 func TestRosterMigrateCommand(t *testing.T) {
@@ -27,8 +27,8 @@ func TestRosterMigrateCommand(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("roster migrate = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
-	if !strings.HasPrefix(stdout, "# Roster v3") || !strings.Contains(stdout, "version = 3") {
-		t.Fatalf("roster migrate stdout =\n%s\nwant the v3 text", stdout)
+	if !strings.Contains(stdout, "version = 4") || !strings.Contains(stdout, "[access.zai.roles]") {
+		t.Fatalf("roster migrate stdout =\n%s\nwant the v4 text", stdout)
 	}
 	if data, _ := os.ReadFile(path); string(data) != draftV1Roster(t) {
 		t.Fatalf("a dry run rewrote the roster")
@@ -52,12 +52,12 @@ func TestRosterMigrateCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(migrated), "# Roster v3") {
+	if !strings.Contains(string(migrated), "version = 4") {
 		t.Fatalf("the roster was not migrated:\n%s", migrated)
 	}
 
 	code, _, stderr = callLifecycleCLI(t, t.TempDir(), "roster", "migrate", "--write")
-	if code != 2 || !strings.Contains(stderr, "already version 3") {
+	if code != 2 || !strings.Contains(stderr, "already version 4") {
 		t.Fatalf("second roster migrate --write = (%d, %q), want 2 and the refusal", code, stderr)
 	}
 	if again, _ := os.ReadFile(path); string(again) != string(migrated) {

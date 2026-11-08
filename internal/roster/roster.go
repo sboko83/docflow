@@ -1,9 +1,9 @@
-// Package roster reads the version 2 roster policy and its scan catalog,
+// Package roster reads the version 4 roster policy and its scan catalog,
 // resolves a route chain for every plan role and writes the chains into a
 // plan header. The runner never reads the roster: it only feeds roster
 // brief (print the chains), explain (compare them with a plan) and apply
 // (write them into a plan header), so a plan stays reproducible without
-// the file. The version 1 format is read by the migration alone.
+// the file. Older formats are read by the migration alone.
 package roster
 
 import (
@@ -19,13 +19,6 @@ import (
 // executor role renders as the executor:/fallback: header pair, the rest
 // as role keys.
 var Roles = []string{"executor", "cheap", "heavy", "review", "acceptance", "replan"}
-
-// tiers is the model class and route tier ladder: cheap < standard <
-// strong. A v1 route named its tier, a v2 policy names the class of a
-// model in [model].
-var tiers = []string{"cheap", "standard", "strong"}
-
-var tierRequirements = append(append([]string(nil), tiers...), "trusted")
 
 // DefaultPath returns the roster path the way agents.ConfigPath builds the
 // agents path: $XDG_CONFIG_HOME/docflow/roster.toml, ~/.config otherwise.
@@ -50,15 +43,6 @@ func failAt(path string, index *lineIndex, table, key, format string, args ...an
 		line = 1
 	}
 	return clierrors.FormatError{Path: path, Line: line, Text: fmt.Sprintf(format, args...)}
-}
-
-func tierIndex(tier string) int {
-	for i, name := range tiers {
-		if name == tier {
-			return i
-		}
-	}
-	return len(tiers)
 }
 
 func contains(values []string, value string) bool {
