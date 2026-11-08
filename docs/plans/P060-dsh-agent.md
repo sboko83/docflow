@@ -226,7 +226,7 @@ Handoff:
 - Комментарий над DefaultAgents больше не упоминает Python CLI: в репо и его истории Python-реализации CLI нет, только скрипты tools/*.py; владельцу — подтвердить.
 - Ссылку design-топика runner.md на архив P060 добавить при закрытии плана (архивного файла ещё нет).
 
-### [ ] P060.2.3 Review phase 2
+### [x] P060.2.3 Review phase 2
 Read:
 - internal/agentio/output.go:L85-250
 - internal/agents/agents.go:L40-170
@@ -239,6 +239,9 @@ Verify: `go test -short -timeout 20m ./...`
 Depends: P060.2.1,P060.2.2
 Role: review
 Commit: P060.2.3: review dsh parser phase
+Handoff:
+- Review: нарушений Constraints/Decisions и регресса нет; формат не вырос (dsh — значение stream и agent, AgentKeys не тронут). Test changes не ослабляют проверки: заглушка dshAgent заменена встроенным профилем, хэш/число профилей и текст lint следуют новому блоку.
+- Дефект для P060.3.1: limit-regex dsh содержит голое '429'; refusal (лимит) классифицируется раньше auth, а текст auth-отказа dsh несёт hex request_id — id с подстрокой 429 превратит отказ входа в 30-минутное ожидание лимита. Заменить на 'usage limit|rate limit|rate_limit|too many requests|hit your limit|quota' и добавить тест: auth-фикстура с request_id ...429... даёт AuthReason, а не Refusal.
 
 ## Phase 3: Приёмка и доки
 
