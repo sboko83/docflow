@@ -67,6 +67,16 @@ func TestDshAuthFailure(t *testing.T) {
 	if AuthReason(agent, run) == "" {
 		t.Fatal("auth refusal not recognized")
 	}
+	// The runner reads a limit before a login failure: a request id that
+	// happens to contain 429 must not turn the auth refusal into a wait.
+	unlucky := strings.ReplaceAll(out, "00000000-0000-0000-0000-000000000000", "9ec4bb33-bf51-4d9a-a429-c8aa15a58359")
+	run = AgentRun{Stdout: unlucky, Stderr: "dsh: AUTH: Authentication Fails (request_id: 9ec4bb33-bf51-4d9a-a429-c8aa15a58359)\n", Code: 1}
+	if LimitText(agent, run) != nil || AuthReason(agent, run) == "" {
+		t.Fatal("an auth refusal with 429 in its request id reads as a limit")
+	}
+	if !strings.Contains(unlucky, "a429") {
+		t.Fatal("fixture lost its request id")
+	}
 }
 
 // Success needs reason.kind "completed": any other kind, a null reason and a

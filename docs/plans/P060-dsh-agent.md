@@ -245,7 +245,7 @@ Handoff:
 
 ## Phase 3: Приёмка и доки
 
-### [ ] P060.3.1 Приёмка на реальном dsh
+### [x] P060.3.1 Приёмка на реальном dsh
 Read:
 - internal/runner/run.go:L860-910
 - internal/runner/liveness_acceptance_test.go:L1-60
@@ -262,6 +262,9 @@ Traps: тест не требует сеть и ключ на CI — skip без
 Depends: P060.2.2
 Role: heavy
 Commit: P060.3.1: accept dsh end to end
+Handoff:
+- Limit-regex dsh без голого 429 (тест: request_id с 429 → AuthReason). Ручная проверка Windows: timeout-kill dsh — 3 node.exe + pwsh.exe порождены, после kill не осталось ни одного. TestDshRealUnitCommits запущен владельцем на реальном dsh.
+- Unverified закрыт: HTTPS и кэш go-build под danger-full-access проверены реальным прогоном юнита (verify с gate).
 
 ### [ ] P060.3.2 README и CHANGELOG
 Read:
