@@ -40,15 +40,18 @@ headless-профиль): блок `[agents.dsh]` в `DefaultAgents`, парсе
   успех = exit 0 **и** `final.reason.kind === 'completed'`; строки/объекты
   капятся 8 KiB, строка события 32 KiB, флаг `truncated`; schema-флага нет;
   задача принимается через stdin (`-`).
-- Среда dsh: Node, ключ `DEEPSEEK_API_KEY`; Windows проверяется отдельно
-  в фазе 3.
+- Среда dsh: Node; авторизация — логин DeepSeek-подписки в dsh (каналы
+  по умолчанию: аккаунт-платформа, документ кредов `~/.dsh/.credentials.yaml`,
+  env `DEEPSEEK_API_KEY`); Windows проверяется отдельно в фазе 3.
 
 ## Prerequisites
 
 - Node и npm на машине прогона: `node --version`
 - dsh установлен (`npm i -g @deepseek-ai/dsh`): `dsh --version`
-- Ключ `DEEPSEEK_API_KEY` в переменных окружения машины прогона (значение
-  в план не пишется): `test -n "$DEEPSEEK_API_KEY"`
+- dsh авторизован в DeepSeek-подписке: логин аккаунт-платформы выполнен
+  человеком; запасной канал — ключ из opencode-go в
+  `~/.dsh/.credentials.yaml`; значение в план не пишется:
+  `dsh headless "Ответь одним словом: ок"`
 
 ## Traps
 
@@ -92,15 +95,19 @@ Do:
 - Установить dsh (`npm i -g @deepseek-ai/dsh`); записать версию в
   `## Decisions`.
 - Снять транскрипты `dsh headless --json` с задачей через stdin (`-`):
-  happy path (задача с одной командой); без `DEEPSEEK_API_KEY`;
-  usage-ошибка (неизвестный флаг); resume через `--session-id`.
+  happy path (задача с одной командой) **без** `DEEPSEEK_API_KEY` —
+  подтверждает, что headless берёт авторизацию из хранилища логина
+  подписки, а не из env; транскрипт отказа (usage-ошибка неизвестным
+  флагом или auth-отказ); resume через `--session-id`.
 - Замерить живость: задача с `sleep 90` внутри — какие события приходят
   в окно сна.
 - Проверить права: покрывает ли `workspace-write` запись в `.git`
   (`git commit` внутри задачи); поведение `--approval-policy ask|never`;
   нужен ли `--add-dir` и в каком виде.
 - Выяснить: есть ли usage/tokens в событиях; как выбирается модель
-  (флаг, preset, adapter).
+  (флаг, preset, adapter) и какая модель подписки отвечает — сравнить с
+  opencode-go/deepseek-v4.1-flash; какой канал авторизации используется
+  реально (аккаунт-платформа dsh, `~/.dsh/.credentials.yaml`, env).
 - Обезличить транскрипты и положить в
   `internal/agentio/testdata/dsh.jsonl` и
   `internal/agentio/testdata/dsh-error.jsonl`.
@@ -203,7 +210,7 @@ Read:
 - internal/runner/liveness_acceptance_test.go:L1-60
 Do:
 - Интеграционный тест в internal/runner с пропуск-защитой (нет `dsh` на
-  PATH или нет `DEEPSEEK_API_KEY` — skip): прогон одного юнита
+  PATH или не проходит проверка авторизации — skip): прогон одного юнита
   тестового плана через реальный dsh до коммита юнита.
 - Проверить вручную на Windows (Node + dsh): запуск, коммит юнита,
   остановка по таймауту без оставшихся Node-потомков; результат — в
