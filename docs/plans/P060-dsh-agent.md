@@ -266,7 +266,7 @@ Handoff:
 - Limit-regex dsh без голого 429 (тест: request_id с 429 → AuthReason). Ручная проверка Windows: timeout-kill dsh — 3 node.exe + pwsh.exe порождены, после kill не осталось ни одного. TestDshRealUnitCommits запущен владельцем на реальном dsh.
 - Unverified закрыт: HTTPS и кэш go-build под danger-full-access проверены реальным прогоном юнита (verify с gate).
 
-### [ ] P060.3.2 README и CHANGELOG
+### [x] P060.3.2 README и CHANGELOG
 Read:
 - README.md:L25-45
 - README.ru.md:L25-45
@@ -281,6 +281,8 @@ Verify: `grep -q 'dsh' README.md && grep -q 'dsh' README.ru.md && grep -q 'dsh' 
 Depends: P060.3.1
 Role: cheap
 Commit: P060.3.2: document dsh agent support
+Handoff:
+- README.md и README.ru.md называют dsh (DeepSeek Harness) среди встроенных агентов run; CHANGELOG [Unreleased] → Added описывает поддержку dsh.
 
 ### [ ] P060.3.3 Acceptance
 Read:

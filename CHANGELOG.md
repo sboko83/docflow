@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- dsh (DeepSeek Harness) agent support: `docflow run` drives units
+  through `dsh headless` with the built-in `[agents.dsh]` block and the
+  `dsh` event stream parser.
+
 ## [0.28.1] - 2026-11-08
 
 ### Fixed
