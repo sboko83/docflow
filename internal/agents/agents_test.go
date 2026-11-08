@@ -19,7 +19,7 @@ import (
 )
 
 func TestDefaultAgentsBytesAndSchema(t *testing.T) {
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "a466a2eed5f3a107ce0b85678f140349954da08375de40598c9bc4920e611e18" {
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(DefaultAgents))); got != "12901a00346fb4ce44e44ad99501e27093a057a8796f4f49a47d170e19bc0e44" {
 		t.Fatalf("DefaultAgents SHA-256 = %s", got)
 	}
 	parsed, err := ParseTOML(DefaultAgents)
@@ -44,8 +44,8 @@ func TestDefaultAgentsBytesAndSchema(t *testing.T) {
 	if !reflect.DeepEqual(gotSchema, wantSchema) {
 		t.Fatalf("ResultSchema = %#v, want %#v", gotSchema, wantSchema)
 	}
-	if len(mapAt(parsed, "agents")) != 4 {
-		t.Fatalf("built-in profiles = %d, want 4", len(mapAt(parsed, "agents")))
+	if len(mapAt(parsed, "agents")) != 5 {
+		t.Fatalf("built-in profiles = %d, want 5", len(mapAt(parsed, "agents")))
 	}
 }
 
@@ -384,6 +384,19 @@ func TestBuildCommand(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--auto", "--model", "opencode-go/deepseek-v4.1-flash"}) {
 		t.Fatalf("opencode no-effort argv = %#v, %v", argv, err)
 	}
+	// dsh takes the model from its profile: the route's model and effort add
+	// no arguments, and both permission modes lift the sandbox.
+	dsh := mapAt(agents, "dsh")
+	for _, mode := range []string{"auto", "full"} {
+		argv, stdin, err = BuildCommand(dsh, "P", "deepseek-flash", "/s", "", "high", mode)
+		if err != nil || stdin == nil || !reflect.DeepEqual(argv, []string{"dsh", "headless", "--json", "-", "--permission-mode", "danger-full-access", "--approval-policy", "never"}) {
+			t.Fatalf("dsh %s argv = %#v, stdin=%v, err=%v", mode, argv, stdin, err)
+		}
+	}
+	argv, _, err = BuildCommand(dsh, "P", "", "/s", "session-1", "", "auto")
+	if err != nil || !reflect.DeepEqual(argv, []string{"dsh", "headless", "--json", "-", "--permission-mode", "danger-full-access", "--approval-policy", "never", "--session-id", "session-1"}) {
+		t.Fatalf("dsh resume argv = %#v, %v", argv, err)
+	}
 
 	promptAgent := map[string]any{"cmd": []any{"tool", "run", "{prompt}"}, "model_args": []any{"-m", "{model}"}}
 	argv, stdin, err = BuildCommand(promptAgent, `do {model} {"a": 1}`, "m", "/s", "", "", "auto")
@@ -534,7 +547,7 @@ func TestRunRouteAndExecutorIntegration(t *testing.T) {
 		t.Fatalf("route metadata = %q / %q / %q", RouteSource(plan, plan.Units[2]), RouteSource(plan, plan.Units[1]), RouteText(got))
 	}
 	config, err := RunConfig(plan, &args)
-	if err != nil || !args.Executors || len(mapAt(config, "agents")) != 4 {
+	if err != nil || !args.Executors || len(mapAt(config, "agents")) != 5 {
 		t.Fatalf("RunConfig executor mode = %#v, %#v, %v", config, args, err)
 	}
 	args.Agent = "codex"

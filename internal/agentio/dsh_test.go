@@ -4,18 +4,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"bsv-docflow/internal/agents"
 )
 
-// dshAgent is the dsh profile's decoder view: the stream and the json: paths
-// read from DshOutput.
+// dshAgent is the built-in dsh profile, so the tests hold its json: paths and
+// regexes to what DshOutput produces.
 func dshAgent() map[string]any {
-	return map[string]any{
-		"stream": "dsh", "result": "json:text", "text": "json:text",
-		"session": "json:session", "error": "json:is_error",
-		"tokens":        []any{"json:usage.input", "json:usage.cache_read", "json:usage.cache_write"},
-		"output_tokens": "json:usage.output",
-		"auth":          "MISSING_CREDENTIAL|Authentication Fails|AUTH:",
+	config, err := agents.LoadAgents("", false)
+	if err != nil {
+		panic(err)
 	}
+	return table(table(config["agents"])["dsh"])
 }
 
 func TestDshFold(t *testing.T) {

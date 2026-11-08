@@ -32,8 +32,8 @@ var ResultSchema = map[string]any{
 	"additionalProperties": false,
 }
 
-// DefaultAgents is the built-in agents.toml text. Keep its bytes aligned with
-// the Python CLI because `docflow run --print-config` prints it for copying.
+// DefaultAgents is the built-in agents.toml text. `docflow run --print-config`
+// prints it verbatim for copying, so its bytes are user-facing.
 const DefaultAgents = `[tiers]
 fast = {agent = "claude", model = "haiku"}
 default = {agent = "claude", model = "sonnet"}
@@ -141,6 +141,27 @@ quota = ["opencode", "api", "get", "/api/experimental/usage/limits"]
 [agents.opencode.permissions]
 auto = ["--auto"]
 full = ["--auto"]
+
+[agents.dsh]
+cmd = ["dsh", "headless", "--json", "-"]
+resume_args = ["--session-id", "{session}"]
+result = "json:text"
+text = "json:text"
+session = "json:session"
+error = "json:is_error"
+tokens = ["json:usage.input", "json:usage.cache_read", "json:usage.cache_write"]
+output_tokens = "json:usage.output"
+stream = "dsh"
+limit = "usage limit|rate limit|hit your limit|429|quota"
+limit_wait = 1800
+auth = "MISSING_CREDENTIAL|Authentication Fails|dsh: AUTH:"
+timeout = 7200
+idle_timeout = 1200
+instructions = """Shell commands time out after 300000 ms unless the tool call sets timeoutMs. Give long checks (docflow verify, test suites) a timeoutMs above their expected duration so they finish in the foreground."""
+
+[agents.dsh.permissions]
+auto = ["--permission-mode", "danger-full-access", "--approval-policy", "never"]
+full = ["--permission-mode", "danger-full-access", "--approval-policy", "never"]
 `
 
 var AgentKeys = map[string]string{

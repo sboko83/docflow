@@ -484,7 +484,7 @@ docflow run              # юниты текущего плана подряд �
 Конфиг — только для плана без исполнителей. TOML: `--config` >
 `$DOCFLOW_AGENTS` > `$XDG_CONFIG_HOME/docflow/agents.toml` (`~/.config/…`);
 файл из `--config` или `$DOCFLOW_AGENTS`, которого нет, — ошибка. Встроенные профили
-`claude`, `codex`, `pi` и `opencode` (`docflow run --print-config`); файл накладывается на встроенные
+`claude`, `codex`, `pi`, `opencode` и `dsh` (`docflow run --print-config`); файл накладывается на встроенные
 профили по ключам (`model_extra` и `permissions` — тоже по ключам), добавляет новые профили
 и накладывается на таблицу `[tiers]` ярус за ярусом, ключ за ключом:
 `[tiers.<fast|default|strong|max>]` с ключами `agent` (имя профиля),
@@ -502,7 +502,7 @@ docflow run              # юниты текущего плана подряд �
 | `permissions` | таблица режима прав плана → аргументы после `cmd` (`auto`/`full`); накладывается на встроенную по ключам; профиль без таблицы: `auto` — `cmd` как есть, `full` — код 2 |
 | `result`, `text`, `session`, `error`, `cost` | пути `json:a.b` в JSON-выводе: result JSON, текст ответа, id сессии, флаг ошибки, стоимость |
 | `tokens` | список путей `json:a.b`; сумма значений — токены вызова (`claude`: `usage.input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`); ключа нет — токены не считаются |
-| `stream` | декодер потока JSON Lines: `"claude"`, `"codex"`, `"pi"`, `"opencode"` или пусто; `claude` даёт квоту подписки и текущее действие агента, `pi` — объект `session`, `text`, `usage`, `cost`, `is_error`, `error`, `codex` — действие и сворачивает события в объект `thread_id`, `text`, `usage`, `is_error`, `error` для путей `json:`, `opencode` — сворачивает события `run --format json` в объект `session`, `text`, `usage`, `cost`, `is_error`, `error`; без декодера остаются только итоги |
+| `stream` | декодер потока JSON Lines: `"claude"`, `"codex"`, `"pi"`, `"opencode"`, `"dsh"` или пусто; `claude` даёт квоту подписки и текущее действие агента, `pi` — объект `session`, `text`, `usage`, `cost`, `is_error`, `error`, `codex` — действие и сворачивает события в объект `thread_id`, `text`, `usage`, `is_error`, `error` для путей `json:`, `opencode` — сворачивает события `run --format json` в объект `session`, `text`, `usage`, `cost`, `is_error`, `error`, `dsh` — сворачивает события `headless --json` в объект `session`, `text`, `usage`, `is_error`, `error`, `error_code`; без декодера остаются только итоги |
 | `output_tokens` | путь `json:a.b` к числу выходных токенов вызова (`claude`: `usage.output_tokens`) |
 | `turns` | путь `json:a.b` к числу ходов агента в вызове (`claude`: `num_turns`) |
 | `limit`, `limit_wait` | regex сообщения о лимите; ожидание, если время сброса не найдено (1800 с) |
@@ -578,6 +578,22 @@ opencode и генерации не тратит. Стоимость и токе
 `opencode | opencode-go/deepseek-v4.1-flash | high`. Скиллы —
 `docflow install-skills --agent opencode` (`.opencode/skills` в проекте,
 `~/.config/opencode/skills` лично). Нужен собственный вход CLI.
+
+Профиль `dsh` (DeepSeek Harness, `npm i -g @deepseek-ai/dsh`) запускает
+`dsh headless --json -`; промпт идёт в stdin, продолжение сессии —
+`--session-id <id>`. Модель выбирает профиль dsh, а не тройка: модель и
+усилие маршрута аргументов не добавляют, пример тройки —
+`dsh | deepseek-flash | -`. Подписка DeepSeek вместо `DEEPSEEK_API_KEY`:
+войти в аккаунт в `dsh web` и в
+`$DSH_HOME/profiles/headless/cordis.patch.yml` включить entry
+`authorization`, `deepseek-account` и `credentials` (`disabled: false`) и
+задать `agent-default-model` с `provider: deepseek-account`; проверка —
+`dsh headless "Ответь одним словом: ок"`. Режимы `auto` и `full` оба
+снимают песочницу (`--permission-mode danger-full-access`): в
+`workspace-write` на Windows не работают кэш сборки вне репозитория, HTTPS
+и коммит из worktree, а подтвердить эскалацию в headless некому; `full`
+изоляцией не является. Токены декодер суммирует по шагам; стоимости и
+квоты у dsh нет.
 
 Профиль без `result` берёт result JSON из последнего блока ` ```json `,
 без `resume_args` повторяет попытку полным промптом. Запуск —

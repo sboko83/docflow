@@ -98,6 +98,8 @@ headless-профиль): блок `[agents.dsh]` в `DefaultAgents`, парсе
 - Спайк: модель — флага модели у headless нет, модель задаёт профиль (agent-default-model: provider deepseek-account, model deepseek-flash); в событиях и сессии имя модели не пишется. Профиль без model_args/effort_args; модель в маршруте плана — пометка, не аргумент. Совпадение deepseek-flash подписки с opencode-go/deepseek-v4.1-flash проверить нельзя.
 - Спайк: права — workspace-write на Windows: запись в .git обычного клона проходит, но запись вне cwd запрещена (кэш go-build → go test падает 'Access is denied'), HTTPS из песочницы падает (schannel SEC_E_NO_CREDENTIALS), коммит из linked worktree падает на .git/worktrees/*/index.lock; --add-dir на Windows ломает каждый shell-вызов ('Windows ACL confinement does not support additional writable directories'). Эскалация в headless невозможна: ask не зависает, а отказывает 'no approval channel is available' — ask и never равны. danger-full-access коммитит из worktree. Решение для P060.2.2: auto и full → --permission-mode danger-full-access --approval-policy never (как opencode, где auto=full); отвергнут workspace-write — без эскалации агент не может выполнить docflow verify в Go-репо и не коммитит в worktree, а перенос GOCACHE в дерево пачкает рабочее дерево.
 - Неизвестный тип события dsh в живой строке показывается своим именем (как у codex), в истории активности — unknown с сырой строкой; DshSilent — session, status, thinking, tool_result, final, error — по замеру спайка: это не действия агента.
+- auto и full у dsh — оба danger-full-access + never, как auto=full у opencode — спайк: workspace-write на Windows ломает go test (кэш go-build), HTTPS и коммит из worktree, эскалация в headless невозможна — отвергнут auto=workspace-write с instructions про обход: юниты падали бы на собственном docflow verify.
+- Комментарий 'Keep its bytes aligned with the Python CLI' заменён причиной, которая жива (--print-config печатает текст для копирования) — Python CLI в репо нет — отвергнуто держать мёртвую ссылку до ответа владельца.
 
 ## Phase 1: Эмпирика
 
@@ -192,7 +194,7 @@ Handoff:
 - Отказы dsh идут общим путём refusal.go (regex limit/auth профиля по FailureText: final.text + error + stderr при exit≠0); отдельной ветки классификатора нет — лимитный ответ dsh не снят.
 - Liveness: tool_call держит вызов живым, пока нет tool_result; поэтому молчание во время долгой команды не будит idle-watchdog.
 
-### [ ] P060.2.2 Блок agents.dsh в DefaultAgents
+### [x] P060.2.2 Блок agents.dsh в DefaultAgents
 Read:
 - internal/agents/agents.go:L40-170
 - docs/design/runner.md:L738-829
@@ -217,6 +219,12 @@ Traps: freeze — только существующие ключи `AgentKeys`; 
 Depends: P060.2.1
 Role: heavy
 Commit: P060.2.2: add dsh agent config block
+Handoff:
+- Блок [agents.dsh] в DefaultAgents: cmd dsh headless --json -, resume --session-id {session} (dsh разбирает флаги после '-'), без model_args/effort_args, auto=full=--permission-mode danger-full-access --approval-policy never, instructions про timeoutMs, limit/auth regex, timeout 7200, idle_timeout 1200, без quota/cost.
+- dsh добавлен в lint executorAgents и в format.md (значение agent тройки) — иначе executor: dsh | … не проходил lint. Тройка: dsh | deepseek-flash | - (модель — пометка).
+- Вне плана остались: roster.PolicyAgents (roster apply не ставит dsh в ячейки), agents.InteractiveArgv (TUI-планирование через dsh — отказ 'unknown agent'), install-skills/doctor --agent (каталог скиллов dsh неизвестен). Это отдельные решения, не дефекты P060.
+- Комментарий над DefaultAgents больше не упоминает Python CLI: в репо и его истории Python-реализации CLI нет, только скрипты tools/*.py; владельцу — подтвердить.
+- Ссылку design-топика runner.md на архив P060 добавить при закрытии плана (архивного файла ещё нет).
 
 ### [ ] P060.2.3 Review phase 2
 Read:
