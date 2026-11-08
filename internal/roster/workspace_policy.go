@@ -175,6 +175,26 @@ func (w *Workspace) SetAccessCheck(name string, check bool) error {
 	})
 }
 
+// SetAccessKind sets the kind of an access: subscription, metered, local
+// or the empty string, which drops the key. The catalog does not know the
+// kind, so an access added from it starts without one.
+func (w *Workspace) SetAccessKind(name, kind string) error {
+	if err := w.ready(); err != nil {
+		return err
+	}
+	if _, ok := w.Policy.Access(name); !ok {
+		return w.unknownAccess("kind", name)
+	}
+	if kind != "" && !contains(Kinds, kind) {
+		return w.fail("access %s: kind must be %s", name, orList(Kinds))
+	}
+	return w.mutatePolicy(func(policy *Policy) error {
+		access, _ := policy.Access(name)
+		access.Kind = kind
+		return nil
+	})
+}
+
 // MoveAccess moves an access one step up or down the default priority:
 // the order of roster.toml. A step at the edge changes nothing.
 func (w *Workspace) MoveAccess(name, dir string) error {

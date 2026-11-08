@@ -384,3 +384,42 @@ func TestLoadWorkspaceBrokenPolicyIsNotLegacy(t *testing.T) {
 		t.Fatalf("error = %v, want no migration hint for a versioned policy", err)
 	}
 }
+
+// TestCatalogRowsAgentEfforts: a reasoning model whose source declared no
+// levels gets the levels its channels accept, so the editor can still
+// offer an effort; declared levels and non-reasoning models stay as the
+// catalog has them.
+func TestCatalogRowsAgentEfforts(t *testing.T) {
+	catalog := &Catalog{
+		Accesses: []AccessInfo{
+			{Access: "strata", Agents: []string{"pi"}},
+			{Access: "mixed", Agents: []string{"pi", "codex", "opencode"}},
+		},
+		Models: []ModelInfo{
+			{Access: "strata", ID: "swift", Reasoning: true},
+			{Access: "strata", ID: "leveled", Reasoning: true, Efforts: []string{"low", "high"}},
+			{Access: "strata", ID: "plain"},
+			{Access: "mixed", ID: "any", Reasoning: true},
+		},
+	}
+	workspace := &Workspace{}
+	workspace.fillCatalogRows(catalog)
+	rows := map[string]WorkspaceModel{}
+	for access, models := range workspace.CatalogModels {
+		for _, model := range models {
+			rows[access+"/"+model.ID] = model
+		}
+	}
+	if got := strings.Join(rows["strata/swift"].AgentEfforts, ","); got != "off,minimal,low,medium,high,xhigh" {
+		t.Errorf("swift agent efforts = %s, want the Pi levels", got)
+	}
+	if got := rows["strata/leveled"]; len(got.AgentEfforts) != 0 || strings.Join(got.Efforts, ",") != "low,high" {
+		t.Errorf("leveled = %+v, want only its declared levels", got)
+	}
+	if got := rows["strata/plain"]; len(got.AgentEfforts) != 0 {
+		t.Errorf("plain = %+v, want no levels without reasoning", got)
+	}
+	if got := strings.Join(rows["mixed/any"].AgentEfforts, ","); got != "low,medium,high,xhigh" {
+		t.Errorf("mixed agent efforts = %s, want the levels Pi and Codex share", got)
+	}
+}

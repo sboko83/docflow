@@ -19,10 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and budgets once against the scanned catalog; `roster scan` runs on an
   older roster so the catalog can come first, and a migration without a
   catalog says so.
-- `docflow roster web` edits that table directly: a cell is a model@effort
-  picker from the catalog, the tabs are the default and the named
-  policies, and the chains below the table are read from it.
+- `docflow roster web` edits that table directly: a cell is a model picker
+  from the catalog with a reasoning-effort picker below it, the tabs are
+  the default and the named policies, and the chains below the table are
+  read from it. A cell shows its place in the chain of its role, the
+  column header the number of routes, and the role columns are grouped
+  into execution and judges; the access column stays in view when the
+  table scrolls sideways and sets the access kind.
 - The read budget of a unit no longer scales by a model class.
+
+### Fixed
+- `docflow roster web` offers reasoning levels for a reasoning model whose
+  catalog source lists none (a local Pi model): the levels its agents
+  accept, instead of only the bare model without an effort.
+- `docflow roster --help` no longer lists the removed `budget`, `allow`
+  and `deny` subcommands and the `--lean`, `--minimal`, `--prefer` and
+  `--only` flags, and describes the version 4 policy and its migration.
 
 ### Removed
 - Model classes (`[route]`), class requirements (`[role]`), access

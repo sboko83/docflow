@@ -128,17 +128,58 @@ type WorkspaceCatalogAccess struct {
 	Models int      `json:"models"`
 }
 
-// WorkspaceModel is one catalog model of an access: what the add-model
-// picker offers and shows. A price of zero is omitted, so an unknown
-// price never reads as free.
+// WorkspaceModel is one catalog model of an access: what the cell picker
+// offers and shows. A price of zero is omitted, so an unknown price never
+// reads as free. AgentEfforts fills the gap of a reasoning model whose
+// source declared no levels: the levels every channel of the access
+// accepts, so the picker still offers an effort.
 type WorkspaceModel struct {
-	ID        string   `json:"id"`
-	Context   int      `json:"context,omitempty"`
-	MaxOut    int      `json:"max_out,omitempty"`
-	Reasoning bool     `json:"reasoning,omitempty"`
-	Efforts   []string `json:"efforts,omitempty"`
-	Input     float64  `json:"input,omitempty"`
-	Output    float64  `json:"output,omitempty"`
+	ID           string   `json:"id"`
+	Context      int      `json:"context,omitempty"`
+	MaxOut       int      `json:"max_out,omitempty"`
+	Reasoning    bool     `json:"reasoning,omitempty"`
+	Efforts      []string `json:"efforts,omitempty"`
+	AgentEfforts []string `json:"agent_efforts,omitempty"`
+	Input        float64  `json:"input,omitempty"`
+	Output       float64  `json:"output,omitempty"`
+}
+
+// agentEfforts are the reasoning levels an agent CLI accepts for any
+// reasoning model: Pi's --thinking, Codex's model_reasoning_effort and
+// Claude's --effort. OpenCode passes a model variant, whose names only the
+// catalog knows, so it has no entry and does not narrow the list.
+var agentEfforts = map[string][]string{
+	"pi":     {"off", "minimal", "low", "medium", "high", "xhigh"},
+	"codex":  {"low", "medium", "high", "xhigh"},
+	"claude": {"low", "medium", "high", "xhigh", "max"},
+}
+
+// channelEfforts is the list of levels every channel of an access with a
+// known list accepts, in the order of the first one.
+func channelEfforts(agents []string) []string {
+	var levels []string
+	started := false
+	for _, agent := range agents {
+		known, ok := agentEfforts[agent]
+		if !ok {
+			continue
+		}
+		if !started {
+			levels, started = append([]string(nil), known...), true
+			continue
+		}
+		kept := levels[:0]
+		for _, level := range levels {
+			if contains(known, level) {
+				kept = append(kept, level)
+			}
+		}
+		levels = kept
+	}
+	if len(levels) == 0 {
+		return nil
+	}
+	return levels
 }
 
 // LoadWorkspace reads the whole roster as a screen shows it: the policy
@@ -194,6 +235,10 @@ func (w *Workspace) fillCatalogRows(catalog *Catalog) {
 			Models: count,
 		})
 	}
+	channels := make(map[string][]string, len(catalog.Accesses))
+	for _, info := range catalog.Accesses {
+		channels[info.Access] = info.Agents
+	}
 	for _, model := range catalog.Models {
 		if w.CatalogModels == nil {
 			w.CatalogModels = make(map[string][]WorkspaceModel, len(catalog.Accesses))
@@ -204,6 +249,9 @@ func (w *Workspace) fillCatalogRows(catalog *Catalog) {
 			MaxOut:    model.MaxOut,
 			Reasoning: model.Reasoning,
 			Efforts:   append([]string(nil), model.Efforts...),
+		}
+		if model.Reasoning && len(model.Efforts) == 0 {
+			entry.AgentEfforts = channelEfforts(channels[model.Access])
 		}
 		if model.Cost != nil {
 			entry.Input, entry.Output = model.Cost.Input, model.Cost.Output

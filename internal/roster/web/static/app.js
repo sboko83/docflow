@@ -115,27 +115,49 @@
     });
   }
 
-  // options lists the cells a select offers for an access: every catalog
-  // model at every effort it declares, the bare id for a model without
-  // efforts.
-  function options(name){
-    var list = [];
-    var models = (ws.catalog_models || {})[name] || [];
-    models.forEach(function(m){
-      if (m.efforts && m.efforts.length) {
-        m.efforts.forEach(function(e){ list.push(m.id + '@' + e); });
-      } else {
-        list.push(m.id);
-      }
-    });
-    return list;
+  // splitCell reads MODEL@EFFORT: the effort follows the last '@'.
+  function splitCell(cell){
+    var at = String(cell || '').lastIndexOf('@');
+    if (at <= 0) return { model: String(cell || ''), effort: '' };
+    return { model: cell.slice(0, at), effort: cell.slice(at + 1) };
   }
 
-  function known(name, cell){
-    var id = cell.split('@')[0];
-    if (cell.lastIndexOf('@') > 0) id = cell.slice(0, cell.lastIndexOf('@'));
+  function joinCell(model, effort){ return model ? (effort ? model + '@' + effort : model) : ''; }
+
+  function catalogModel(name, id){
     var models = (ws.catalog_models || {})[name] || [];
-    return models.some(function(m){ return m.id === id; });
+    for (var i = 0; i < models.length; i++) if (models[i].id === id) return models[i];
+    return null;
+  }
+
+  function known(name, cell){ return !!catalogModel(name, splitCell(cell).model); }
+
+  // levels lists the efforts a model takes: the levels its source declared,
+  // or, for a reasoning model without them, the levels its agents accept.
+  function levels(name, id){
+    var m = catalogModel(name, id);
+    if (!m) return { list: [], assumed: false };
+    if (m.efforts && m.efforts.length) return { list: m.efforts, assumed: false };
+    if (m.reasoning) return { list: m.agent_efforts || [], assumed: true };
+    return { list: [], assumed: false };
+  }
+
+  // positions numbers the routes of every role in the current tab: the
+  // place of each access in the chain of the column, 1 is the primary.
+  function positions(rows){
+    var out = {};
+    roles().forEach(function(role){
+      var n = 0;
+      out[role] = { count: 0, at: {} };
+      rows.forEach(function(row){
+        if (row.policyOff || row.stateOff) return;
+        if (row.a.check && JUDGES[role]) return;
+        if (!row.cells[role] || !known(row.a.access, row.cells[role])) return;
+        out[role].at[row.a.access] = ++n;
+      });
+      out[role].count = n;
+    });
+    return out;
   }
 
   /* ---------- render ---------- */
@@ -209,7 +231,7 @@
         el('span', { cls: 'rw-muted', text: '. Порядок строк — приоритет доступов. Удалить нельзя.' })
       ]));
       box.appendChild(activate);
-      $('rwe-hint').textContent = 'ячейка — модель@ризонинг, которой доступ закрывает роль; «—» — доступ роль не берёт';
+      $('rwe-hint').textContent = 'ячейка — модель и ризонинг, которыми доступ закрывает роль; «—» — роль не берёт; номер в кружке — место в цепочке роли, 1 — основной маршрут';
       return;
     }
     var p = policy(tab);
@@ -230,23 +252,42 @@
         api({ op: 'DeleteVariant', name: p.name }).then(function(ok){ if (ok) { tab = 'default'; render(); } });
       }
     }, ['удалить']));
-    $('rwe-hint').textContent = 'отличия от default подсвечены; «как в default» снимает отличие; порядок и выключение — только для этой политики';
+    $('rwe-hint').textContent = 'отличия от default подсвечены; «↩ как в default» снимает отличие; порядок и выключение действуют только в этой политике';
   }
 
   function renderTable(){
     var t = $('rwe-table');
     t.innerHTML = '';
     var rows = table();
-    var head = el('tr', {}, [el('th', { cls: 'rw-th-access', text: 'доступ' })]);
-    roles().forEach(function(r){ head.appendChild(el('th', { text: r, cls: JUDGES[r] ? 'is-judge' : '' })); });
-    t.appendChild(el('thead', {}, [head]));
+    var pos = positions(rows);
+    var work = roles().filter(function(r){ return !JUDGES[r]; });
+    var judges = roles().filter(function(r){ return JUDGES[r]; });
+    var groups = el('tr', { cls: 'rw-groups' }, [
+      el('th', { cls: 'rw-th-access', rowspan: '2' }, [
+        el('div', { text: 'доступ' }),
+        el('div', { cls: 'rw-th-note', text: 'сверху вниз — приоритет' })
+      ]),
+      el('th', { colspan: String(work.length), cls: 'rw-group', text: 'исполнение' }),
+      el('th', { colspan: String(judges.length), cls: 'rw-group is-judge rw-col-first', text: 'судьи' })
+    ]);
+    var head = el('tr', {});
+    roles().forEach(function(r){
+      var count = pos[r].count;
+      var state = count === 0 ? 'нет маршрута' : count === 1 ? 'нет fallback' : 'маршрутов в цепочке: ' + count;
+      head.appendChild(el('th', { cls: (JUDGES[r] ? 'is-judge' : '') + (r === judges[0] ? ' rw-col-first' : ''), title: state }, [
+        el('span', { text: r }),
+        el('span', { cls: 'rw-th-count' + (count < 2 ? ' is-warn' : ''), text: count < 2 ? '⚠ ' + count : '×' + count })
+      ]));
+    });
+    t.appendChild(el('thead', {}, [groups, head]));
     var body = el('tbody');
     rows.forEach(function(row, index){
-      var a = row.a;
       var off = row.policyOff || row.stateOff;
       var tr = el('tr', { cls: off ? 'is-off' : '' });
-      tr.appendChild(el('td', { cls: 'rw-td-access' }, [accessCell(row, index, rows.length)]));
-      roles().forEach(function(r){ tr.appendChild(el('td', { cls: 'rw-td-cell' }, [cellSelect(row, r)])); });
+      tr.appendChild(el('th', { cls: 'rw-td-access', scope: 'row' }, [accessCell(row, index, rows.length)]));
+      roles().forEach(function(r){
+        tr.appendChild(el('td', { cls: 'rw-td-cell' + (r === judges[0] ? ' rw-col-first' : '') }, [cellSelect(row, r, pos[r].at[row.a.access])]));
+      });
       body.appendChild(tr);
     });
     if (!rows.length) {
@@ -254,9 +295,11 @@
     }
     t.appendChild(body);
     var left = (ws.catalog_accesses || []).filter(function(c){ return !access(c.access); }).map(function(c){ return c.access; });
-    $('rwe-catalog-left').textContent = left.length ? 'в каталоге есть: ' + left.join(', ') : '';
+    $('rwe-catalog-left').textContent = left.length ? 'ещё в каталоге: ' + left.join(', ') : '';
     $('rwe-add-access').hidden = tab !== 'default';
   }
+
+  var KINDS = ['subscription', 'metered', 'local'];
 
   function accessCell(row, index, count){
     var a = row.a;
@@ -268,28 +311,34 @@
     };
     var box = el('div', { cls: 'rw-acc' });
     box.appendChild(el('div', { cls: 'rw-move' }, [
-      el('button', { type: 'button', cls: 'rw-icon', title: 'выше', 'aria-label': 'выше', disabled: index === 0, onclick: move('up') }, ['▲']),
-      el('button', { type: 'button', cls: 'rw-icon', title: 'ниже', 'aria-label': 'ниже', disabled: index === count - 1, onclick: move('down') }, ['▼'])
+      el('button', { type: 'button', cls: 'rw-icon', title: 'выше по приоритету', 'aria-label': a.access + ' выше', disabled: index === 0, onclick: move('up') }, ['▲']),
+      el('span', { cls: 'rw-rank', text: String(index + 1) }),
+      el('button', { type: 'button', cls: 'rw-icon', title: 'ниже по приоритету', 'aria-label': a.access + ' ниже', disabled: index === count - 1, onclick: move('down') }, ['▼'])
     ]));
     var meta = el('div', { cls: 'rw-accmeta' });
     var title = el('div', { cls: 'rw-accname' }, [el('span', { text: a.access })]);
-    if (a.kind) title.appendChild(el('span', { cls: 'rw-tag', text: a.kind }));
     if (a.auth && a.auth !== 'ready') title.appendChild(el('span', { cls: 'rw-tag rw-tag-warn', text: 'auth ' + a.auth }));
+    if (row.stateOff) title.appendChild(el('span', { cls: 'rw-tag rw-tag-warn', title: 'roster off — условие, снимается roster on', text: 'off' + (a.until ? ' до ' + a.until : '') }));
     meta.appendChild(title);
+    if ((a.agents || []).length) meta.appendChild(el('div', { cls: 'rw-agents', title: 'агенты-каналы доступа', text: a.agents.join(' · ') }));
     var flags = el('div', { cls: 'rw-flags' });
     if (tab === 'default') {
-      flags.appendChild(toggle('check', a.check, 'нужен независимый ревьюер; доступ не судит', function(){
+      title.appendChild(el('button', {
+        type: 'button', cls: 'rw-icon rw-del', title: 'удалить доступ из ростера', 'aria-label': 'удалить ' + a.access,
+        onclick: function(){ if (window.confirm('Удалить доступ ' + a.access + ' из ростера? Его ячейки пропадут и во всех политиках.')) api({ op: 'RemoveAccess', name: a.access }); }
+      }, ['✕']));
+      var kind = el('select', { cls: 'rw-mini', title: 'kind: subscription — квота подписки, metered — оплата за токены, local — своя машина без квоты', 'aria-label': a.access + ': kind' },
+        [el('option', { value: '', text: 'kind: —' })].concat(KINDS.map(function(k){ return el('option', { value: k, text: k }); })));
+      kind.value = a.kind || '';
+      kind.addEventListener('change', function(){ api({ op: 'SetAccessKind', name: a.access, kind: kind.value }); });
+      flags.appendChild(kind);
+      flags.appendChild(checkbox('check', a.check, 'нужен независимый ревьюер: доступ не судит (review, acceptance, replan)', function(){
         api({ op: 'SetAccessCheck', name: a.access, check: !a.check });
-      }));
-      if (row.stateOff) flags.appendChild(el('span', { cls: 'rw-tag rw-tag-warn', title: 'roster off — условие, снимается roster on', text: 'off' + (a.until ? ' до ' + a.until : '') }));
-      flags.appendChild(el('button', {
-        type: 'button', cls: 'rw-link', title: 'удалить доступ из ростера',
-        onclick: function(){ if (window.confirm('Удалить доступ ' + a.access + ' из ростера?')) api({ op: 'RemoveAccess', name: a.access }); }
-      }, ['удалить']));
+      }, true));
     } else {
+      if (a.kind) flags.appendChild(el('span', { cls: 'rw-tag', text: a.kind }));
       if (a.check) flags.appendChild(el('span', { cls: 'rw-tag', text: 'check' }));
-      if (row.stateOff) flags.appendChild(el('span', { cls: 'rw-tag rw-tag-warn', title: 'roster off — условие, снимается roster on', text: 'off' }));
-      flags.appendChild(toggle(row.policyOff ? 'выключен' : 'выключить', row.policyOff,'выключить доступ в этой политике', function(){
+      flags.appendChild(checkbox('в политике', !row.policyOff, 'снимите, чтобы выключить доступ только в этой политике', function(){
         api({ op: 'SetVariantOff', name: tab, access: a.access, off: !row.policyOff });
       }));
     }
@@ -298,40 +347,67 @@
     return box;
   }
 
-  function toggle(label, on, title, handler){
-    return el('button', { type: 'button', cls: 'rw-toggle' + (on ? ' is-on' : ''), 'aria-pressed': String(!!on), title: title, onclick: handler }, [label]);
+  function checkbox(label, on, title, handler, warn){
+    var input = el('input', { type: 'checkbox' });
+    input.checked = !!on;
+    input.addEventListener('change', handler);
+    return el('label', { cls: 'rw-cbox' + (on && warn ? ' is-on' : ''), title: title }, [input, label]);
   }
 
-  function cellSelect(row, role){
+  // cellSelect is the editor of one cell: the model and, below it, the
+  // effort. A reasoning model without declared levels offers the levels
+  // of its agents; an effort outside the offered list stays selectable.
+  function cellSelect(row, role, place){
     var a = row.a;
     if (a.check && JUDGES[role]) return el('span', { cls: 'rw-cell-na', title: 'check-доступ не судит', text: 'не судит' });
     var value = row.cells[role] || '';
-    var list = options(a.access);
-    var select = el('select', { cls: 'rw-select' + (value ? '' : ' is-empty') + (row.overridden[role] ? ' is-over' : ''), 'aria-label': a.access + ' ' + role });
-    if (tab !== 'default') {
-      var inherited = a.cells[role] || '—';
-      select.appendChild(el('option', { value: INHERIT, text: '↩ ' + inherited + ' (default)' }));
+    var inheriting = tab !== 'default' && !row.overridden[role];
+    var parts = splitCell(value);
+    var models = ((ws.catalog_models || {})[a.access] || []).map(function(m){ return m.id; });
+    var write = function(next){
+      if (tab === 'default') api({ op: 'SetCell', access: a.access, role: role, value: next });
+      else if (next === INHERIT) api({ op: 'SetVariantCell', name: tab, access: a.access, role: role, inherit: true });
+      else api({ op: 'SetVariantCell', name: tab, access: a.access, role: role, value: next });
+    };
+
+    var model = el('select', { cls: 'rw-select' + (value ? '' : ' is-empty') + (row.overridden[role] ? ' is-over' : ''), 'aria-label': a.access + ' ' + role + ': модель' });
+    if (tab !== 'default') model.appendChild(el('option', { value: INHERIT, text: '↩ как в default' }));
+    model.appendChild(el('option', { value: '', text: '—' }));
+    if (parts.model && !contains(models, parts.model)) model.appendChild(el('option', { value: parts.model, text: parts.model + ' · нет в каталоге' }));
+    models.forEach(function(id){ model.appendChild(el('option', { value: id, text: id })); });
+    model.value = inheriting ? INHERIT : parts.model;
+    model.addEventListener('change', function(){
+      var id = model.value;
+      if (id === INHERIT || id === '') { write(id); return; }
+      var offered = levels(a.access, id).list;
+      var effort = contains(offered, parts.effort) ? parts.effort : (contains(offered, 'high') ? 'high' : '');
+      write(joinCell(id, effort));
+    });
+
+    var wrap = el('div', { cls: 'rw-cell' });
+    var line = el('div', { cls: 'rw-cell-line' });
+    if (place) line.appendChild(el('span', { cls: 'rw-pos' + (place === 1 ? ' is-primary' : ''), title: place === 1 ? 'основной маршрут роли' : 'fallback №' + (place - 1), text: String(place) }));
+    line.appendChild(model);
+    if (value && !known(a.access, value)) line.appendChild(el('span', { cls: 'rw-cell-warn', title: 'модели нет в каталоге: резолвер её пропустит; docflow roster scan', text: '!' }));
+    wrap.appendChild(line);
+
+    if (inheriting) {
+      wrap.appendChild(el('div', { cls: 'rw-sub', title: 'значение default', text: value ? '= ' + value : '= пусто' }));
+      return wrap;
     }
-    select.appendChild(el('option', { value: '', text: '—' }));
-    if (value && !contains(list, value)) list = [value].concat(list);
-    list.forEach(function(cell){
-      var text = cell;
-      if (!known(a.access, cell)) text += ' · нет в каталоге';
-      select.appendChild(el('option', { value: cell, text: text }));
-    });
-    select.value = (tab !== 'default' && !row.overridden[role]) ? INHERIT : value;
-    select.addEventListener('change', function(){
-      var next = select.value;
-      if (tab === 'default') {
-        api({ op: 'SetCell', access: a.access, role: role, value: next });
-      } else if (next === INHERIT) {
-        api({ op: 'SetVariantCell', name: tab, access: a.access, role: role, inherit: true });
-      } else {
-        api({ op: 'SetVariantCell', name: tab, access: a.access, role: role, value: next });
-      }
-    });
-    var wrap = el('div', { cls: 'rw-cell' }, [select]);
-    if (value && !known(a.access, value)) wrap.appendChild(el('span', { cls: 'rw-cell-warn', title: 'модели нет в каталоге: docflow roster scan', text: '!' }));
+    if (!parts.model) return wrap;
+    var lv = levels(a.access, parts.model);
+    if (!lv.list.length && !parts.effort) {
+      if (known(a.access, value)) wrap.appendChild(el('div', { cls: 'rw-sub', text: 'без ризонинга' }));
+      return wrap;
+    }
+    var effort = el('select', { cls: 'rw-effort' + (row.overridden[role] ? ' is-over' : ''), 'aria-label': a.access + ' ' + role + ': ризонинг', title: lv.assumed ? 'каталог не перечислил уровни модели: показаны уровни её агента' : 'уровень ризонинга' });
+    effort.appendChild(el('option', { value: '', text: 'по умолчанию' }));
+    if (parts.effort && !contains(lv.list, parts.effort)) effort.appendChild(el('option', { value: parts.effort, text: parts.effort + ' · не в списке модели' }));
+    lv.list.forEach(function(e){ effort.appendChild(el('option', { value: e, text: e + (lv.assumed ? ' · уровень агента' : '') })); });
+    effort.value = parts.effort;
+    effort.addEventListener('change', function(){ write(joinCell(parts.model, effort.value)); });
+    wrap.appendChild(el('div', { cls: 'rw-cell-line' }, [place ? el('span', { cls: 'rw-pos-pad' }) : null, effort]));
     return wrap;
   }
 

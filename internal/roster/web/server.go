@@ -175,6 +175,8 @@ func (s *Server) apply(workspace *roster.Workspace, req *Request) error {
 		return workspace.RemoveAccess(req.Name)
 	case "SetAccessCheck":
 		return workspace.SetAccessCheck(req.Name, req.Check)
+	case "SetAccessKind":
+		return workspace.SetAccessKind(req.Name, req.Kind)
 	case "MoveAccess":
 		return workspace.MoveAccess(req.Name, req.Dir)
 	case "SetCell":

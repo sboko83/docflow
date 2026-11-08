@@ -116,6 +116,27 @@ func TestOperationWritesFile(t *testing.T) {
 	}
 }
 
+func TestSetAccessKind(t *testing.T) {
+	server, path := testServer(t)
+	if status, body := postOp(t, server, `{"op":"SetAccessKind","name":"zai","kind":"local"}`); status != http.StatusOK || body.Workspace.Accesses[0].Kind != "local" {
+		t.Fatalf("SetAccessKind local = (%d, %+v), want 200 with the kind", status, body)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `kind = "local"`) {
+		t.Fatalf("the kind was not written:\n%s", data)
+	}
+	if status, body := postOp(t, server, `{"op":"SetAccessKind","name":"zai","kind":"cloud"}`); status != http.StatusBadRequest || !strings.Contains(body.Error, "kind must be") {
+		t.Fatalf("SetAccessKind cloud = (%d, %+v), want 400", status, body)
+	}
+	if status, _ := postOp(t, server, `{"op":"SetAccessKind","name":"zai","kind":""}`); status != http.StatusOK {
+		t.Fatalf("SetAccessKind empty = %d, want 200", status)
+	}
+	data, _ = os.ReadFile(path)
+	if strings.Contains(string(data), "kind") {
+		t.Fatalf("the empty kind left the key:\n%s", data)
+	}
+}
+
 func TestOperationRefusal(t *testing.T) {
 	server, path := testServer(t)
 	before, err := os.ReadFile(path)

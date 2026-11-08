@@ -288,26 +288,26 @@ options:
 `,
 	"roster": `usage: docflow roster [-h] [--roster PATH] [--addr ADDR]
                       [--until DATE] [--preset NAME] [--off A,B]
-                      [--minimal A,B] [--lean A,B] [--prefer A,B]
-                      [--expires A=DATE] [--only A=GLOB] [--json]
-                      [--dry-run] [--refresh] [--online] [--all] [--write]
-                      {show,brief,explain,apply,scan,models,status,off,on,budget,expire,allow,deny,reset,migrate,web}
+                      [--expires A=DATE] [--json] [--dry-run]
+                      [--refresh] [--online] [--all] [--write]
+                      {show,brief,explain,apply,scan,models,status,off,on,expire,reset,migrate,web}
                       [ACCESS] [ARG ...]
 
 scan model access catalogs, show the route chains per plan role from the
 personal roster, or write them into a plan header
 
-Reads ~/.config/docflow/roster.toml (or --roster PATH), picks the chain
-of every role, and prints the plan-header lines executor:, fallback:,
-cheap:, heavy:, review:, acceptance: and replan: with their unit
-budgets. roster brief prints the conditions in force, one row per role
-with its chain and read budget, the review matrix, why every chain was
-chosen and the warnings of incomplete chains. A condition flag of the
-call — --preset, --off, --minimal, --lean, --prefer, --expires,
---only — is merged in memory for this one call and never written, so
-the planner can answer a question without changing the roster state;
-brief, show, explain and apply share the same flags.
-roster show is an alias of roster brief.
+Reads ~/.config/docflow/roster.toml (or --roster PATH): a version 4
+policy whose accesses, in priority order, name the MODEL@EFFORT they
+serve each plan role with, so the chain of a role is its column of the
+access x role table. It prints the plan-header lines executor:,
+fallback:, cheap:, heavy:, review:, acceptance: and replan: with their
+unit budgets. roster brief prints the conditions in force, one row per
+role with its chain and read budget, the review matrix, why every chain
+was chosen and the warnings of incomplete chains. A condition flag of
+the call — --preset, --off, --expires — is merged in memory for this
+one call and never written, so the planner can answer a question
+without changing the roster state; brief, show, explain and apply share
+the same flags. roster show is an alias of roster brief.
 
 roster explain PLAN loads the plan from docs/plans and prints the
 header keys apply would rewrite as "key: old → new" plus the warnings
@@ -331,38 +331,38 @@ prices and reasoning levels from Pi, OpenCode, the built-in Codex and
 Claude tables and the auth probes, writes the catalog cache under
 $XDG_CACHE_HOME/docflow/roster and prints the access summary; --online
 adds models.dev metadata and --refresh fetches it again. A source that
-cannot answer is a warning on stderr and the scan still exits 0.
-roster models lists the models of the roster accesses, or of one
-ACCESS, or of the whole catalog with --all; roster status lists every
-access with its channels, auth status, model count and sources, then
-the active conditions with their source. scan, models
+cannot answer is a warning on stderr and the scan still exits 0. Scan
+also runs on a roster of a previous format, so the catalog can come
+before roster migrate. roster models lists the models of the roster
+accesses, or of one ACCESS, or of the whole catalog with --all; roster
+status lists every access with its channels, auth status, model count
+and sources, then the active conditions with their source. scan, models
 and status take --json.
 
-Conditions are the temporary layer over the policy: off, on, budget,
-expire, allow, deny and reset write roster.state.toml next to the
-roster (roster.toml becomes roster.state.toml) and never rewrite
-roster.toml. off ACCESS switches an access off until --until DATE (the
-last day it stays off) or until on ACCESS; budget ACCESS LEVEL sets
-prefer, normal, lean, minimal or off; expire ACCESS DATE drops an
-access after DATE; allow ACCESS PATTERN... narrows the models of an
-access to the globs, deny ACCESS PATTERN... hides them; reset deletes
+Conditions are the temporary layer over the policy: off, on, expire and
+reset write roster.state.toml next to the roster (roster.toml becomes
+roster.state.toml) and never rewrite roster.toml. off ACCESS switches
+an access off until --until DATE (the last day it stays off) or until
+on ACCESS; expire ACCESS DATE drops an access after DATE; reset deletes
 the state file. An off condition whose until date has passed is
-dropped when the file is loaded. A condition command reads the version 3
+dropped when the file is loaded. A condition command reads the version 4
 policy and fails on an older roster with the migration hint.
 
-roster migrate converts an older roster into a version 3 policy and
-prints it; --write keeps the old file in roster.toml.bak and replaces
-roster.toml atomically. A v1 roster — spend, [provider], [role],
-[route] and [profile] — becomes [access.NAME], [route], [role] and
-[preset.NAME]: a pi or opencode model prefix becomes the access, the
-strongest route gives one [route."ACCESS/MODEL"] entry (the effort the
-key, the tier the class), and every model of an access its models
-allowlist; a profile becomes a preset. A v2 policy keeps everything but
-its [model] classes and [effort] pins, which become [route] entries the
-same way. A roster that is already version 3 is exit code 2 and nothing
-is written; every other roster command refuses an older file with this
-command in the hint, and --profile is gone — the flag was v1 and
---preset replaces it.
+roster web serves the table editor on 127.0.0.1: one select per cell,
+tabs for the default policy and the named policies of the variants
+files, the chains of the tab below. It writes roster.toml and the
+variants files; the catalog stays with roster scan.
+
+roster migrate converts a version 1, 2 or 3 roster into a version 4
+policy and prints it with the files around it; --write keeps every old
+file in FILE.bak and replaces it atomically. The v3 rules — classes,
+class requirements, budgets, trusted and the model allowlist — are
+resolved once against the scanned catalog and written as cells, so run
+roster scan first; presets become named policies in the variants file
+and an access with budget = "off" an off condition. A roster that is
+already version 4 is exit code 2 and nothing is written; every other
+roster command refuses an older file with this command in the hint, and
+--profile is gone — the flag was v1 and --preset replaces it.
 
 subcommands:
   show             print the brief (alias of brief)
@@ -378,35 +378,26 @@ subcommands:
   status           list the accesses and the active conditions
   off ACCESS       switch an access off (--until DATE bounds it)
   on ACCESS        lift the off condition of an access
-  budget ACCESS LEVEL
-                   override the budget of an access
   expire ACCESS DATE
                    drop an access after DATE
-  allow ACCESS PATTERN...
-                   narrow the models of an access to the globs
-  deny ACCESS PATTERN...
-                   hide model globs from an access
   reset            delete the condition state
-  migrate          convert a v1 roster to version 2
+  migrate          convert a v1, v2 or v3 roster to version 4
 
 options:
   -h, --help      show this help message and exit
   --roster PATH   roster.toml path (default ~/.config/docflow/roster.toml)
+  --addr ADDR     web: address to listen on (default: a random port on 127.0.0.1)
   --until DATE    off: the last day the access stays off (YYYY-MM-DD, UTC)
-  --preset NAME   brief and apply: the preset to apply on top of the policy
+  --preset NAME   brief and apply: the named policy to apply on top of the default
   --off A,B       brief and apply: accesses switched off for this call only
-  --minimal A,B   brief and apply: accesses at the minimal budget for this call only
-  --lean A,B      brief and apply: accesses at the lean budget for this call only
-  --prefer A,B    brief and apply: accesses at the prefer budget for this call only
   --expires A=DATE
                   brief and apply: expire an access on DATE for this call only
-  --only A=GLOB   brief and apply: narrow an access to the model glob for this call
   --json          print the result as JSON
   --dry-run       apply: print the header changes without writing the plan
   --refresh       scan: ignore fresh caches and scan again
   --online        scan: enrich the catalog from models.dev
   --all           models: the whole catalog, not only the roster accesses
-  --write         migrate: write roster.toml, keeping roster.toml.bak
+  --write         migrate: write roster.toml and the files around it, keeping FILE.bak
 `,
 	"doctor": `usage: docflow doctor [-h] [--agent {claude,codex,pi,opencode}] [--target DIR]
 
