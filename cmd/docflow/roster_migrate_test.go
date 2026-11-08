@@ -30,6 +30,9 @@ func TestRosterMigrateCommand(t *testing.T) {
 	if !strings.Contains(stdout, "version = 4") || !strings.Contains(stdout, "[access.zai.roles]") {
 		t.Fatalf("roster migrate stdout =\n%s\nwant the v4 text", stdout)
 	}
+	if !strings.Contains(stderr, "dry run: nothing written") {
+		t.Fatalf("roster migrate dry run stderr =\n%s\nwant the nothing-written line", stderr)
+	}
 	if data, _ := os.ReadFile(path); string(data) != draftV1Roster(t) {
 		t.Fatalf("a dry run rewrote the roster")
 	}

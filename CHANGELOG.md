@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Errors about a roster in a previous format now say `docflow roster
+  migrate --write`: the bare command only previews and writes nothing.
+  The `roster migrate` preview itself reports "dry run: nothing written".
+
 ## [0.28.0] - 2026-11-08
 
 ### Changed

@@ -648,6 +648,7 @@ func rosterMigrate(parsed *parsedArgs) error {
 		for _, file := range result.Files {
 			fmt.Fprintf(&out, "\n# --- %s\n%s", file.Path, file.Text)
 		}
+		fmt.Fprintln(&notes, "dry run: nothing written, rerun with --write to apply")
 		return commandResult{code: clierrors.EXIT_OK, stdout: out.String(), stderr: notes.String()}
 	}
 	var out strings.Builder

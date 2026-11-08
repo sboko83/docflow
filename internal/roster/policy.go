@@ -201,7 +201,7 @@ func ParsePolicy(path, text string) (*Policy, error) {
 
 // migrateHint is the advice of every error about a key an older format
 // had: the file is converted by a command, not hand-edited.
-const migrateHint = "run `docflow roster migrate` to convert the roster"
+const migrateHint = "run `docflow roster migrate --write` to convert the roster"
 
 // IsPreviousFormat reports whether a load error is the refusal of a roster
 // file in a previous format — the one error a command that only needs the

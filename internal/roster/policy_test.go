@@ -121,7 +121,7 @@ func TestPolicyErrors(t *testing.T) {
 		want   string
 	}{
 		{name: "no version", text: policyZai, line: 1, want: "version must be 4"},
-		{name: "version three", text: "version = 3\n" + policyZai, needle: "version = 3", want: "run `docflow roster migrate`"},
+		{name: "version three", text: "version = 3\n" + policyZai, needle: "version = 3", want: "run `docflow roster migrate --write`"},
 		{name: "role table of v3", text: policyHeader + policyZai + "\n[role]\ncheap = \"cheap\"\n", needle: "[role]", want: "[role] was replaced"},
 		{name: "route table of v3", text: policyHeader + policyZai + "\n[route.\"zai/glm\"]\nhigh = \"strong\"\n", needle: "[route", want: "[route] was replaced"},
 		{name: "preset in roster.toml", text: policyHeader + policyZai + "\n[preset.low]\noff = [\"zai\"]\n", needle: "[preset.low]", want: "variants file"},
