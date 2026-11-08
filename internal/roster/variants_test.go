@@ -33,6 +33,12 @@ func writeVariantsFile(t *testing.T, path, text string) {
 func variantsCheckout(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	// FindRoot reports the checkout the way the OS canonicalizes it (a
+	// symlinked temp dir, a Windows 8.3 short name); match that form so
+	// path comparisons against loader errors line up.
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
 	writeVariantsFile(t, filepath.Join(root, "docs", "docflow.md"), "---\ndocflow: 3\n---\n## Queue\n\n## Backlog\n")
 	return root
 }
@@ -107,6 +113,9 @@ func TestVariantsMergeLayers(t *testing.T) {
 // shadowing.
 func TestVariantsNameConflict(t *testing.T) {
 	config := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(config); err == nil {
+		config = resolved
+	}
 	rosterPath := filepath.Join(config, "roster.toml")
 	writeVariantsFile(t, rosterPath, variantsTestPolicy)
 	globalPath := filepath.Join(config, "roster.variants.toml")
