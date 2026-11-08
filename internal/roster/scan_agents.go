@@ -73,6 +73,8 @@ func ScanAuth(catalog *Catalog) []string {
 	found.Sources = []string{SourceAuth}
 	for _, access := range catalog.Accesses {
 		var statuses []string
+		perChannel := map[string]string{}
+		kind := ""
 		for _, agent := range access.Agents {
 			result, ok := channels[agent]
 			if !ok {
@@ -80,29 +82,40 @@ func ScanAuth(catalog *Catalog) []string {
 			}
 			if status := result.status[access.Access]; status != "" {
 				statuses = append(statuses, status)
+				perChannel[agent] = status
+			}
+			if result.kind[access.Access] != "" {
+				kind = result.kind[access.Access]
 			}
 		}
 		status := combineAuth(statuses)
-		if status == "" {
+		if status == "" && kind == "" {
 			continue
 		}
-		found.Accesses = append(found.Accesses, AccessInfo{Access: access.Access, Auth: status, Source: SourceAuth})
+		entry := AccessInfo{Access: access.Access, Auth: status, Kind: kind, Source: SourceAuth}
+		if len(perChannel) > 0 {
+			entry.Channels = perChannel
+		}
+		found.Accesses = append(found.Accesses, entry)
 	}
 	catalog.Merge(found)
 	catalog.Sort()
 	return problems
 }
 
-// authResult is one channel's answer: the status per access name and, at
-// most, one warning describing why the channel could not answer.
+// authResult is one channel's answer: the status per access name, the
+// kind a login reveals (Codex signed in with an API key is metered, not
+// the ChatGPT plan) and, at most, one warning describing why the channel
+// could not answer.
 type authResult struct {
 	status  map[string]string
+	kind    map[string]string
 	problem string
 }
 
 // freshStatus returns an initialized result.
 func freshStatus() authResult {
-	return authResult{status: map[string]string{}}
+	return authResult{status: map[string]string{}, kind: map[string]string{}}
 }
 
 // combineAuth folds the channel statuses of one access: any ready door
@@ -202,14 +215,21 @@ func probeOpenCodeAuth() authResult {
 		result.problem = "opencode: /api/provider answered no data list"
 		return result
 	}
+	// The server lists the providers it can use: "enabled" is switched on
+	// in the config, "auto" is activated by stored credentials (an OpenCode
+	// Go login answers "auto"); only "disabled" is off. An empty activation
+	// says nothing.
 	for _, provider := range root.Data {
 		if provider.ID == "" {
 			continue
 		}
-		if strings.EqualFold(provider.Activation, "enabled") {
-			result.status[provider.ID] = AuthReady
-		} else {
+		switch {
+		case strings.EqualFold(provider.Activation, "disabled"):
 			result.status[provider.ID] = AuthNotReady
+		case provider.Activation == "":
+			result.status[provider.ID] = AuthUnknown
+		default:
+			result.status[provider.ID] = AuthReady
 		}
 	}
 	return result
@@ -232,8 +252,14 @@ func probeCodexAuth(names []string) authResult {
 	if run.Code != 0 {
 		status = AuthNotReady
 	}
+	// "Logged in using an API key" pays per token; the line also carries a
+	// key prefix, so only the phrase is matched and nothing is kept.
+	metered := run.Code == 0 && strings.Contains(run.Stdout+run.Stderr, "API key")
 	for _, name := range names {
 		result.status[name] = status
+		if metered {
+			result.kind[name] = KindMetered
+		}
 	}
 	return result
 }
@@ -327,11 +353,12 @@ func BuiltinCatalog() *Catalog {
 	catalog := emptyCatalog()
 	catalog.Sources = []string{SourceBuiltin}
 	addBuiltin := func(access, agent string, models []builtinModel) {
-		catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: access, Agents: []string{agent}, Source: SourceBuiltin})
+		catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: access, Agents: []string{agent}, Kind: knownKind(access), Source: SourceBuiltin})
 		for _, model := range models {
 			info := ModelInfo{
 				Access:    access,
 				ID:        model.id,
+				Agents:    []string{agent},
 				Provider:  access,
 				Context:   model.context,
 				MaxOut:    model.maxOut,

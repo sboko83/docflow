@@ -95,7 +95,12 @@ body{ display:flex; box-sizing:border-box; background:#1b1e24; }
 .rw-del:hover{ color:var(--rw-err); border-color:var(--rw-err); }
 .rw-accmeta{ min-width:0; flex:1; }
 .rw-accname{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-weight:600; font-family:var(--rw-mono); font-size:13px; }
-.rw-agents{ font-size:11px; color:var(--rw-muted); margin-top:1px; }
+.rw-agents{ display:flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:11px; color:var(--rw-muted); margin-top:2px; }
+.rw-acctitle{ font-size:11px; color:var(--rw-muted); margin-top:1px; }
+.rw-chan{ font-family:var(--rw-mono); font-size:11px; padding:0 4px; border-radius:5px; border:1px solid var(--rw-border); }
+.rw-chan.is-ok{ color:var(--rw-ok); border-color:var(--rw-ok); }
+.rw-chan.is-bad{ color:var(--rw-err); border-color:var(--rw-err); background:var(--rw-err-soft); }
+.rw-mini.is-warn{ border-color:var(--rw-warn); color:var(--rw-warn); }
 .rw-flags{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px; }
 .rw-tag{ font-family:inherit; font-weight:400; font-size:10.5px; padding:1px 6px; border-radius:999px; border:1px solid var(--rw-border); color:var(--rw-muted); }
 .rw-tag-warn{ border-color:var(--rw-warn); color:var(--rw-warn); background:var(--rw-warn-soft); }

@@ -932,7 +932,7 @@ version = 4
 # Порядок доступов — приоритет: цепочка роли — её столбец сверху вниз.
 [access.opencode-go]
 agents = ["pi", "opencode"]   # два канала, один доступ и одна квота
-kind   = "subscription"       # subscription | metered | local
+kind   = "subscription"       # необязательно: скан сам знает opencode-go
 
 [access.opencode-go.roles]    # роль = "МОДЕЛЬ@УСИЛИЕ"
 executor = "deepseek-v4.1@high"
@@ -961,7 +961,13 @@ replan     = "gpt-6.1-sol@medium"
 
 Доступ — единица квоты и независимости: `opencode-go` через `pi` и через
 `opencode` — один доступ, и fallback повторяет доступ, а не пару
-`agent|model`. `agents` обязателен. Ячейка `[access.NAME.roles]` — модель
+`agent|model`. `agents` обязателен; маршрут идёт через первый канал,
+который знает модель и у которого есть вход (`roster status` показывает
+отказавший канал: `ready(pi:not_ready)`). `kind` — тип оплаты:
+`subscription`, `metered` (за токены) или `local`; известным доступам скан
+ставит его сам, ключ в политике только переопределяет. Не путайте
+`opencode` (OpenCode Zen, оплата за токены) и `opencode-go` (подписка
+OpenCode Go). Ячейка `[access.NAME.roles]` — модель
 и усилие, которыми доступ закрывает роль (`МОДЕЛЬ` без `@` — без
 усилия); нет ключа — роль доступ не берёт. `check` запрещает доступу
 судейские ячейки (`review`, `acceptance`, `replan`). Новая модель из
@@ -1051,8 +1057,8 @@ stderr и не меняют код успеха. Изменений нет — �
 ### Миграция
 
 ```sh
-docflow roster migrate           # напечатать v4-политику и файлы рядом
-docflow roster migrate --write   # заменить их, сохранив ФАЙЛ.bak
+docflow roster migrate --dry-run # напечатать v4-политику и файлы рядом
+docflow roster migrate           # заменить их, сохранив ФАЙЛ.bak
 ```
 
 `migrate` ведёт v1 и v2 через v3 в v4. Для v3 правила классов, бюджетов и

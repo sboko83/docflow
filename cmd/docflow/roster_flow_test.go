@@ -82,10 +82,12 @@ func TestRosterV2Flow(t *testing.T) {
 	state := readRosterState(t, home)
 	flags := []string{"--preset", "low", "--off", "local"}
 	out, _ := invoke(append([]string{"roster", "brief", "--json"}, flags...)...)
+	// deepseek-v4.1 comes only from the OpenCode answer: pi does not list
+	// it, so the route runs through the opencode channel of the access.
 	want := map[string]string{
-		"executor": "pi | opencode-go/deepseek-v4.1 | high",
+		"executor": "opencode | opencode-go/deepseek-v4.1 | high",
 		"cheap":    "pi | opencode-go/deepseek-v4.1-flash | high; pi | zai/glm-5.3-flash | low",
-		"heavy":    "", "review": "pi | opencode-go/deepseek-v4.1 | high",
+		"heavy":    "", "review": "opencode | opencode-go/deepseek-v4.1 | high",
 		"acceptance": "codex | gpt-6.1-sol | medium", "replan": "codex | gpt-6.1-sol | medium",
 	}
 	if got := jsonBriefChains(t, out); !reflect.DeepEqual(got, want) {
@@ -155,7 +157,7 @@ func TestRosterV2Flow(t *testing.T) {
 	if code, _, errout := callLifecycleCLI(t, root, "roster", "scan"); code != 0 || !strings.Contains(errout, "run `docflow roster migrate`") {
 		t.Fatalf("v1 roster scan = (%d, %q), want the scan and the migration note", code, errout)
 	}
-	invoke("roster", "migrate", "--write")
+	invoke("roster", "migrate")
 	if readRosterFile(t, home, "docflow/roster.toml.bak") != draftV1Roster(t) {
 		t.Fatal("migration lost the original")
 	}

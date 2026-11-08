@@ -121,9 +121,11 @@ func firstLine(text string) string {
 // piProvider is one provider entry of models-store.json or of the
 // providers table of models.json. Only the fields the catalog needs are
 // declared: an auth key in models.json is never decoded, so it cannot
-// reach the cache, a warning or a commit.
+// reach the cache, a warning or a commit. The base URL only decides
+// whether the provider is local; it is not stored.
 type piProvider struct {
-	Models []piModel `json:"models"`
+	BaseURL string    `json:"baseUrl"`
+	Models  []piModel `json:"models"`
 }
 
 // piModel is one model of a Pi catalog. Number fields tolerate both a
@@ -160,6 +162,7 @@ func (m piModel) info(access, source string) (ModelInfo, bool) {
 	info := ModelInfo{
 		Access:    access,
 		ID:        m.ID,
+		Agents:    []string{"pi"},
 		Provider:  provider,
 		Context:   int(m.ContextWindow),
 		MaxOut:    int(m.MaxTokens),
@@ -215,7 +218,11 @@ func fillPiProviders(catalog *Catalog, path string, providers map[string]json.Ra
 			problems = append(problems, fmt.Sprintf("pi: %s: provider %q: %v", path, name, err))
 			continue
 		}
-		catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: name, Agents: []string{"pi"}, Source: source})
+		kind := knownKind(name)
+		if source == SourcePiModels && localBaseURL(provider.BaseURL) {
+			kind = KindLocal
+		}
+		catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: name, Agents: []string{"pi"}, Kind: kind, Source: source})
 		for _, model := range provider.Models {
 			if info, ok := model.info(name, source); ok {
 				catalog.Models = append(catalog.Models, info)
@@ -267,6 +274,7 @@ func parsePiList(text string) *Catalog {
 		info := ModelInfo{
 			Access:   access,
 			ID:       id,
+			Agents:   []string{"pi"},
 			Provider: access,
 			Input:    []string{"text"},
 			Source:   SourcePiList,
@@ -286,7 +294,7 @@ func parsePiList(text string) *Catalog {
 		catalog.Models = append(catalog.Models, info)
 		if !accesses[access] {
 			accesses[access] = true
-			catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: access, Agents: []string{"pi"}, Source: SourcePiList})
+			catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: access, Agents: []string{"pi"}, Kind: knownKind(access), Source: SourcePiList})
 		}
 	}
 	return catalog
@@ -401,6 +409,7 @@ func (m ocModel) info() (ModelInfo, bool) {
 	info := ModelInfo{
 		Access:    m.ProviderID,
 		ID:        id,
+		Agents:    []string{"opencode"},
 		Provider:  m.ProviderID,
 		Context:   int(m.Limit.Context),
 		MaxOut:    int(m.Limit.Output),
@@ -452,7 +461,7 @@ func parseOpenCode(text string) (*Catalog, []string) {
 		}
 		if !accesses[info.Access] {
 			accesses[info.Access] = true
-			catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: info.Access, Agents: []string{"opencode"}, Source: SourceOpenCode})
+			catalog.Accesses = append(catalog.Accesses, AccessInfo{Access: info.Access, Agents: []string{"opencode"}, Kind: knownKind(info.Access), Source: SourceOpenCode})
 		}
 		catalog.Models = append(catalog.Models, info)
 	}

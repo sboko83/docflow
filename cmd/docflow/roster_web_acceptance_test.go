@@ -90,9 +90,9 @@ func TestRosterWebAcceptance(t *testing.T) {
 
 	// The live policy is v2: migrate it the way every other command
 	// tells the user to.
-	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "migrate", "--write")
+	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "migrate")
 	if code != 0 {
-		t.Fatalf("roster migrate --write = (%d, %q, %q), want 0", code, stdout, stderr)
+		t.Fatalf("roster migrate = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
 
 	// The editor talks to the handler the server serves; the request

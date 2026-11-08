@@ -37,6 +37,7 @@ type Request struct {
 	Role    string   `json:"role,omitempty"`
 	Value   string   `json:"value,omitempty"`
 	Agents  []string `json:"agents,omitempty"`
+	Agent   string   `json:"agent,omitempty"`
 	Kind    string   `json:"kind,omitempty"`
 	Dir     string   `json:"dir,omitempty"`
 	Check   bool     `json:"check,omitempty"`
@@ -177,6 +178,8 @@ func (s *Server) apply(workspace *roster.Workspace, req *Request) error {
 		return workspace.SetAccessCheck(req.Name, req.Check)
 	case "SetAccessKind":
 		return workspace.SetAccessKind(req.Name, req.Kind)
+	case "SetAccessAgent":
+		return workspace.SetAccessAgent(req.Name, req.Agent)
 	case "MoveAccess":
 		return workspace.MoveAccess(req.Name, req.Dir)
 	case "SetCell":

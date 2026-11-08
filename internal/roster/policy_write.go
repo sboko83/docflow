@@ -3,6 +3,7 @@ package roster
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"bsv-docflow/internal/clierrors"
@@ -34,6 +35,9 @@ func SavePolicy(path string, policy *Policy) error {
 	}
 	if policyText(parsed) != text {
 		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: %s: the written file does not read back as the policy it was given", path), Code: clierrors.EXIT_FORMAT}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster policy: %v", err), Code: clierrors.EXIT_FORMAT}
 	}
 	if err := os.WriteFile(path+".tmp", []byte(text), 0o644); err != nil {
 		_ = os.Remove(path + ".tmp")

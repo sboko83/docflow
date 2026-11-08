@@ -3,6 +3,7 @@ package roster
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"bsv-docflow/internal/agents"
@@ -119,7 +120,11 @@ func resolveAt(policy *Policy, state *State, catalog *Catalog, today time.Time) 
 				continue
 			}
 			info := accesses[access.Name]
-			agent := access.Agents[0]
+			agent, reason := RouteAgent(access.Agents, info, model)
+			if agent == "" {
+				resolution.Skipped = append(resolution.Skipped, Skip{Access: access.Name, Role: role, Reason: reason})
+				continue
+			}
 			list = append(list, Candidate{
 				Role:    role,
 				Access:  access.Name,
@@ -191,6 +196,42 @@ func accessProblem(access *Access, accesses map[string]AccessInfo, models map[st
 		return "auth not ready"
 	}
 	return ""
+}
+
+// RouteAgent picks the agent channel a route of one model runs through:
+// the first channel of the policy order that lists the model and whose
+// auth is ready, otherwise the first such channel whose auth is unknown.
+// A channel with a definite not_ready never runs the route, so an access
+// that is ready through opencode does not send a model to pi without a
+// key. An empty agent comes with the reason. A catalog without per-channel
+// answers (an older cache) falls back to the access auth.
+func RouteAgent(agents []string, info AccessInfo, model ModelInfo) (string, string) {
+	var listing []string
+	for _, agent := range agents {
+		if len(model.Agents) == 0 || contains(model.Agents, agent) {
+			listing = append(listing, agent)
+		}
+	}
+	if len(listing) == 0 {
+		return "", fmt.Sprintf("model %s is listed only by %s, not by the access channels %s", model.ID, strings.Join(model.Agents, ", "), strings.Join(agents, ", "))
+	}
+	status := func(agent string) string {
+		if len(info.Channels) == 0 {
+			return info.Auth
+		}
+		return info.Channels[agent]
+	}
+	for _, agent := range listing {
+		if status(agent) == AuthReady {
+			return agent, ""
+		}
+	}
+	for _, agent := range listing {
+		if status(agent) != AuthNotReady {
+			return agent, ""
+		}
+	}
+	return "", fmt.Sprintf("model %s: no channel with auth (%s not ready)", model.ID, strings.Join(listing, ", "))
 }
 
 // routeModel renders the model a plan route carries: a pi or opencode

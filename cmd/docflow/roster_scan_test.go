@@ -146,15 +146,15 @@ func TestRosterScanSummary(t *testing.T) {
 		t.Fatalf("roster scan = (%d, %q, %q)", code, stdout, stderr)
 	}
 	rows := tableRows(stdout)
-	if strings.Join(rows[0], " ") != "access agent models auth source" {
+	if strings.Join(rows[0], " ") != "access agent kind models auth source" {
 		t.Fatalf("header = %v", rows[0])
 	}
 	want := [][]string{
-		{"claude", "claude", "6", "unknown", "builtin+auth"},
-		{"codex", "codex", "8", "ready", "builtin+auth"},
-		{"opencode", "opencode", "1", "not_ready", "opencode+auth"},
-		{"opencode-go", "pi,opencode", "2", "ready", "pi-store+opencode+auth"},
-		{"zai", "pi", "2", "ready", "pi-store+auth"},
+		{"claude", "claude", "subscription", "6", "unknown", "builtin+auth"},
+		{"codex", "codex", "subscription", "8", "ready", "builtin+auth"},
+		{"opencode", "opencode", "metered", "1", "not_ready", "opencode+auth"},
+		{"opencode-go", "pi,opencode", "subscription", "2", "ready(pi:not_ready)", "pi-store+opencode+auth"},
+		{"zai", "pi", "subscription", "2", "ready", "pi-store+auth"},
 	}
 	if len(rows) != len(want)+1 {
 		t.Fatalf("rows = %v", rows)
@@ -165,9 +165,10 @@ func TestRosterScanSummary(t *testing.T) {
 		}
 	}
 	// opencode-go is ready through the opencode channel although pi said
-	// not_ready: one access, one quota unit, one working door.
-	if row := findRow(t, rows, "opencode-go"); row[3] != roster.AuthReady {
-		t.Fatalf("opencode-go auth = %q, want ready", row[3])
+	// not_ready: one access, one quota unit, one working door — and the
+	// refused door is named, because a route through pi would fail.
+	if row := findRow(t, rows, "opencode-go"); row[4] != roster.AuthReady+"(pi:not_ready)" {
+		t.Fatalf("opencode-go auth = %q, want ready with pi refused", row[4])
 	}
 
 	cache, err := roster.LoadCatalog(rosterCachePath(home))
@@ -238,10 +239,10 @@ func TestRosterScanPartialCatalog(t *testing.T) {
 	}
 	// The built-in table and the codex probe still fill their access.
 	rows := tableRows(stdout)
-	if row := findRow(t, rows, "codex"); row[2] != "8" || row[3] != "ready" {
+	if row := findRow(t, rows, "codex"); row[3] != "8" || row[4] != "ready" {
 		t.Fatalf("codex row = %v", row)
 	}
-	if row := findRow(t, rows, "claude"); row[3] != "unknown" {
+	if row := findRow(t, rows, "claude"); row[4] != "unknown" {
 		t.Fatalf("claude row = %v", row)
 	}
 	if _, err := os.Stat(rosterCachePath(home)); err != nil {
@@ -443,7 +444,7 @@ func TestRosterStatusTable(t *testing.T) {
 		t.Fatalf("status header = %q", lines[0])
 	}
 	rows := tableRows(strings.Join(lines[1:], "\n"))
-	if row := findRow(t, rows, "opencode-go"); strings.Join(row, " ") != "opencode-go pi,opencode 2 ready pi-store+opencode+auth" {
+	if row := findRow(t, rows, "opencode-go"); strings.Join(row, " ") != "opencode-go pi,opencode subscription 2 ready(pi:not_ready) pi-store+opencode+auth" {
 		t.Fatalf("opencode-go row = %v", row)
 	}
 }

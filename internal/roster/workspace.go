@@ -90,20 +90,28 @@ func (w *Workspace) PlanningRoute() (agents.Route, error) {
 // the check flag of the policy, the kind, auth status and model count the
 // catalog adds, the off switch and the conditions in force, and the row of
 // the role table — as the policy declares it (Cells) and as the preset and
-// the conditions leave it (Effective). A cell reads MODEL@EFFORT.
+// the conditions leave it (Effective). A cell reads MODEL@EFFORT. Kind is
+// the kind in force: PolicyKind when the policy sets one, CatalogKind (what
+// the scan recognized) otherwise. Channels is the auth of every agent
+// channel; a route runs through the first channel of Agents that is ready
+// and lists the model (RouteAgent).
 type WorkspaceAccess struct {
-	Access     string            `json:"access"`
-	Agents     []string          `json:"agents,omitempty"`
-	Kind       string            `json:"kind,omitempty"`
-	Auth       string            `json:"auth,omitempty"`
-	Models     int               `json:"models"`
-	Check      bool              `json:"check,omitempty"`
-	Off        bool              `json:"off,omitempty"`
-	Until      string            `json:"until,omitempty"`
-	Expires    string            `json:"expires,omitempty"`
-	Conditions []Condition       `json:"conditions,omitempty"`
-	Cells      map[string]string `json:"cells"`
-	Effective  map[string]string `json:"effective"`
+	Access      string            `json:"access"`
+	Title       string            `json:"title,omitempty"`
+	Agents      []string          `json:"agents,omitempty"`
+	Kind        string            `json:"kind,omitempty"`
+	PolicyKind  string            `json:"policy_kind,omitempty"`
+	CatalogKind string            `json:"catalog_kind,omitempty"`
+	Auth        string            `json:"auth,omitempty"`
+	Channels    map[string]string `json:"channels,omitempty"`
+	Models      int               `json:"models"`
+	Check       bool              `json:"check,omitempty"`
+	Off         bool              `json:"off,omitempty"`
+	Until       string            `json:"until,omitempty"`
+	Expires     string            `json:"expires,omitempty"`
+	Conditions  []Condition       `json:"conditions,omitempty"`
+	Cells       map[string]string `json:"cells"`
+	Effective   map[string]string `json:"effective"`
 }
 
 // WorkspaceVariant is one preset of the roster with the variants layer it
@@ -123,6 +131,7 @@ type WorkspaceVariant struct {
 // add-access picker offers and shows.
 type WorkspaceCatalogAccess struct {
 	Access string   `json:"access"`
+	Title  string   `json:"title,omitempty"`
 	Agents []string `json:"agents,omitempty"`
 	Kind   string   `json:"kind,omitempty"`
 	Models int      `json:"models"`
@@ -132,9 +141,12 @@ type WorkspaceCatalogAccess struct {
 // offers and shows. A price of zero is omitted, so an unknown price never
 // reads as free. AgentEfforts fills the gap of a reasoning model whose
 // source declared no levels: the levels every channel of the access
-// accepts, so the picker still offers an effort.
+// accepts, so the picker still offers an effort. Agents are the channels
+// whose catalog lists the model; Free marks a known zero price.
 type WorkspaceModel struct {
 	ID           string   `json:"id"`
+	Agents       []string `json:"agents,omitempty"`
+	Free         bool     `json:"free,omitempty"`
 	Context      int      `json:"context,omitempty"`
 	MaxOut       int      `json:"max_out,omitempty"`
 	Reasoning    bool     `json:"reasoning,omitempty"`
@@ -230,6 +242,7 @@ func (w *Workspace) fillCatalogRows(catalog *Catalog) {
 		}
 		w.CatalogAccesses = append(w.CatalogAccesses, WorkspaceCatalogAccess{
 			Access: info.Access,
+			Title:  AccessTitle(info.Access),
 			Agents: append([]string(nil), info.Agents...),
 			Kind:   info.Kind,
 			Models: count,
@@ -245,6 +258,7 @@ func (w *Workspace) fillCatalogRows(catalog *Catalog) {
 		}
 		entry := WorkspaceModel{
 			ID:        model.ID,
+			Agents:    append([]string(nil), model.Agents...),
 			Context:   model.Context,
 			MaxOut:    model.MaxOut,
 			Reasoning: model.Reasoning,
@@ -255,6 +269,7 @@ func (w *Workspace) fillCatalogRows(catalog *Catalog) {
 		}
 		if model.Cost != nil {
 			entry.Input, entry.Output = model.Cost.Input, model.Cost.Output
+			entry.Free = model.Cost.Input == 0 && model.Cost.Output == 0
 		}
 		w.CatalogModels[model.Access] = append(w.CatalogModels[model.Access], entry)
 	}
@@ -366,19 +381,28 @@ func (w *Workspace) accessRows() ([]WorkspaceAccess, error) {
 	for i := range w.Policy.Accesses {
 		access := &w.Policy.Accesses[i]
 		row := WorkspaceAccess{
-			Access:    access.Name,
-			Agents:    append([]string(nil), access.Agents...),
-			Kind:      access.Kind,
-			Check:     access.Check,
-			Models:    w.Catalog.modelCount(access.Name),
-			Cells:     cellTexts(access.Roles),
-			Effective: map[string]string{},
+			Access:     access.Name,
+			Title:      AccessTitle(access.Name),
+			Agents:     append([]string(nil), access.Agents...),
+			Kind:       access.Kind,
+			PolicyKind: access.Kind,
+			Check:      access.Check,
+			Models:     w.Catalog.modelCount(access.Name),
+			Cells:      cellTexts(access.Roles),
+			Effective:  map[string]string{},
 		}
 		if entry, ok := known[access.Name]; ok {
+			row.CatalogKind = entry.Kind
 			if row.Kind == "" {
 				row.Kind = entry.Kind
 			}
 			row.Auth = entry.Auth
+			if len(entry.Channels) > 0 {
+				row.Channels = make(map[string]string, len(entry.Channels))
+				for agent, status := range entry.Channels {
+					row.Channels[agent] = status
+				}
+			}
 		}
 		if effective, ok := merged.Access(access.Name); ok {
 			row.Off = effective.Off

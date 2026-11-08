@@ -55,7 +55,7 @@ var commands = []commandSpec{
 	{name: "migrate", help: "convert docs from previous format versions"},
 	{name: "install-skills", help: "symlink skills/* into the selected agent directory, or copy them into the project with --project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override"), flag("--project", "copy skills/* into the project")}},
 	{name: "doctor", help: "check that the installed script and skills match this repo", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode"), option("--target", "DIR", "personal skills directory override")}},
-	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 4 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--addr", "ADDR", "web: address to listen on (default: a random port on 127.0.0.1)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the named policy to apply on top of the default"), appendOption("--off", "A,B", "brief and apply: accesses switched off for this call only"), appendOption("--expires", "A=DATE", "brief and apply: expire an access on DATE for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: write roster.toml and the files around it, keeping FILE.bak")}},
+	{name: "roster", help: "scan model access catalogs, show the route chains per plan role from the personal roster, or write them into a plan header", args: []argument{positional("subcommand", "", true), positional("id", "", false), restPositional("args", ""), option("--profile", "NAME", "removed with the version 1 roster; a version 4 policy uses --preset"), option("--roster", "PATH", "roster.toml path (default ~/.config/docflow/roster.toml)"), option("--addr", "ADDR", "web: address to listen on (default: a random port on 127.0.0.1)"), option("--until", "DATE", "off: the last day the access stays off (YYYY-MM-DD, UTC)"), option("--preset", "NAME", "brief and apply: the named policy to apply on top of the default"), appendOption("--off", "A,B", "brief and apply: accesses switched off for this call only"), appendOption("--expires", "A=DATE", "brief and apply: expire an access on DATE for this call only"), flag("--json", "print the result as JSON"), flag("--dry-run", "apply: print the header changes without writing the plan; migrate: print the new files without writing them"), flag("--refresh", "scan: ignore fresh caches and scan again"), flag("--online", "scan: enrich the catalog from models.dev"), flag("--all", "models: the whole catalog, not only the roster accesses"), flag("--write", "migrate: accepted for old scripts; migrate writes by default")}},
 	{name: "run", help: "drive the plan unit by unit through a coding agent", args: runArguments()},
 	{name: "tui", help: "open the interactive terminal workspace for the queue and plans", args: tuiArguments()},
 	{name: "install", help: "install an unpacked release into ~/.docflow and link personal skills", args: []argument{choiceOption("--skills", "", "personal links (global) or project-only skills (project)", "", "global", "project")}},
@@ -623,18 +623,20 @@ func rosterCondition(parsed *parsedArgs) error {
 	return commandResult{code: clierrors.EXIT_OK, stdout: line + "\n"}
 }
 
-// rosterMigrate converts an older roster to the current version: without
-// --write it prints the converted policy, the other files it would rewrite
-// and the notes; with --write it keeps every old file in FILE.bak and
-// replaces it atomically. A roster already at the current version is exit
-// code 2 and nothing is written.
+// rosterMigrate converts an older roster to the current version: it keeps
+// every old file in FILE.bak and replaces it atomically, like roster apply
+// writes the plan; with --dry-run it only prints the converted policy, the
+// other files it would rewrite and the notes. --write, the old opt-in, is
+// still accepted and changes nothing. A roster already at the current
+// version is exit code 2 and nothing is written.
 func rosterMigrate(parsed *parsedArgs) error {
 	// migrate takes no positional argument; the shared roster spec puts a
 	// stray token into the id slot, so refuse it here.
 	if id, _ := parsed.values["id"].(string); id != "" {
 		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster migrate: unrecognized arguments: %s", id), Code: clierrors.EXIT_FORMAT}
 	}
-	result, err := roster.MigrateFile(rosterString(parsed, "--roster"), rosterFlag(parsed, "--write"))
+	dryRun := rosterFlag(parsed, "--dry-run")
+	result, err := roster.MigrateFile(rosterString(parsed, "--roster"), !dryRun)
 	if err != nil {
 		return err
 	}
@@ -642,13 +644,13 @@ func rosterMigrate(parsed *parsedArgs) error {
 	for _, note := range result.Notes {
 		fmt.Fprintf(&notes, "note: %s\n", note)
 	}
-	if !rosterFlag(parsed, "--write") {
+	if dryRun {
 		var out strings.Builder
 		out.WriteString(result.Text)
 		for _, file := range result.Files {
 			fmt.Fprintf(&out, "\n# --- %s\n%s", file.Path, file.Text)
 		}
-		fmt.Fprintln(&notes, "dry run: nothing written, rerun with --write to apply")
+		fmt.Fprintln(&notes, "dry run: nothing written, rerun without --dry-run to apply")
 		return commandResult{code: clierrors.EXIT_OK, stdout: out.String(), stderr: notes.String()}
 	}
 	var out strings.Builder

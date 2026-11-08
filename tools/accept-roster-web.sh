@@ -27,7 +27,7 @@ export XDG_CONFIG_HOME="$work"
 export XDG_CACHE_HOME="$work/cache"
 
 echo "== migrate to v4"
-"$work/docflow-bin" roster migrate --write
+"$work/docflow-bin" roster migrate
 
 echo "== start roster web"
 "$work/docflow-bin" roster web > "$work/web.log" 2>&1 &

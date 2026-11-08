@@ -15,13 +15,14 @@ import (
 // and the scanners that supplied them. The condition state joins it in
 // P055.2.2.
 type StatusRow struct {
-	Access string   `json:"access"`
-	Agents []string `json:"agents,omitempty"`
-	Kind   string   `json:"kind,omitempty"`
-	Auth   string   `json:"auth,omitempty"`
-	Status string   `json:"status,omitempty"`
-	Models int      `json:"models"`
-	Source []string `json:"source,omitempty"`
+	Access   string            `json:"access"`
+	Agents   []string          `json:"agents,omitempty"`
+	Kind     string            `json:"kind,omitempty"`
+	Auth     string            `json:"auth,omitempty"`
+	Channels map[string]string `json:"channels,omitempty"`
+	Status   string            `json:"status,omitempty"`
+	Models   int               `json:"models"`
+	Source   []string          `json:"source,omitempty"`
 }
 
 // RosterAccessNames reads the access names the policy at path ("" means
@@ -50,13 +51,14 @@ func (c *Catalog) StatusRows() []StatusRow {
 	rows := make([]StatusRow, 0, len(c.Accesses))
 	for _, access := range c.Accesses {
 		rows = append(rows, StatusRow{
-			Access: access.Access,
-			Agents: access.Agents,
-			Kind:   access.Kind,
-			Auth:   access.Auth,
-			Status: access.Status,
-			Models: c.modelCount(access.Access),
-			Source: c.accessSources(access.Access),
+			Access:   access.Access,
+			Agents:   access.Agents,
+			Kind:     access.Kind,
+			Auth:     access.Auth,
+			Channels: access.Channels,
+			Status:   access.Status,
+			Models:   c.modelCount(access.Access),
+			Source:   c.accessSources(access.Access),
 		})
 	}
 	return rows
@@ -143,20 +145,38 @@ func (c *Catalog) ModelRows(accesses []string) []ModelInfo {
 }
 
 // AccessTable renders the access summary: the access, its agent channels,
-// how many models the catalog holds for it, what the auth probes said and
-// the scanners that supplied it.
+// its kind, how many models the catalog holds for it, what the auth probes
+// said and the scanners that supplied it. A channel whose answer differs
+// from the folded auth is named next to it: an access ready through
+// opencode while pi has no key reads ready(pi:not_ready), because a route
+// through pi would fail.
 func (c *Catalog) AccessTable() string {
-	rows := [][]string{{"access", "agent", "models", "auth", "source"}}
+	rows := [][]string{{"access", "agent", "kind", "models", "auth", "source"}}
 	for _, row := range c.StatusRows() {
 		rows = append(rows, []string{
 			row.Access,
 			orDashText(strings.Join(row.Agents, ",")),
+			orDashText(row.Kind),
 			strconv.Itoa(row.Models),
-			orDashText(row.Auth),
+			orDashText(authText(row.Auth, row.Agents, row.Channels)),
 			orDashText(strings.Join(row.Source, "+")),
 		})
 	}
 	return tableText(rows)
+}
+
+// authText is the folded auth with the channels that answered otherwise.
+func authText(auth string, agents []string, channels map[string]string) string {
+	var odd []string
+	for _, agent := range agents {
+		if status := channels[agent]; status != "" && status != auth {
+			odd = append(odd, agent+":"+status)
+		}
+	}
+	if len(odd) == 0 {
+		return auth
+	}
+	return auth + "(" + strings.Join(odd, ",") + ")"
 }
 
 // ModelsTable renders the model table of the given accesses (nil means

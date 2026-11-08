@@ -132,6 +132,35 @@
 
   function known(name, cell){ return !!catalogModel(name, splitCell(cell).model); }
 
+  // channelAuth is the auth of one agent channel of an access; an older
+  // catalog without per-channel answers gives the access auth.
+  function channelAuth(a, agent){
+    var c = a.channels || {};
+    return Object.keys(c).length ? (c[agent] || '') : (a.auth || '');
+  }
+
+  // routeAgent mirrors roster.RouteAgent: the first channel of the access
+  // that lists the model and is ready, else the first one not refused.
+  // An empty agent comes with the reason the resolver will skip the cell.
+  function routeAgent(a, cell){
+    var m = catalogModel(a.access, splitCell(cell).model);
+    if (!m) return { agent: '', why: 'модели нет в каталоге: docflow roster scan' };
+    var listing = (a.agents || []).filter(function(g){ return !(m.agents && m.agents.length) || contains(m.agents, g); });
+    if (!listing.length) return { agent: '', why: 'модель знает только ' + (m.agents || []).join(', ') + ', а не каналы доступа' };
+    for (var i = 0; i < listing.length; i++) if (channelAuth(a, listing[i]) === 'ready') return { agent: listing[i], why: '' };
+    for (var j = 0; j < listing.length; j++) if (channelAuth(a, listing[j]) !== 'not_ready') return { agent: listing[j], why: '' };
+    return { agent: '', why: 'нет входа у ' + listing.join(', ') + ' для этой модели' };
+  }
+
+  // price renders the per-million price of a model: a known zero is free,
+  // an unknown price is blank, never "free".
+  function price(m){
+    if (!m) return '';
+    if (m.free) return 'бесплатно';
+    if (!m.input && !m.output) return '';
+    return '$' + m.input + '/$' + m.output;
+  }
+
   // levels lists the efforts a model takes: the levels its source declared,
   // or, for a reasoning model without them, the levels its agents accept.
   function levels(name, id){
@@ -152,7 +181,7 @@
       rows.forEach(function(row){
         if (row.policyOff || row.stateOff) return;
         if (row.a.check && JUDGES[role]) return;
-        if (!row.cells[role] || !known(row.a.access, row.cells[role])) return;
+        if (!row.cells[role] || !routeAgent(row.a, row.cells[role]).agent) return;
         out[role].at[row.a.access] = ++n;
       });
       out[role].count = n;
@@ -189,7 +218,7 @@
     var lines = [];
     if (serverError) lines.push(serverError);
     if (ws && ws.problem) lines.push(ws.problem);
-    if (ws && ws.missing) lines.push('нет ростера: ' + ws.policy);
+    if (ws && ws.missing) lines.push('ростера ещё нет (' + ws.policy + '): добавьте первый доступ из каталога — файл создастся');
     if (ws && ws.catalog_empty) lines.push('каталог пуст: запустите docflow roster scan');
     box.textContent = lines.join('\n');
     box.classList.toggle('has', lines.length > 0);
@@ -300,6 +329,8 @@
   }
 
   var KINDS = ['subscription', 'metered', 'local'];
+  var KIND_RU = { subscription: 'подписка', metered: 'за токены', local: 'локально' };
+  var AUTH_RU = { ready: 'вход есть', not_ready: 'нет входа', unknown: 'вход не проверен' };
 
   function accessCell(row, index, count){
     var a = row.a;
@@ -317,26 +348,33 @@
     ]));
     var meta = el('div', { cls: 'rw-accmeta' });
     var title = el('div', { cls: 'rw-accname' }, [el('span', { text: a.access })]);
-    if (a.auth && a.auth !== 'ready') title.appendChild(el('span', { cls: 'rw-tag rw-tag-warn', text: 'auth ' + a.auth }));
+    if (a.auth && a.auth !== 'ready') title.appendChild(el('span', { cls: 'rw-tag rw-tag-warn', text: AUTH_RU[a.auth] || ('auth ' + a.auth) }));
     if (row.stateOff) title.appendChild(el('span', { cls: 'rw-tag rw-tag-warn', title: 'roster off — условие, снимается roster on', text: 'off' + (a.until ? ' до ' + a.until : '') }));
     meta.appendChild(title);
-    if ((a.agents || []).length) meta.appendChild(el('div', { cls: 'rw-agents', title: 'агенты-каналы доступа', text: a.agents.join(' · ') }));
+    var kindText = KIND_RU[a.kind];
+    if (kindText && a.policy_kind && a.catalog_kind && a.policy_kind !== a.catalog_kind) kindText += ' (скан: ' + KIND_RU[a.catalog_kind] + ')';
+    var sub = [a.title, kindText].filter(Boolean).join(' · ');
+    if (sub) meta.appendChild(el('div', { cls: 'rw-acctitle', title: 'провайдер и тип оплаты доступа', text: sub }));
+    meta.appendChild(agentLine(a));
     var flags = el('div', { cls: 'rw-flags' });
     if (tab === 'default') {
       title.appendChild(el('button', {
         type: 'button', cls: 'rw-icon rw-del', title: 'удалить доступ из ростера', 'aria-label': 'удалить ' + a.access,
         onclick: function(){ if (window.confirm('Удалить доступ ' + a.access + ' из ростера? Его ячейки пропадут и во всех политиках.')) api({ op: 'RemoveAccess', name: a.access }); }
       }, ['✕']));
-      var kind = el('select', { cls: 'rw-mini', title: 'kind: subscription — квота подписки, metered — оплата за токены, local — своя машина без квоты', 'aria-label': a.access + ': kind' },
-        [el('option', { value: '', text: 'kind: —' })].concat(KINDS.map(function(k){ return el('option', { value: k, text: k }); })));
-      kind.value = a.kind || '';
+      var differs = a.policy_kind && a.catalog_kind && a.policy_kind !== a.catalog_kind;
+      var kind = el('select', {
+        cls: 'rw-mini' + (differs ? ' is-warn' : ''),
+        title: 'тип оплаты: подписка — квота плана, за токены — оплата по API, локально — своя машина без квоты; «авто» — как определил roster scan' + (differs ? '. Скан считает: ' + KIND_RU[a.catalog_kind] : ''),
+        'aria-label': a.access + ': тип оплаты'
+      }, [el('option', { value: '', text: 'авто: ' + (KIND_RU[a.catalog_kind] || 'не знаю') })].concat(KINDS.map(function(k){ return el('option', { value: k, text: KIND_RU[k] }); })));
+      kind.value = a.policy_kind || '';
       kind.addEventListener('change', function(){ api({ op: 'SetAccessKind', name: a.access, kind: kind.value }); });
       flags.appendChild(kind);
       flags.appendChild(checkbox('check', a.check, 'нужен независимый ревьюер: доступ не судит (review, acceptance, replan)', function(){
         api({ op: 'SetAccessCheck', name: a.access, check: !a.check });
       }, true));
     } else {
-      if (a.kind) flags.appendChild(el('span', { cls: 'rw-tag', text: a.kind }));
       if (a.check) flags.appendChild(el('span', { cls: 'rw-tag', text: 'check' }));
       flags.appendChild(checkbox('в политике', !row.policyOff, 'снимите, чтобы выключить доступ только в этой политике', function(){
         api({ op: 'SetVariantOff', name: tab, access: a.access, off: !row.policyOff });
@@ -345,6 +383,31 @@
     meta.appendChild(flags);
     box.appendChild(meta);
     return box;
+  }
+
+  // agentLine shows the agent channels of an access with the login state
+  // of each. A route runs through the first channel that has a login and
+  // knows the model, so with two channels the editor picks the first.
+  function agentLine(a){
+    var agents = a.agents || [];
+    var line = el('div', { cls: 'rw-agents' });
+    if (agents.length > 1 && tab === 'default') {
+      var pick = el('select', { cls: 'rw-mini', title: 'агент, через который идёт маршрут; нет у него входа или он не знает модель — следующий', 'aria-label': a.access + ': агент' },
+        agents.map(function(g){ return el('option', { value: g, text: 'через ' + g }); }));
+      pick.value = agents[0];
+      pick.addEventListener('change', function(){ api({ op: 'SetAccessAgent', name: a.access, agent: pick.value }); });
+      line.appendChild(pick);
+    } else {
+      line.appendChild(el('span', { cls: 'rw-muted', text: 'через' }));
+    }
+    agents.forEach(function(g){
+      var st = channelAuth(a, g);
+      line.appendChild(el('span', {
+        cls: 'rw-chan' + (st === 'not_ready' ? ' is-bad' : st === 'ready' ? ' is-ok' : ''),
+        title: g + ': ' + (AUTH_RU[st] || 'вход не проверен')
+      }, [g + (st === 'not_ready' ? ' ✗' : st === 'ready' ? ' ✓' : ' ?')]));
+    });
+    return line;
   }
 
   function checkbox(label, on, title, handler, warn){
@@ -363,7 +426,16 @@
     var value = row.cells[role] || '';
     var inheriting = tab !== 'default' && !row.overridden[role];
     var parts = splitCell(value);
-    var models = ((ws.catalog_models || {})[a.access] || []).map(function(m){ return m.id; });
+    var catalog = (ws.catalog_models || {})[a.access] || [];
+    var models = catalog.map(function(m){ return m.id; });
+    // An option names the price when the access pays per token (or its
+    // kind is unknown) and says when no channel of the access can run it.
+    var label = function(m){
+      var bits = [m.id];
+      if (a.kind !== 'subscription' && a.kind !== 'local') { var p = price(m); if (p) bits.push(p); }
+      if (!routeAgent(a, m.id).agent) bits.push('не запустить');
+      return bits.join(' · ');
+    };
     var write = function(next){
       if (tab === 'default') api({ op: 'SetCell', access: a.access, role: role, value: next });
       else if (next === INHERIT) api({ op: 'SetVariantCell', name: tab, access: a.access, role: role, inherit: true });
@@ -374,7 +446,7 @@
     if (tab !== 'default') model.appendChild(el('option', { value: INHERIT, text: '↩ как в default' }));
     model.appendChild(el('option', { value: '', text: '—' }));
     if (parts.model && !contains(models, parts.model)) model.appendChild(el('option', { value: parts.model, text: parts.model + ' · нет в каталоге' }));
-    models.forEach(function(id){ model.appendChild(el('option', { value: id, text: id })); });
+    catalog.forEach(function(m){ model.appendChild(el('option', { value: m.id, text: label(m) })); });
     model.value = inheriting ? INHERIT : parts.model;
     model.addEventListener('change', function(){
       var id = model.value;
@@ -388,8 +460,12 @@
     var line = el('div', { cls: 'rw-cell-line' });
     if (place) line.appendChild(el('span', { cls: 'rw-pos' + (place === 1 ? ' is-primary' : ''), title: place === 1 ? 'основной маршрут роли' : 'fallback №' + (place - 1), text: String(place) }));
     line.appendChild(model);
-    if (value && !known(a.access, value)) line.appendChild(el('span', { cls: 'rw-cell-warn', title: 'модели нет в каталоге: резолвер её пропустит; docflow roster scan', text: '!' }));
+    var reach = value ? routeAgent(a, value) : { agent: '' };
+    if (value && !reach.agent) line.appendChild(el('span', { cls: 'rw-cell-warn', title: reach.why + '; резолвер пропустит ячейку', text: '!' }));
     wrap.appendChild(line);
+    if (value && reach.agent && (a.agents || []).length > 1 && reach.agent !== a.agents[0]) {
+      wrap.appendChild(el('div', { cls: 'rw-sub', title: 'первый канал не годится для этой модели', text: 'через ' + reach.agent }));
+    }
 
     if (inheriting) {
       wrap.appendChild(el('div', { cls: 'rw-sub', title: 'значение default', text: value ? '= ' + value : '= пусто' }));
@@ -423,18 +499,24 @@
         if (row.a.check && JUDGES[role]) return;
         var cell = row.cells[role];
         if (!cell) return;
-        routes.push({ text: row.a.access + '/' + cell, missing: !known(row.a.access, cell) });
+        var reach = routeAgent(row.a, cell);
+        routes.push({ text: row.a.access + '/' + cell + (reach.agent ? ' · ' + reach.agent : ''), missing: !reach.agent, why: reach.why });
       });
       var line = el('div', { cls: 'rw-chain' }, [el('span', { cls: 'rw-chain-role', text: role })]);
-      if (!routes.length) {
+      // The primary is the first route the resolver keeps: a skipped
+      // cell stays visible, struck out, but is neither primary nor counted.
+      var live = routes.filter(function(r){ return !r.missing; }).length;
+      var primary = -1;
+      routes.some(function(r, i){ if (!r.missing) { primary = i; return true; } return false; });
+      if (!live) {
         line.appendChild(el('span', { cls: 'rw-chain-none', text: 'нет маршрута' }));
         warnings.push('нет маршрута для ' + role);
       }
       routes.forEach(function(r, i){
         if (i) line.appendChild(el('span', { cls: 'rw-chain-sep', text: '›' }));
-        line.appendChild(el('span', { cls: 'rw-route' + (i === 0 ? ' is-primary' : '') + (r.missing ? ' is-missing' : ''), title: r.missing ? 'модели нет в каталоге: резолвер её пропустит' : '', text: r.text }));
+        line.appendChild(el('span', { cls: 'rw-route' + (i === primary ? ' is-primary' : '') + (r.missing ? ' is-missing' : ''), title: r.missing ? r.why + '; резолвер пропустит маршрут' : '', text: r.text }));
       });
-      if (routes.length === 1) warnings.push('нет fallback для ' + role);
+      if (live === 1) warnings.push('нет fallback для ' + role);
       box.appendChild(line);
     });
     var w = $('rwe-warnings');
@@ -488,8 +570,8 @@
       left.forEach(function(c){
         modal.appendChild(el('button', {
           type: 'button', cls: 'rw-pick',
-          onclick: function(){ api({ op: 'AddAccess', name: c.access, kind: c.kind || '', agents: c.agents || [] }).then(function(ok){ if (ok) closeModal(); }); }
-        }, [el('strong', { text: c.access }), el('span', { cls: 'rw-muted', text: ' ' + (c.agents || []).join(', ') + ' · ' + (c.kind || '—') + ' · моделей ' + c.models })]));
+          onclick: function(){ api({ op: 'AddAccess', name: c.access, kind: '', agents: c.agents || [] }).then(function(ok){ if (ok) closeModal(); }); }
+        }, [el('strong', { text: c.access }), el('span', { cls: 'rw-muted', text: ' ' + [c.title, KIND_RU[c.kind] || 'тип не известен', 'через ' + (c.agents || []).join(', '), 'моделей ' + c.models].filter(Boolean).join(' · ') })]));
       });
       modal.appendChild(el('div', { cls: 'rw-modal-actions' }, [el('button', { type: 'button', cls: 'rw-btn', onclick: closeModal }, ['закрыть'])]));
     });

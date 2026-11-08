@@ -124,6 +124,7 @@ func TestScanPiStoreAndConfig(t *testing.T) {
 	want := ModelInfo{
 		Access:    "opencode-go",
 		ID:        "kimi-k3.1-pro",
+		Agents:    []string{"pi"},
 		Provider:  "opencode-go",
 		Context:   1048576,
 		MaxOut:    131072,

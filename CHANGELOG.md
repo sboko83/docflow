@@ -8,9 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- Errors about a roster in a previous format now say `docflow roster
-  migrate --write`: the bare command only previews and writes nothing.
-  The `roster migrate` preview itself reports "dry run: nothing written".
+- `roster scan` treats an OpenCode provider with `activation: auto` (a
+  stored OpenCode Go login) as ready; only `disabled` is off.
+- A roster route no longer always runs through the first agent of the
+  access: it takes the first channel that lists the model and has a
+  login, and skips the cell with a reason when none does. Before, an
+  access ready through `opencode` sent its routes to `pi` without a key.
+
+### Changed
+- `roster scan` records the auth of every agent channel and which
+  channels list each model, and sets the kind of the accesses it knows:
+  `opencode` is OpenCode Zen (metered), `opencode-go` is OpenCode Go
+  (subscription), `zai`, `codex` and `claude` are subscriptions (Codex
+  with an API key is metered), a `models.json` provider on the local
+  network is local. `kind` in the roster overrides the scan.
+- `roster scan` and `roster status` print a `kind` column and name a
+  channel whose auth differs, e.g. `ready(pi:not_ready)`.
+- The roster brief warns about a filled cell the resolver skips (a model
+  missing from the catalog, no logged-in channel) instead of dropping it
+  silently.
+- `roster web` starts a roster from scratch: without `roster.toml` it
+  opens an empty table, and the first access added from the catalog
+  creates the file.
+- `roster web` shows each access with its provider name and payment kind
+  ("auto" from the scan or an explicit override), its agent channels with
+  their login state and a "via" picker for the first channel, prices of
+  pay-per-token models, and marks cells and chain routes that cannot run.
+- `docflow roster migrate` writes the migrated roster by default, keeping
+  every old file as `FILE.bak`, like `roster apply` writes the plan;
+  `--dry-run` only prints the new files. `--write` is still accepted and
+  changes nothing. Errors about a roster in a previous format say
+  `docflow roster migrate`.
 
 ## [0.28.0] - 2026-11-08
 

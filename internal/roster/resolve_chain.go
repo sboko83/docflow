@@ -70,6 +70,15 @@ func BuildChains(resolution *Resolution) (*Chains, error) {
 		case 1:
 			chains.Warnings = append(chains.Warnings, "no fallback for "+role)
 		}
+		// A cell the policy fills but the resolver drops is a warning: a
+		// model missing from the catalog or one no logged-in channel can
+		// run would otherwise just vanish from the chain.
+		for _, skip := range resolution.Skipped {
+			if skip.Role != role || strings.HasPrefix(skip.Reason, "no cell for ") || strings.HasPrefix(skip.Reason, "check: ") {
+				continue
+			}
+			chains.Warnings = append(chains.Warnings, fmt.Sprintf("%s: %s; skipped for %s", skip.Access, skip.Reason, role))
+		}
 	}
 	chains.Reviews = reviewMatrix(resolution, chains.Routes("review"))
 	for _, row := range chains.Reviews {

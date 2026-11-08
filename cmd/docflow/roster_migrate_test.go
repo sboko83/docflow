@@ -15,17 +15,18 @@ func draftV1Roster(t *testing.T) string {
 }
 
 // TestRosterMigrateCommand drives `roster migrate` through the CLI on an
-// isolated XDG_CONFIG_HOME and the v1 draft fixture: the dry run prints the v4 text, --write keeps
-// the v1 roster as roster.toml.bak, and a second --write is refused with
-// exit code 2 instead of rewriting the migrated file.
+// isolated XDG_CONFIG_HOME and the v1 draft fixture: --dry-run prints the v4 text and writes
+// nothing, the plain command keeps the v1 roster as roster.toml.bak, and a
+// second run (with the old --write, still accepted) is refused with exit
+// code 2 instead of rewriting the migrated file.
 func TestRosterMigrateCommand(t *testing.T) {
 	rosterEnv(t, draftV1Roster(t))
 	config := os.Getenv("XDG_CONFIG_HOME")
 	path := filepath.Join(config, "docflow", "roster.toml")
 
-	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "migrate")
+	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "migrate", "--dry-run")
 	if code != 0 {
-		t.Fatalf("roster migrate = (%d, %q, %q), want 0", code, stdout, stderr)
+		t.Fatalf("roster migrate --dry-run = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
 	if !strings.Contains(stdout, "version = 4") || !strings.Contains(stdout, "[access.zai.roles]") {
 		t.Fatalf("roster migrate stdout =\n%s\nwant the v4 text", stdout)
@@ -37,12 +38,12 @@ func TestRosterMigrateCommand(t *testing.T) {
 		t.Fatalf("a dry run rewrote the roster")
 	}
 
-	code, stdout, stderr = callLifecycleCLI(t, t.TempDir(), "roster", "migrate", "--write")
+	code, stdout, stderr = callLifecycleCLI(t, t.TempDir(), "roster", "migrate")
 	if code != 0 {
-		t.Fatalf("roster migrate --write = (%d, %q, %q), want 0", code, stdout, stderr)
+		t.Fatalf("roster migrate = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
 	if !strings.Contains(stdout, path) || !strings.Contains(stdout, path+".bak") {
-		t.Fatalf("roster migrate --write stdout =\n%s\nwant the roster and backup paths", stdout)
+		t.Fatalf("roster migrate stdout =\n%s\nwant the roster and backup paths", stdout)
 	}
 	backup, err := os.ReadFile(path + ".bak")
 	if err != nil {

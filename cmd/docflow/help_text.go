@@ -289,7 +289,7 @@ options:
 	"roster": `usage: docflow roster [-h] [--roster PATH] [--addr ADDR]
                       [--until DATE] [--preset NAME] [--off A,B]
                       [--expires A=DATE] [--json] [--dry-run]
-                      [--refresh] [--online] [--all] [--write]
+                      [--refresh] [--online] [--all]
                       {show,brief,explain,apply,scan,models,status,off,on,expire,reset,migrate,web}
                       [ACCESS] [ARG ...]
 
@@ -354,8 +354,8 @@ files, the chains of the tab below. It writes roster.toml and the
 variants files; the catalog stays with roster scan.
 
 roster migrate converts a version 1, 2 or 3 roster into a version 4
-policy and prints it with the files around it; --write keeps every old
-file in FILE.bak and replaces it atomically. The v3 rules — classes,
+policy and writes it with the files around it, keeping every old file
+in FILE.bak and replacing it atomically; --dry-run only prints them. The v3 rules — classes,
 class requirements, budgets, trusted and the model allowlist — are
 resolved once against the scanned catalog and written as cells, so run
 roster scan first; presets become named policies in the variants file
@@ -393,11 +393,11 @@ options:
   --expires A=DATE
                   brief and apply: expire an access on DATE for this call only
   --json          print the result as JSON
-  --dry-run       apply: print the header changes without writing the plan
+  --dry-run       apply: print the header changes without writing the plan;
+                  migrate: print the new files without writing them
   --refresh       scan: ignore fresh caches and scan again
   --online        scan: enrich the catalog from models.dev
   --all           models: the whole catalog, not only the roster accesses
-  --write         migrate: write roster.toml and the files around it, keeping FILE.bak
 `,
 	"doctor": `usage: docflow doctor [-h] [--agent {claude,codex,pi,opencode}] [--target DIR]
 

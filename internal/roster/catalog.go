@@ -31,12 +31,16 @@ type Catalog struct {
 // the state refer to, the agent channels that reach it, its kind, what
 // the auth probes said, and the source that supplied the entry.
 // Provenance keeps that source per field, so a merged catalog still says
-// which scanner supplied the kind, the auth status and the status.
+// which scanner supplied the kind, the auth status and the status. Auth
+// folds the channels (any ready door makes the access usable); Channels
+// keeps the answer of every channel, because a route runs through one
+// agent, and pi without a key is not ready just because opencode is.
 type AccessInfo struct {
 	Access     string            `json:"access"`
 	Agents     []string          `json:"agents,omitempty"`
 	Kind       string            `json:"kind,omitempty"`
 	Auth       string            `json:"auth,omitempty"`
+	Channels   map[string]string `json:"channels,omitempty"`
 	Status     string            `json:"status,omitempty"`
 	Source     string            `json:"source,omitempty"`
 	Provenance map[string]string `json:"provenance,omitempty"`
@@ -47,10 +51,15 @@ type AccessInfo struct {
 // instead of guessing. Cost is USD per million tokens. Provenance maps a
 // field to the source that supplied its current value: with two channels
 // of one access the last contributor of Source hides whether the context
-// came from an exact catalog or from a rounded fallback.
+// came from an exact catalog or from a rounded fallback. Agents are the
+// channels whose catalog lists the model: Pi's catalog of an access can be
+// wider than what OpenCode serves on the same login, and a route must not
+// send a model to an agent that does not know it. Empty means unknown (an
+// older cache): any channel of the access may serve it.
 type ModelInfo struct {
 	Access     string            `json:"access"`
 	ID         string            `json:"id"`
+	Agents     []string          `json:"agents,omitempty"`
 	Provider   string            `json:"provider,omitempty"`
 	Context    int               `json:"context,omitempty"`
 	MaxOut     int               `json:"max_out,omitempty"`
@@ -252,6 +261,16 @@ func (a *AccessInfo) mergeFrom(other AccessInfo) {
 		a.Provenance = stamp(a.Provenance, other.Source, "auth")
 		contributed = true
 	}
+	for agent, status := range other.Channels {
+		if agent == "" || status == "" {
+			continue
+		}
+		if a.Channels == nil {
+			a.Channels = map[string]string{}
+		}
+		a.Channels[agent] = status
+		contributed = true
+	}
 	if other.Status != "" {
 		a.Status = other.Status
 		a.Provenance = stamp(a.Provenance, other.Source, "status")
@@ -289,6 +308,12 @@ func (a AccessInfo) withProvenance() AccessInfo {
 func (m *ModelInfo) mergeFrom(other ModelInfo) {
 	contributed := false
 	fields := make([]string, 0, 8)
+	for _, agent := range other.Agents {
+		if agent != "" && !contains(m.Agents, agent) {
+			m.Agents = append(m.Agents, agent)
+			contributed = true
+		}
+	}
 	if other.Provider != "" {
 		m.Provider = other.Provider
 		contributed = true

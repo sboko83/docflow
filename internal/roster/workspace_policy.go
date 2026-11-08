@@ -38,8 +38,24 @@ func (w *Workspace) mutatePolicy(change func(*Policy) error) error {
 // AddAccess adds an access to the end of the policy: the name the CLI
 // flags address, the channels that reach it and the optional kind. A new
 // access has no cells yet. An unknown kind and a name the CLI flags cannot
-// address are refused.
+// address are refused. On a missing roster the first access creates the
+// file: an empty version 4 policy is the only way to start one from the
+// editor, and a refused first access leaves the roster missing.
 func (w *Workspace) AddAccess(name, kind string, agents []string) error {
+	if !w.Missing || w.Policy != nil {
+		return w.addAccess(name, kind, agents)
+	}
+	w.Policy = &Policy{Path: w.PolicyPath, Version: PolicyVersion}
+	w.Policy.reindex()
+	w.Missing = false
+	if err := w.addAccess(name, kind, agents); err != nil {
+		w.Policy, w.Missing = nil, true
+		return err
+	}
+	return nil
+}
+
+func (w *Workspace) addAccess(name, kind string, agents []string) error {
 	if err := w.ready(); err != nil {
 		return err
 	}
@@ -191,6 +207,37 @@ func (w *Workspace) SetAccessKind(name, kind string) error {
 	return w.mutatePolicy(func(policy *Policy) error {
 		access, _ := policy.Access(name)
 		access.Kind = kind
+		return nil
+	})
+}
+
+// SetAccessAgent puts one channel of an access first: the route of the
+// access runs through the first channel that has auth and lists the
+// model, so the order of agents is the preference among the doors of one
+// quota. The agent must already be a channel of the access.
+func (w *Workspace) SetAccessAgent(name, agent string) error {
+	if err := w.ready(); err != nil {
+		return err
+	}
+	access, ok := w.Policy.Access(name)
+	if !ok {
+		return w.unknownAccess("agent", name)
+	}
+	if !contains(access.Agents, agent) {
+		return w.fail("access %s: agent %s is not one of its channels (%s)", name, agent, strings.Join(access.Agents, ", "))
+	}
+	if access.Agents[0] == agent {
+		return nil
+	}
+	return w.mutatePolicy(func(policy *Policy) error {
+		access, _ := policy.Access(name)
+		order := []string{agent}
+		for _, other := range access.Agents {
+			if other != agent {
+				order = append(order, other)
+			}
+		}
+		access.Agents = order
 		return nil
 	})
 }
