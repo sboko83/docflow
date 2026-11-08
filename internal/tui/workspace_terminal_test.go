@@ -406,12 +406,12 @@ func TestWorkspaceTerminalProjectMigration(t *testing.T) {
 	ui.send("2")
 	workspaceScreen(t, ui, "Ростер версии 1", "")
 	ui.send("\r")
-	workspaceScreen(t, ui, "Миграция ростера на версию 3", "")
+	workspaceScreen(t, ui, "Миграция ростера на версию 4", "")
 	if workspaceRead(t, f.policy) != testLegacyRoster {
 		t.Fatal("migration preview wrote the policy")
 	}
 	ui.send("\r")
-	workspaceScreen(t, ui, "Доступы", "Миграция ростера на версию 3")
+	workspaceScreen(t, ui, "Доступы", "Миграция ростера на версию 4")
 	if workspaceRead(t, f.policy+".bak") != testLegacyRoster {
 		t.Fatal("migration lost the original policy")
 	}
