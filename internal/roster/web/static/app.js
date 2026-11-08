@@ -23,6 +23,20 @@
   var ws = null;        // the workspace JSON of the last successful load
   var mode = 'base';    // 'base' or a variant name
   var serverError = ''; // the last refused operation, shown in the red line
+  var serverErrorTimer = null;
+
+  // clearServerErrorLater retires the refused-operation message: the red
+  // line holds state warnings, but a stale server error is noise after
+  // half a minute.
+  function clearServerErrorLater(){
+    if (serverErrorTimer) clearTimeout(serverErrorTimer);
+    serverErrorTimer = setTimeout(function(){
+      serverErrorTimer = null;
+      if (!serverError) return;
+      serverError = '';
+      renderVal();
+    }, 30000);
+  }
 
   /* ---------- API ---------- */
 
@@ -42,11 +56,13 @@
       }
       serverError = result.body.error || ('HTTP ' + result.status);
       toast(serverError);
+      clearServerErrorLater();
       renderVal();
       return false;
     }).catch(function(err){
       serverError = String(err);
       toast('сервер недоступен: ' + serverError);
+      clearServerErrorLater();
       renderVal();
       return false;
     });
@@ -288,7 +304,16 @@
             }
             var clsSel = '<select class="rw-sel cls-' + r.cls + '" data-rcls="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(key) + '" aria-label="Класс">' +
               ['cheap','standard','strong'].map(function(c){ return '<option value="' + c + '"' + (r.cls===c ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select>';
+            // servedRoles names the roles whose current chain carries this
+            // route: the card side of the role matrix below.
+            var served = ROLES.filter(function(role){
+              var list = roleBrief(role).routes || [];
+              return list.some(function(c){
+                return c.access === a.id && c.id === m.id && (c.effort || '') === (r.eff || '');
+              });
+            });
             return '<div class="rw-route2">' + effSel + '<span class="rw-arrow">→</span>' + clsSel +
+              served.map(function(role){ return '<span class="rw-rrole" title="Этот маршрут закрывает роль ' + role + ' в текущем ростере">' + role + '</span>'; }).join('') +
               '<button type="button" class="rw-rx" data-rdel="' + esc(a.id) + '"' + dataAttrM(m.id) + ' data-re="' + esc(key) + '" aria-label="Убрать уровень">×</button></div>';
           }).join('');
           var unused = effs.filter(function(e){ return !m.routes.some(function(r){ return r.eff === e; }); });
@@ -351,10 +376,23 @@
   function renderVariant(){
     var v = variant();
     if (!v) { setMode('base'); return; }
+    // A preset of roster.toml is read-only for the editor: the variant
+    // operations refuse it, so the controls are off instead of refusing
+    // on every click.
+    var hand = v.source === 'roster';
+    var handHint = 'Пресет живёт в roster.toml — вариантные операции его не переписывают: правьте таблицу [preset.' + v.name + '] в файле вручную';
     var input = $('rwe-vname-input');
     input.value = v.name;
     input.className = 'rw-vname' + (!v.name.trim() ? ' is-bad' : '');
+    input.disabled = hand;
+    input.title = hand ? handHint : '';
     $('rwe-vsrc').textContent = SRC_RU[v.source] || v.source;
+    var del = $('rwe-vdelete');
+    del.disabled = hand;
+    del.title = hand ? handHint : '';
+    $('rwe-vhint').textContent = hand
+      ? handHint + '. Строки ниже — снимок пресета.'
+      : 'Вариант — набор отклонений от базового ростера: бюджет доступа, порядок fallback и сужение моделей. Пишется в файл вариантов, базовый ростер не трогает.';
 
     var ids = sortedAccesses(v);
     $('rwe-vrows').innerHTML = ids.map(function(id, i){
@@ -362,16 +400,16 @@
       if (!a) return '';
       var seg = VBUDGETS.map(function(b){
         var on = b === '—' ? !v.budgets[id] : v.budgets[id] === b;
-        return '<button type="button" data-vseg="' + esc(id) + '" data-b="' + b + '"' + (on ? ' class="is-on"' : '') + ' title="' + (b==='—' ? 'Наследует базовый ростер' : 'Отклонение от базового бюджета') + '">' + b + '</button>';
+        return '<button type="button" data-vseg="' + esc(id) + '" data-b="' + b + '"' + (on ? ' class="is-on"' : '') + (hand ? ' disabled' : '') + ' title="' + (hand ? handHint : (b==='—' ? 'Наследует базовый ростер' : 'Отклонение от базового бюджета')) + '">' + b + '</button>';
       }).join('');
       var chips = a.models.length ? servedModelIds(a).map(function(mid){
         var on = !v.models[id] || v.models[id].indexOf(mid) >= 0;
-        return '<button type="button" class="rw-vchip' + (on ? ' is-on' : '') + '" data-vmodel="' + esc(id) + '" data-m="' + esc(mid) + '" title="Сужение моделей варианта (переключить)">' + esc(mid) + '</button>';
+        return '<button type="button" class="rw-vchip' + (on ? ' is-on' : '') + '" data-vmodel="' + esc(id) + '" data-m="' + esc(mid) + '"' + (hand ? ' disabled' : '') + ' title="' + (hand ? handHint : 'Сужение моделей варианта (переключить)') + '">' + esc(mid) + '</button>';
       }).join('') : '<span class="rw-rnote">все модели доступа</span>';
       return '<div class="rw-vrow">' +
         '<div class="rw-ord">' +
-          '<button type="button" data-vmove="up" data-acc="' + esc(id) + '" aria-label="Выше"' + (i===0 ? ' disabled' : '') + '>▲</button>' +
-          '<button type="button" data-vmove="down" data-acc="' + esc(id) + '" aria-label="Ниже"' + (i===ids.length-1 ? ' disabled' : '') + '>▼</button></div>' +
+          '<button type="button" data-vmove="up" data-acc="' + esc(id) + '" aria-label="Выше"' + (i===0 || hand ? ' disabled' : '') + '>▲</button>' +
+          '<button type="button" data-vmove="down" data-acc="' + esc(id) + '" aria-label="Ниже"' + (i===ids.length-1 || hand ? ' disabled' : '') + '>▼</button></div>' +
         '<span class="rw-adot" style="background:' + dotColor(id) + '"></span><span class="rw-aname">' + esc(id) + '</span>' +
         '<span class="rw-via">' + (v.budgets[id] ? '' : 'базовый бюджет · ') + 'через ' + esc(a.agents.join(', ')) + '</span>' +
         '<div class="rw-vseg" role="group" aria-label="Бюджет ' + esc(id) + ' в варианте">' + seg + '</div>' +

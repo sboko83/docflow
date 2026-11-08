@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docflow roster web` access cards keep the delete button on the first
   line with trusted/check on the second, and role routes show their
   class, so a route above the role minimum reads as intended.
+- `docflow roster web` marks the roles every route closes on the access
+  card, disables the controls of a variant defined in roster.toml (the
+  variant operations never rewrite it), and clears a refused-operation
+  error after 30 seconds.
 
 ## [0.27.0] - 2026-11-07
 
