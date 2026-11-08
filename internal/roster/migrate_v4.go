@@ -76,6 +76,13 @@ func MigrateFile(rosterPath string, write bool) (MigrateResult, error) {
 		return MigrateResult{}, err
 	}
 	_, models := indexCatalog(catalog)
+	var catalogNote string
+	if len(catalog.Accesses) == 0 {
+		// The v3 rules pick models by class, price and context from the
+		// catalog; without one the cells come from the names the policy
+		// spells out, which is a guess the human should know about.
+		catalogNote = "the catalog cache is empty: the cells come from the models the policy names; run `docflow roster scan` first for the exact v3 choice"
+	}
 	globalPath := VariantsPath(resolved)
 	global, globalCurrent, err := readV2Variants(globalPath)
 	if err != nil {
@@ -94,6 +101,9 @@ func MigrateFile(rosterPath string, write bool) (MigrateResult, error) {
 		return MigrateResult{}, err
 	}
 	result := MigrateResult{Path: resolved, Text: converted.policy, Notes: converted.notes}
+	if catalogNote != "" {
+		result.Notes = append([]string{catalogNote}, result.Notes...)
+	}
 	if global != nil || len(policy.Presets) > 0 {
 		result.Files = append(result.Files, MigratedFile{Path: globalPath, Text: converted.global})
 	}

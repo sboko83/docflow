@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reorder them and override single cells; the default policy is
   roster.toml itself. `docflow roster migrate` converts a v1, v2 or v3
   roster, its variants files and its conditions, resolving the v3 classes
-  and budgets once against the scanned catalog.
+  and budgets once against the scanned catalog; `roster scan` runs on an
+  older roster so the catalog can come first, and a migration without a
+  catalog says so.
 - `docflow roster web` edits that table directly: a cell is a model@effort
   picker from the catalog, the tabs are the default and the named
   policies, and the chains below the table are read from it.

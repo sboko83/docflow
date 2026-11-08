@@ -462,17 +462,25 @@ func rosterWeb(parsed *parsedArgs) error {
 // access summary. A source problem is a warning next to a partial
 // catalog: the success code stays 0.
 func rosterScan(parsed *parsedArgs) error {
-	// The policy is read before the scan: a v1 or broken roster fails
-	// before any CLI runs and before the cache is rewritten.
+	// The policy is read before the scan: a broken roster fails before any
+	// CLI runs and before the cache is rewritten. A roster of a previous
+	// format still scans — the migration resolves it against the catalog,
+	// so the scan comes first — and only the missing-access check is
+	// skipped.
+	note := ""
 	names, err := roster.RosterAccessNames(rosterString(parsed, "--roster"))
 	if err != nil {
-		return err
+		if !roster.IsPreviousFormat(err) {
+			return err
+		}
+		names = nil
+		note = "docflow: roster: the roster is in a previous format; after the scan run `docflow roster migrate`\n"
 	}
 	catalog, warnings, err := roster.ScanCatalog(roster.ScanOptions{Refresh: rosterFlag(parsed, "--refresh"), Online: rosterFlag(parsed, "--online")})
 	if err != nil {
 		return err
 	}
-	stderr := rosterWarnings(warnings) + rosterMissingAccesses(names, catalog)
+	stderr := rosterWarnings(warnings) + rosterMissingAccesses(names, catalog) + note
 	if rosterFlag(parsed, "--json") {
 		return rosterJSON(catalog, stderr)
 	}

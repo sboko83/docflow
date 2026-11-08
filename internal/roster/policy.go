@@ -203,6 +203,13 @@ func ParsePolicy(path, text string) (*Policy, error) {
 // had: the file is converted by a command, not hand-edited.
 const migrateHint = "run `docflow roster migrate` to convert the roster"
 
+// IsPreviousFormat reports whether a load error is the refusal of a roster
+// file in a previous format — the one error a command that only needs the
+// catalog, such as the scan before a migration, may step over.
+func IsPreviousFormat(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "docflow roster migrate")
+}
+
 func (p *Policy) parse(index *lineIndex, root map[string]any) error {
 	version, ok := root["version"].(int64)
 	if !ok || version != PolicyVersion {

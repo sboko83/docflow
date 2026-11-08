@@ -471,6 +471,9 @@ func TestMigrateFile(t *testing.T) {
 	if result.Text == "" || result.Backup != "" {
 		t.Fatalf("MigrateFile() = %+v, want text and no backup", result)
 	}
+	if len(result.Notes) == 0 || !strings.Contains(result.Notes[0], "catalog cache is empty") {
+		t.Fatalf("notes = %v, want the empty-catalog warning first", result.Notes)
+	}
 	if data, _ := os.ReadFile(path); string(data) != minimal {
 		t.Fatalf("a read-only migration rewrote the roster")
 	}

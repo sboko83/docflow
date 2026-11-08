@@ -483,19 +483,24 @@ func TestRosterStatusWithoutCache(t *testing.T) {
 	}
 }
 
-// TestRosterCatalogCommandsNeedV2: the catalog commands read the policy
-// too, so a v1 roster fails with the migration hint instead of listing the
-// old spend order as accesses.
+// TestRosterCatalogCommandsNeedV2: models and status read the policy, so
+// a v1 roster fails with the migration hint instead of listing the old
+// spend order as accesses. The scan runs anyway and only notes the
+// migration: migrating the old classes needs the catalog first.
 func TestRosterCatalogCommandsNeedV2(t *testing.T) {
 	home := rosterScanEnv(t, draftV1Roster(t))
-	for _, args := range [][]string{{"roster", "scan"}, {"roster", "models"}, {"roster", "status"}} {
+	for _, args := range [][]string{{"roster", "models"}, {"roster", "status"}} {
 		code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), args...)
 		if code != 2 || stdout != "" || !strings.Contains(stderr, "docflow roster migrate") || !strings.Contains(stderr, "roster.toml") {
 			t.Fatalf("%v on a v1 roster = (%d, %q, %q), want code 2 with the migration hint", args, code, stdout, stderr)
 		}
 	}
-	if _, err := os.Stat(rosterCachePath(home)); !os.IsNotExist(err) {
-		t.Fatalf("a refused scan wrote the cache: %v", err)
+	code, stdout, stderr := callLifecycleCLI(t, t.TempDir(), "roster", "scan")
+	if code != 0 || stdout == "" || !strings.Contains(stderr, "run `docflow roster migrate`") {
+		t.Fatalf("roster scan on a v1 roster = (%d, %q, %q), want the scan and the migration note", code, stdout, stderr)
+	}
+	if _, err := os.Stat(rosterCachePath(home)); err != nil {
+		t.Fatalf("the scan wrote no cache: %v", err)
 	}
 }
 

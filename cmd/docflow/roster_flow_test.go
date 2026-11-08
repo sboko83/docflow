@@ -144,11 +144,16 @@ func TestRosterV2Flow(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeLifecycleFile(t, home, "docflow/roster.toml", draftV1Roster(t))
-	for _, args := range [][]string{{"roster", "scan"}, {"roster", "brief"}, {"roster", "apply", "P001", "--off", "local", "--expires", "zai=2099-01-01"}} {
+	for _, args := range [][]string{{"roster", "brief"}, {"roster", "apply", "P001", "--off", "local", "--expires", "zai=2099-01-01"}} {
 		code, _, errout := callLifecycleCLI(t, root, args...)
 		if code != 2 || !strings.Contains(errout, "roster migrate") {
 			t.Fatalf("v1 %v = (%d, %q)", args, code, errout)
 		}
+	}
+	// The scan still runs on a v1 roster: the migration resolves the old
+	// rules against the catalog, so it has to come first.
+	if code, _, errout := callLifecycleCLI(t, root, "roster", "scan"); code != 0 || !strings.Contains(errout, "run `docflow roster migrate`") {
+		t.Fatalf("v1 roster scan = (%d, %q), want the scan and the migration note", code, errout)
 	}
 	invoke("roster", "migrate", "--write")
 	if readRosterFile(t, home, "docflow/roster.toml.bak") != draftV1Roster(t) {
