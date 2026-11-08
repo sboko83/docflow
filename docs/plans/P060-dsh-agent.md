@@ -284,7 +284,7 @@ Commit: P060.3.2: document dsh agent support
 Handoff:
 - README.md и README.ru.md называют dsh (DeepSeek Harness) среди встроенных агентов run; CHANGELOG [Unreleased] → Added описывает поддержку dsh.
 
-### [ ] P060.3.3 Acceptance
+### [x] P060.3.3 Acceptance
 Read:
 - internal/agents/agents.go:L40-170
 Do:
@@ -298,3 +298,6 @@ Verify: `go test -timeout 20m ./...`
 Depends: P060.1.1,P060.1.2,P060.2.1,P060.2.2,P060.2.3,P060.3.1,P060.3.2
 Role: acceptance
 Commit: P060.3.3: accept dsh agent plan
+Handoff:
+- Goal: run --print-config содержит [agents.dsh]; TestDshRealUnitCommits PASS на реальном dsh (прогон владельца, -v); README.md и README.ru.md называют dsh.
+- Accepted: Unverified из P060.1.2 (HTTPS, кэш go-build под danger-full-access) — закрыт реальным прогоном юнита в P060.3.1 и зелёным TestDshRealUnitCommits.
