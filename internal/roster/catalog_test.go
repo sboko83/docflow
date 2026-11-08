@@ -66,7 +66,9 @@ func TestCatalogMissingFileIsEmpty(t *testing.T) {
 }
 
 func TestCatalogSaveCreatesDirectories(t *testing.T) {
-	path := DefaultCachePath()
+	// DefaultCachePath would write the real user cache; the save runs on
+	// the isolated XDG root with the same absent subdirectories.
+	path := filepath.Join(catalogCacheDir(t), "docflow", "roster", "catalog.json")
 	catalog := emptyCatalog()
 	catalog.Models = append(catalog.Models, ModelInfo{Access: "zai", ID: "glm-5.3"})
 	if err := catalog.Save(path); err != nil {

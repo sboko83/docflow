@@ -8,14 +8,12 @@
 </head>
 <body>
 <div id="rwe" class="rw">
-  <div class="rw-window">
-    <div class="rw-titlebar">
-      <span class="rw-dots"><i></i><i></i><i></i></span>
-      <span class="rw-ttitle">docflow · ростер — редактор ростера и вариантов</span>
-      <span class="rw-tspacer"></span>
-    </div>
+  <div class="rw-header">
+    <h1 class="rw-title">docflow · ростер</h1>
+    <span class="rw-subtitle">редактор ростера и вариантов</span>
+  </div>
 
-    <div class="rw-toolbar">
+  <div class="rw-toolbar">
       <div class="rw-switch" id="rwe-switch"></div>
       <div class="rw-actions">
         <button type="button" class="rw-btn" id="rwe-reload" title="Перечитать ростер с сервера">Перечитать</button>
@@ -35,7 +33,7 @@
           <span class="rw-cond-none" id="rwe-catalog-left"></span>
         </div>
 
-        <div class="rw-sectitle" style="margin-top:22px">Роли плана <span class="rw-sechint">слева — требование роли, справа — какие маршруты его закроют</span></div>
+        <div class="rw-sectitle" style="margin-top:22px">Роли плана <span class="rw-sechint">слева — минимальный класс роли, справа — маршруты, которые его закроют (класс маршрута не ниже)</span></div>
         <div class="rw-matrix" id="rwe-matrix"></div>
       </div>
 
@@ -67,7 +65,6 @@
     </div>
 
     <div class="rw-toasts" id="rwe-toasts"></div>
-  </div>
 </div>
 <script src="app.js"></script>
 </body>

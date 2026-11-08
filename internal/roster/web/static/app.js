@@ -1,8 +1,9 @@
-/* docflow roster editor — the behavior of docs/design/roster-web-mockup.html
-   driven by the local server: the state comes from GET /api/workspace,
-   every action is POST /api/op with the operation names of the roster
-   package, and the server's workspace in the response is the next render.
-   No build step, no external dependencies. */
+/* docflow roster editor — the behavior descended from
+   docs/design/roster-web-mockup.html, driven by the local server: the
+   state comes from GET /api/workspace, every action is POST /api/op with
+   the operation names of the roster package, and the server's workspace
+   in the response is the next render. No build step, no external
+   dependencies. */
 (function(){
   'use strict';
   var root = document.getElementById('rwe');
@@ -307,8 +308,9 @@
           '<span class="rw-aname">' + esc(a.id) + '</span>' +
           '<span class="rw-tag">' + esc(a.kind) + '</span>' +
           '<span class="rw-via">через ' + esc(a.agents.join(', ')) + '</span>' +
-          '<span class="rw-gap"></span>' + flagTr + flagCh +
+          '<span class="rw-gap"></span>' +
           '<button type="button" class="rw-rx" data-adel="' + esc(a.id) + '" aria-label="Удалить доступ" title="Удалить доступ из ростера">×</button></div>' +
+        '<div class="rw-card-flags">' + flagTr + flagCh + '</div>' +
         '<div class="rw-seg" role="group" aria-label="Бюджет ' + esc(a.id) + '">' + seg + '</div>' +
         '<div style="display:flex;flex-direction:column;gap:6px">' + modelsHtml + '</div>' +
         '<button type="button" class="rw-addm" data-mpick="' + esc(a.id) + '">+ модель из каталога</button>' +
@@ -324,16 +326,17 @@
       var routes = brief.routes || [];
       function items(list){
         return list.map(function(x){
-          return '<span class="rw-rri" title="' + esc(x.class || '') + '"><span class="rw-adot" style="background:' + dotColor(x.access) + '"></span>' +
-            esc(x.access + '/' + x.id + (x.effort ? '@' + x.effort : '')) + '</span>';
+          return '<span class="rw-rri"><span class="rw-adot" style="background:' + dotColor(x.access) + '"></span>' +
+            '<span class="rw-rref">' + esc(x.access + '/' + x.id + (x.effort ? '@' + x.effort : '')) + '</span>' +
+            '<span class="rw-rcls cls-t-' + esc(x.class || 'standard') + '">' + esc(x.class || 'standard') + '</span></span>';
         }).join('');
       }
       var body = items(routes);
       if (!routes.length) body = '<span class="rw-rnone">нет маршрутов</span>';
-      if (JUDGES[r]) body += ' <span class="rw-rnote">check-доступы не судят</span>';
+      if (JUDGES[r] && p.some(function(a){ return a.check; })) body += ' <span class="rw-rnote">check-доступы не судят</span>';
       return '<div class="rw-role2">' +
         '<span class="rw-rname">' + r + '</span>' +
-        '<select class="rw-sel rw-rreq" data-rolesel="' + r + '" aria-label="Требование роли ' + r + '">' +
+        '<select class="rw-sel rw-rreq" data-rolesel="' + r + '" aria-label="Требование роли ' + r + '" title="Минимальный класс маршрута, который закроет роль">' +
           CLASSES.map(function(c){ return '<option value="' + c + '"' + (req===c ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select>' +
         '<div class="rw-rroutes">' + body + '</div></div>';
     }).join('');

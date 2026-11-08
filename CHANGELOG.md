@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `docflow roster web` renders as a full page document — no window frame
+  or title bar; the closed file sheet no longer adds a horizontal
+  scrollbar.
+- `docflow roster web` access cards keep the delete button on the first
+  line with trusted/check on the second, and role routes show their
+  class, so a route above the role minimum reads as intended.
+
 ## [0.27.0] - 2026-11-07
 
 ### Added
