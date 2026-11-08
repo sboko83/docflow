@@ -856,4 +856,5 @@ completed` (код выхода раннер проверяет сам); оши�
 входа — `MISSING_CREDENTIAL` или `AUTH` (`Authentication Fails`) в
 `final.reason.error` и в stderr. `instructions` просят ставить `timeoutMs`
 долгим проверкам: shell-команда по умолчанию обрывается через 300 с.
-Квоты и стоимости в потоке нет.
+Квоты и стоимости в потоке нет
+([P060](../archive/P060-dsh-agent.md)).
