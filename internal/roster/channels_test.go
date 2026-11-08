@@ -40,7 +40,7 @@ func TestScanAuthPerChannel(t *testing.T) {
 // and the key prefix of the status line never reaches the catalog.
 func TestScanAuthCodexAPIKey(t *testing.T) {
 	_, bin := scanEnv(t)
-	installCommand(t, bin, "codex", "printf 'Logged in using an API key - sk-fixture***\\n'\n")
+	installCommand(t, bin, "codex", "printf 'Logged in using an API key - KEYPREFIX-fixture***\\n'\n")
 	catalog := BuiltinCatalog()
 	if problems := ScanAuth(catalog); len(problems) != 0 && !strings.Contains(strings.Join(problems, " "), "claude") {
 		t.Fatalf("ScanAuth() problems = %v", problems)
@@ -49,7 +49,7 @@ func TestScanAuthCodexAPIKey(t *testing.T) {
 	if codex.Kind != KindMetered || codex.Auth != AuthReady {
 		t.Fatalf("codex = %+v, want a ready metered access", codex)
 	}
-	if text := catalogJSON(t, catalog); strings.Contains(text, "sk-fixture") {
+	if text := catalogJSON(t, catalog); strings.Contains(text, "KEYPREFIX-fixture") {
 		t.Fatalf("catalog leaked the key prefix: %s", text)
 	}
 }
@@ -64,7 +64,7 @@ func TestScanKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := `{"opencode":{"models":[{"id":"deepseek-v4-flash"}]},"opencode-go":{"models":[{"id":"glm-5.3"}]},"zai":{"models":[{"id":"glm-5.3"}]},"acme":{"models":[{"id":"m1"}]}}`
-	config := `{"providers":{"strata":{"baseUrl":"http://192.168.1.100:8081/v1","apiKey":"secret-fixture","models":[{"id":"swift"}]},"cloud":{"baseUrl":"https://api.example.com/v1","models":[{"id":"c1"}]}}}`
+	config := `{"providers":{"strata":{"baseUrl":"http://[fd12:3456::64]:8081/v1","apiKey":"secret-fixture","models":[{"id":"swift"}]},"cloud":{"baseUrl":"https://api.example.com/v1","models":[{"id":"c1"}]}}}`
 	for name, text := range map[string]string{"models-store.json": store, "models.json": config} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
 			t.Fatal(err)
@@ -83,7 +83,7 @@ func TestScanKinds(t *testing.T) {
 	if model := findModel(t, catalog, "strata", "swift"); !reflect.DeepEqual(model.Agents, []string{"pi"}) {
 		t.Fatalf("strata/swift agents = %v, want the pi channel", model.Agents)
 	}
-	if text := catalogJSON(t, catalog); strings.Contains(text, "192.168.1.100") || strings.Contains(text, "secret-fixture") {
+	if text := catalogJSON(t, catalog); strings.Contains(text, "fd12:3456::64") || strings.Contains(text, "secret-fixture") {
 		t.Fatalf("catalog stored the base URL or the key: %s", text)
 	}
 	if AccessTitle("opencode") != "OpenCode Zen" || AccessTitle("opencode-go") != "OpenCode Go" || AccessTitle("acme") != "" {
@@ -95,8 +95,8 @@ func TestLocalBaseURL(t *testing.T) {
 	for raw, want := range map[string]bool{
 		"http://127.0.0.1:8080/v1":    true,
 		"http://localhost:11434":      true,
-		"http://192.168.1.72:8080":    true,
-		"http://10.0.0.5/v1":          true,
+		"http://[fd00::48]:8080":      true,
+		"http://169.254.10.5/v1":      true,
 		"http://strata:8081/v1":       true,
 		"http://box.local:8080":       true,
 		"http://[::1]:8080":           true,
