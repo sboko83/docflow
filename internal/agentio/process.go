@@ -72,7 +72,7 @@ type CallOptions struct {
 	// OnActivity receives normalized observations of stdout and stderr lines
 	// with offsets into the original bytes. Nil keeps the call's previous
 	// behavior; the runner sets it only for an interactive run. Stream names
-	// the profile's decoder ("codex", "claude", "pi", "opencode").
+	// the profile's decoder ("codex", "claude", "pi", "opencode", "dsh").
 	OnActivity func(Activity)
 	Stream     string
 	// A nil Env inherits the environment; an empty slice supplies no variables.

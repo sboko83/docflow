@@ -97,6 +97,7 @@ headless-профиль): блок `[agents.dsh]` в `DefaultAgents`, парсе
 - Спайк: usage — у status step_end есть usage{inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,totalTokens} на шаг; cost и квоты нет. Парсер суммирует шаги: tokens = input+cacheRead+cacheWrite, output_tokens = output; cost/quota в профиль не идут.
 - Спайк: модель — флага модели у headless нет, модель задаёт профиль (agent-default-model: provider deepseek-account, model deepseek-flash); в событиях и сессии имя модели не пишется. Профиль без model_args/effort_args; модель в маршруте плана — пометка, не аргумент. Совпадение deepseek-flash подписки с opencode-go/deepseek-v4.1-flash проверить нельзя.
 - Спайк: права — workspace-write на Windows: запись в .git обычного клона проходит, но запись вне cwd запрещена (кэш go-build → go test падает 'Access is denied'), HTTPS из песочницы падает (schannel SEC_E_NO_CREDENTIALS), коммит из linked worktree падает на .git/worktrees/*/index.lock; --add-dir на Windows ломает каждый shell-вызов ('Windows ACL confinement does not support additional writable directories'). Эскалация в headless невозможна: ask не зависает, а отказывает 'no approval channel is available' — ask и never равны. danger-full-access коммитит из worktree. Решение для P060.2.2: auto и full → --permission-mode danger-full-access --approval-policy never (как opencode, где auto=full); отвергнут workspace-write — без эскалации агент не может выполнить docflow verify в Go-репо и не коммитит в worktree, а перенос GOCACHE в дерево пачкает рабочее дерево.
+- Неизвестный тип события dsh в живой строке показывается своим именем (как у codex), в истории активности — unknown с сырой строкой; DshSilent — session, status, thinking, tool_result, final, error — по замеру спайка: это не действия агента.
 
 ## Phase 1: Эмпирика
 
@@ -160,7 +161,7 @@ Handoff:
 
 ## Phase 2: Парсер и конфиг
 
-### [ ] P060.2.1 Парсер stream dsh
+### [x] P060.2.1 Парсер stream dsh
 Read:
 - internal/agentio/output.go:L530-575
 - internal/agentio/activity.go:L130-200
@@ -185,6 +186,11 @@ Traps: парсер не падает на error-без-final, null-`reason` и 
 Depends: P060.1.1
 Role: heavy
 Commit: P060.2.1: parse dsh event stream
+Handoff:
+- Декодер DshOutput (output.go) отдаёт session, text, usage{input,output,cache_read,cache_write,total} (сумма step_end), is_error, error и error_code (код из final.reason.error, например AUTH, MISSING_CREDENTIAL). Пути профиля: result/text json:text, session json:session, error json:is_error, tokens json:usage.input/cache_read/cache_write, output_tokens json:usage.output.
+- Тесты dsh в internal/agentio/dsh_test.go идут через локальный dshAgent() — когда P060.2.2 добавит профиль, заменить его на profile(t, "dsh"), чтобы тесты держали json-пути профиля.
+- Отказы dsh идут общим путём refusal.go (regex limit/auth профиля по FailureText: final.text + error + stderr при exit≠0); отдельной ветки классификатора нет — лимитный ответ dsh не снят.
+- Liveness: tool_call держит вызов живым, пока нет tool_result; поэтому молчание во время долгой команды не будит idle-watchdog.
 
 ### [ ] P060.2.2 Блок agents.dsh в DefaultAgents
 Read:

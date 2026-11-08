@@ -162,6 +162,8 @@ func (p *ActivityParser) Feed(stream, text string, ref ActivityRef) []Activity {
 		out = p.pi(obj, ref, text)
 	case "opencode":
 		out = p.opencode(obj, ref, text)
+	case "dsh":
+		out = p.dsh(obj, ref, text)
 	default:
 		out = []Activity{{Kind: ActivityKindUnknown, State: ActivityStateUnknown, Raw: clipActivity(text), Ref: ref}}
 	}
@@ -752,6 +754,37 @@ func (p *ActivityParser) opencode(obj map[string]any, ref ActivityRef, raw strin
 	case "error":
 		message := str(table(obj["error"])["message"])
 		return []Activity{{Kind: ActivityKindUnknown, State: ActivityStateFailed, Text: clipActivity(message), Raw: clipActivity(raw), Ref: ref}}
+	}
+	return p.unknown(raw, ref)
+}
+
+// dsh reads `dsh headless --json`: text and thinking events are complete
+// messages, tool_call and tool_result pair by callId, a status step_end
+// carries the step's usage. final repeats the last text and closes nothing.
+func (p *ActivityParser) dsh(obj map[string]any, ref ActivityRef, raw string) []Activity {
+	switch str(obj["type"]) {
+	case "text":
+		return p.message("dsh:assistant", "assistant", str(obj["text"]), true, ref)
+	case "thinking":
+		return p.message("dsh:thinking", "reasoning", str(obj["text"]), true, ref)
+	case "tool_call":
+		input := table(obj["input"])
+		return p.toolStart(str(obj["tool"]), str(obj["callId"]), str(input["command"]), input, ref)
+	case "tool_result":
+		state := ActivityStateSucceeded
+		if str(obj["status"]) != "completed" {
+			state = ActivityStateFailed
+		}
+		return p.toolEnd(str(obj["tool"]), str(obj["callId"]), blockText(obj["result"]), state, nil, ref)
+	case "status":
+		if usage := table(obj["usage"]); usage != nil {
+			return p.usage(dshUsage(usage), nil, ref)
+		}
+		return nil
+	case "session", "final":
+		return nil
+	case "error":
+		return []Activity{{Kind: ActivityKindUnknown, State: ActivityStateFailed, Text: clipActivity(str(obj["message"])), Raw: clipActivity(raw), Ref: ref}}
 	}
 	return p.unknown(raw, ref)
 }

@@ -166,7 +166,7 @@ var quotaModes = []string{QuotaUsed, QuotaLeft}
 var Tiers = []string{"fast", "default", "strong", "max"}
 var tierKeys = []string{"agent", "model", "effort"}
 var displayKeys = []string{"quota", "resets"}
-var Streams = []string{"", "claude", "codex", "pi", "opencode"}
+var Streams = []string{"", "claude", "codex", "pi", "opencode", "dsh"}
 var PlaceholderRE = regexp.MustCompile(`\{(prompt|model|effort|model_variant|schema|schema_file|session)\}`)
 
 const schemaJSON = `{"type":"object","properties":{"status":{"enum":["done","blocked"]},"handoff":{"type":"array","items":{"type":"string"}},"decisions":{"type":"array","items":{"type":"string"}},"unverified":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"blocker":{"enum":["","plan","human"]}},"required":["status","handoff","decisions","unverified","reason","blocker"],"additionalProperties":false}`

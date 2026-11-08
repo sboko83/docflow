@@ -13,6 +13,11 @@ var JSONBlockRE = regexp.MustCompile("(?s)```json[ \\t]*\\n(.*?)\\n[ \\t]*```")
 
 var CodexSilent = []string{"agent_message", "reasoning", "error"}
 
+// DshSilent lists the dsh event types that are no activity of their own:
+// bookkeeping (session, status), thinking, a tool's result (its call already
+// showed), and the closing final and error events.
+var DshSilent = []string{"session", "status", "thinking", "tool_result", "final", "error"}
+
 func ParseJSON(text string) any {
 	var value any
 	if json.Unmarshal([]byte(strings.TrimSpace(text)), &value) == nil {
@@ -181,9 +186,83 @@ func OpencodeOutput(stdout string) map[string]any {
 	return out
 }
 
+// DshOutput folds the NDJSON events of `dsh headless --json` into the
+// profile's json: paths. The final event carries the answer, the session and
+// the reason; success needs final.reason.kind "completed" (the runner checks
+// the exit code on its own). A run without final failed: a launch error
+// arrives as a lone error event, a killed process writes nothing more.
+// status step_end events carry per-step usage to sum; a truncated event is
+// still valid JSON and decodes like any other.
+func DshOutput(stdout string) map[string]any {
+	out := map[string]any{"session": nil, "text": nil, "usage": nil, "is_error": true, "error": nil}
+	for _, line := range strings.Split(stdout, "\n") {
+		obj := ParseLine(line)
+		if obj == nil {
+			continue
+		}
+		if id := str(obj["sessionId"]); id != "" {
+			out["session"] = id
+		}
+		switch obj["type"] {
+		case "text":
+			out["text"] = str(obj["text"])
+		case "status":
+			if usage := table(obj["usage"]); usage != nil {
+				out["usage"] = AddNumbers(table(out["usage"]), dshUsage(usage))
+			}
+		case "final":
+			if text := str(obj["text"]); text != "" {
+				out["text"] = text
+			}
+			reason := table(obj["reason"])
+			kind := str(reason["kind"])
+			out["is_error"] = kind != "completed"
+			out["error"] = nil
+			if failure := table(reason["error"]); failure != nil {
+				out["error"] = str(failure["message"])
+				if code := str(failure["code"]); code != "" {
+					out["error_code"] = code
+				}
+			} else if kind == "" {
+				out["error"] = "dsh final event without a reason"
+			} else if kind != "completed" {
+				out["error"] = "dsh run ended: " + kind
+			}
+		case "error":
+			out["is_error"] = true
+			out["error"] = str(obj["message"])
+		}
+	}
+	return out
+}
+
+// dshUsage renames the token counts of a dsh step to the keys the other
+// decoders use.
+func dshUsage(usage map[string]any) map[string]any {
+	return map[string]any{
+		"input": usage["inputTokens"], "output": usage["outputTokens"],
+		"cache_read": usage["cacheReadTokens"], "cache_write": usage["cacheWriteTokens"],
+		"total": usage["totalTokens"],
+	}
+}
+
+// dshToolDetail is the argument a dsh tool call is shown by: the command of
+// pwsh/bash, the path of a file tool, the pattern of a search.
+func dshToolDetail(input map[string]any) string {
+	for _, key := range []string{"command", "file_path", "pattern", "path", "url"} {
+		if value := str(input[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func AgentOutput(agent map[string]any, stdout string) any {
 	if agent["stream"] == "pi" {
 		return PiOutput(stdout)
+	}
+	if agent["stream"] == "dsh" {
+		return DshOutput(stdout)
 	}
 	if agent["stream"] == "claude" {
 		// Claude Code 2.1+ writes system events (task_summary) after the result.
@@ -228,7 +307,8 @@ func AgentOutput(agent map[string]any, stdout string) any {
 // CallSession recovers the session id of a call that never wrote the line the
 // decoders read it from: every stream states the id early -- claude in the
 // system init, codex in thread.started, pi in its session line, opencode in the
-// sessionID of its first event. The runner needs it to checkpoint a call Pause
+// sessionID of its first event, dsh in the sessionId of its session event. The
+// runner needs it to checkpoint a call Pause
 // canceled, so the next run resumes the same session.
 func CallSession(agent map[string]any, stdout string) string {
 	spec := str(agent["session"])
@@ -245,6 +325,8 @@ func CallSession(agent map[string]any, stdout string) string {
 			}
 		case "opencode":
 			value = str(obj["sessionID"])
+		case "dsh":
+			value = str(obj["sessionId"])
 		default:
 			value = str(JSONPath(obj, spec))
 		}
@@ -397,6 +479,32 @@ func StreamEvent(agent map[string]any, value any) map[string]any {
 			return nil
 		}
 		return map[string]any{"assistant_text": text.String()}
+	}
+	if agent["stream"] == "dsh" {
+		switch kind {
+		case "text":
+			if text := str(obj["text"]); text != "" {
+				return map[string]any{"assistant_text": text}
+			}
+			return nil
+		case "tool_call":
+			activity := strings.TrimRight(str(obj["tool"])+" "+Clip(dshToolDetail(table(obj["input"])), 60), " ")
+			if activity != "" {
+				return map[string]any{"activity": activity}
+			}
+			return nil
+		}
+		what := str(kind)
+		if what == "" {
+			return nil
+		}
+		for _, silent := range DshSilent {
+			if what == silent {
+				return nil
+			}
+		}
+		// An event type this decoder does not know still shows up.
+		return map[string]any{"activity": what}
 	}
 	if agent["stream"] == "opencode" {
 		part := table(obj["part"])
@@ -557,6 +665,11 @@ func reasoningBlock(agent map[string]any, item map[string]any) string {
 	case "opencode":
 		if kind == "reasoning" {
 			return str(table(item["part"])["text"])
+		}
+		return ""
+	case "dsh":
+		if kind == "thinking" {
+			return str(item["text"])
 		}
 		return ""
 	case "pi", "claude":

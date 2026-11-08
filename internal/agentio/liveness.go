@@ -7,7 +7,7 @@ import (
 
 // Liveness tracks what the agent's stdout says about progress: the time of
 // the last line, the number of turns, and the tools in flight. The stream
-// name ("claude", "codex", "pi" or "opencode" from the agent profile) decides
+// name ("claude", "codex", "pi", "opencode" or "dsh" from the agent profile) decides
 // which event shapes count as a turn and as a tool start or end. A nil stream
 // or an unknown one still tracks line times; turns and tools stay empty.
 type Liveness struct {
@@ -72,6 +72,29 @@ func (l *Liveness) Observe(line string) {
 		l.observePi(obj)
 	case "opencode":
 		l.observeOpencode(obj)
+	case "dsh":
+		l.observeDsh(obj)
+	}
+}
+
+// observeDsh handles dsh headless: a status step_start is one model turn;
+// tool_call and tool_result pair by callId. The stream is silent while a
+// command runs, so the call in flight is what keeps it alive.
+func (l *Liveness) observeDsh(obj map[string]any) {
+	switch str(obj["type"]) {
+	case "status":
+		switch str(obj["phase"]) {
+		case "step_start":
+			l.beginTurn()
+		case "step_end":
+			clear(l.tools)
+		}
+	case "tool_call":
+		if id := str(obj["callId"]); id != "" {
+			l.tools[id] = time.Now()
+		}
+	case "tool_result":
+		delete(l.tools, str(obj["callId"]))
 	}
 }
 
