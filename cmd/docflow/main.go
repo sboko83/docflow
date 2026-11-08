@@ -27,7 +27,7 @@ import (
 	tuiterm "bsv-docflow/internal/tui"
 )
 
-var version = "0.28.0"
+var version = "0.28.1"
 
 var currentExecutable = os.Executable
 

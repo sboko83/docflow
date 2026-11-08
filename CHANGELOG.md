@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-08
+
 ### Fixed
 - `roster scan` treats an OpenCode provider with `activation: auto` (a
   stored OpenCode Go login) as ready; only `disabled` is off.
@@ -811,7 +813,8 @@ First public release.
   Releases with sha256 verification; `docflow update` and
   `docflow uninstall`.
 
-[Unreleased]: https://github.com/sboko83/docflow/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/sboko83/docflow/compare/v0.28.1...HEAD
+[0.28.1]: https://github.com/sboko83/docflow/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/sboko83/docflow/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/sboko83/docflow/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/sboko83/docflow/compare/v0.25.0...v0.26.0
