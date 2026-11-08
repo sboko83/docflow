@@ -2,7 +2,7 @@
 id: P060
 title: dsh agent in the runner
 type: feature
-status: draft
+status: active
 created: 2026-11-08
 permissions: auto
 gate: go test -short -timeout 20m ./...
@@ -40,17 +40,22 @@ headless-профиль): блок `[agents.dsh]` в `DefaultAgents`, парсе
   успех = exit 0 **и** `final.reason.kind === 'completed'`; строки/объекты
   капятся 8 KiB, строка события 32 KiB, флаг `truncated`; schema-флага нет;
   задача принимается через stdin (`-`).
-- Среда dsh: Node; авторизация — логин DeepSeek-подписки в dsh (каналы
-  по умолчанию: аккаунт-платформа, документ кредов `~/.dsh/.credentials.yaml`,
-  env `DEEPSEEK_API_KEY`); Windows проверяется отдельно в фазе 3.
+- Среда dsh: Node; Windows проверяется отдельно в фазе 3.
+- Авторизация (проверено на dsh 0.2.2-rc.1): бандл `dsh-headless`
+  выключает `authorization`, `deepseek-account` и `credentials`, а
+  модель по умолчанию идёт маршрутом `deepseek-official`, которому нужен
+  только env `DEEPSEEK_API_KEY`. Подписка работает через патч профиля
+  `$DSH_HOME/profiles/headless/cordis.patch.yml`: эти три entry с
+  `disabled: false` и `agent-default-model` с `provider: deepseek-account`.
+  Ключ opencode-go этому маршруту не подходит.
 
 ## Prerequisites
 
 - Node и npm на машине прогона: `node --version`
 - dsh установлен (`npm i -g @deepseek-ai/dsh`): `dsh --version`
 - dsh авторизован в DeepSeek-подписке: логин аккаунт-платформы выполнен
-  человеком; запасной канал — ключ из opencode-go в
-  `~/.dsh/.credentials.yaml`; значение в план не пишется:
+  человеком (в web-профиле), профиль headless пропатчен на
+  `deepseek-account` (см. Constraints):
   `dsh headless "Ответь одним словом: ок"`
 
 ## Traps
@@ -106,8 +111,9 @@ Do:
   нужен ли `--add-dir` и в каком виде.
 - Выяснить: есть ли usage/tokens в событиях; как выбирается модель
   (флаг, preset, adapter) и какая модель подписки отвечает — сравнить с
-  opencode-go/deepseek-v4.1-flash; какой канал авторизации используется
-  реально (аккаунт-платформа dsh, `~/.dsh/.credentials.yaml`, env).
+  opencode-go/deepseek-v4.1-flash; подтвердить канал авторизации
+  `deepseek-account` из патча профиля (см. Constraints) и что `cmd`
+  агента не требует `--patch`.
 - Обезличить транскрипты и положить в
   `internal/agentio/testdata/dsh.jsonl` и
   `internal/agentio/testdata/dsh-error.jsonl`.
