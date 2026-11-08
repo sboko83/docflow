@@ -88,10 +88,19 @@ headless-профиль): блок `[agents.dsh]` в `DefaultAgents`, парсе
 - Квота и токены вне первой версии: квота-команды в CLI-доке dsh не видно,
   ключи опциональны (pi живёт без quota); вернётся отдельным юнитом, если
   спайк найдёт usage в событиях.
+- Спайк: версия — dsh 0.2.2-rc.1 (npm @deepseek-ai/dsh), Node 24, Windows 11; фикстуры internal/agentio/testdata/dsh*.jsonl сняты на ней.
+- Спайк: авторизация — happy path без DEEPSEEK_API_KEY в env проходит через маршрут deepseek-account (stderr: [llm-deepseek-account]); патч профиля headless применяется сам, cmd агента без --patch. Пустой DSH_HOME даёт final.reason.kind=error, code MISSING_CREDENTIAL; неверный ключ — code AUTH, status 401, текст 'Authentication Fails'. Оба — exit 1 и строка 'dsh: <CODE>: …' в stderr: regex auth профиля — 'MISSING_CREDENTIAL|Authentication Fails|AUTH:'.
+- Спайк: поток — session(sessionId,cwd), status(phase turn_start|step_start|step_end|turn_end; step_end несёт usage, turn_end — reason), thinking(text, бывает пустым), text, tool_call(callId,tool,input), tool_result(callId,status completed|error,result,truncated?), final(sessionId,reason,text). Успех — exit 0 и final.reason.kind=completed; ошибка запуска (неизвестный флаг, чужой --session-id, неизвестный preset) — одно событие error{message} без session и final, exit 1. final.reason=completed бывает и при невыполненной задаче — решает result JSON в final.text.
+- Спайк: усечение — tool_result с выводом >8 KiB приходит строкой 8656 байт с truncated:true; JSON валиден, парсеру достаточно не требовать полноты result.
+- Спайк: resume — --session-id <sessionId из события session> продолжает ту же сессию (turn 2, тот же sessionId); чужой id — событие error, exit 1. resume_args = ['--session-id', '{session}'].
+- Спайк: живость — во время команды поток молчит полностью (sleep 90: 91 с между tool_call и tool_result). Таймаут команды pwsh по умолчанию 300 с, агент сам ставит timeoutMs (выбирал 180000/300000); тишина ограничена длиной одной команды, idle_timeout = стандартные 1200, instructions просят timeoutMs выше ожидаемой длительности долгих проверок.
+- Спайк: usage — у status step_end есть usage{inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,totalTokens} на шаг; cost и квоты нет. Парсер суммирует шаги: tokens = input+cacheRead+cacheWrite, output_tokens = output; cost/quota в профиль не идут.
+- Спайк: модель — флага модели у headless нет, модель задаёт профиль (agent-default-model: provider deepseek-account, model deepseek-flash); в событиях и сессии имя модели не пишется. Профиль без model_args/effort_args; модель в маршруте плана — пометка, не аргумент. Совпадение deepseek-flash подписки с opencode-go/deepseek-v4.1-flash проверить нельзя.
+- Спайк: права — workspace-write на Windows: запись в .git обычного клона проходит, но запись вне cwd запрещена (кэш go-build → go test падает 'Access is denied'), HTTPS из песочницы падает (schannel SEC_E_NO_CREDENTIALS), коммит из linked worktree падает на .git/worktrees/*/index.lock; --add-dir на Windows ломает каждый shell-вызов ('Windows ACL confinement does not support additional writable directories'). Эскалация в headless невозможна: ask не зависает, а отказывает 'no approval channel is available' — ask и never равны. danger-full-access коммитит из worktree. Решение для P060.2.2: auto и full → --permission-mode danger-full-access --approval-policy never (как opencode, где auto=full); отвергнут workspace-write — без эскалации агент не может выполнить docflow verify в Go-репо и не коммитит в worktree, а перенос GOCACHE в дерево пачкает рабочее дерево.
 
 ## Phase 1: Эмпирика
 
-### [ ] P060.1.1 Спайк dsh headless
+### [x] P060.1.1 Спайк dsh headless
 Read:
 - internal/agents/agents.go:L40-170
 - internal/agentio/output.go:L85-250
@@ -126,6 +135,10 @@ Traps: в транскриптах не должно остаться значе
 Depends: -
 Role: heavy
 Commit: P060.1.1: capture dsh headless fixtures
+Handoff:
+- Фикстуры: dsh.jsonl (happy, final.text с fenced result JSON), dsh-error.jsonl (только error, exit 1), dsh-auth.jsonl (final.reason.kind=error, code AUTH, exit 1), dsh-truncated.jsonl (tool_result truncated:true, строка 8656 байт). Пути обезличены в C:\work\<dir>.
+- У dsh нет флагов модели и усилия: блок без model_args/effort_args; instructions нужны только если auto остаётся песочницей — по решению спайка auto=full=danger-full-access, instructions пустые.
+- Limit-regex по живому отказу не снят (лимит подписки не воспроизвести); брать 'rate limit|429|RATE_LIMIT|quota' как предположение.
 
 ### [ ] P060.1.2 Review phase 1
 Read:
