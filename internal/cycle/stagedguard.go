@@ -15,9 +15,11 @@ import (
 )
 
 // commit stages the whole tree, so whatever an agent left outside .gitignore
-// would land in the unit's commit. Newly added files that look like secrets or
-// are large binaries, and added lines that contain a token, stop the commit with EXIT_ORDER and a list; the index is
-// reset so the tree fingerprint still matches and the human can delete, ignore or allow them.
+// would land in the unit's commit. Newly added files that look like secrets,
+// are large binaries or are agent session transcripts, and added lines that
+// contain a token, stop the commit with EXIT_ORDER and a list; the index is
+// reset so the tree fingerprint still matches and the human can delete, ignore
+// or allow them.
 
 // AllowStagedEnv set to a non-empty value turns the guard off for one run.
 const AllowStagedEnv = "DOCFLOW_ALLOW_STAGED"
@@ -47,6 +49,29 @@ func secretReason(name string) string {
 		return "secret file name"
 	case secretExts[path.Ext(base)]:
 		return "key or certificate"
+	}
+	return ""
+}
+
+// TranscriptMarker is a phrase of the unit prompt's cycle instructions, both
+// the interactive and the runner one. A newly added file that contains it is a
+// transcript or export of an agent session (the prompt the agent was given),
+// not the unit's work: a pilot unit committed such an HTML export through
+// `git add -A`. The phrase holds no character that HTML, JSON or Markdown
+// rendering escapes, so it survives in text, HTML and JSON exports. The unit
+// prompt is clean-tree only at `[ ]` -> `[~]`, so a snapshot of untracked paths
+// at that moment is always empty: such files arrive while the unit is `[~]`.
+const TranscriptMarker = "says, no less and no more"
+
+// transcriptReason reports whether a newly added file contains the unit
+// prompt. Whitespace runs are collapsed, so a rewrapped export still matches.
+func transcriptReason(path string) string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	if strings.Contains(strings.Join(strings.Fields(string(content)), " "), TranscriptMarker) {
+		return "agent session transcript"
 	}
 	return ""
 }
@@ -133,8 +158,11 @@ func guardStaged(root string) error {
 			reason = tokens[name]
 		}
 		if reason == "" {
-			if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err == nil && info.Size() > maxAddedBytes {
+			full := filepath.Join(root, filepath.FromSlash(name))
+			if info, err := os.Stat(full); err == nil && info.Size() > maxAddedBytes {
 				reason = fmt.Sprintf("%d MiB", info.Size()>>20)
+			} else if err == nil && info.Mode().IsRegular() {
+				reason = transcriptReason(full)
 			}
 		}
 		if reason != "" {
@@ -156,7 +184,7 @@ func guardStaged(root string) error {
 	}
 	return clierrors.DocflowError{
 		Code: clierrors.EXIT_ORDER,
-		Message: "commit refused: new files or lines look like secrets or large binaries:\n" + strings.Join(lines, "\n") +
+		Message: "commit refused: new files or lines look like secrets, large binaries or agent session transcripts:\n" + strings.Join(lines, "\n") +
 			"\ndelete them, add to .gitignore, or set " + AllowStagedEnv + "=1 to commit anyway",
 	}
 }

@@ -1,6 +1,8 @@
 package cycle
 
 import (
+	"encoding/json"
+	"html"
 	"os"
 	"path/filepath"
 	"sort"
@@ -355,6 +357,87 @@ func TestCommitRefusesTokenInContent(t *testing.T) {
 	t.Setenv(AllowStagedEnv, "1")
 	if result, err := Commit(root, "P001.1.1", nil); err != nil || result.Code != 0 {
 		t.Fatalf("Commit() with allow = %#v, %v", result, err)
+	}
+}
+
+// TestCommitRefusesAgentSessionTranscript reproduces the pilot: an HTML export
+// of an agent session was in the tree while a unit ran, and `git add -A` put it
+// into the unit's commit. A snapshot of untracked paths at the unit's start
+// would not help: `prompt` refuses to start a unit on a dirty tree, so the
+// export arrives later. The commit refuses the export and keeps the unit's
+// own new files for the commit that follows its removal.
+func TestCommitRefusesAgentSessionTranscript(t *testing.T) {
+	root := makeCommitProject(t, commitPlan(" "), map[string]string{"a.py": "print(1)\n"})
+	const export = "session-export.html"
+	writeCycleFile(t, root, export, "<html></html>\n")
+	if result, err := Prompt(root, "P001.1.1", nil); err != nil || result.Code != 5 || !strings.Contains(result.Stderr, "?? "+export) {
+		t.Fatalf("Prompt() on a tree with an untracked export = %#v, %v", result, err)
+	}
+	if err := os.Remove(filepath.Join(root, export)); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := Prompt(root, "P001.1.1", nil)
+	if err != nil || prompt.Code != 0 {
+		t.Fatalf("Prompt() = %#v, %v", prompt, err)
+	}
+	rendered := strings.ReplaceAll(html.EscapeString(prompt.Stdout), "`Do:`", "<code>Do:</code>")
+	writeCycleFile(t, root, export, "<html><body><div class=\"user\">"+strings.ReplaceAll(rendered, "\n", "<br>\n")+"</div></body></html>\n")
+	writeCycleFile(t, root, "a.py", "print(2)\n")
+	writeCycleFile(t, root, "b.py", "print(3)\n")
+	verifyAndDoneCommitUnit(t, root, nil)
+	before := gitCycle(t, root, "rev-parse", "HEAD")
+	result, err := Commit(root, "P001.1.1", nil)
+	if err == nil || !strings.Contains(err.Error(), "  "+export+" (agent session transcript)") || strings.Contains(err.Error(), "b.py") {
+		t.Fatalf("Commit() = %#v, %v", result, err)
+	}
+	if errorExitCode(err) != 5 {
+		t.Fatalf("exit code = %d", errorExitCode(err))
+	}
+	if got := gitCycle(t, root, "rev-parse", "HEAD"); got != before {
+		t.Fatalf("HEAD moved to %s", got)
+	}
+	if got := gitCycle(t, root, "diff", "--cached", "--name-only"); got != "" {
+		t.Fatalf("index not reset: %q", got)
+	}
+	if err := os.Remove(filepath.Join(root, export)); err != nil {
+		t.Fatal(err)
+	}
+	finished, err := Finish(root, "P001.1.1", nil, nil, nil, nil, nil)
+	if err != nil || finished.Code != 0 {
+		t.Fatalf("Finish() after removing the export = %#v, %v", finished, err)
+	}
+	files := strings.Fields(gitCycle(t, root, "show", "--name-only", "--format=", "HEAD"))
+	sort.Strings(files)
+	if want := []string{"a.py", "b.py", commitPlanPath}; !equalStrings(files, want) {
+		t.Fatalf("committed files = %v, want %v", files, want)
+	}
+}
+
+func TestTranscriptReason(t *testing.T) {
+	if !strings.Contains(strings.Join(strings.Fields(cycleText), " "), TranscriptMarker) {
+		t.Fatalf("cycleText lost the transcript marker %q", TranscriptMarker)
+	}
+	jsonText, err := json.Marshal(map[string]string{"text": strings.ReplaceAll(cycleText, "{id}", "P001.1.1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"export.json":   string(jsonText),
+		"rewrapped.txt": "1. Do exactly what Do: says,\n   no less  and no more.\n",
+		"code.py":       "print('no less and no more')\n",
+	} {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if name != "code.py" {
+			want = "agent session transcript"
+		}
+		if got := transcriptReason(path); got != want {
+			t.Errorf("transcriptReason(%s) = %q, want %q", name, got, want)
+		}
 	}
 }
 

@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   named on an `Omitted for size:` line. In a chain A → B → C the prompt
   of C now carries what A passed on. The runner also drops a result's
   `unverified` item that repeats one open on such a unit.
+- `docflow commit` also refuses a new file that holds the unit prompt: a
+  transcript or export of an agent session (a pilot unit committed an HTML
+  session export through `git add -A`). It is listed with the other refused
+  files; delete it, add it to `.gitignore`, or set `DOCFLOW_ALLOW_STAGED=1`.
 
 ## [0.29.0] - 2026-11-09
 
