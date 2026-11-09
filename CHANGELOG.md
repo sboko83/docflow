@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `docflow status --hook claude` guards interactive unit commits through
+  Claude Code PreToolUse hooks for Bash and PowerShell.
+- The benchmark replays closed plans from local Git snapshots with hidden
+  closing-commit tests; `--backlog` also measures planning from the original
+  task, and `--oracle-command` supports other project test commands.
 - `tools/pilot-summary.py` aggregates private pilot ZIPs across projects,
   reports measurement coverage and preserves missing data as unknown.
   Optional local Pi logs and stats add model/tool durations and context

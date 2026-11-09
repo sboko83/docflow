@@ -21,7 +21,7 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | Команда | Что делает |
 |---|---|
 | `init [--agent {claude,codex,pi,opencode,dsh}] [--skills]` | `docs/docflow.md`, `plans/`, `archive/`, строка в AGENTS.md; `--skills` — ещё копии скиллов в каталоге проекта выбранного агента; default `claude` |
-| `status` | очередь, текущий план, прогресс; при блоке — класс (`needs human` / `needs plan`) и для человека строка `unblock:` с командой |
+| `status [--hook claude]` | очередь, текущий план, прогресс; при блоке — класс (`needs human` / `needs plan`) и для человека строка `unblock:` с командой; `--hook` проверяет PreToolUse JSON из stdin вместо печати статуса ([цикл](cycle.md#интерактивный-hook)) |
 | `next` | id следующего доступного юнита |
 | `prompt`, `verify`, `done`, `commit`, `finish`, `block [--needs human\|plan]`, `unblock [--note NOTE]` | цикл юнита, см. [«Цикл юнита»](cycle.md#цикл-юнита) |
 | `stats [--runs] [Pxxx]` | расход токенов по юнитам, см. [«Учёт токенов»](cycle.md#учёт-токенов) |

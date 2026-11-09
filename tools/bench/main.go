@@ -74,15 +74,31 @@ func validateCommand(args []string, out io.Writer) error {
 	baseDir := flags.String("base", "bench/base", "base project directory")
 	rosterPath := flags.String("roster", "bench/roster.toml", "benchmark roster")
 	noSolution := flags.Bool("no-solution", false, "skip solution validation")
+	var replay replayOptions
+	replay.flags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *task == "" {
 		return fmt.Errorf("usage: bench validate --task NAME|all [--tasks DIR] [--base DIR] [--roster PATH] [--no-solution]")
 	}
+	if err := replay.check(); err != nil {
+		return err
+	}
 	root, err := repoRoot()
 	if err != nil {
 		return err
+	}
+	if replay.repo != "" {
+		if *task == "all" || *noSolution {
+			return fmt.Errorf("replay validation requires one task and its solution")
+		}
+		dest, err := os.MkdirTemp("", "docflow-replay-validate-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(dest)
+		return validateReplay(root, dest, *task, replay, out)
 	}
 	base := resolve(root, *baseDir)
 	roster := resolve(root, *rosterPath)

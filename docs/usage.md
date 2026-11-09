@@ -302,6 +302,32 @@ docflow, попытки, провалы проверки, replan, блоки, п
 (без префикса `Pxxx`) за 7 дней после коммита юнита правят или удаляют его
 строки (при `repos:` — и во вложенных репо); `--json` — `{"units": [...]}`.
 
+### Hook Claude Code
+
+Для интерактивной работы добавьте в существующий объект `hooks` настроек
+Claude Code обработчик `PreToolUse` (сохраните остальные обработчики):
+
+```json
+{
+  "PreToolUse": [
+    {
+      "matcher": "Bash|PowerShell",
+      "hooks": [
+        { "type": "command", "command": "docflow status --hook claude" }
+      ]
+    }
+  ]
+}
+```
+
+В checkout docflow используйте `docflow-dev` вместо `docflow`. Hook читает
+событие из stdin, находит проект по `cwd` и запрещает прямой `git commit`,
+если активный юнит ещё не завершён. Завершайте его через `docflow finish`;
+после отдельного `done` — через `docflow commit`. Прочие разрешения агента
+сохраняются. Границы распознавания —
+[в описании цикла](design/cycle.md#интерактивный-hook), контракт события и
+места настройки — [в документации Claude Code](https://code.claude.com/docs/en/hooks).
+
 ## Автозапуск
 
 ```
@@ -684,6 +710,19 @@ go run ./tools/bench report                  # таблица тренда из 
 Прогон вызывает модели и расходует квоту; `large` идёт несколько часов.
 Каждый прогон записывается и коммитится в `bench/results/`; `--results DIR`
 у `run` и `report` выбирает другой каталог внутри checkout.
+
+Закрытый план можно воспроизвести из другого локального репозитория:
+
+```sh
+go run ./tools/bench validate --task project-cache --replay /path/to/project --from BEFORE --to CLOSED --plan docs/plans/P012-cache.md
+go run ./tools/bench run --task project-cache --replay /path/to/project --from BEFORE --to CLOSED --plan docs/plans/P012-cache.md --dry-run
+```
+
+Уберите `--dry-run`, чтобы запустить агентов. `--backlog 1` берёт первый
+пункт Backlog из `BEFORE` и включает построение нового плана в ветку
+docflow. `--oracle-command './gradlew test'` задаёт проверку проекта вместо
+`go test ./...`. Подготовка, границы и оценка —
+[replay закрытых планов](design/bench.md#replay-закрытых-планов).
 
 ## Блок и replan
 

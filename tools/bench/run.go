@@ -32,6 +32,7 @@ type runOptions struct {
 	task, arms, singleRoute, rosterPath, docflowPath, resultsPath string
 	timeout                                                       time.Duration
 	dryRun                                                        bool
+	replay                                                        replayOptions
 }
 
 func runCommand(args []string, out io.Writer) error {
@@ -54,11 +55,18 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 	flags.StringVar(&opt.docflowPath, "docflow", "", "docflow executable")
 	seconds := flags.Int("timeout", 21600, "seconds per arm")
 	flags.BoolVar(&opt.dryRun, "dry-run", false, "show configuration without running agents")
+	opt.replay.flags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || opt.task == "" || *seconds < 1 {
 		return &exitError{code: 2, message: "usage: bench run --task NAME|all [--arms single,docflow] [--single-route \"agent | model | effort\"] [--roster bench/roster.toml] [--docflow PATH] [--timeout SECONDS] [--dry-run]"}
+	}
+	if err := opt.replay.check(); err != nil {
+		return err
+	}
+	if opt.replay.repo != "" && (opt.task == "all" || strings.ContainsAny(opt.task, `/\\`) || opt.task == "." || opt.task == "..") {
+		return fmt.Errorf("replay requires a single task name")
 	}
 	opt.timeout = time.Duration(*seconds) * time.Second
 	requestedArms, err := parseArms(opt.arms)
@@ -84,6 +92,12 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 		return err
 	}
 	if opt.dryRun {
+		if opt.replay.repo != "" {
+			if _, err := opt.replay.inspect(root); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "replay: %s\nfrom: %s\nto: %s\nplan: %s\nbacklog: %d\noracle: %s\n", opt.replay.repo, opt.replay.from, opt.replay.to, opt.replay.plan, opt.replay.backlog, opt.replay.oracle)
+		}
 		fmt.Fprintf(out, "tasks: %s\narms: %s\nsingle: %s\n", strings.Join(names, ", "), strings.Join(requestedArms, ", "), routeText(route))
 		fmt.Fprintln(out, "roster:")
 		fmt.Fprintln(out, strings.Join(rm.chains, "\n"))
@@ -123,7 +137,13 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 	}
 	taskRecords := make([]taskInput, 0, len(names))
 	for _, name := range names {
-		input, err := loadTask(root, baseDir, tasksDir, name)
+		var input taskInput
+		var err error
+		if opt.replay.repo != "" {
+			input, err = opt.replay.prepare(root, filepath.Join(workDir, "replay-input"), name)
+		} else {
+			input, err = loadTask(root, baseDir, tasksDir, name)
+		}
 		if err != nil {
 			return err
 		}
@@ -145,7 +165,7 @@ func runCommandAt(root string, args []string, out io.Writer) error {
 			if arm == "docflow" {
 				row.RosterSHA, row.Chains = rm.sha, rm.chains
 			}
-			if arm == "single" || arm == "docflow-one" {
+			if arm == "single" || arm == "docflow-one" || input.backlog != "" {
 				row.Route = &benchRoute{Agent: route.Agent, Model: route.Model, Effort: route.Effort}
 			}
 			row.DocflowVersion, row.DocflowCommit, row.DocflowDirty = docflowVersion, docflowCommit, docflowDirty
@@ -241,6 +261,8 @@ func routeText(route agents.Route) string {
 type taskInput struct {
 	name, dir, plan, digest string
 	base                    string
+	oracleCommand, backlog  string
+	planID, planPath        string
 }
 
 func loadTask(root, baseDir, tasksDir, name string) (taskInput, error) {
@@ -303,7 +325,16 @@ func executeArm(ctx context.Context, root, work, docflowBin, version, commit str
 		return finalizeArm(branch, task, arm, result, started, "")
 	}
 	if arm == "single" {
-		runSingle(ctx, root, branch, task.plan, route, timeout, &result)
+		prompt := task.plan
+		if task.backlog != "" {
+			prompt = task.backlog
+		}
+		if task.oracleCommand != "" {
+			prompt = "Implement the entire task below in this session. Do not create a docflow plan. Before finishing run this project check: " + task.oracleCommand + "\n\n" + stripPlanForSingle(prompt)
+			runSinglePrompt(ctx, branch, prompt, filepath.Join(branch, ".bench-agent.log"), route, timeout, &result)
+		} else {
+			runSingle(ctx, root, branch, prompt, route, timeout, &result)
+		}
 	} else {
 		runDocflow(ctx, branch, docflowBin, rm, route, task, arm == "docflow-one", timeout, &result)
 	}
@@ -321,13 +352,23 @@ func finalizeArm(branch string, task taskInput, arm string, result benchResult, 
 		result.Status = "error"
 		return result, nil
 	}
-	counts, tail := runOracleDetailed(branch)
+	var counts testCounts
+	var tail []string
+	if task.oracleCommand != "" {
+		counts, tail = replayOracle(branch, task.oracleCommand)
+	} else {
+		counts, tail = runOracleDetailed(branch)
+	}
 	result.Oracle = oracleResult{Passed: counts.passed, Total: counts.total, Failed: counts.total - counts.passed}
 	return result, tail
 }
 
 func runSingle(parent context.Context, root, branch, plan string, route agents.Route, timeout time.Duration, result *benchResult) {
 	prompt := "Implement the entire task described below in this session. Do not create a docflow plan. Run `go test ./...` before finishing.\n\n" + stripPlanForSingle(plan)
+	runSinglePrompt(parent, branch, prompt, filepath.Join(branch, ".bench-agent.log"), route, timeout, result)
+}
+
+func runSinglePrompt(parent context.Context, branch, prompt, logPath string, route agents.Route, timeout time.Duration, result *benchResult) {
 	config, err := agents.LoadAgents("", false)
 	if err != nil {
 		result.Status = "error"
@@ -346,10 +387,14 @@ func runSingle(parent context.Context, root, branch, plan string, route agents.R
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	run, err := agentio.CallAgent(branch, argv, stdin, filepath.Join(branch, ".bench-agent.log"), agentio.CallOptions{Timeout: timeout, Context: ctx})
+	run, err := agentio.CallAgent(branch, argv, stdin, logPath, agentio.CallOptions{Timeout: timeout, Context: ctx})
 	result.Cost = agentio.RunCost(profile, run)
 	if tokens := agentio.RunTokens(profile, run); tokens != nil {
 		result.Tokens = *tokens
+	}
+	if errors.Is(parent.Err(), context.DeadlineExceeded) {
+		result.Status = "timeout"
+		return
 	}
 	if parent.Err() != nil {
 		result.Status = "interrupted"
@@ -396,22 +441,32 @@ func stripPlanForSingle(plan string) string {
 }
 
 func runDocflow(parent context.Context, branch, binary string, rm loadedRoster, route agents.Route, task taskInput, one bool, timeout time.Duration, result *benchResult) {
-	if _, err := commandOutput(branch, binary, "init", "--agent", "codex"); err != nil {
-		result.Status = "error"
-		return
+	planID := task.planID
+	if planID == "" {
+		planID = "P001"
 	}
 	docflowPath := filepath.Join(branch, "docs", "docflow.md")
+	if _, err := os.Stat(docflowPath); os.IsNotExist(err) {
+		if output, err := commandOutput(branch, binary, "init", "--agent", "codex"); err != nil {
+			_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), []byte(output+"\n"+err.Error()), 0o644)
+			result.Status = "error"
+			return
+		}
+	}
 	text, err := os.ReadFile(docflowPath)
 	if err != nil {
 		result.Status = "error"
 		return
 	}
-	text = []byte(strings.Replace(string(text), "## Queue\n", "## Queue\n- P001\n", 1))
+	text = []byte(strings.Replace(string(text), "## Queue\n", "## Queue\n- "+planID+"\n", 1))
 	if err := os.WriteFile(docflowPath, text, 0o644); err != nil {
 		result.Status = "error"
 		return
 	}
 	planPath := filepath.Join(branch, "docs", "plans", "P001-"+task.name+".md")
+	if task.planPath != "" {
+		planPath = filepath.Join(branch, filepath.FromSlash(task.planPath))
+	}
 	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
 		result.Status = "error"
 		return
@@ -420,11 +475,37 @@ func runDocflow(parent context.Context, branch, binary string, rm loadedRoster, 
 		result.Status = "error"
 		return
 	}
+	if task.backlog != "" {
+		// The planning arm gets only the original backlog item, not the
+		// historical plan or any closing-commit implementation details.
+		if err := os.Remove(planPath); err != nil {
+			result.Status = "error"
+			return
+		}
+		if err := gitAddCommit(branch, "prepare replay planning"); err != nil {
+			result.Status = "error"
+			return
+		}
+		planningContext, cancel := context.WithTimeout(parent, timeout)
+		defer cancel()
+		parent = planningContext
+		if err := planReplay(parent, branch, route, task, planPath, timeout, result); err != nil {
+			_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), []byte("replay planning: "+err.Error()), 0o644)
+			if errors.Is(parent.Err(), context.DeadlineExceeded) {
+				result.Status = "timeout"
+			} else if parent.Err() != nil {
+				result.Status = "interrupted"
+			} else if result.Status != "timeout" {
+				result.Status = "error"
+			}
+			return
+		}
+	}
 	if err := gitAddCommit(branch, "benchmark plan"); err != nil {
 		result.Status = "error"
 		return
 	}
-	if output, err := commandEnv(branch, append(os.Environ(), "XDG_CACHE_HOME="+rm.cache), binary, "roster", "apply", "P001", "--roster", rm.path); err != nil {
+	if output, err := commandEnv(branch, append(os.Environ(), "XDG_CACHE_HOME="+rm.cache), binary, "roster", "apply", planID, "--roster", rm.path); err != nil {
 		_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), []byte(redactAbsolutePaths(output)), 0o644)
 		result.Status = "error"
 		return
@@ -450,10 +531,10 @@ func runDocflow(parent context.Context, branch, binary string, rm loadedRoster, 
 	out := []byte(run.Stdout + "\n" + run.Stderr)
 	_ = os.WriteFile(filepath.Join(branch, ".bench-docflow.log"), out, 0o644)
 
-	if parent.Err() != nil {
-		result.Status = "interrupted"
-	} else if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(parent.Err(), context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
 		result.Status = "timeout"
+	} else if parent.Err() != nil {
+		result.Status = "interrupted"
 	} else if run.TimedOut {
 		result.Status = "timeout"
 	} else if err != nil {
@@ -463,7 +544,15 @@ func runDocflow(parent context.Context, branch, binary string, rm loadedRoster, 
 	} else {
 		result.Status = "done"
 	}
+	planningCost := result.Cost
 	collectRunMetrics(branch, result)
+	if task.backlog != "" {
+		if planningCost != nil && result.Cost != nil {
+			result.Cost = agentio.Add(result.Cost, planningCost)
+		} else {
+			result.Cost = nil
+		}
+	}
 }
 
 func docflowExitCompleted(code int, output []byte) bool {

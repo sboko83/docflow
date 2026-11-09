@@ -80,12 +80,15 @@ options:
                         skill directory set (default: claude)
   --skills              copy skills/* into the selected project directory
 `,
-	"status": `usage: docflow status [-h]
+	"status": `usage: docflow status [-h] [--hook {claude}]
 
 show the queue, the current plan and its progress
 
 options:
   -h, --help  show this help message and exit
+  --hook {claude}
+              read a Claude PreToolUse JSON event from stdin; deny direct
+              git commits while a unit is unfinished, otherwise abstain
 `,
 	"next": `usage: docflow next [-h]
 

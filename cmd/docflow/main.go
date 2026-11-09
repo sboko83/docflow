@@ -33,7 +33,7 @@ const runnerEnv = "DOCFLOW_RUNNER_UNIT"
 
 var commands = []commandSpec{
 	{name: "init", help: "create docs/docflow.md, plans/, archive/ and a line in AGENTS.md; --skills also copies the skills into the project", args: []argument{choiceOption("--agent", "", "skill directory set (default: claude)", "claude", "claude", "codex", "pi", "opencode", "dsh"), flag("--skills", "copy skills into the selected project directory")}},
-	{name: "status", help: "show the queue, the current plan and its progress"},
+	{name: "status", help: "show the queue, the current plan and its progress", args: []argument{choiceOption("--hook", "", "read a PreToolUse event from stdin and guard unit commits", "", "claude")}},
 	{name: "next", help: "print the id of the next available unit"},
 	{name: "prompt", help: "print the prompt for the next unit", args: []argument{positional("id", "", false)}},
 	{name: "verify", help: "run the Verify command of the current unit", args: []argument{positional("id", "", true), option("--skip", "REASON", "record the fingerprint without running Verify"), flag("--no-gate", "skip the plan's gate; nothing is recorded")}},
@@ -230,6 +230,9 @@ func run(argv []string, stdout, stderr io.Writer) int {
 	}
 	if parsed == nil {
 		return clierrors.EXIT_OK
+	}
+	if parsed.command == "status" && parsed.values["--hook"] == "claude" {
+		return statusHook(os.Stdin, stdout)
 	}
 	defer checkReleaseUpdate(parsed.command, stderr)
 	if runnerOnly(parsed.command) {
