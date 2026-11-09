@@ -255,67 +255,6 @@ func TestLintCommandExitCodesAndVersionPrecheck(t *testing.T) {
 	}
 }
 
-func TestTUIHelpAndNonTerminalRefusal(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"tui", "--help"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("tui --help = %d, stderr=%q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "interactive terminal workspace") {
-		t.Fatalf("tui help = %q", stdout.String())
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := run([]string{"tui"}, &stdout, &stderr); code != 2 {
-		t.Fatalf("tui without a terminal = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	for _, want := range []string{"interactive terminal", "docflow status", "docflow run"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Fatalf("tui refusal = %q, missing %q", stderr.String(), want)
-		}
-	}
-}
-
-func TestTUIRunLimitsFlags(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	parsed, code := parseArgs([]string{"tui", "--attempts", "1", "--replans", "0"}, &stdout, &stderr)
-	if parsed == nil || code != 0 {
-		t.Fatalf("tui limits parse = (%v, %d), stderr=%q", parsed, code, stderr.String())
-	}
-	if got := parsed.values["--attempts"]; got != 1 {
-		t.Fatalf("tui --attempts = %#v, want 1", got)
-	}
-	if got := parsed.values["--replans"]; got != 0 {
-		t.Fatalf("tui --replans = %#v, want 0", got)
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := run([]string{"tui", "--attempts", "0"}, &stdout, &stderr); code != 2 {
-		t.Fatalf("tui --attempts 0 = %d, stderr=%q", code, stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "--attempts must be at least 1") {
-		t.Fatalf("tui --attempts 0 stderr = %q", stderr.String())
-	}
-}
-
-func TestTUIRosterFlag(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	parsed, code := parseArgs([]string{"tui", "--roster", "/tmp/bench/roster.toml"}, &stdout, &stderr)
-	if parsed == nil || code != 0 {
-		t.Fatalf("tui --roster parse = (%v, %d), stderr=%q", parsed, code, stderr.String())
-	}
-	if got := parsed.values["--roster"]; got != "/tmp/bench/roster.toml" {
-		t.Fatalf("tui --roster = %#v", got)
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := run([]string{"tui", "--help"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("tui --help = %d", code)
-	}
-	if !strings.Contains(stdout.String(), "--roster PATH") {
-		t.Fatalf("tui help does not describe --roster: %q", stdout.String())
-	}
-}
-
 func TestEveryCommandHasHandler(t *testing.T) {
 	for _, spec := range commands {
 		if handlers[spec.name] == nil {
@@ -433,7 +372,7 @@ func TestVerifyFindsProjectRootFromSubdirectory(t *testing.T) {
 }
 
 func TestCommandsMatchDesign(t *testing.T) {
-	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "unblock", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "tui", "install", "update", "uninstall"}
+	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "unblock", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "install", "update", "uninstall"}
 	got := []string{}
 	for _, spec := range commands {
 		if spec.hidden {

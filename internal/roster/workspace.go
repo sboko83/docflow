@@ -73,19 +73,6 @@ type Workspace struct {
 	legacy error
 }
 
-// PlanningRoute chooses the first heavy route of the active brief, falling
-// back to its executor chain when heavy has no routes.
-func (w *Workspace) PlanningRoute() (agents.Route, error) {
-	for _, role := range []string{"heavy", "executor"} {
-		for _, entry := range w.Roles {
-			if entry.Role == role && len(entry.Routes) > 0 {
-				return entry.Routes[0].Route(), nil
-			}
-		}
-	}
-	return agents.Route{}, fmt.Errorf("roster has no heavy or executor route: configure the roster and scan its catalog")
-}
-
 // WorkspaceAccess is one access row of the roster screen: the channels and
 // the check flag of the policy, the kind, auth status and model count the
 // catalog adds, the off switch and the conditions in force, and the row of

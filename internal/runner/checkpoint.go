@@ -47,7 +47,7 @@ func checkpointPath(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(state), "tui", "checkpoint.json"), nil
+	return filepath.Join(filepath.Dir(state), "control", "checkpoint.json"), nil
 }
 
 func PlanFingerprint(data []byte) string {

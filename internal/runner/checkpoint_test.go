@@ -14,7 +14,7 @@ func TestCheckpointRoundTripAndSecretFreeFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cp := Checkpoint{Plan: "P001", Unit: "P001.1.1", Head: head, PlanHash: PlanFingerprint(plan), Stage: "agent", Agent: "codex", Model: "luna", Effort: "low", Session: "session-1", Calls: 2, Tokens: 123, Logs: []string{".git/docflow/tui/run.log"}}
+	cp := Checkpoint{Plan: "P001", Unit: "P001.1.1", Head: head, PlanHash: PlanFingerprint(plan), Stage: "agent", Agent: "codex", Model: "luna", Effort: "low", Session: "session-1", Calls: 2, Tokens: 123, Logs: []string{".git/docflow/control/run.log"}}
 	if err := WriteCheckpoint(f.root, cp); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestCheckpointRoundTripAndSecretFreeFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contains := string(data); contains == "" || !strings.HasSuffix(filepath.ToSlash(path), "/.git/docflow/tui/checkpoint.json") {
+	if contains := string(data); contains == "" || !strings.HasSuffix(filepath.ToSlash(path), "/.git/docflow/control/checkpoint.json") {
 		t.Fatalf("checkpoint path/data: %s %s", path, data)
 	}
 }

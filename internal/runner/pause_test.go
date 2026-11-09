@@ -1586,11 +1586,11 @@ func TestPauseCheckpointWriteFailureIsRunnerError(t *testing.T) {
 	controlRunSelf(t, f, nil)
 	marker := filepath.Join(f.tmp, "agent-started")
 	f.steps("touch " + shellQuote(marker) + "\nsleep 60 &\nwait\n")
-	tui := filepath.Join(f.root, ".git/docflow/tui")
-	if err := os.MkdirAll(filepath.Dir(tui), 0o755); err != nil {
+	blocker := filepath.Join(f.root, ".git/docflow/control")
+	if err := os.MkdirAll(filepath.Dir(blocker), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(tui, []byte("not a directory\n"), 0o644); err != nil {
+	if err := os.WriteFile(blocker, []byte("not a directory\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	control := NewControl(32, 2)

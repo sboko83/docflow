@@ -46,13 +46,6 @@ git config core.autocrlf false
 git config user.name smoke
 git config user.email smoke@example.invalid
 "$docflow" init --agent pi >/dev/null
-# The terminal workspace ships in the same binary as the plain commands;
-# --help must work without a controlling terminal.
-tui_help=$("$docflow" tui --help) || fail 'tui --help is missing from the built binary'
-case "$tui_help" in
-    *'usage: docflow tui'*) ;;
-    *) fail 'tui --help has no usage line' ;;
-esac
 printf 'Use the absolute docflow executable path for verification: `%s`.\n' \
     "$docflow" > README.md
 

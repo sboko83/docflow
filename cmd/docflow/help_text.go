@@ -409,29 +409,6 @@ options:
                         skill directory set (default: claude)
   --target DIR          personal skills directory override
 `,
-	"tui": `usage: docflow tui [-h] [--attempts N] [--replans N] [--roster PATH]
-
-open the interactive terminal workspace for the project
-
-The workspace has four screens. 1 Проект keeps the Queue tree, the selected
-unit card, the Backlog and the project, plan and session parameters. 2 Ростер
-shows the accesses, conditions and variants of the roster and writes a variant
-into the selected plan header. 3 Прогон streams the messages, reasoning, tool
-calls and checks of the selected unit. 4 История lists past runs and replays
-their streams. The workspace reads docs/docflow.md and the plans it names with
-the docflow parser. s starts the current Queue run, R resumes its checkpoint,
-p pauses, S stops after the current unit and x stops now. a, F, T and C run
-the same activate, freeze, thaw and close checks as the CLI. --roster names the
-file the roster screen reads (roster.DefaultPath() otherwise). Without a
-terminal it refuses and points at the ordinary CLI commands.
-
-options:
-  -h, --help    show this help message and exit
-  --attempts N  agent calls per unit (default 3)
-  --replans N   auto-replan calls per phase (default 3; 0 disables)
-  --roster PATH roster.toml path of the roster screen (default
-                ~/.config/docflow/roster.toml)
-`,
 	"run": `usage: docflow run [-h] [--config PATH] [--agent NAME] [--model M]
                    [--effort E] [--attempts N] [--replans N] [--max-units N]
                    [--no-wait] [--no-notify] [--dry-run] [--all] [--plan ID]

@@ -31,7 +31,7 @@ type UnitConfiguration struct {
 
 // EffectiveAssignments resolves the plan assignments: the unit's own route or
 // chain, otherwise the plan header's role, executor and fallback. The result
-// is the table the TUI shows in the start and recovery dialogs.
+// is the table shown when a run starts or recovers.
 func EffectiveAssignments(plan *format.Plan, args agents.RunArgs, agentConfig map[string]any) (*EffectiveConfiguration, error) {
 	if plan == nil {
 		return nil, errors.New("runner: no plan for the effective assignments")

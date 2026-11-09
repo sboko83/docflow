@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -94,30 +93,10 @@ func TestStartPreviewShowsEveryOpenAssignment(t *testing.T) {
 	}
 }
 
-func TestStaleConfigurationFileIsIgnored(t *testing.T) {
-	f := newRunFixture(t)
-	f.write(".git/docflow/tui/configuration.json", `{"version":1,"units":{"P001.1.1":[{"agent":"fake","model":"stale-model","effort":"high"}]}}`)
-	args := Args{RunArgs: agents.RunArgs{Config: f.config, Model: "fast"}}
-	preview, err := StartPreview(f.root, args)
-	if err != nil {
-		t.Fatalf("StartPreview refused an old configuration file: %v", err)
-	}
-	if text := strings.Join(preview.Assignments, "\n"); strings.Contains(text, "stale-model") {
-		t.Fatalf("the old configuration file reached the start assignments:\n%s", text)
-	}
-	f.steps(writeReply("a.txt"))
-	f.check(f.cli("run", "--config", f.config, "--model", "fast", "--no-wait", "--max-units", "1"), 0, "P001.1.1 done:")
-	calls := f.calls()
-	if len(calls) != 1 || !strings.Contains(strings.Join(calls[0].Argv, " "), "--model fast") {
-		t.Fatalf("agent argv = %#v; want the plan assignment", calls)
-	}
-}
-
 func TestControlledRunUsesEffectiveAssignments(t *testing.T) {
 	skipSlow(t)
 	f := newRunFixture(t)
 	controlRunSelf(t, f, nil)
-	f.write(".git/docflow/tui/configuration.json", `{"version":1,"units":{"P001.1.1":[{"agent":"fake","model":"stale-model","effort":"high"}]}}`)
 	f.steps(writeReply("a.txt"))
 	control := NewControl(64, 2)
 	args := Args{RunArgs: agents.RunArgs{Config: f.config, Model: "fast"}, Attempts: 1, MaxUnits: intPointer(1)}
@@ -208,39 +187,5 @@ func TestControlledStartAfterCompletedUnit(t *testing.T) {
 	}
 	if _, unit, err := cycle.FindUnit(f.root, "P001.1.2"); err != nil || unit.Status != "x" {
 		t.Fatalf("second unit status = %q, err=%v", unit.Status, err)
-	}
-}
-
-// Resume must ignore a leftover configuration.json instead of refusing the
-// checkpoint or applying its route.
-func TestResumeIgnoresStaleConfigurationFile(t *testing.T) {
-	skipSlow(t)
-	f := newRunFixture(t)
-	f.replace(planFile, "### [ ] P001.1.1", "### [x] P001.1.1")
-	f.write(".git/docflow/tui/configuration.json", `{"version":1,"units":{"P001.1.2":[{"agent":"fake","model":"stale-model","effort":"high"}]}}`)
-	head := f.git("rev-parse", "HEAD")
-	if err := WriteCheckpoint(f.root, Checkpoint{
-		Plan: "P001", Unit: "P001.1.2", Head: head,
-		PlanHash: PlanFingerprint([]byte(f.read(planFile))),
-		Stage:    "agent", Agent: "fake", Model: "", Effort: "", Calls: 1,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	controlRunSelf(t, f, nil)
-	f.steps(writeReply("b.txt"))
-	control := NewControl(64, 2)
-	if err := control.ResumeRun(context.Background(), f.root, Args{RunArgs: agents.RunArgs{Config: f.config}, Attempts: 1}, ""); err != nil {
-		t.Fatalf("ResumeRun refused an old configuration file: %v", err)
-	}
-	awaitDone(t, control)
-	if got := control.State(); got != StateFinished {
-		t.Fatalf("resumed state = %s, want Finished; err=%v", got, control.Err())
-	}
-	if _, unit, err := cycle.FindUnit(f.root, "P001.1.2"); err != nil || unit.Status != "x" {
-		t.Fatalf("resumed unit status = %q, err=%v", unit.Status, err)
-	}
-	calls := f.calls()
-	if len(calls) != 1 || strings.Contains(strings.Join(calls[0].Argv, " "), "stale-model") {
-		t.Fatalf("resume applied the old configuration file: %#v", calls)
 	}
 }

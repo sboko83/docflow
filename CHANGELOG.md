@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`.dsh/skills` in the project, `~/.dsh/skills` personally); `docflow
   install` and `update` link the skills for dsh when it is on PATH.
 
+### Removed
+- `docflow tui`, the full-screen terminal workspace. The roster is edited
+  in `roster web`; the queue, plans and runs stay on the CLI
+  (`status`, `run`, `roster ...`).
+
 ## [0.28.1] - 2026-11-08
 
 ### Fixed
