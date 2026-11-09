@@ -18,7 +18,7 @@ import (
 // probe tests use: three windows, no console budgets.
 func opencodeLimitsFixture(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "agentio", "testdata", "opencode-usage-limits.json"))
+	b, err := os.ReadFile(filepath.Join("..", "agentio", "testdata", "vendors", "opencode", "2.2.3_2026-10-30_usage-limits.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

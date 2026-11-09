@@ -66,7 +66,7 @@ func TestLivenessStreams(t *testing.T) {
 		// The captured v2.2.3 stream reports the tool once, already completed,
 		// so no tool is ever in flight; two step_start events are two turns.
 		live := NewLiveness("opencode")
-		for _, line := range strings.Split(fixture(t, "opencode-result"), "\n") {
+		for _, line := range strings.Split(fixture(t, snapOpencodeResult), "\n") {
 			live.Observe(line)
 		}
 		state := live.State()

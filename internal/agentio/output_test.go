@@ -40,9 +40,15 @@ func lines(events ...any) string {
 func obj(text string) map[string]any { return ParseLine(text) }
 func floatPtr(n float64) *float64    { return &n }
 func intPtr(n int) *int              { return &n }
+
+// fixture reads testdata/<name>.jsonl, or the file a name with an extension
+// names, such as a vendor snapshot under testdata/vendors.
 func fixture(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", name+".jsonl"))
+	if filepath.Ext(name) == "" {
+		name += ".jsonl"
+	}
+	b, err := os.ReadFile(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +311,7 @@ func TestPiAPIError(t *testing.T) {
 
 func TestOpencodeFold(t *testing.T) {
 	agent := profile(t, "opencode")
-	out := fixture(t, "opencode-result")
+	out := fixture(t, snapOpencodeResult)
 	data := table(AgentOutput(agent, out))
 	equal(t, data["session"], "ses_e7328beaaffe1gw0MKFBFL5YLK")
 	equal(t, data["is_error"], false)
@@ -324,7 +330,7 @@ func TestOpencodeFold(t *testing.T) {
 
 func TestOpencodeErrors(t *testing.T) {
 	agent := profile(t, "opencode")
-	out := fixture(t, "opencode-error")
+	out := fixture(t, snapOpencodeNoRoute)
 	data := table(AgentOutput(agent, out))
 	equal(t, data["is_error"], true)
 	equal(t, data["error"], "Model unavailable: opencode-go/no-such-model")

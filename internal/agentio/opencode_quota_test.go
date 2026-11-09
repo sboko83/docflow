@@ -17,7 +17,7 @@ import (
 // pins the go allowance only.
 func opencodeQuotaFixture(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "opencode-usage-limits.json"))
+	b, err := os.ReadFile(filepath.Join("testdata", snapOpencodeUsageLimits))
 	if err != nil {
 		t.Fatal(err)
 	}
