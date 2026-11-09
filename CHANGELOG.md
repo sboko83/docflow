@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `tools/pilot-summary.py` aggregates private pilot ZIPs across projects,
   reports measurement coverage and preserves missing data as unknown.
+  Optional local Pi logs and stats add model/tool durations and context
+  versus proxy, deduplicating resumed messages; missing gate time stays unknown.
 - The OpenCode smoke also checks `stats` tokens and `stats --runs` outcomes,
   time and cost against raw agent output, serving as a cheap-route canary.
 
