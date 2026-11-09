@@ -3,6 +3,7 @@ package cycle
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -57,6 +58,38 @@ func TestHasSkipMarker(t *testing.T) {
 		if hasSkipMarker([]string{"package a", line}) {
 			t.Errorf("hasSkipMarker() = true for %q", line)
 		}
+	}
+}
+
+// TestRunSkillSkipMarkersAreDetected: the run skill names skip markers as
+// examples of what `docflow commit` marks (plan P050). Every marker the
+// skill shows must be one the detector catches, or the skill promises a mark
+// that never comes; the skill may name fewer. A skip marker in the skill is
+// recognised by its shape — a code span that opens a call (`t.Skip(`) or is
+// an annotation (`@Ignore`) — not by the sentence around it.
+func TestRunSkillSkipMarkersAreDetected(t *testing.T) {
+	text, err := os.ReadFile(filepath.Join("..", "..", "skills", "bsv-docflow-run", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	detected := map[string]bool{}
+	for _, marker := range skipMarkers {
+		detected[marker] = true
+	}
+	flat := strings.Join(strings.Fields(string(text)), " ")
+	shown := 0
+	for _, m := range regexp.MustCompile("`([^`]+)`").FindAllStringSubmatch(flat, -1) {
+		span := m[1]
+		if !strings.HasPrefix(span, "@") && !strings.HasSuffix(span, "(") {
+			continue
+		}
+		shown++
+		if !detected[span] {
+			t.Errorf("skills/bsv-docflow-run/SKILL.md shows skip marker %q, skipMarkers (internal/cycle/testchanges.go) does not catch it", span)
+		}
+	}
+	if shown == 0 {
+		t.Fatal("skills/bsv-docflow-run/SKILL.md shows no skip marker: drop this test or the list")
 	}
 }
 

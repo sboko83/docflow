@@ -406,36 +406,22 @@ func TestVerifyGuardRecoveredCommitPrintsTestChanges(t *testing.T) {
 	}
 }
 
-// The replan rules live in two places (the P025 gotcha): the rule text the
-// runner puts into the replan prompt and the replan chapter of the
-// bsv-docflow-plan skill. The invariant phrases must stay in both. The
-// phrases are the guarded guarantees, re-anchored when the skill chapter
-// was reworded (the runner-skips-a-[x]-unit reason and the "did not
-// reproduce" proof rule stayed in the prompt text only).
-func TestVerifyGuardReplanRulesSkillParity(t *testing.T) {
+// The plan skill names the record a replan leaves for a changed check: the
+// literal output form, not prose (the Replan rules themselves are compared
+// by TestReplanRulesMatchPlanSkill).
+func TestVerifyGuardPlanSkillNamesReplanRecord(t *testing.T) {
 	text, err := os.ReadFile(filepath.Join("..", "..", "skills", "bsv-docflow-plan", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both texts wrap differently: compare them with whitespace collapsed.
-	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
-	skill, rules := flat(string(text)), flat(replanRules)
-	for _, phrase := range []string{"`Role: review`", "`Role: acceptance`", "does not lift the block",
-		"Goal, Constraints", "never roll it back", "Do not do the unit's work and do not"} {
-		if !strings.Contains(rules, phrase) {
-			t.Errorf("the replan rule text lost %q", phrase)
-		}
-		if !strings.Contains(skill, phrase) {
-			t.Errorf("skills/bsv-docflow-plan/SKILL.md lost %q", phrase)
-		}
-	}
-	if !strings.Contains(skill, "Replan changed check") {
+	if !strings.Contains(string(text), "Replan changed check") {
 		t.Error("skills/bsv-docflow-plan/SKILL.md does not name the Replan changed check record")
 	}
 }
 
 // The skills the binary installs carry the guard texts: install-skills from
-// the built CLI puts the working-tree skills into a personal directory.
+// the built CLI puts the working-tree skills into a personal directory, so
+// the installed plan and run skills are the checkout's texts.
 func TestVerifyGuardSkillsInstallCarriesGuardTexts(t *testing.T) {
 	target := filepath.ToSlash(t.TempDir())
 	c := exec.Command(runnerBinary(t), "install-skills", "--agent", "pi", "--target", target)
@@ -443,18 +429,17 @@ func TestVerifyGuardSkillsInstallCarriesGuardTexts(t *testing.T) {
 	if out, err := c.CombinedOutput(); err != nil {
 		t.Fatalf("install-skills: %v: %s", err, out)
 	}
-	for path, phrases := range map[string][]string{
-		"bsv-docflow-plan/SKILL.md": {"Replan changed check", "does not lift the block"},
-		"bsv-docflow-run/SKILL.md":  {"test change:", "Test changes"},
-	} {
+	for _, path := range []string{"bsv-docflow-plan/SKILL.md", "bsv-docflow-run/SKILL.md"} {
 		text, err := os.ReadFile(filepath.FromSlash(target + "/" + path))
 		if err != nil {
 			t.Fatalf("%s: %v (install output above)", path, err)
 		}
-		for _, phrase := range phrases {
-			if !strings.Contains(string(text), phrase) {
-				t.Errorf("installed %s lost %q", path, phrase)
-			}
+		source, err := os.ReadFile(filepath.Join("..", "..", "skills", filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(text) != string(source) {
+			t.Errorf("installed %s differs from skills/%s", path, path)
 		}
 	}
 }

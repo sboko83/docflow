@@ -23,7 +23,7 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | `init [--agent {claude,codex,pi,opencode,dsh}] [--skills]` | `docs/docflow.md`, `plans/`, `archive/`, строка в AGENTS.md; `--skills` — ещё копии скиллов в каталоге проекта выбранного агента; default `claude` |
 | `status` | очередь, текущий план, прогресс; при блоке — класс (`needs human` / `needs plan`) и для человека строка `unblock:` с командой |
 | `next` | id следующего доступного юнита |
-| `prompt`, `verify`, `done`, `commit`, `block [--needs human\|plan]`, `unblock [--note NOTE]` | цикл юнита, см. [«Цикл юнита»](cycle.md#цикл-юнита) |
+| `prompt`, `verify`, `done`, `commit`, `finish`, `block [--needs human\|plan]`, `unblock [--note NOTE]` | цикл юнита, см. [«Цикл юнита»](cycle.md#цикл-юнита) |
 | `stats [--runs] [Pxxx]` | расход токенов по юнитам, см. [«Учёт токенов»](cycle.md#учёт-токенов) |
 | `lint` | структура, id и их уникальность, Depends, бюджет `Read:` |
 | `new <slug>` | план из шаблона со следующим id, строка в Queue |
@@ -39,15 +39,7 @@ checkout, в standalone — из `~/.docflow/current`. Решение о пер�
 | `install-skills [--agent {claude,codex,pi,opencode,dsh}] [--target DIR]` | личные симлинки `skills/*` в `~/.claude/skills/` для Claude Code или `~/.agents/skills/` для Codex CLI или `~/.pi/agent/skills/` для Pi или `~/.config/opencode/skills/` для OpenCode или `~/.dsh/skills/` для dsh; default `claude`, `--target` явно заменяет личный каталог |
 | `install-skills --project [--agent {claude,codex,pi,opencode,dsh}]` | копии `skills/*` в `<project>/.claude/skills/` или `<project>/.agents/skills/` или `<project>/.pi/skills/` или `<project>/.opencode/skills/` или `<project>/.dsh/skills/`; повтор обновляет свои копии; `--target` вместе с `--project` — ошибка |
 | `doctor [--agent {claude,codex,pi,opencode,dsh}] [--target DIR]` | проверяет установленный `docflow`, личный каталог выбранного агента (или `--target`) и проектный каталог этого агента по полю `name:`; для `pi` ещё строка `pi: <версия> <путь>` из `pi --version`; default `claude` |
-| `roster scan [--online] [--refresh] [--json]` | собирает каталог из Pi, OpenCode, встроенной таблицы Codex/Claude и auth-проб, пишет кэш `$XDG_CACHE_HOME/docflow/roster/catalog.json` и печатает сводку доступов; `--online` добавляет models.dev, `--refresh` перечитывает его кэш; ошибка источника — предупреждение в stderr при коде 0 |
-| `roster models [ACCESS] [--all] [--json]` | модели доступа, ростерных доступов или всего каталога; читает только кэш; неизвестный `ACCESS` — код 2 со списком известных |
-| `roster status [--json]` | доступы с каналами, auth, числом моделей и источниками, затем активные условия с источником; только кэш |
-| `roster brief [--preset NAME] [--off A,B] [--expires A=DATE] [--json]` | условия в силе, цепочка, бюджет и scope каждой роли, матрица `review:`, `why:` и предупреждения; разовые флаги не сохраняются |
-| `roster show` | алиас `brief` |
-| `roster explain PLAN [--json]` | сравнивает шапку плана с брифом: `ключ: старое → новое` и предупреждения ролей плана; ничего не пишет |
-| `roster apply PLAN [--preset NAME] [разовые флаги] [--dry-run] [--json]` | пишет в шапку плана `executor:`, `fallback:`, `replan:` и ключи ролей с `Role:`; ключи без юнитов удаляет, `Executor:` юнитов не трогает; разовые флаги те же, что у brief, и не сохраняются; отказ до записи, если открытому юниту не хватает цепочки; `run.lock` — код 5; после `lint`-ошибки восстанавливает файл — код 2; изменений нет — код 1; не коммитит |
-| `roster off ACCESS [--until DATE]`, `on ACCESS`, `expire ACCESS DATE`, `reset` | правят только `roster.state.toml`; неизвестный доступ или пресет — код 2 до записи |
-| `roster migrate [--dry-run]` | переводит ростер v1, v2 или v3 на v4 вместе с файлами вариантов и условиями и сохраняет `ФАЙЛ.bak`; `--dry-run` только печатает; уже v4 — код 2 |
+| `roster <подкоманда>` | каталог доступов, бриф и цепочки ролей, запись шапки плана, условия, миграция, веб-редактор; подкоманды и их флаги — в [«Ростер»](roster.md#команды) |
 | `--version` | версия и sha репозитория (`+dirty` при изменениях) |
 | `run [--dry-run] [--replans N]` | юниты текущего плана агентом до `ready to close`; `--replans` — лимит авто-replan на фазу (по умолчанию 3, максимум 2 на юнит), см. [«Раннер»](runner.md) |
 

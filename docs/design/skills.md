@@ -152,6 +152,30 @@ docflow-жизненный цикл. Политики коммитов и рел
 - Один установщик на проект: куда ставит Ruleblend, `--project` не применяют —
   [P008](../archive/P008-project-skills.md).
 
+## Копии текста и их сверка
+
+Одно правило, записанное в двух местах, молча расходится — самая частая
+тема Gotchas архива (P025, P033, P041, P050, P054). Порядок выбора: убрать
+копию; иначе генерировать её из первоисточника; иначе тест сравнивает
+смысл — множества имён, маркеров, ключей, — а не байты и не фразы:
+переформулировка проходит, пропавшее или лишнее имя падает. Побайтово
+сверяется только то, что и есть контракт вывода.
+
+| Первоисточник ↔ копия | Решение и проверка |
+|---|---|
+| `replanRules` (`internal/runner/replan_rules.go`) ↔ раздел Replan скилла `bsv-docflow-plan` | сверка смысла: множества код-спанов обоих текстов (статусы, ключи плана, секции, команды; скилл ещё может называть ключи result JSON), односторонние спаны — список с причиной в `TestReplanRulesMatchPlanSkill`; генерация отвергнута — скилл короче и описывает ручной путь (триггеры, коммит раннера) |
+| `commands` (`cmd/docflow/main.go`) ↔ таблица [CLI docflow](cli.md#cli-docflow) | множество имён из первой колонки против регистрации — `TestCommandsMatchDesign`; третий рукописный список в тесте удалён (из таблицы молча выпал `finish`) |
+| `commands` ↔ рукописный `rootHelp` | имена и порядок из вывода `-h` против регистрации — `TestRootHelpListsRegisteredCommands`; генерация help отвергнута ([P041](../archive/P041-human-unblock.md)) |
+| подкоманды `roster`: `switch`, список `known:` в ошибке, таблицы `cli.md` и `roster.md` | одна таблица `rosterCommands` для диспетчера и ошибки; строки `roster` в `cli.md` заменены ссылкой (там не было `roster web`); [таблица ростера](roster.md#команды) против таблицы кода — `TestRosterCommandsMatchDesign` |
+| `docflow X` в коде README, `docs/usage.md`, `docs/design/`, скиллов ↔ регистрация | каждое упоминание в код-спане или fenced-строке называет зарегистрированную команду, `docflow roster Y` — подкоманду — `TestDocsNameRegisteredCommands`; архив — история, не проверяется |
+| `skipMarkers` (`internal/cycle/testchanges.go`) ↔ примеры в скилле `bsv-docflow-run` | подмножество: каждый маркер скилла (спан вида `x(` или `@x`) ловит детектор — `TestRunSkillSkipMarkersAreDetected` |
+| разбор пункта Prerequisites: `format.PlanPrerequisites` ↔ `prereqRE` в `lint` | копия убрана: оба читают `format.ParsePrerequisite` |
+| фраза «check that condition with a command first»: `cycleText` ↔ `RunnerCycle` ↔ скилл run | оставлено: фраза — заявленный инвариант двух разных промптов, тесты обоих пакетов ищут её; `RunnerCycle` ещё закреплён хешем схемы |
+| формы вывода (`test change:`, `Replan changed check:`, `<path>: +skip`) ↔ скиллы, `docs/usage.md`, тесты | оставлено: литералы вывода, не проза; правка формы — во всех местах сразу ([P050](../archive/P050-verify-guard.md)) |
+| вывод CLI ↔ сценарии `tools/parity/` | побайтово по назначению: сценарий и есть контракт вывода, правится в той же правке |
+| бриф ↔ `internal/roster/testdata/brief-scenario.txt` | golden с генерацией: `DOCFLOW_UPDATE_GOLDEN=1 go test ./internal/roster` |
+| установленные скиллы ↔ `skills/` | побайтово по назначению: `doctor` ловит отставшую копию |
+
 ## Самоприменение
 
 - Этот репозиторий ведётся по docflow: `docs/docflow.md`, планы, архив.

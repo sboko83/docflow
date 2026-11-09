@@ -825,18 +825,24 @@ func PlanPrerequisites(plan *Plan) []Prerequisite {
 	items := ParseItems(lines, mask, section.Line, section.End)
 	out := make([]Prerequisite, 0, len(items))
 	for _, item := range items {
-		text := strings.TrimSpace(item.Text)
-		once := strings.HasSuffix(text, " (once)")
-		if once {
-			text = strings.TrimSuffix(text, " (once)")
-		}
-		if label, command, ok := prerequisiteParts(text); ok {
-			out = append(out, Prerequisite{Text: label, Command: &command, Once: once})
-		} else {
-			out = append(out, Prerequisite{Text: text, Once: once})
-		}
+		out = append(out, ParsePrerequisite(item.Text))
 	}
 	return out
+}
+
+// ParsePrerequisite parses one `## Prerequisites` item: the text, an
+// optional command in backticks after the last colon and the ` (once)`
+// suffix. It is the one parser of the item; lint reads it too.
+func ParsePrerequisite(item string) Prerequisite {
+	text := strings.TrimSpace(item)
+	once := strings.HasSuffix(text, " (once)")
+	if once {
+		text = strings.TrimSuffix(text, " (once)")
+	}
+	if label, command, ok := prerequisiteParts(text); ok {
+		return Prerequisite{Text: label, Command: &command, Once: once}
+	}
+	return Prerequisite{Text: text, Once: once}
 }
 
 func prerequisiteParts(text string) (string, string, bool) {
