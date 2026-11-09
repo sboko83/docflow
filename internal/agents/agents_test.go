@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"bsv-docflow/internal/clierrors"
+	"bsv-docflow/internal/cycle"
 	"bsv-docflow/internal/format"
 )
 
@@ -651,6 +652,10 @@ func TestStrictRunnerSchema(t *testing.T) {
 		if !strings.Contains(flat, part) {
 			t.Errorf("RunnerCycle missing %q", part)
 		}
+	}
+	// docflow commit recognises an agent session transcript by this phrase.
+	if !strings.Contains(flat, cycle.TranscriptMarker) {
+		t.Errorf("RunnerCycle lost the transcript marker %q", cycle.TranscriptMarker)
 	}
 	if !strings.Contains(RunnerCycle, `"reason": ""`) || !strings.Contains(RunnerCycle, `"blocker": "plan"`) {
 		t.Fatalf("RunnerCycle missing result schema examples:\n%s", RunnerCycle)
