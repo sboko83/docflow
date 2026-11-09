@@ -345,6 +345,57 @@ func handleRun(parsed *parsedArgs, stdout, stderr io.Writer) error {
 	return commandResult{code: code}
 }
 
+// rosterCommands is the one list of the roster subcommands: the dispatch,
+// the "known:" list of the unknown-subcommand error and the design table
+// test (docs/design/roster.md) all read it.
+var rosterCommands = []struct {
+	name string
+	run  func(*parsedArgs) error
+}{
+	{"show", rosterShowCommand},
+	{"brief", rosterShowCommand},
+	{"explain", rosterExplain},
+	{"apply", rosterApplyCommand},
+	{"scan", rosterScan},
+	{"models", rosterModels},
+	{"status", rosterStatus},
+	{"off", rosterCondition},
+	{"on", rosterCondition},
+	{"expire", rosterCondition},
+	{"reset", rosterCondition},
+	{"migrate", rosterMigrate},
+	{"web", rosterWeb},
+}
+
+func rosterCommandNames() []string {
+	names := make([]string, len(rosterCommands))
+	for i, command := range rosterCommands {
+		names[i] = command.name
+	}
+	return names
+}
+
+// rosterShowCommand runs brief and its alias show: neither takes a plan id.
+func rosterShowCommand(parsed *parsedArgs) error {
+	if id, _ := parsed.values["id"].(string); id != "" {
+		subcommand, _ := parsed.values["subcommand"].(string)
+		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, id), Code: clierrors.EXIT_FORMAT}
+	}
+	return rosterBriefCommand(parsed)
+}
+
+func rosterApplyCommand(parsed *parsedArgs) error {
+	planID, _ := parsed.values["id"].(string)
+	if planID == "" {
+		return clierrors.DocflowError{Message: "docflow: roster apply: no plan id", Code: clierrors.EXIT_FORMAT}
+	}
+	root, err := projectRoot()
+	if err != nil {
+		return err
+	}
+	return rosterApply(parsed, root, planID)
+}
+
 func handleRoster(parsed *parsedArgs) error {
 	subcommand, _ := parsed.values["subcommand"].(string)
 	// --profile belonged to the version 1 roster. It stays a parsed flag so
@@ -376,39 +427,12 @@ func handleRoster(parsed *parsedArgs) error {
 			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: %s belongs to roster brief", subcommand, strings.Join(flags, ", ")), Code: clierrors.EXIT_FORMAT}
 		}
 	}
-	switch subcommand {
-	case "show", "brief":
-		if id, _ := parsed.values["id"].(string); id != "" {
-			return clierrors.DocflowError{Message: fmt.Sprintf("docflow: roster %s: unrecognized arguments: %s", subcommand, id), Code: clierrors.EXIT_FORMAT}
+	for _, command := range rosterCommands {
+		if command.name == subcommand {
+			return command.run(parsed)
 		}
-		return rosterBriefCommand(parsed)
-	case "apply":
-		planID, _ := parsed.values["id"].(string)
-		if planID == "" {
-			return clierrors.DocflowError{Message: "docflow: roster apply: no plan id", Code: clierrors.EXIT_FORMAT}
-		}
-		root, err := projectRoot()
-		if err != nil {
-			return err
-		}
-		return rosterApply(parsed, root, planID)
-	case "scan":
-		return rosterScan(parsed)
-	case "models":
-		return rosterModels(parsed)
-	case "status":
-		return rosterStatus(parsed)
-	case "off", "on", "expire", "reset":
-		return rosterCondition(parsed)
-	case "migrate":
-		return rosterMigrate(parsed)
-	case "web":
-		return rosterWeb(parsed)
-	case "explain":
-		return rosterExplain(parsed)
-	default:
-		return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: show, brief, explain, apply, scan, models, status, off, on, expire, reset, migrate, web)", subcommand), Code: clierrors.EXIT_FORMAT}
 	}
+	return clierrors.DocflowError{Message: fmt.Sprintf("docflow: unknown roster subcommand '%s' (known: %s)", subcommand, strings.Join(rosterCommandNames(), ", ")), Code: clierrors.EXIT_FORMAT}
 }
 
 // rosterWeb serves the roster workspace and its operations on 127.0.0.1

@@ -46,7 +46,6 @@ var (
 	unitHeadingRE  = regexp.MustCompile(`^### \[(.)\] (P\p{Nd}+\.\p{Nd}+\.\p{Nd}+) (.+?)\s*$`)
 	itemRE         = regexp.MustCompile(`^- (.*?)\s*$`)
 	continuationRE = regexp.MustCompile(`^[ \t]+\S`)
-	prereqRE       = regexp.MustCompile("^(.*):\\s*`([^`]*)`(?: \\(once\\))?$")
 )
 
 var unitFields = format.UnitFields
@@ -740,8 +739,8 @@ func prereqIssues(plan *format.Plan) []executorIssue {
 		match := itemRE.FindStringSubmatch(lines[n])
 		if len(match) > 0 {
 			current = true
-			prereq := prereqRE.FindStringSubmatch(strings.TrimSpace(match[1]))
-			if len(prereq) > 0 && strings.TrimSpace(prereq[2]) == "" {
+			prereq := format.ParsePrerequisite(match[1])
+			if prereq.Command != nil && strings.TrimSpace(*prereq.Command) == "" {
 				issues = append(issues, executorIssue{n + 1, "Prerequisites: empty command in backticks"})
 			}
 			continue

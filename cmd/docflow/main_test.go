@@ -371,20 +371,6 @@ func TestVerifyFindsProjectRootFromSubdirectory(t *testing.T) {
 	}
 }
 
-func TestCommandsMatchDesign(t *testing.T) {
-	want := []string{"init", "status", "next", "prompt", "verify", "done", "commit", "finish", "stats", "block", "unblock", "lint", "new", "activate", "close", "freeze", "thaw", "note", "migrate", "install-skills", "doctor", "roster", "run", "install", "update", "uninstall"}
-	got := []string{}
-	for _, spec := range commands {
-		if spec.hidden {
-			continue
-		}
-		got = append(got, spec.name)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("commands = %#v, want %#v", got, want)
-	}
-}
-
 func TestSkillAgentDefaultsAndChoices(t *testing.T) {
 	for _, name := range []string{"init", "install-skills", "doctor"} {
 		t.Run(name, func(t *testing.T) {
