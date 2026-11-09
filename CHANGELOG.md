@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transcript or export of an agent session (a pilot unit committed an HTML
   session export through `git add -A`). It is listed with the other refused
   files; delete it, add it to `.gitignore`, or set `DOCFLOW_ALLOW_STAGED=1`.
+- The `bsv-docflow-plan` skill is shorter (about 2.6k tokens instead of
+  3.1k) with the same rules, so planning sessions spend less context on it.
 
 ## [0.29.0] - 2026-11-09
 
