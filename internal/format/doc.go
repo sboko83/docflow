@@ -752,6 +752,44 @@ func UnitDepends(plan *Plan, unit *Unit) ([]string, error) {
 	return nil, docflowError("unit is not in plan")
 }
 
+// Ancestor is a unit reached through Depends: Depth 1 is a direct dependency,
+// a farther one names in Via the unit it is reached through.
+type Ancestor struct {
+	ID    string
+	Via   string
+	Depth int
+}
+
+// UnitAncestors lists the plan units unit depends on directly or
+// transitively, each once at its shortest distance, nearest first; within a
+// distance in Depends order. Ids missing from the plan are skipped.
+func UnitAncestors(plan *Plan, unit *Unit) []Ancestor {
+	seen := map[string]bool{unit.ID: true}
+	ancestors := []Ancestor{}
+	frontier := []*Unit{unit}
+	for depth := 1; len(frontier) > 0; depth++ {
+		next := []*Unit{}
+		for _, current := range frontier {
+			depends, _ := UnitDepends(plan, current)
+			for _, id := range depends {
+				dep := plan.Unit(id)
+				if dep == nil || seen[id] {
+					continue
+				}
+				seen[id] = true
+				via := ""
+				if depth > 1 {
+					via = current.ID
+				}
+				ancestors = append(ancestors, Ancestor{ID: id, Via: via, Depth: depth})
+				next = append(next, dep)
+			}
+		}
+		frontier = next
+	}
+	return ancestors
+}
+
 type Prerequisite struct {
 	Text    string
 	Command *string
