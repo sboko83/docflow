@@ -49,25 +49,7 @@ func PromptText(root string, plan *format.Plan, unit *format.Unit, repos []strin
 	out.WriteString("## Unit\n\n")
 	out.WriteString(strings.TrimRightFunc(normalizeNewlines(rawPlanText(plan, unit.Line, unit.End)), unicode.IsSpace))
 	out.WriteString("\n\n")
-	depends, _ := format.UnitDepends(plan, unit)
-	handoffs := make([]string, 0)
-	for _, id := range depends {
-		dep := plan.Unit(id)
-		if dep == nil {
-			continue
-		}
-		field := dep.Field("Handoff")
-		if field != nil {
-			text := normalizeNewlines(rawPlanText(plan, field.Line+1, field.End))
-			handoffs = append(handoffs, fmt.Sprintf("### %s\n%s\n", id, strings.TrimRightFunc(text, unicode.IsSpace)))
-		}
-	}
-	if len(handoffs) > 0 {
-		out.WriteString("## Handoff from Depends\n\n")
-		out.WriteString("`Unverified:` items below stay open on their own units; do not repeat them in your `unverified`.\n\n")
-		out.WriteString(strings.Join(handoffs, "\n"))
-		out.WriteByte('\n')
-	}
+	out.WriteString(dependsHandoff(plan, unit))
 	if gotchas := format.ArchiveGotchas(root, plan, unit); len(gotchas) > 0 {
 		out.WriteString("## Archive gotchas\n\n")
 		out.WriteString(strings.Join(gotchas, "\n"))
@@ -89,6 +71,55 @@ func PromptText(root string, plan *format.Plan, unit *format.Unit, repos []strin
 	}
 	out.WriteString(strings.ReplaceAll(cycleText, "{id}", unit.ID))
 	return out.String(), nil
+}
+
+// farHandoffBudget caps, in bytes (~2000 tokens), the Handoff of units
+// reached through Depends of Depends: a long chain does not grow the prompt
+// past it.
+const farHandoffBudget = 8000
+
+// dependsHandoff renders `## Handoff from Depends`: the Handoff of every
+// direct Depends unit in full, then of the units they depend on in turn,
+// nearest first, each once, while the blocks fit in farHandoffBudget. The
+// first block that does not fit ends the far part, and an `Omitted for size:`
+// line names it and the rest. "" when no unit has a Handoff.
+func dependsHandoff(plan *format.Plan, unit *format.Unit) string {
+	blocks := make([]string, 0)
+	omitted := make([]string, 0)
+	used := 0
+	for _, ancestor := range format.UnitAncestors(plan, unit) {
+		field := plan.Unit(ancestor.ID).Field("Handoff")
+		if field == nil {
+			continue
+		}
+		text := strings.TrimRightFunc(normalizeNewlines(rawPlanText(plan, field.Line+1, field.End)), unicode.IsSpace)
+		if ancestor.Depth == 1 {
+			blocks = append(blocks, fmt.Sprintf("### %s\n%s\n", ancestor.ID, text))
+			continue
+		}
+		block := fmt.Sprintf("### %s (via %s)\n%s\n", ancestor.ID, ancestor.Via, text)
+		if len(omitted) > 0 || used+len(block) > farHandoffBudget {
+			omitted = append(omitted, ancestor.ID)
+			continue
+		}
+		used += len(block)
+		blocks = append(blocks, block)
+	}
+	if len(blocks) == 0 && len(omitted) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("## Handoff from Depends\n\n")
+	out.WriteString("`Unverified:` items below stay open on their own units; do not repeat them in your `unverified`.\n\n")
+	out.WriteString(strings.Join(blocks, "\n"))
+	if len(omitted) > 0 {
+		if len(blocks) > 0 {
+			out.WriteByte('\n')
+		}
+		fmt.Fprintf(&out, "Omitted for size: %s — their Handoff is in the plan file.\n", strings.Join(omitted, ", "))
+	}
+	out.WriteByte('\n')
+	return out.String()
 }
 
 func reviewUnit(unit *format.Unit) bool {

@@ -1885,20 +1885,16 @@ func matchingParen(key string, end int) int {
 }
 
 // dropInheritedUnverified keeps the result JSON's unverified items that are
-// not copies of an item already open in the Handoff of a direct Depends unit,
-// and counts the copies it drops. An agent inherits its dependency's open item
-// and the copy stays open unit after unit; the unit that changed the code owns
-// its own risks. The dependency Handoff is plan text, read through the parsed
-// plan the way `prompt` renders `## Handoff from Depends`.
+// not copies of an item already open in the Handoff of a unit it depends on,
+// directly or through Depends of Depends, and counts the copies it drops. An
+// agent inherits its dependency's open item and the copy stays open unit after
+// unit; the unit that changed the code owns its own risks. The dependency
+// Handoff is plan text, read through the parsed plan the way `prompt` renders
+// `## Handoff from Depends`.
 func dropInheritedUnverified(plan *format.Plan, unit *format.Unit, values []string) (kept []string, dropped int) {
 	inherited := map[string]bool{}
-	depends, _ := format.UnitDepends(plan, unit)
-	for _, id := range depends {
-		dep := plan.Unit(id)
-		if dep == nil {
-			continue
-		}
-		field := dep.Field("Handoff")
+	for _, ancestor := range format.UnitAncestors(plan, unit) {
+		field := plan.Unit(ancestor.ID).Field("Handoff")
 		if field == nil {
 			continue
 		}

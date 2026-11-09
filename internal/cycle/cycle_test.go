@@ -612,8 +612,11 @@ func TestPromptTextAndReadBudget(t *testing.T) {
 	if i, j, k := strings.Index(result.Stdout, "## Handoff from Depends"), strings.Index(result.Stdout, dependsNote), strings.Index(result.Stdout, "### P001.1.2"); i < 0 || j < 0 || k < 0 || !(i < j && j < k) {
 		t.Errorf("depends note placement: heading %d, note %d, handoff %d", i, j, k)
 	}
-	if strings.Contains(result.Stdout, "от первого") || strings.Contains(result.Stdout, "P001.1.4") {
-		t.Fatalf("prompt includes unrelated handoff or unit: %s", result.Stdout)
+	if !strings.Contains(result.Stdout, "### P001.1.1 (via P001.1.2)\n- от первого\n") {
+		t.Errorf("prompt lacks the Handoff of the unit through Depends: %s", result.Stdout)
+	}
+	if strings.Contains(result.Stdout, "P001.1.4") {
+		t.Fatalf("prompt includes unrelated unit: %s", result.Stdout)
 	}
 	tokens := (len([]byte(result.Stdout)) + len("# Ctx\n") + len("print(1)\n")) / 4
 	if result.Stderr != fmt.Sprintf("P001.1.3: ~%d tokens of context (prompt + Context + Read), read_budget 40000\n", tokens) {

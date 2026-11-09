@@ -314,7 +314,9 @@ docflow prompt → работа → docflow verify <id>* → docflow finish <id>
 ```
 
 - `prompt` — промпт юнита: Goal, Constraints, Traps, Context, Decisions
-  плана, сам юнит, Handoff юнитов из `Depends`, раздел `## Archive gotchas`
+  плана, сам юнит, Handoff юнитов из `Depends` (целиком) и их предков по
+  `Depends` (ближние первыми, пока влезают в ~2000 токенов, остальные —
+  строкой `Omitted for size:`), раздел `## Archive gotchas`
   (Gotchas записей архива, на которые ссылаются Context, Decisions или
   `Read:`; считаются как ловушки). Ставит `[~]`. Требует
   чистое дерево (кроме файла плана).
