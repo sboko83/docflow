@@ -50,8 +50,8 @@ auth-статус, expiry и условия, второго источника �
 | `pi-models` | `~/.pi/agent/models.json` — собственные провайдеры пользователя |
 | `pi-list` | `pi --list-models`, если store отсутствует: модели и округлённый контекст |
 | `opencode` | `opencode api get /api/model` через CLI, не напрямую по сети |
-| `builtin` | встроенная офлайн-таблица Codex и Claude |
-| `auth` | пробы авторизации Pi, OpenCode, Codex, Claude |
+| `builtin` | встроенная офлайн-таблица Codex, Claude и dsh |
+| `auth` | пробы авторизации Pi, OpenCode, Codex, Claude; у dsh — только наличие CLI |
 | `models.dev` | необязательное обогащение с `--online` |
 
 Правила:
@@ -86,7 +86,8 @@ auth-статус, expiry и условия, второго источника �
   — готовы.
 - `kind` скан ставит доступам, которые узнаёт: `opencode` — OpenCode Zen,
   `metered`; `opencode-go` — OpenCode Go, `subscription`; `zai`, `codex`,
-  `claude` — `subscription`, но Codex, вошедший по API-ключу, — `metered`;
+  `claude` и `deepseek-account` — `subscription`, но Codex, вошедший по
+  API-ключу, — `metered`; `deepseek-official` — `metered`;
   провайдер `models.json` с `baseUrl` на loopback, частном адресе или
   имени без точки/`.local` — `local`. Базовый URL только классифицирует и в
   кэш не пишется. Незнакомый провайдер остаётся без `kind`: догадка о чужом
@@ -107,6 +108,14 @@ auth-статус, expiry и условия, второго источника �
 - Встроенная таблица Codex берёт `context_window` самого CLI (500k у
   `gpt-6.1-sol`, 272k у `gpt-6-luna`), а не API-окно models.dev: CLI
   определяет, сколько реально доступно юниту.
+- Встроенная таблица dsh — каталог `dsh-llm-deepseek` 0.2.2-rc.1:
+  `deepseek-flash` и `deepseek-v4-pro` у обоих провайдеров dsh
+  (`deepseek-account` — подписка DeepSeek, `deepseek-official` —
+  `DEEPSEEK_API_KEY`), окно 1M, `max_out` 256k, усилия `off`/`low`/`high`/
+  `max`, цена неизвестна. Вход dsh без генерации не проверить: с `dsh` на
+  PATH доступы `unknown` (маршрут идёт), без него — `not_ready` молча —
+  таблица перечисляет доступы dsh на любой машине
+  ([P061](../archive/P061-dsh-roster-model.md)).
 - Кэш каталога пишется атомарно, `version = 1`; файл с другим `version`
   читается как пустой без ошибки. `--refresh` пересканирует локальные
   источники и игнорирует свежий кэш models.dev; без `--online` флаг
@@ -167,7 +176,8 @@ cheap = "strata/swift-1.5-iq3_s"  # без @ — усилие не переда�
 - **Доступ** — единица квоты и независимости, а не провайдер. Подписка
   `opencode-go` одна, даже если к ней ходят `pi` и `opencode`; fallback
   повторяет доступ, а не пару `agent|model`.
-- `agents` обязателен и непуст; порядок — предпочтение среди каналов
+- `agents` обязателен и непуст (`claude`, `codex`, `pi`, `opencode`,
+  `dsh`); порядок — предпочтение среди каналов
   одной квоты (см. резолвер). `kind` — тип оплаты: `subscription` — квота
   плана, `metered` — оплата за токены, `local` — своя машина. Ключ в
   политике переопределяет то, что определил скан; без ключа действует
@@ -270,6 +280,8 @@ codex = "2026-12-31"
   `unknown`; канал с `not_ready` маршрут не получает. Нет подходящего
   канала — ячейка пропускается с причиной («no channel with auth» или
   «listed only by …»). Кэш без `Channels` берёт свёрнутый auth доступа.
+- Модель маршрута через `pi`, `opencode` и `dsh` — `ACCESS/ID`
+  (`deepseek-account/deepseek-v4-pro`), через `codex` и `claude` — голый id.
 - Заполненная ячейка, которую резолвер пропустил (не «нет ячейки» и не
   `check`), — предупреждение брифа `ACCESS: причина; skipped for ROLE`:
   иначе ошибочная ячейка молча выпадала бы из цепочки.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,8 +19,8 @@ import (
 // models.dev enrichment. Like the scanners' names they are stamped into
 // Catalog.Sources and into the per-field provenance.
 const (
-	SourceAuth      = "auth"       // the pi/opencode/codex/claude probes
-	SourceBuiltin   = "builtin"    // the offline Codex and Claude table
+	SourceAuth      = "auth"       // the pi/opencode/codex/claude/dsh probes
+	SourceBuiltin   = "builtin"    // the offline Codex, Claude and dsh table
 	SourceModelsDev = "models.dev" // https://models.dev/api.json
 )
 
@@ -64,6 +65,9 @@ func ScanAuth(catalog *Catalog) []string {
 	}
 	if names := accessesWithAgent(catalog, "claude"); len(names) > 0 {
 		probe("claude", probeClaudeAuth(names))
+	}
+	if names := accessesWithAgent(catalog, "dsh"); len(names) > 0 {
+		probe("dsh", probeDshAuth(names))
 	}
 	if len(channels) == 0 {
 		return problems
@@ -290,6 +294,23 @@ func probeClaudeAuth(names []string) authResult {
 	return result
 }
 
+// probeDshAuth decides the dsh accesses by the CLI alone: dsh has no
+// login check that spends no generation, so a dsh on PATH leaves its
+// accesses unknown, and a machine without dsh cannot run their routes at
+// all. The built-in table lists the dsh accesses on every machine, so a
+// missing dsh is the common case and not worth a warning.
+func probeDshAuth(names []string) authResult {
+	result := freshStatus()
+	status := AuthUnknown
+	if _, err := exec.LookPath("dsh"); err != nil {
+		status = AuthNotReady
+	}
+	for _, name := range names {
+		result.status[name] = status
+	}
+	return result
+}
+
 // claudeConfigured reports whether the Claude CLI has a config on this
 // machine. Only the presence is checked: the file is never read, so its
 // credentials cannot reach the scan.
@@ -344,10 +365,21 @@ var builtinClaudeModels = []builtinModel{
 	{id: "claude-haiku-4-5", context: 200000, maxOut: 64000, cost: &Cost{Input: 1, Output: 5, CacheRead: 0.1, CacheWrite: 1.25}},
 }
 
-// BuiltinCatalog returns the offline table of the Codex and Claude
-// models as a catalog: one access per CLI, the agent channel that
-// reaches it, and the metadata the scanners cannot read anywhere on this
-// machine. It merges like any other source, so a value the CLI reports
+// builtinDshModels are the DeepSeek models dsh 0.2.2 ships in its catalog
+// (dsh-llm-deepseek), served by both dsh providers: deepseek-account (the
+// DeepSeek account plan) and deepseek-official (DEEPSEEK_API_KEY). The
+// context is the official 1M window, max_out the dsh default output cap,
+// and the efforts the levels the DeepSeek adapter accepts. dsh has no
+// price in its stream, so the cost stays unknown.
+var builtinDshModels = []builtinModel{
+	{id: "deepseek-flash", context: 1048576, maxOut: 256000, efforts: []string{"off", "low", "high", "max"}},
+	{id: "deepseek-v4-pro", context: 1048576, maxOut: 256000, efforts: []string{"off", "low", "high", "max"}},
+}
+
+// BuiltinCatalog returns the offline table of the Codex, Claude and dsh
+// models as a catalog: one access per CLI or dsh provider, the agent
+// channel that reaches it, and the metadata the scanners cannot read
+// anywhere on this machine. It merges like any other source, so a value the CLI reports
 // later wins over the table.
 func BuiltinCatalog() *Catalog {
 	catalog := emptyCatalog()
@@ -379,6 +411,8 @@ func BuiltinCatalog() *Catalog {
 	}
 	addBuiltin("codex", "codex", builtinCodexModels)
 	addBuiltin("claude", "claude", builtinClaudeModels)
+	addBuiltin("deepseek-account", "dsh", builtinDshModels)
+	addBuiltin("deepseek-official", "dsh", builtinDshModels)
 	catalog.Sort()
 	return catalog
 }

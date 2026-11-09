@@ -24,7 +24,7 @@ var (
 	// access is billed per token, a local access runs on this machine.
 	Kinds = []string{"subscription", "metered", "local"}
 	// PolicyAgents lists the agents an access may be reached through.
-	PolicyAgents = []string{"claude", "codex", "pi", "opencode"}
+	PolicyAgents = []string{"claude", "codex", "pi", "opencode", "dsh"}
 )
 
 // Cell is one cell of the access × role table: the model an access serves

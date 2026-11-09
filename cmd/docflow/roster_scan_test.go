@@ -152,6 +152,8 @@ func TestRosterScanSummary(t *testing.T) {
 	want := [][]string{
 		{"claude", "claude", "subscription", "6", "unknown", "builtin+auth"},
 		{"codex", "codex", "subscription", "8", "ready", "builtin+auth"},
+		{"deepseek-account", "dsh", "subscription", "2", "not_ready", "builtin+auth"},
+		{"deepseek-official", "dsh", "metered", "2", "not_ready", "builtin+auth"},
 		{"opencode", "opencode", "metered", "1", "not_ready", "opencode+auth"},
 		{"opencode-go", "pi,opencode", "subscription", "2", "ready(pi:not_ready)", "pi-store+opencode+auth"},
 		{"zai", "pi", "subscription", "2", "ready", "pi-store+auth"},
@@ -175,7 +177,7 @@ func TestRosterScanSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load cache: %v", err)
 	}
-	if cache.Version != roster.CatalogVersion || cache.ScannedAt == "" || len(cache.Models) != 19 {
+	if cache.Version != roster.CatalogVersion || cache.ScannedAt == "" || len(cache.Models) != 23 {
 		t.Fatalf("cache = version %d, scanned %q, %d models", cache.Version, cache.ScannedAt, len(cache.Models))
 	}
 	if text := stdout + stderr + catalogText(t, cache); strings.Contains(text, rosterSecret) {
@@ -260,7 +262,7 @@ func TestRosterScanJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &catalog); err != nil {
 		t.Fatalf("scan --json is not a catalog: %v\n%s", err, stdout)
 	}
-	if catalog.Version != roster.CatalogVersion || len(catalog.Accesses) != 5 {
+	if catalog.Version != roster.CatalogVersion || len(catalog.Accesses) != 7 {
 		t.Fatalf("catalog = version %d, %d accesses", catalog.Version, len(catalog.Accesses))
 	}
 	if !strings.Contains(stdout, "\"scanned_at\"") {
@@ -375,7 +377,7 @@ func TestRosterModelsFilter(t *testing.T) {
 
 	// An access the catalog does not know is an error, not an empty table.
 	code, stdout, stderr = callLifecycleCLI(t, t.TempDir(), "roster", "models", "nonsense")
-	if code != 2 || stdout != "" || !strings.Contains(stderr, "unknown access 'nonsense'") || !strings.Contains(stderr, "known: claude, codex, opencode, opencode-go, zai") {
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "unknown access 'nonsense'") || !strings.Contains(stderr, "known: claude, codex, deepseek-account, deepseek-official, opencode, opencode-go, zai") {
 		t.Fatalf("roster models nonsense = (%d, %q, %q)", code, stdout, stderr)
 	}
 }
@@ -462,7 +464,7 @@ func TestRosterStatusJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
 		t.Fatalf("status --json: %v\n%s", err, stdout)
 	}
-	if report.ScannedAt == "" || len(report.Accesses) != 5 {
+	if report.ScannedAt == "" || len(report.Accesses) != 7 {
 		t.Fatalf("report = %+v", report)
 	}
 	if report.Accesses[0].Access != "claude" || report.Accesses[0].Models != 6 {

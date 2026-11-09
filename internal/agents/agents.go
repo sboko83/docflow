@@ -2,6 +2,9 @@
 package agents
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -1009,6 +1012,12 @@ func BuildCommand(agent map[string]any, prompt, model, schemaFile, session, effo
 		values, _ := stringList(agent["resume_args"])
 		args = append(args, values...)
 	}
+	if agent["stream"] == "dsh" {
+		var err error
+		if args, err = dshModelPatch(args, model, effort, schemaFile); err != nil {
+			return nil, nil, err
+		}
+	}
 	usesPrompt := false
 	for _, arg := range args {
 		if strings.Contains(arg, "{prompt}") {
@@ -1036,6 +1045,60 @@ func BuildCommand(agent map[string]any, prompt, model, schemaFile, session, effo
 		return argv, nil, nil
 	}
 	return argv, &prompt, nil
+}
+
+// dshModelPatch passes a route's model and effort to dsh. `dsh headless`
+// has no model or effort flag: the agent-default-model entry of the dsh
+// profile picks them, and a `--patch` overlay replaces that entry's config
+// wholesale. The model is PROVIDER/MODEL (the dsh provider is the roster
+// access, as for pi and opencode), so the overlay can name the provider it
+// must restate. `--patch` is a launcher flag and must precede the app's
+// own flags, so it goes right after the `headless` profile name. Without a
+// model the profile keeps its own choice.
+func dshModelPatch(args []string, model, effort, schemaFile string) ([]string, error) {
+	if model == "" {
+		if effort != "" {
+			return nil, agentsError(fmt.Sprintf("run: dsh: effort '%s' needs a model PROVIDER/MODEL (e.g. deepseek-account/deepseek-flash)", effort))
+		}
+		return args, nil
+	}
+	provider, id, ok := strings.Cut(model, "/")
+	if !ok || provider == "" || id == "" {
+		return nil, agentsError(fmt.Sprintf("run: dsh: model '%s' must be PROVIDER/MODEL (e.g. deepseek-account/deepseek-flash): the dsh patch restates the provider", model))
+	}
+	at := -1
+	for i, arg := range args {
+		if arg == "headless" {
+			at = i + 1
+			break
+		}
+	}
+	if at < 0 {
+		return nil, agentsError("run: dsh: the profile cmd has no 'headless' argument to put --patch after")
+	}
+	quote := func(value string) string {
+		data, _ := json.Marshal(value)
+		return string(data)
+	}
+	text := "- id: agent-default-model\n  config:\n    provider: " + quote(provider) + "\n    model: " + quote(id) + "\n"
+	if effort != "" {
+		text += "    reasoningEffort: " + quote(effort) + "\n"
+	}
+	dir := os.TempDir()
+	if schemaFile != "" {
+		dir = filepath.Dir(schemaFile)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte(text))
+	path := filepath.Join(dir, "dsh-model-"+hex.EncodeToString(sum[:4])+".yml")
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		return nil, err
+	}
+	result := append([]string(nil), args[:at]...)
+	result = append(result, "--patch", path)
+	return append(result, args[at:]...), nil
 }
 
 func mapAt(table map[string]any, key string) map[string]any {

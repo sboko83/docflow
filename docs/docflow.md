@@ -9,6 +9,11 @@ start_budget: 4000
 ## Frozen
 
 ## Backlog
+- Прогнать `TestDshRealUnitCommits` на реальном dsh (человек:
+  `danger-full-access` агенту недоступен) с маршрутом
+  `dsh | deepseek-account/deepseek-flash | low`: юнит доходит до коммита
+  через `--patch` модели и усилия
+  ([P061](archive/P061-dsh-roster-model.md)).
 - Проверить PTY-сценарии живости на Linux: время блока, квота used/left,
   сбросы, перенос на 30 колонках, спиннер и активный кап закрытия;
   убедиться, что квота не выходит за рамку, а обрезка спиннера сохраняет её

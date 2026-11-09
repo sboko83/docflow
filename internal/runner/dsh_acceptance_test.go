@@ -43,13 +43,14 @@ func dshReady(t *testing.T) string {
 }
 
 // Acceptance of P060: one unit of a plan routed to dsh runs through the real
-// dsh CLI, the built-in profile and the dsh decoder up to the unit commit.
+// dsh CLI, the built-in profile, the model patch and the dsh decoder up to the
+// unit commit.
 func TestDshRealUnitCommits(t *testing.T) {
 	skipSlow(t)
 	home := dshReady(t)
 	f := newRunFixture(t)
 	t.Setenv("DSH_HOME", home)
-	f.replace(planFile, "status: active", "status: active\nexecutor: dsh | deepseek-flash | -")
+	f.replace(planFile, "status: active", "status: active\nexecutor: dsh | deepseek-account/deepseek-flash | low")
 	r := f.cli("run", "--no-wait", "--max-units", "1", "--yes")
 	f.check(r, 0, "P001.1.1 done:")
 	if subject := f.git("log", "-1", "--format=%s"); !strings.HasPrefix(subject, "P001.1.1:") {

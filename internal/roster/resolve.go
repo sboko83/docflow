@@ -234,11 +234,11 @@ func RouteAgent(agents []string, info AccessInfo, model ModelInfo) (string, stri
 	return "", fmt.Sprintf("model %s: no channel with auth (%s not ready)", model.ID, strings.Join(listing, ", "))
 }
 
-// routeModel renders the model a plan route carries: a pi or opencode
+// routeModel renders the model a plan route carries: a pi, opencode or dsh
 // channel addresses a provider model as ACCESS/ID, while codex and claude
 // take the bare id.
 func routeModel(agent, access, id string) string {
-	if agent == "pi" || agent == "opencode" {
+	if agent == "pi" || agent == "opencode" || agent == "dsh" {
 		return access + "/" + id
 	}
 	return id

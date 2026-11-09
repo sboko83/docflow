@@ -17,7 +17,7 @@ const (
 
 // knownAccesses names the accesses the scan recognizes: a title the
 // editor shows next to the bare provider id, and the kind of the plan
-// behind the id. The ids are those of Pi, OpenCode and the built-in table:
+// behind the id. The ids are those of Pi, OpenCode, dsh and the built-in table:
 // "opencode" is OpenCode Zen (pay per token, plus a few free models),
 // "opencode-go" is the OpenCode Go subscription — the two are easy to
 // confuse by name alone. An access outside the table has no title and no
@@ -32,6 +32,9 @@ var knownAccesses = map[string]struct{ title, kind string }{
 	"openai-codex":   {"ChatGPT (Codex)", KindSubscription},
 	"openrouter":     {"OpenRouter", KindMetered},
 	"deepseek":       {"DeepSeek API", KindMetered},
+	// The dsh providers: the DeepSeek account plan and the API key.
+	"deepseek-account":  {"DeepSeek account (dsh)", KindSubscription},
+	"deepseek-official": {"DeepSeek API (dsh)", KindMetered},
 }
 
 // AccessTitle is the human name of a known access, "" otherwise.

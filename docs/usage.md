@@ -581,22 +581,28 @@ opencode и генерации не тратит. Стоимость и токе
 
 Профиль `dsh` (DeepSeek Harness, `npm i -g @deepseek-ai/dsh`) запускает
 `dsh headless --json -`; промпт идёт в stdin, продолжение сессии —
-`--session-id <id>`. Модель выбирает профиль dsh, а не тройка: модель и
-усилие маршрута аргументов не добавляют, пример тройки —
-`dsh | deepseek-flash | -`. Подписка DeepSeek вместо `DEEPSEEK_API_KEY`:
+`--session-id <id>`. Модель в тройке — `ПРОВАЙДЕР/МОДЕЛЬ`, провайдер —
+`deepseek-account` (подписка) или `deepseek-official` (API-ключ), усилие —
+`off`, `low`, `high` или `max`: пример тройки —
+`dsh | deepseek-account/deepseek-v4-pro | high`. Флагов модели у dsh нет,
+поэтому раннер пишет оверлей профиля (`--patch` с записью
+`agent-default-model`) в логи прогона; голая `deepseek-flash` — ошибка.
+Подписка DeepSeek вместо `DEEPSEEK_API_KEY`:
 войти в аккаунт в `dsh web` и в
 `$DSH_HOME/profiles/headless/cordis.patch.yml` включить entry
 `authorization`, `deepseek-account` и `credentials` (`disabled: false`) и
-задать `agent-default-model` с `provider: deepseek-account`; проверка —
+задать `agent-default-model` с `provider: deepseek-account` (модель по
+умолчанию для запуска dsh без docflow); проверка —
 `dsh headless "Ответь одним словом: ок"`. Режимы `auto` и `full` оба
 снимают песочницу (`--permission-mode danger-full-access`): в
 `workspace-write` на Windows не работают кэш сборки вне репозитория, HTTPS
 и коммит из worktree, а подтвердить эскалацию в headless некому; `full`
 изоляцией не является. Токены декодер суммирует по шагам; стоимости и
 квоты у dsh нет. Скиллы — `docflow install-skills --agent dsh`
-(`.dsh/skills` в проекте, `~/.dsh/skills` лично). В ростер dsh не входит,
-тройку пишут в плане вручную; планирование в TUI через dsh недоступно:
-терминального режима у dsh нет.
+(`.dsh/skills` в проекте, `~/.dsh/skills` лично). В ростере dsh — канал
+встроенных доступов `deepseek-account` и `deepseek-official`
+(`agents = ["dsh"]`, ячейка `deepseek-v4-pro@high`); планирование в TUI
+через dsh недоступно: терминального режима у dsh нет.
 
 Профиль без `result` берёт result JSON из последнего блока ` ```json `,
 без `resume_args` повторяет попытку полным промптом. Запуск —

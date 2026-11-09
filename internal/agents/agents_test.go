@@ -384,18 +384,50 @@ func TestBuildCommand(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(argv, []string{"opencode", "run", "--format", "json", "--agent", "build", "--auto", "--model", "opencode-go/deepseek-v4.1-flash"}) {
 		t.Fatalf("opencode no-effort argv = %#v, %v", argv, err)
 	}
-	// dsh takes the model from its profile: the route's model and effort add
-	// no arguments, and both permission modes lift the sandbox.
+	// dsh has no model or effort flag: the route's PROVIDER/MODEL and effort
+	// become a --patch overlay of the agent-default-model entry, placed
+	// right after the headless profile name, and both permission modes lift
+	// the sandbox.
 	dsh := mapAt(agents, "dsh")
+	logs := t.TempDir()
+	schemaPath := filepath.Join(logs, "schema.json")
 	for _, mode := range []string{"auto", "full"} {
-		argv, stdin, err = BuildCommand(dsh, "P", "deepseek-flash", "/s", "", "high", mode)
-		if err != nil || stdin == nil || !reflect.DeepEqual(argv, []string{"dsh", "headless", "--json", "-", "--permission-mode", "danger-full-access", "--approval-policy", "never"}) {
+		argv, stdin, err = BuildCommand(dsh, "P", "deepseek-account/deepseek-v4-pro", schemaPath, "", "high", mode)
+		if err != nil || stdin == nil || len(argv) != 10 || !reflect.DeepEqual(argv[:3], []string{"dsh", "headless", "--patch"}) || !reflect.DeepEqual(argv[4:], []string{"--json", "-", "--permission-mode", "danger-full-access", "--approval-policy", "never"}) {
 			t.Fatalf("dsh %s argv = %#v, stdin=%v, err=%v", mode, argv, stdin, err)
 		}
+		if filepath.Dir(argv[3]) != logs {
+			t.Fatalf("dsh patch %s is not next to the schema", argv[3])
+		}
+		data, err := os.ReadFile(argv[3])
+		want := "- id: agent-default-model\n  config:\n    provider: \"deepseek-account\"\n    model: \"deepseek-v4-pro\"\n    reasoningEffort: \"high\"\n"
+		if err != nil || string(data) != want {
+			t.Fatalf("dsh patch = %q, %v", data, err)
+		}
 	}
-	argv, _, err = BuildCommand(dsh, "P", "", "/s", "session-1", "", "auto")
-	if err != nil || !reflect.DeepEqual(argv, []string{"dsh", "headless", "--json", "-", "--permission-mode", "danger-full-access", "--approval-policy", "never", "--session-id", "session-1"}) {
+	argv, _, err = BuildCommand(dsh, "P", "deepseek-account/deepseek-flash", schemaPath, "session-1", "", "auto")
+	if err != nil || len(argv) != 12 || argv[2] != "--patch" || !reflect.DeepEqual(argv[len(argv)-2:], []string{"--session-id", "session-1"}) {
 		t.Fatalf("dsh resume argv = %#v, %v", argv, err)
+	}
+	if data, err := os.ReadFile(argv[3]); err != nil || strings.Contains(string(data), "reasoningEffort") {
+		t.Fatalf("dsh patch without effort = %q, %v", data, err)
+	}
+	argv, _, err = BuildCommand(dsh, "P", "", schemaPath, "session-1", "", "auto")
+	if err != nil || !reflect.DeepEqual(argv, []string{"dsh", "headless", "--json", "-", "--permission-mode", "danger-full-access", "--approval-policy", "never", "--session-id", "session-1"}) {
+		t.Fatalf("dsh model-less argv = %#v, %v", argv, err)
+	}
+	for _, c := range []struct{ model, effort, want string }{
+		{"deepseek-flash", "", "must be PROVIDER/MODEL"},
+		{"deepseek-account/", "", "must be PROVIDER/MODEL"},
+		{"", "high", "needs a model"},
+	} {
+		if _, _, err := BuildCommand(dsh, "P", c.model, schemaPath, "", c.effort, "auto"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("dsh %q@%q error = %v, want %q", c.model, c.effort, err, c.want)
+		}
+	}
+	custom := map[string]any{"cmd": []any{"dsh", "--json", "-"}, "stream": "dsh"}
+	if _, _, err := BuildCommand(custom, "P", "deepseek-account/deepseek-flash", schemaPath, "", "", "auto"); err == nil || !strings.Contains(err.Error(), "no 'headless'") {
+		t.Fatalf("dsh profile without headless error = %v", err)
 	}
 
 	promptAgent := map[string]any{"cmd": []any{"tool", "run", "{prompt}"}, "model_args": []any{"-m", "{model}"}}

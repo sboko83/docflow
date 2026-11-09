@@ -131,6 +131,36 @@ func TestResolveColumnOrder(t *testing.T) {
 	}
 }
 
+// TestResolveDshRoute: a dsh access is reached through the dsh channel
+// with ACCESS/ID, because the dsh model patch restates the provider; the
+// dsh probe leaves the auth of an installed dsh undecided, which still routes.
+func TestResolveDshRoute(t *testing.T) {
+	policy := resolvePolicy(t, `
+[access.deepseek-account]
+agents = ["dsh"]
+
+[access.deepseek-account.roles]
+executor = "deepseek-v4-pro@high"
+cheap    = "deepseek-flash"
+`)
+	catalog := resolveCatalog(
+		resolveModel("deepseek-account", "deepseek-flash", 1048576, nil),
+		resolveModel("deepseek-account", "deepseek-v4-pro", 1048576, nil),
+	)
+	catalog.Accesses[0].Agents = []string{"dsh"}
+	catalog.Accesses[0].Auth = ""
+	resolution, err := resolveAt(policy, nil, catalog, resolveDay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := candidateText(resolution, "executor"); got != "deepseek-account/deepseek-v4-pro@high dsh:deepseek-account/deepseek-v4-pro:high" {
+		t.Fatalf("executor = %s", got)
+	}
+	if got := candidateText(resolution, "cheap"); got != "deepseek-account/deepseek-flash dsh:deepseek-account/deepseek-flash:-" {
+		t.Fatalf("cheap = %s", got)
+	}
+}
+
 // TestResolvePresetOrderOffAndCells: a preset reorders the accesses,
 // switches some off and overrides or clears single cells.
 func TestResolvePresetOrderOffAndCells(t *testing.T) {

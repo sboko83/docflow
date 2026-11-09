@@ -54,6 +54,25 @@ func TestScanAuthCodexAPIKey(t *testing.T) {
 	}
 }
 
+// TestScanAuthDsh: dsh has no login check without a generation, so the
+// dsh accesses are not ready without the CLI and unknown with it.
+func TestScanAuthDsh(t *testing.T) {
+	_, bin := scanEnv(t)
+	catalog := BuiltinCatalog()
+	ScanAuth(catalog)
+	for _, name := range []string{"deepseek-account", "deepseek-official"} {
+		if access := findAccess(t, catalog, name); access.Auth != AuthNotReady || access.Channels["dsh"] != AuthNotReady {
+			t.Fatalf("%s without dsh = %+v, want not_ready", name, access)
+		}
+	}
+	installCommand(t, bin, "dsh", "exit 0\n")
+	catalog = BuiltinCatalog()
+	ScanAuth(catalog)
+	if access := findAccess(t, catalog, "deepseek-account"); access.Auth != AuthUnknown {
+		t.Fatalf("deepseek-account with dsh = %+v, want unknown", access)
+	}
+}
+
 // TestScanKinds: the scan names the kind of the accesses it recognizes,
 // a models.json provider on the LAN is local, and an unknown provider has
 // no kind rather than a guess.

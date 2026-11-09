@@ -424,6 +424,20 @@ func TestEnrichBuiltinTable(t *testing.T) {
 		t.Fatalf("claude-haiku-4-5 cost = %+v, want the published price", haiku.Cost)
 	}
 
+	// Both dsh providers are accesses of the dsh channel; the account plan
+	// is a subscription and the API key pays per token. dsh publishes no
+	// price, so the cost stays unknown.
+	for name, kind := range map[string]string{"deepseek-account": KindSubscription, "deepseek-official": KindMetered} {
+		access := findAccess(t, catalog, name)
+		if !reflect.DeepEqual(access.Agents, []string{"dsh"}) || access.Kind != kind {
+			t.Fatalf("%s access = %+v, want the dsh channel and kind %s", name, access, kind)
+		}
+		pro := findModel(t, catalog, name, "deepseek-v4-pro")
+		if pro.Context != 1048576 || pro.Cost != nil || !reflect.DeepEqual(pro.Efforts, []string{"off", "low", "high", "max"}) {
+			t.Fatalf("%s deepseek-v4-pro = %+v, want the 1M window, the DeepSeek levels and no price", name, pro)
+		}
+	}
+
 	// The built-in table is a source like any other: the aggregate fills
 	// only what it leaves unknown.
 	merged := emptyCatalog()

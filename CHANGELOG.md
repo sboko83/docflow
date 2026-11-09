@@ -10,7 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - dsh (DeepSeek Harness) agent support: `docflow run` drives units
   through `dsh headless` with the built-in `[agents.dsh]` block and the
-  `dsh` event stream parser.
+  `dsh` event stream parser. A dsh route passes its model and effort as
+  a `--patch` overlay of the dsh profile; the model is
+  `PROVIDER/MODEL` (`dsh | deepseek-account/deepseek-v4-pro | high`).
+- The roster reaches dsh: `agents = ["dsh"]` is accepted, and the
+  built-in catalog has the dsh providers `deepseek-account` (DeepSeek
+  subscription) and `deepseek-official` (API key) with `deepseek-flash`
+  and `deepseek-v4-pro`.
 - `docflow install-skills`, `doctor` and `init` accept `--agent dsh`
   (`.dsh/skills` in the project, `~/.dsh/skills` personally); `docflow
   install` and `update` link the skills for dsh when it is on PATH.

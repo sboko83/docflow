@@ -834,9 +834,16 @@ JSON), `usage` и `cost` (суммы по `step_finish`), `is_error`/`error`
 Профиль `dsh` (DeepSeek Harness, проверен на 0.2.2-rc.1): `dsh headless
 --json -`, промпт в stdin, продолжение — `--session-id <id>` в конце argv
 (dsh разбирает флаги и после `-`). Флагов модели и усилия у headless нет:
-модель задаёт профиль dsh (`agent-default-model` в
-`$DSH_HOME/profiles/headless/cordis.patch.yml`), модель и усилие маршрута
-плана аргументов не добавляют. Права: `auto` и `full` оба дают
+модель задаёт запись `agent-default-model` профиля dsh, и раннер передаёт
+маршрут оверлеем лаунчера — файл `dsh-model-<хеш>.yml` рядом со
+`schema.json` в логах прогона с `provider`, `model` и `reasoningEffort` и
+`--patch <файл>` сразу после `headless` (флаг лаунчера, после `--json` dsh
+его не принимает). Делает это декодер `stream = "dsh"`, не ключ профиля.
+Модель маршрута — `ПРОВАЙДЕР/МОДЕЛЬ` (`deepseek-account/deepseek-v4-pro`):
+патч заменяет `config` записи целиком и повторяет провайдера; голая модель
+— ошибка, усилие без модели — тоже, без модели патча нет и решает профиль.
+Усилия DeepSeek — `off`, `low`, `high`, `max`
+([P061](../archive/P061-dsh-roster-model.md)). Права: `auto` и `full` оба дают
 `--permission-mode danger-full-access --approval-policy never`. Песочница
 `workspace-write` раннеру не годится: на Windows она запрещает запись вне
 рабочего каталога (кэш `go-build` — `go test` падает), HTTPS и коммит из
@@ -859,9 +866,8 @@ completed` (код выхода раннер проверяет сам); оши�
 Квоты и стоимости в потоке нет
 ([P060](../archive/P060-dsh-agent.md)).
 
-dsh вне `docflow run`: в ростер он не входит (`roster.PolicyAgents` без
-`dsh`: модель задаёт профиль dsh, ячейке ростера нечего ей передать, тройка
-`dsh | deepseek-flash | -` пишется в плане вручную). Интерактивного запуска
+dsh вне `docflow run`: в ростере он канал доступов `deepseek-account` и
+`deepseek-official` ([roster.md](roster.md)). Интерактивного запуска
 у dsh нет: в 0.2.2-rc.1 установлены профили `desktop`, `headless` и `web`
 (окно и браузерный UI), терминального режима с начальным промптом нет,
 поэтому `agents.InteractiveArgv` отказывает (`has no interactive launch`),
