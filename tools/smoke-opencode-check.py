@@ -25,7 +25,9 @@ main asserts, for the two smoke units:
   stream's session via --session and the continuation stream carries the
   same sessionID — a fresh call, a new session or an extra attempt fails;
 - the Handoff of each unit in the final plan matches the result JSON of
-  its successful attempt (the header alone is not evidence).
+  its successful attempt (the header alone is not evidence);
+- every attempt reports input usage and cost; their totals agree with
+  `stats` and `stats --runs`, whose outcomes also match the run events.
 
 no-such-model asserts the isolated refusal scenario: one attempt against
 the nonexistent model, refused by the provider error event, exit 7, the
@@ -37,6 +39,7 @@ fixtures.
 """
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -77,7 +80,7 @@ def parse_stream(text):
     session = None
     message, parts, folded = None, [], ""
     out = {"is_error": False, "error_type": None, "error_message": None,
-           "texts": 0, "tool_uses": 0}
+           "texts": 0, "tool_uses": 0, "input_tokens": 0, "steps": 0, "cost": 0.0}
     for line in text.splitlines():
         line = line.strip()
         if not line:
@@ -98,6 +101,18 @@ def parse_stream(text):
             folded = "".join(parts)
         elif kind == "tool_use":
             out["tool_uses"] += 1
+        elif kind == "step_finish":
+            tokens = part.get("tokens") or {}
+            cache = tokens.get("cache") or {}
+            values = [tokens.get("input"), cache.get("read"), cache.get("write")]
+            if any(type(value) is not int or value < 0 for value in values):
+                err("step_finish tokens.input/cache.read/cache.write missing or invalid")
+            cost = part.get("cost")
+            if type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0:
+                err("step_finish cost missing or invalid")
+            out["input_tokens"] += sum(values)
+            out["cost"] += cost
+            out["steps"] += 1
         elif kind == "error":
             out["is_error"] = True
             detail = obj.get("error")
@@ -341,6 +356,33 @@ def check_main(evdir):
         write_summary(summary_path, summary_rows(known, rows))
 
 
+def check_stats(evdir, uid, streams, checked, records):
+    if any(not s["steps"] or s["input_tokens"] <= 0 for s in streams):
+        err("%s: successful stream carries no input usage" % uid)
+    lines = [line.split() for line in read(os.path.join(evdir, "stats.stdout")).splitlines()]
+    matches = [line for line in lines if line and line[0] == uid]
+    if len(matches) != 1 or len(matches[0]) != 9:
+        err("%s: missing or malformed stats row" % uid)
+    row = matches[0]
+    tokens = sum(s["input_tokens"] for s in streams)
+    if row[3] != str(tokens) or row[-1] != "tokens":
+        err("%s: stats input tokens %s (%s), want %d (tokens)" % (uid, row[3], row[-1], tokens))
+    report = json.loads(read(os.path.join(evdir, "stats-runs.json")))
+    matches = [r for r in report.get("units", []) if r.get("unit") == uid]
+    if len(matches) != 1:
+        err("%s: missing or duplicate stats --runs row" % uid)
+    row = matches[0]
+    failures = sum(e.get("exit_code", 0) != 0 for e in events_of(records, "verify", uid))
+    if row.get("done") is not True or row.get("attempts") != len(streams) or row.get("verify_fails") != failures:
+        err("%s: stats --runs outcome differs from run events" % uid)
+    if not math.isclose(checked["cost"], sum(s["cost"] for s in streams), rel_tol=1e-9, abs_tol=1e-9):
+        err("%s: unit_end cost differs from raw usage" % uid)
+    for key, expected in (("seconds", checked["seconds"]), ("cost", sum(s["cost"] for s in streams))):
+        value = row.get(key)
+        if type(value) not in (int, float) or not math.isclose(value, expected, rel_tol=1e-9, abs_tol=1e-9):
+            err("%s: stats --runs %s differs from captured evidence" % (uid, key))
+
+
 def check_main_evidence(evdir, known, rows):
     repo = os.path.join(evdir, "repo")
     if not os.path.isdir(repo):
@@ -408,6 +450,7 @@ def check_main_evidence(evdir, known, rows):
         if got != expected:
             err("%s plan Handoff %r does not match the result JSON of the "
                 "successful attempt %r" % (uid, got, expected))
+        check_stats(evdir, uid, streams, checked, records)
         rows[uid] = {"unit": uid, "status": "done", "attempts": len(attempts),
                      "seconds": checked["seconds"], "cost": "%.4f" % checked["cost"]}
     if cursor != len(calls):

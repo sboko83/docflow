@@ -16,6 +16,8 @@
 # attempt streams recorded by a transparent wrapper around the real CLI,
 # and a per-unit time/cost summary; a missing mandatory artifact fails
 # the smoke. tools/smoke-opencode-check.py verifies the evidence.
+# Also serves as the cheap-route canary: raw usage must match `stats`,
+# and `stats --runs` must match attempts, Verify failures, time and cost.
 # --dry-run checks the routes without agent calls and needs no opencode.
 # --binary PATH runs another docflow executable than bin/docflow.
 set -euo pipefail
@@ -78,6 +80,9 @@ write_wrapper() {
 # of every call in OPENCODE_CALLS. The prompt arrives on stdin and is
 # passed through untouched.
 set -o pipefail
+if [ "${1:-}" != run ]; then
+    exec "$OPENCODE_REAL" "$@"
+fi
 n_file="$OPENCODE_CALLS/.count"
 n=$(cat "$n_file" 2>/dev/null || echo 0)
 n=$((n + 1))
@@ -94,6 +99,14 @@ echo "$rc" > "$OPENCODE_CALLS/call-$n.exit"
 exit "$rc"
 WRAPPER
     chmod +x "$1/opencode"
+    # Native Windows LookPath ignores an extensionless shell wrapper. Use
+    # the same Git Bash front as the parity fixtures; prompts stay on stdin.
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*)
+            printf '@"%s" "%%~dp0opencode" %%*\r\n' \
+                "$(cygpath -m "$(command -v bash)")" >"$1/opencode.cmd"
+            ;;
+    esac
 }
 
 clean_path="$PATH"
@@ -244,6 +257,8 @@ if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
 fi
 cp "$1" "$evidence/run.events.jsonl"
 
+"$docflow" stats P001 >"$evidence/stats.stdout" || fail 'stats failed'
+"$docflow" stats --runs --json P001 >"$evidence/stats-runs.json" || fail 'stats --runs failed'
 python3 "$check" main "$evidence" || fail 'evidence checks failed'
 [ -f "$evidence/summary.tsv" ] \
     || fail 'the evidence checker wrote no summary.tsv (mandatory artifact)'

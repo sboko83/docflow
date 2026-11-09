@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `tools/pilot-summary.py` aggregates private pilot ZIPs across projects,
+  reports measurement coverage and preserves missing data as unknown.
+- The OpenCode smoke also checks `stats` tokens and `stats --runs` outcomes,
+  time and cost against raw agent output, serving as a cheap-route canary.
+
+### Fixed
+- The OpenCode smoke captures native Windows agent calls through Git Bash
+  instead of bypassing its evidence wrapper.
+
 ### Changed
 - `## Handoff from Depends` in the unit prompt is transitive: after the
   Handoff of the direct `Depends` units, in full, it adds the Handoff of

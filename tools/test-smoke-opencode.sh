@@ -199,6 +199,17 @@ case "$*" in
     'status')
         echo 'P001 ready to close'
         ;;
+    'stats P001')
+        tokens=300
+        [ "$TEST_SMOKE_OCODE_MODE" != stats-drift ] || tokens=0
+        printf 'unit proxy reqs sum_ctx base_ctx peak_ctx peak/proxy grow/proxy source\n'
+        printf 'P001.1.1 1 - %s - - - - tokens\nP001.1.2 1 - 150 - - - - tokens\n' "$tokens"
+        ;;
+    'stats --runs --json P001')
+        attempts=2
+        [ "$TEST_SMOKE_OCODE_MODE" != stats-runs-drift ] || attempts=1
+        printf '{"units":[{"unit":"P001.1.1","done":true,"attempts":%s,"verify_fails":1,"seconds":1.5,"cost":0},{"unit":"P001.1.2","done":true,"attempts":1,"verify_fails":0,"seconds":1.5,"cost":0}]}\n' "$attempts"
+        ;;
     'run --yes --no-wait --attempts '*)
         attempts=1
         prev=''
@@ -358,6 +369,37 @@ neg handoff-missing 'no Handoff items'
 neg handoff-mismatch 'does not match the result JSON'
 neg new-run 'does not resume'
 neg missing-artifacts 'wrote no events.jsonl'
+neg stats-drift 'stats input tokens'
+neg stats-runs-drift 'stats --runs outcome differs'
+
+# Pin live usage fields independently of the zero-cost subscription
+# fixture: a renamed field must fail instead of becoming a zero total.
+python3 -B - "$source_root/tools/smoke-opencode-check.py" <<'PY'
+import copy
+import importlib.util
+import json
+import sys
+
+spec = importlib.util.spec_from_file_location("checker", sys.argv[1])
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+event = {"type": "step_finish", "part": {"cost": 0.125,
+         "tokens": {"input": 10, "cache": {"read": 3, "write": 2}}}}
+parsed = checker.parse_stream(json.dumps(event))
+assert (parsed["input_tokens"], parsed["cost"], parsed["steps"]) == (15, 0.125, 1)
+for field in ("input", "read", "write", "cost"):
+    changed = copy.deepcopy(event)
+    parent = (changed["part"] if field == "cost" else changed["part"]["tokens"]
+              if field == "input" else changed["part"]["tokens"]["cache"])
+    parent[field + "_renamed"] = parent.pop(field)
+    try:
+        checker.parse_stream(json.dumps(changed))
+    except SystemExit as error:
+        assert str(error).startswith("smoke-opencode-check: step_finish")
+    else:
+        sys.exit("test-smoke-opencode: renamed usage field silently accepted: " + field)
+print("test-smoke-opencode: usage key drift rejected")
+PY
 
 # The checker's own mandatory-artifact branch and its failed-run summary:
 # a copy of the successful evidence loses one attempt artifact, the
@@ -410,4 +452,4 @@ grep -qF 'wrote no summary.tsv' "$work/out" || {
 }
 echo "test-smoke-opencode: no-summary: fails as expected (exit $scode)"
 
-echo 'test-smoke-opencode: ok (positive cycle with resume, route-sub, arg-model, handoff-missing, handoff-mismatch, new-run, missing-artifacts, lost-artifact, no-summary)'
+echo 'test-smoke-opencode: ok (cycle, resume, routes, handoff, stats, artifacts)'
