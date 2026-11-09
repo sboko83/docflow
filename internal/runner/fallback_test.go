@@ -37,7 +37,7 @@ func writeFakePi(t *testing.T, f *runFixture, fake string) {
 
 func piLimitStep(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "agentio", "testdata", "pi-limit-zai.jsonl"))
+	data, err := os.ReadFile(filepath.Join("..", "agentio", "testdata", "vendors", "pi", "1.4.0_2026-10-23_zai-limit-1310.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestRunFallbackOnLimit(t *testing.T) {
 
 func piContextLimitStep(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "agentio", "testdata", "pi-limit-zai.jsonl"))
+	data, err := os.ReadFile(filepath.Join("..", "agentio", "testdata", "vendors", "pi", "1.4.0_2026-10-23_zai-limit-1310.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}

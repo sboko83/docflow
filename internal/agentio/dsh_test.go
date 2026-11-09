@@ -20,7 +20,7 @@ func dshAgent() map[string]any {
 
 func TestDshFold(t *testing.T) {
 	agent := dshAgent()
-	out := fixture(t, "dsh")
+	out := fixture(t, snapDshResult)
 	data := table(AgentOutput(agent, out))
 	equal(t, data["session"], "session-2410985d-4bc0-40a2-ba1f-2e0eea71471f")
 	equal(t, data["is_error"], false)
@@ -39,7 +39,7 @@ func TestDshFold(t *testing.T) {
 
 func TestDshErrorWithoutFinal(t *testing.T) {
 	agent := dshAgent()
-	out := fixture(t, "dsh-error")
+	out := fixture(t, snapDshLaunchError)
 	data := table(AgentOutput(agent, out))
 	equal(t, data["is_error"], true)
 	equal(t, data["error"], "unknown option '--bogus-flag'")
@@ -56,7 +56,7 @@ func TestDshErrorWithoutFinal(t *testing.T) {
 
 func TestDshAuthFailure(t *testing.T) {
 	agent := dshAgent()
-	out := fixture(t, "dsh-auth")
+	out := fixture(t, snapDshAuth)
 	data := table(AgentOutput(agent, out))
 	equal(t, data["is_error"], true)
 	equal(t, data["error_code"], "AUTH")
@@ -111,7 +111,7 @@ func TestDshFinalReason(t *testing.T) {
 
 func TestDshTruncated(t *testing.T) {
 	agent := dshAgent()
-	out := fixture(t, "dsh-truncated")
+	out := fixture(t, snapDshTruncated)
 	long := false
 	for _, line := range strings.Split(out, "\n") {
 		if len(line) > 8192 && strings.Contains(line, `"truncated":true`) {
@@ -124,7 +124,7 @@ func TestDshTruncated(t *testing.T) {
 	data := table(AgentOutput(agent, out))
 	equal(t, data["is_error"], false)
 	equal(t, data["text"], "ok")
-	tools := activitiesOf(parseFixture(t, "dsh-truncated", NewActivityParser(agent)), ActivityKindTool)
+	tools := activitiesOf(parseFixture(t, snapDshTruncated, NewActivityParser(agent)), ActivityKindTool)
 	if len(tools) != 2 || tools[1].State != ActivityStateSucceeded || tools[1].Tool != "pwsh" || tools[1].Result == "" {
 		t.Fatalf("tools = %#v", tools)
 	}
@@ -147,21 +147,21 @@ func TestDshStreamActivity(t *testing.T) {
 	} {
 		equal(t, StreamEvent(agent, obj(v)), map[string]any(nil))
 	}
-	messages := AssistantMessages(agent, fixture(t, "dsh"))
+	messages := AssistantMessages(agent, fixture(t, snapDshResult))
 	if len(messages) != 1 || !strings.Contains(messages[0], "```json") {
 		t.Fatalf("messages = %#v", messages)
 	}
 }
 
 func TestDshReasoning(t *testing.T) {
-	blocks := Reasoning(dshAgent(), fixture(t, "dsh"))
+	blocks := Reasoning(dshAgent(), fixture(t, snapDshResult))
 	if len(blocks) != 1 || !strings.Contains(blocks[0], "no output = clean") {
 		t.Fatalf("blocks = %#v", blocks)
 	}
 }
 
 func TestActivityParserDsh(t *testing.T) {
-	activities := parseFixture(t, "dsh", NewActivityParser(dshAgent()))
+	activities := parseFixture(t, snapDshResult, NewActivityParser(dshAgent()))
 	tools := activitiesOf(activities, ActivityKindTool)
 	if len(tools) != 2 || tools[0].State != ActivityStateRunning || tools[1].State != ActivityStateSucceeded ||
 		tools[1].Command != "git status --short" || tools[1].Result != "(no output)" {
@@ -185,7 +185,7 @@ func TestActivityParserDsh(t *testing.T) {
 	if len(failed) != 1 || failed[0].State != ActivityStateFailed {
 		t.Fatalf("failed = %#v", failed)
 	}
-	errorEvent := parseFixture(t, "dsh-error", NewActivityParser(dshAgent()))
+	errorEvent := parseFixture(t, snapDshLaunchError, NewActivityParser(dshAgent()))
 	if len(errorEvent) != 1 || errorEvent[0].State != ActivityStateFailed || errorEvent[0].Text != "unknown option '--bogus-flag'" {
 		t.Fatalf("error = %#v", errorEvent)
 	}
@@ -207,7 +207,7 @@ func TestLivenessDsh(t *testing.T) {
 	live.Observe(`{"type":"status","phase":"step_end","turn":1,"step":1}`)
 	equal(t, live.State().Tools, 0)
 	full := NewLiveness("dsh")
-	for _, line := range strings.Split(fixture(t, "dsh"), "\n") {
+	for _, line := range strings.Split(fixture(t, snapDshResult), "\n") {
 		full.Observe(line)
 	}
 	equal(t, full.State().Turns, 2)
@@ -221,9 +221,9 @@ func TestCallAgentFakeDsh(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		code int
-	}{{"dsh", 0}, {"dsh-error", 1}} {
+	}{{snapDshResult, 0}, {snapDshLaunchError, 1}} {
 		t.Run(c.name, func(t *testing.T) {
-			path, err := filepath.Abs(filepath.Join("testdata", c.name+".jsonl"))
+			path, err := filepath.Abs(filepath.Join("testdata", c.name))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -588,7 +588,7 @@ legacy-режима.
 
 | Класс | Признаки и источник | Реакция |
 |---|---|---|
-| `limit` | Claude: `rate_limit_event` со `status: rejected` даёт `resetsAt`; текст `rate_limit_error` или HTTP 429 ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors), [событие Claude Code](https://github.com/anthropics/claude-code/issues/91857)). Codex: `rate_limit_reached_type` или окно `used_percent` ≥ 100 в rollout-файле ([парсер CodexLimits](../../internal/agentio/quota.go), [типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)); текст `usage limit`, `usage_limit_reached` или HTTP 429. Pi: коды z.ai 1308/1310 или другой HTTP 429 ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)); образец 1310 — [сохранённый ответ](../../internal/agentio/testdata/pi-limit-zai.jsonl). OpenCode: текст `429`, `rate limit`, `usage limit`, `quota`. | Ждать до сброса + 60 с, затем продолжить ту же сессию; без времени сброса использовать `limit_wait`. Для кода z.ai время без зоны трактуется как UTC+8. |
+| `limit` | Claude: `rate_limit_event` со `status: rejected` даёт `resetsAt`; текст `rate_limit_error` или HTTP 429 ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors), [событие Claude Code](https://github.com/anthropics/claude-code/issues/91857)). Codex: `rate_limit_reached_type` или окно `used_percent` ≥ 100 в rollout-файле ([парсер CodexLimits](../../internal/agentio/quota.go), [типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)); текст `usage limit`, `usage_limit_reached` или HTTP 429. Pi: коды z.ai 1308/1310 или другой HTTP 429 ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)); образец 1310 — [сохранённый ответ](../../internal/agentio/testdata/vendors/pi/1.4.0_2026-10-23_zai-limit-1310.jsonl). OpenCode: текст `429`, `rate limit`, `usage limit`, `quota`. | Ждать до сброса + 60 с, затем продолжить ту же сессию; без времени сброса использовать `limit_wait`. Для кода z.ai время без зоны трактуется как UTC+8. |
 | `throttle` | Pi: код z.ai 1302 (`Rate limit reached for requests`, [таблица ошибок z.ai](https://docs.z.ai/api-reference/api-code)). | Повторить через 30 с в той же сессии; четвёртый подряд throttle становится `outage`. |
 | `outage` | Claude: `overloaded_error`, HTTP 529/5xx или `api_error` ([ошибки Anthropic](https://docs.anthropic.com/en/api/errors)). Codex: `stream disconnected`, overloaded или 5xx ([типы ошибок Codex](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/error.rs)). Pi: код z.ai 1305 (временно перегружен), HTTP 5xx или `fetch failed`, `ECONNREFUSED`, `connection error`, `terminated` ([ошибки z.ai](https://docs.z.ai/api-reference/api-code), [формат JSON-событий Pi](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/json.md)). OpenCode: событие `error` с `error.type` = `provider.no-route` (маршрут непригоден: модель или вариант не существует, работает fallback) либо текст `5xx`, `overloaded`, `timeout`, `connection`, `ECONNREFUSED`. | Повторить через 10 мин в той же сессии. |
 
@@ -596,6 +596,21 @@ legacy-режима.
 классов. `--no-wait` или 10 отказов подряд останавливают раннер с кодом 7.
 Сигнатуры применяются только к ошибке, чтобы не принять обычный ответ,
 цитирующий файл про «rate limit», за отказ провайдера.
+
+Контракт с форматом вендоров держат снапшоты реального вывода в
+`internal/agentio/testdata/vendors/<вендор>/<версия CLI>_<дата>_<вид>`
+([каталог](../../internal/agentio/testdata/vendors/README.md)):
+`TestVendorContract` разбирает каждый, как раннер и `docflow stats`, и
+сверяет класс отказа, сброс, окна квоты, токены, стоимость и строку stats;
+переименование каждого ключевого поля снапшота обязано менять результат.
+При обновлении CLI вендора: снять живой вывод (`<git-dir>/docflow/run/*.out`,
+rollout `~/.codex/sessions`, транскрипт `~/.claude/projects`), оставить 1–3
+образца вида, обезличить (тексты → `redacted`, id → стабильные заглушки,
+без путей и email; ключи, числа и enum-значения как есть), положить новым
+файлом рядом со старым, добавить кейс в тест и строку в каталог, прогнать
+`bash tools/audit-public.sh`. Старый снапшот остаётся: декодер читает обе
+версии. Видам без живого образца (отказы Claude и Codex, stream-json
+Claude) пока служат синтетические события в тестах `agentio`.
 
 Нет авторизации: строка ответа с ошибкой совпала с `auth` (без учёта
 регистра; `claude` — «Failed to authenticate», «Not logged in», `codex` —
