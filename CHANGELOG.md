@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The `bsv-docflow-plan` skill is shorter (about 2.6k tokens instead of
+  3.1k) with the same rules, so planning sessions spend less context on it.
+
 ## [0.29.0] - 2026-11-09
 
 ### Added

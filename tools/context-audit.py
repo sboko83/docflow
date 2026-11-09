@@ -460,7 +460,10 @@ def fixture_repo(root):
     repo = os.path.join(tmp, "repo")
     os.makedirs(repo)
     copy_tracked(root, repo)
-    with open(os.path.join(repo, "docs", "plans", FIXTURE_ID + "-audit-fixture.md"),
+    # `docs/plans/` may hold no tracked file, so the copy may lack it.
+    plans = os.path.join(repo, "docs", "plans")
+    os.makedirs(plans, exist_ok=True)
+    with open(os.path.join(plans, FIXTURE_ID + "-audit-fixture.md"),
               "w", encoding="utf-8", newline="\n") as handle:
         handle.write(FIXTURE_PLAN)
     if git(repo, "init", "-q").returncode != 0:
