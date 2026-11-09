@@ -153,7 +153,7 @@ docflow init --agent codex
 Claude Code is the default; omit `--agent codex` for it, use `--agent pi`
 for Pi, `--agent opencode` for OpenCode —
 `docflow install-skills --agent opencode` links the skills into
-`~/.config/opencode/skills`. `docflow update` activates the latest release,
+`~/.config/opencode/skills`, `--agent dsh` for dsh (`~/.dsh/skills`). `docflow update` activates the latest release,
 `docflow uninstall` removes it. Details — Git Bash, versions, skills mode,
 rollback: [installation and updates](docs/usage.md#установка) (in Russian).
 

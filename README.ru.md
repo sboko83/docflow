@@ -149,7 +149,7 @@ docflow init --agent codex
 По умолчанию используется Claude Code; для него опустите --agent codex,
 для Pi используйте --agent pi, для OpenCode — --agent opencode:
 `docflow install-skills --agent opencode` ставит скиллы в
-`~/.config/opencode/skills`. `docflow update` активирует последний
+`~/.config/opencode/skills`, для dsh — `--agent dsh` (`~/.dsh/skills`). `docflow update` активирует последний
 релиз, `docflow uninstall` убирает установку. Подробно — Git Bash, версии,
 режим скиллов, откат: [установка и обновление](docs/usage.md#установка).
 

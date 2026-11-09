@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - dsh (DeepSeek Harness) agent support: `docflow run` drives units
   through `dsh headless` with the built-in `[agents.dsh]` block and the
   `dsh` event stream parser.
+- `docflow install-skills`, `doctor` and `init` accept `--agent dsh`
+  (`.dsh/skills` in the project, `~/.dsh/skills` personally); `docflow
+  install` and `update` link the skills for dsh when it is on PATH.
 
 ## [0.28.1] - 2026-11-08
 

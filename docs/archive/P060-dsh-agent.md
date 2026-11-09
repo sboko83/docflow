@@ -71,7 +71,10 @@ Harness, `dsh headless --json -`): блок `[agents.dsh]` в `DefaultAgents`,
 - Accepted: HTTPS и кэш go-build под `danger-full-access` (Unverified
   спайка) — закрыты реальным прогоном юнита с verify и gate и зелёным
   `TestDshRealUnitCommits`.
-- Waits: решение владельца о dsh вне `docflow run` — `roster.PolicyAgents`
-  (roster apply не ставит dsh в ячейки), `agents.InteractiveArgv`
-  (планирование в TUI через dsh — отказ `unknown agent`),
-  `install-skills`/`doctor --agent dsh` (каталог скиллов dsh неизвестен).
+- Accepted: dsh вне `docflow run`, решение владельца 2026-11-09 —
+  `roster.PolicyAgents` без `dsh` (модель задаёт профиль dsh, тройка
+  пишется в плане вручную); `agents.InteractiveArgv` отказывает (в dsh
+  0.2.2-rc.1 профили `desktop`, `headless`, `web`, терминального режима с
+  начальным промптом нет); `install-skills`/`doctor`/`init --agent dsh`
+  сделаны (`.dsh/skills`, `~/.dsh/skills`). Описано в
+  [runner.md](../design/runner.md) и [skills.md](../design/skills.md).

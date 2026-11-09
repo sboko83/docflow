@@ -94,11 +94,13 @@ func TestAgentSkillsDirs(t *testing.T) {
 		"claude": filepath.Join(home, ".claude", "skills"),
 		"codex":  filepath.Join(home, ".agents", "skills"),
 		"pi":     filepath.Join(home, ".pi", "agent", "skills"),
+		"dsh":    filepath.Join(home, ".dsh", "skills"),
 	}
 	wantProject := map[string]string{
 		"claude": filepath.Join("project", ".claude", "skills"),
 		"codex":  filepath.Join("project", ".agents", "skills"),
 		"pi":     filepath.Join("project", ".pi", "skills"),
+		"dsh":    filepath.Join("project", ".dsh", "skills"),
 	}
 	for agent := range wantPersonal {
 		personal, err := AgentSkillsDir(agent, "")
@@ -175,7 +177,7 @@ func TestInstallSkillsCreatesAndReusesPersonalSymlinks(t *testing.T) {
 	source := sourceSkills(t)
 	home := t.TempDir()
 	setHome(t, home)
-	for _, agent := range []string{"claude", "codex", "pi", "opencode"} {
+	for _, agent := range []string{"claude", "codex", "pi", "opencode", "dsh"} {
 		result, err := InstallSkills(source, t.TempDir(), InstallOptions{Agent: agent})
 		if err != nil || result.Code != 0 || result.Stderr != "" {
 			t.Fatalf("install %s = %#v, %v", agent, result, err)
@@ -305,7 +307,7 @@ func TestInstallSkillsTargetAndPreflightConflicts(t *testing.T) {
 func TestInstallProjectCopiesUpdatesAndUsesAgentLayouts(t *testing.T) {
 	source := sourceSkills(t)
 	root := makeProject(t)
-	for _, agent := range []string{"claude", "codex", "pi", "opencode"} {
+	for _, agent := range []string{"claude", "codex", "pi", "opencode", "dsh"} {
 		result, err := InstallSkills(source, root, InstallOptions{Agent: agent, Project: true})
 		if err != nil || result.Code != 0 || !strings.Contains(result.Stdout, ": copied ") {
 			t.Fatalf("project install %s = %#v, %v", agent, result, err)
@@ -448,7 +450,7 @@ func TestDoctorMatchingCopiesAndDefaultDirectories(t *testing.T) {
 		}
 	}
 
-	for _, agent := range []string{"codex", "pi", "opencode"} {
+	for _, agent := range []string{"codex", "pi", "opencode", "dsh"} {
 		personal, err := AgentSkillsDir(agent, "")
 		if err != nil {
 			t.Fatal(err)

@@ -22,7 +22,7 @@ install an unpacked release into ~/.docflow and link personal skills
 
 Run the docflow binary beside skills/ and LICENSE from a release archive.
 Configure PATH for zsh/bash and install personal skills for agent CLIs in
-PATH (claude, codex, pi, opencode), and for ~/.zcode when it exists.
+PATH (claude, codex, pi, opencode, dsh), and for ~/.zcode when it exists.
 --skills sets the skills mode: global links the personal skill directories,
 project keeps them clean and only project copies (docflow init --skills,
 docflow install-skills --project) carry the skills. Without the flag the
@@ -69,14 +69,14 @@ pointing into it. Development checkouts cannot be uninstalled this way.
 options:
   -h, --help  show this help message and exit
 `,
-	"init": `usage: docflow init [-h] [--agent {claude,codex,pi,opencode}] [--skills]
+	"init": `usage: docflow init [-h] [--agent {claude,codex,pi,opencode,dsh}] [--skills]
 
 create docs/docflow.md, plans/, archive/ and a line in AGENTS.md; --skills
 also copies the skills into the project
 
 options:
   -h, --help            show this help message and exit
-  --agent {claude,codex,pi,opencode}
+  --agent {claude,codex,pi,opencode,dsh}
                         skill directory set (default: claude)
   --skills              copy skills/* into the selected project directory
 `,
@@ -273,7 +273,7 @@ convert docs from previous format versions
 options:
   -h, --help  show this help message and exit
 `,
-	"install-skills": `usage: docflow install-skills [-h] [--agent {claude,codex,pi,opencode}]
+	"install-skills": `usage: docflow install-skills [-h] [--agent {claude,codex,pi,opencode,dsh}]
                               [--target DIR] [--project]
 
 symlink skills/* into the selected agent directory, or copy them into the
@@ -281,7 +281,7 @@ project with --project
 
 options:
   -h, --help            show this help message and exit
-  --agent {claude,codex,pi,opencode}
+  --agent {claude,codex,pi,opencode,dsh}
                         skill directory set (default: claude)
   --target DIR          personal skills directory override
   --project             copy skills/* into the project
@@ -399,13 +399,13 @@ options:
   --online        scan: enrich the catalog from models.dev
   --all           models: the whole catalog, not only the roster accesses
 `,
-	"doctor": `usage: docflow doctor [-h] [--agent {claude,codex,pi,opencode}] [--target DIR]
+	"doctor": `usage: docflow doctor [-h] [--agent {claude,codex,pi,opencode,dsh}] [--target DIR]
 
 check that the installed script and skills match this repo
 
 options:
   -h, --help            show this help message and exit
-  --agent {claude,codex,pi,opencode}
+  --agent {claude,codex,pi,opencode,dsh}
                         skill directory set (default: claude)
   --target DIR          personal skills directory override
 `,

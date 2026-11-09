@@ -181,7 +181,7 @@ func activateRelease(home, source, next string) error {
 // per agent CLI in PATH, plus the zcode directory when it exists.
 func releaseSkillOptions() ([]docskills.InstallOptions, error) {
 	var options []docskills.InstallOptions
-	for _, agent := range []string{"claude", "codex", "pi", "opencode"} {
+	for _, agent := range []string{"claude", "codex", "pi", "opencode", "dsh"} {
 		if _, err := exec.LookPath(agent); err == nil {
 			options = append(options, docskills.InstallOptions{Agent: agent})
 		}
@@ -333,7 +333,7 @@ func projectCopyHints(home string) string {
 	}
 	source := filepath.Join(home, "current", "skills")
 	var hints strings.Builder
-	for _, agent := range []string{"claude", "codex", "pi", "opencode"} {
+	for _, agent := range []string{"claude", "codex", "pi", "opencode", "dsh"} {
 		dir, err := docskills.AgentSkillsDir(agent, root)
 		if err != nil {
 			continue
@@ -515,7 +515,7 @@ func handleUninstall(_ *parsedArgs) error {
 		return err
 	}
 	var targets []string
-	for _, agent := range []string{"claude", "codex", "pi", "opencode"} {
+	for _, agent := range []string{"claude", "codex", "pi", "opencode", "dsh"} {
 		target, err := docskills.AgentSkillsDir(agent, "")
 		if err != nil {
 			return err

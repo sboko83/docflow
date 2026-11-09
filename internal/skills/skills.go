@@ -32,6 +32,7 @@ var AgentSkillDirs = map[string]string{
 	"codex":    filepath.Join(".agents", "skills"),
 	"pi":       filepath.Join(".pi", "skills"),
 	"opencode": filepath.Join(".opencode", "skills"),
+	"dsh":      filepath.Join(".dsh", "skills"),
 }
 
 // AgentUserSkillDirs contains personal skill directories that differ from
