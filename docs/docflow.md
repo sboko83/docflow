@@ -9,6 +9,12 @@ start_budget: 4000
 ## Frozen
 
 ## Backlog
+- `doctor`/`install-skills`/`init`: поддержать `--agent zcode`. Сейчас выбор
+  ограничен `claude,codex,pi,opencode,dsh`, хотя `skills` уже симлинкуются в
+  `~/.zcode/skills` при наличии `~/.zcode`; без флага `doctor` не видит
+  zcode-копии и печатает ложное «not installed». Нужны запись в
+  `AgentSkillDirs` (`.zcode/skills`) и значение в трёх местах выбора
+  (`main.go`, `help_text.go`), плюс тест на статус.
 - Проверить PTY-сценарии живости на Linux: время блока, квота used/left,
   сбросы, перенос на 30 колонках, спиннер и активный кап закрытия;
   убедиться, что квота не выходит за рамку, а обрезка спиннера сохраняет её
